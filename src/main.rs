@@ -30,6 +30,11 @@ struct Params {
     art_style: u32,
     art_style_secondary: u32,
     art_style_mix: f32,
+    bend_strength: f32,
+    warp_strength: f32,
+    warp_frequency: f32,
+    tile_scale: f32,
+    tile_phase: f32,
 }
 
 @group(0) @binding(0)
@@ -43,13 +48,47 @@ fn hash01(x: f32, y: f32, seed: u32) -> f32 {
     return fract(sin(dot(vec2<f32>(x, y), vec2<f32>(12.9898, 78.233)) + s) * 43758.5453123);
 }
 
+fn apply_domain_warp(px: f32, py: f32) -> vec2<f32> {
+    var p = vec2<f32>(px, py);
+    let seed = f32(params.seed) * 0.00000011920928955;
+    let bend = clamp(params.bend_strength, 0.0, 1.8);
+    let warp = clamp(params.warp_strength, 0.0, 1.8);
+    let freq = clamp(params.warp_frequency, 0.25, 6.0);
+
+    let radius = max(length(p), 0.0001);
+    let angle = atan2(p.y, p.x);
+
+    let radial = 1.0
+        + (bend * (0.16 + 0.05 * freq) * cos(radius * (2.8 + freq) + seed + angle * 0.75))
+        + (warp * (0.10 + 0.03 * freq) * sin(radius * 4.0 + angle + seed));
+    let angular = bend * (0.32 + 0.07 * freq) * sin(angle * (2.2 + freq) + seed * 2.0);
+    let warped_angle = angle + angular;
+    let warped_radius = radius * radial;
+
+    var wx = warped_radius * cos(warped_angle);
+    var wy = warped_radius * sin(warped_angle);
+    let wave = (sin((wx * (4.0 + 0.9 * freq)) + (seed * 7.0)) + 1.0) * 0.5;
+    let wave2 = (cos((wy * (3.8 + 0.6 * freq)) + (seed * 5.0)) + 1.0) * 0.5;
+    wx = wx + (wave - 0.5) * (0.5 * warp);
+    wy = wy + (wave2 - 0.5) * (0.5 * warp);
+
+    p = vec2<f32>(wx, wy);
+
+    let swirl = sin((wx + wy + seed * 13.0) * (1.8 + 0.6 * freq)) * (bend * 0.08);
+    return vec2<f32>(
+        p.x * cos(swirl) - p.y * sin(swirl),
+        p.x * sin(swirl) + p.y * cos(swirl),
+    );
+}
+
 fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
+    let repeats = clamp(f32(symmetry) * 0.75 * clamp(params.tile_scale, 0.25, 2.5), 1.2, 10.0);
     if (style == 1u) {
         return fold_symmetry_mirror(px, py, symmetry);
     }
 
     if (style == 2u) {
-        return fold_symmetry_grid(px, py, symmetry);
+        return fold_symmetry_grid(px, py, symmetry, repeats, params.tile_phase);
     }
 
     return fold_symmetry_radial(px, py, symmetry);
@@ -97,14 +136,28 @@ fn fold_symmetry_mirror(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     return vec2<f32>(sx * 1.0, sy * 1.0);
 }
 
-fn fold_symmetry_grid(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
-    let repeats = max(2.0, f32(symmetry) * 0.7);
-    let gx = fract((px * repeats) + 0.5) - 0.5;
-    let gy = fract((py * repeats * 1.15) + 0.5) - 0.5;
-    let mx = abs(gx) * 2.0 - 0.5;
-    let my = abs(gy) * 2.0 - 0.5;
-    let skew = sin(px * 8.0 + py * 4.0) * 0.15;
-    return vec2<f32>(mx * (2.0 / repeats) + (my * 0.08), (my * (2.0 / repeats)) + skew);
+fn fold_symmetry_grid(
+    px: f32,
+    py: f32,
+    symmetry: u32,
+    repeats: f32,
+    phase: f32,
+) -> vec2<f32> {
+    let skew = (phase * 6.283185307179586) + f32(symmetry) * 0.1;
+    let rot = sin(skew) * 0.4;
+    let c = cos(skew);
+    let s = sin(skew);
+    let rpx = px * c - py * s + (phase * 0.3);
+    let rpy = px * s + py * c;
+
+    let x_grid = fract((rpx * repeats) + (phase * 2.0) + sin(rpy * 2.0) * 0.25) - 0.5;
+    let y_scale = 1.0 + sin(phase * 4.0) * 0.25;
+    let y_grid = fract((rpy * repeats * y_scale) + (phase * 3.0) + cos(rpx * 3.0) * 0.2) - 0.5;
+
+    let sx = abs(x_grid) * 2.0 - 0.5;
+    let sy = abs(y_grid) * 2.0 - 0.5;
+    let pulse = 0.03 * sin((sx * 12.0) + (sy * 9.0) + skew);
+    return vec2<f32>(sx * (2.0 / repeats) + sy * 0.08 + rot * pulse, (sy * (2.0 / repeats)) + pulse * 1.8);
 }
 
 fn pack_gray(level: f32) -> u32 {
@@ -810,6 +863,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let zoom = max(0.2, params.fractal_zoom);
     px = px * params.fill_scale * zoom;
     py = py * params.fill_scale * zoom;
+    let warped = apply_domain_warp(px, py);
+    px = warped.x;
+    py = warped.y;
     var value = 0.0;
     let layer_count = 10u;
 
@@ -856,6 +912,11 @@ struct Params {
     art_style: u32,
     art_style_secondary: u32,
     art_style_mix: f32,
+    bend_strength: f32,
+    warp_strength: f32,
+    warp_frequency: f32,
+    tile_scale: f32,
+    tile_phase: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -1265,6 +1326,26 @@ fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
     (base * jitter).clamp(0.20, 0.95)
 }
 
+fn pick_bend_strength(rng: &mut XorShift32) -> f32 {
+    (rng.next_f32().powf(1.7)) * 1.5
+}
+
+fn pick_warp_strength(rng: &mut XorShift32) -> f32 {
+    (rng.next_f32().powf(1.2)) * 1.5
+}
+
+fn pick_warp_frequency(rng: &mut XorShift32) -> f32 {
+    0.6 + (rng.next_f32() * 5.2)
+}
+
+fn pick_tile_scale(rng: &mut XorShift32) -> f32 {
+    0.35 + (rng.next_f32() * 2.8)
+}
+
+fn pick_tile_phase(rng: &mut XorShift32) -> f32 {
+    rng.next_f32()
+}
+
 fn pick_art_style(rng: &mut XorShift32) -> ArtStyle {
     ArtStyle::from_u32(rng.next_u32())
 }
@@ -1345,6 +1426,31 @@ fn modulate_fill_scale(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
     let spread = if fast { 0.08 } else { 0.20 };
     let factor = (1.0 - spread) + (rng.next_f32() * (2.0 * spread));
     (base * factor).clamp(0.85, 1.7)
+}
+
+fn modulate_bend_strength(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.30 } else { 0.65 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.0, 1.9)
+}
+
+fn modulate_warp_strength(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.30 } else { 0.65 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.0, 1.9)
+}
+
+fn modulate_warp_frequency(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.15 } else { 0.35 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.2, 6.2)
+}
+
+fn modulate_tile_scale(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.18 } else { 0.33 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.22, 3.05)
+}
+
+fn modulate_tile_phase(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.30 } else { 0.62 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).rem_euclid(1.0)
 }
 
 fn modulate_zoom(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
@@ -2110,6 +2216,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         art_style: ArtStyle::Hybrid.as_u32(),
         art_style_secondary: ArtStyle::Field.as_u32(),
         art_style_mix: 0.0,
+        bend_strength: 0.0,
+        warp_strength: 0.0,
+        warp_frequency: 1.0,
+        tile_scale: 1.0,
+        tile_phase: 0.0,
     };
 
     let output_size =
@@ -2246,6 +2357,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
         let base_symmetry_style = pick_symmetry_style(&mut image_rng);
         let base_zoom = randomize_zoom(config.fractal_zoom, &mut image_rng);
+        let base_bend_strength = pick_bend_strength(&mut image_rng);
+        let base_warp_strength = pick_warp_strength(&mut image_rng);
+        let base_warp_frequency = pick_warp_frequency(&mut image_rng);
+        let base_tile_scale = pick_tile_scale(&mut image_rng);
+        let base_tile_phase = pick_tile_phase(&mut image_rng);
         let layer_count = pick_layer_count(&mut image_rng, config.layers, config.fast);
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
@@ -2279,6 +2395,23 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 seed: layer_seed,
                 fill_scale: modulate_fill_scale(base_fill_scale, &mut image_rng, config.fast),
                 fractal_zoom: modulate_zoom(base_zoom, &mut image_rng, config.fast),
+                bend_strength: modulate_bend_strength(
+                    base_bend_strength,
+                    &mut image_rng,
+                    config.fast,
+                ),
+                warp_strength: modulate_warp_strength(
+                    base_warp_strength,
+                    &mut image_rng,
+                    config.fast,
+                ),
+                warp_frequency: modulate_warp_frequency(
+                    base_warp_frequency,
+                    &mut image_rng,
+                    config.fast,
+                ),
+                tile_scale: modulate_tile_scale(base_tile_scale, &mut image_rng, config.fast),
+                tile_phase: modulate_tile_phase(base_tile_phase, &mut image_rng, config.fast),
                 art_style: modulate_art_style(base_art_style, &mut image_rng, config.fast).as_u32(),
                 art_style_secondary: modulate_art_style(
                     base_art_style_secondary,
