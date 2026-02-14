@@ -174,6 +174,7 @@ struct Config {
     symmetry: u32,
     iterations: u32,
     seed: u32,
+    count: u32,
     output: String,
 }
 
@@ -206,6 +207,7 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
+            count: 1,
             output: "fractal.png".to_string(),
         };
 
@@ -247,6 +249,12 @@ impl Config {
                         .ok_or("missing seed value, pass --seed <u32>")?;
                     cfg.seed = value.parse()?;
                 }
+                "--count" | "-n" => {
+                    let value = args
+                        .next()
+                        .ok_or("missing count value, pass --count <u32>")?;
+                    cfg.count = value.parse()?;
+                }
                 "--output" | "-o" => {
                     cfg.output = args
                         .next()
@@ -265,6 +273,9 @@ impl Config {
         }
         if cfg.iterations == 0 {
             return Err("iterations must be at least 1".into());
+        }
+        if cfg.count == 0 {
+            return Err("count must be at least 1".into());
         }
 
         Ok(cfg)
@@ -575,7 +586,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await?;
 
     let shader_module = device.create_shader_module(shader);
-    let params = Params {
+    let mut params = Params {
         width: config.width,
         height: config.height,
         symmetry: config.symmetry,
@@ -659,58 +670,63 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("command encoder"),
-    });
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("compute pass"),
-            timestamp_writes: None,
+    for i in 0..config.count {
+        params.seed = config.seed.wrapping_add(i);
+        queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&params));
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("command encoder"),
         });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        let work_x = (config.width + 15) / 16;
-        let work_y = (config.height + 15) / 16;
-        pass.dispatch_workgroups(work_x, work_y, 1);
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("compute pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            let work_x = (config.width + 15) / 16;
+            let work_y = (config.height + 15) / 16;
+            pass.dispatch_workgroups(work_x, work_y, 1);
+        }
+        encoder.copy_buffer_to_buffer(&out_buffer, 0, &staging_buffer, 0, output_size);
+        queue.submit(Some(encoder.finish()));
+
+        let slice = staging_buffer.slice(..);
+        let (sender, receiver) = channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            sender.send(result).expect("map callback dropped");
+        });
+        device.poll(wgpu::Maintain::Wait);
+        match receiver.recv()? {
+            Ok(()) => {}
+            Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
+        }
+
+        let filter = pick_filter(params.seed);
+        let frame_bytes = {
+            let raw = slice.get_mapped_range();
+            let data = raw.to_vec();
+            drop(raw);
+            data
+        };
+        staging_buffer.unmap();
+
+        let gray = decode_luma(&frame_bytes);
+        let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
+        let final_pixels = encode_rgba_gray(&filtered);
+        let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_raw(config.width, config.height, final_pixels)
+                .ok_or("could not create image buffer from GPU output")?;
+        let final_output = resolve_output_path(&config.output);
+        image.save(&final_output)?;
+
+        println!(
+            "Generated {} | seed {} | filter {} | radius {}",
+            final_output.display(),
+            params.seed,
+            filter.mode.label(),
+            filter.max_radius
+        );
     }
-    encoder.copy_buffer_to_buffer(&out_buffer, 0, &staging_buffer, 0, output_size);
-    queue.submit(Some(encoder.finish()));
-
-    let slice = staging_buffer.slice(..);
-    let (sender, receiver) = channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        sender.send(result).expect("map callback dropped");
-    });
-    device.poll(wgpu::Maintain::Wait);
-    match receiver.recv()? {
-        Ok(()) => {}
-        Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
-    }
-
-    let filter = pick_filter(config.seed);
-    let frame_bytes = {
-        let raw = slice.get_mapped_range();
-        let data = raw.to_vec();
-        drop(raw);
-        data
-    };
-    staging_buffer.unmap();
-
-    let gray = decode_luma(&frame_bytes);
-    let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
-    let final_pixels = encode_rgba_gray(&filtered);
-    let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-        ImageBuffer::from_raw(config.width, config.height, final_pixels)
-            .ok_or("could not create image buffer from GPU output")?;
-    let final_output = resolve_output_path(&config.output);
-    image.save(&final_output)?;
-
-    println!(
-        "Generated {} | seed {} | filter {} | radius {}",
-        final_output.display(),
-        config.seed,
-        filter.mode.label(),
-        filter.max_radius
-    );
     Ok(())
 }
