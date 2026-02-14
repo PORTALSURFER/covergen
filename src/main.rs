@@ -1508,8 +1508,12 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    if rng.next_f32() < 0.14 {
+    if rng.next_f32() < 0.18 {
         return 1;
+    }
+
+    if rng.next_f32() < 0.72 {
+        return 1 + (rng.next_u32() % 16);
     }
 
     if base <= 1 {
@@ -1528,19 +1532,19 @@ fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
-    let low = (base as f32 * 0.45).floor().max(120.0) as u32;
-    let high = (base as f32 * 2.8).ceil().max(260.0) as u32;
+    let low = (base as f32 * 0.28).floor().max(96.0) as u32;
+    let high = (base as f32 * 3.2).ceil().max(300.0) as u32;
     low + (rng.next_u32() % (high - low + 1))
 }
 
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.8 + (rng.next_f32() * 0.5);
-    (base * jitter).clamp(0.95, 1.75)
+    let jitter = 0.52 + (rng.next_f32() * 1.08);
+    (base * jitter).clamp(0.55, 2.2)
 }
 
 fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.2 + (rng.next_f32() * 0.75);
-    (base * jitter).clamp(0.20, 0.95)
+    let jitter = 0.12 + (rng.next_f32() * 0.92);
+    (base * jitter).clamp(0.18, 0.98)
 }
 
 fn randomize_center_offset(rng: &mut XorShift32, fast: bool) -> (f32, f32) {
@@ -1549,14 +1553,14 @@ fn randomize_center_offset(rng: &mut XorShift32, fast: bool) -> (f32, f32) {
         return (0.0, 0.0);
     }
 
-    let max_shift = if fast { 0.18 } else { 0.32 };
+    let max_shift = if fast { 0.24 } else { 0.44 };
     let radius = max_shift * rng.next_f32().sqrt();
     let angle = rng.next_f32() * 6.283185307179586;
     (radius * angle.cos(), radius * angle.sin())
 }
 
 fn modulate_center_offset(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
-    let jitter = (rng.next_f32() * 2.0 - 1.0) * if fast { 0.07 } else { 0.12 };
+    let jitter = (rng.next_f32() * 2.0 - 1.0) * if fast { 0.12 } else { 0.20 };
     (base + jitter).clamp(-0.5, 0.5)
 }
 
@@ -1588,25 +1592,25 @@ fn modulate_art_style(base: ArtStyle, rng: &mut XorShift32, fast: bool) -> ArtSt
     let roll = rng.next_f32();
     let stride = 1 + (rng.next_u32() % (ArtStyle::total() - 1));
     if fast {
-        if roll < 0.35 {
+        if roll < 0.22 {
             return base;
         }
-        if roll < 0.45 {
+        if roll < 0.44 {
             return ArtStyle::from_u32(base.as_u32() + stride);
         }
-        if roll < 0.55 {
+        if roll < 0.58 {
             return ArtStyle::from_u32(base.as_u32() + ArtStyle::total() - 1);
         }
         return pick_art_style(rng);
     }
 
-    if roll < 0.33 {
+    if roll < 0.20 {
         return base;
     }
     if roll < 0.50 {
         return ArtStyle::from_u32(base.as_u32() + stride);
     }
-    if roll < 0.67 {
+    if roll < 0.74 {
         return ArtStyle::from_u32(base.as_u32() + ArtStyle::total() - 1);
     }
     pick_art_style(rng)
@@ -1633,9 +1637,9 @@ fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -
     }
 
     if fast {
-        2 + (rng.next_u32() % 3)
-    } else {
         2 + (rng.next_u32() % 5)
+    } else {
+        2 + (rng.next_u32() % 7)
     }
 }
 
@@ -1659,7 +1663,7 @@ fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
 }
 
 fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
-    let keep_base = if fast { 0.48 } else { 0.52 };
+    let keep_base = if fast { 0.30 } else { 0.35 };
     let roll = rng.next_f32();
     if roll < keep_base {
         return SymmetryStyle::from_u32(base).as_u32();
@@ -1759,7 +1763,7 @@ fn should_apply_dynamic_filter(
     structural_profile: bool,
     strategy_bias: f32,
 ) -> bool {
-    let base: f32 = if fast { 0.34 } else { 0.24 };
+    let base: f32 = if fast { 0.26 } else { 0.20 };
     let layer_bias: f32 = if layer_index == 0 { -0.20 } else { 0.12 };
     let strategy_bias = strategy_bias.clamp(0.0, 1.5);
     let threshold = ((base + layer_bias) * strategy_bias).clamp(0.02, 0.95);
@@ -1778,7 +1782,7 @@ fn should_apply_gradient_map(
     structural_profile: bool,
     strategy_bias: f32,
 ) -> bool {
-    let base: f32 = if fast { 0.42 } else { 0.30 };
+    let base: f32 = if fast { 0.34 } else { 0.26 };
     let layer_bias: f32 = if layer_index == 0 { -0.25 } else { 0.00 };
     let strategy_bias = strategy_bias.clamp(0.0, 1.5);
     let threshold = ((base + layer_bias) * strategy_bias).clamp(0.05, 0.95);
@@ -2288,9 +2292,32 @@ fn apply_detail_waves(src: &mut [f32], width: u32, height: u32, seed: u32, stren
     }
 }
 
-fn needs_complexity_fix(stats: LumaStats) -> bool {
+fn local_edge_energy(src: &[f32], width: u32, height: u32) -> f32 {
+    if src.is_empty() || width == 0 || height == 0 {
+        return 0.0;
+    }
+
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let mut accumulation = 0.0;
+    let mut samples = 0u64;
+
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let value = sample_luma(src, width_i32, height_i32, x, y);
+            let right = sample_luma(src, width_i32, height_i32, x + 1, y);
+            let down = sample_luma(src, width_i32, height_i32, x, y + 1);
+            accumulation += (right - value).abs() + (down - value).abs();
+            samples += 2;
+        }
+    }
+
+    (accumulation / (samples as f32)).clamp(0.0, 1.0)
+}
+
+fn needs_complexity_fix(stats: LumaStats, edge_energy: f32) -> bool {
     let span = stats.max - stats.min;
-    stats.std < 0.12 || span < 0.26
+    stats.std < 0.14 || span < 0.30 || edge_energy < 0.07
 }
 
 fn resolve_output_path(output: &str) -> PathBuf {
@@ -2823,7 +2850,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             };
             apply_contrast(&mut filtered, layer_contrast.max(1.0));
             let layer_stats = luma_stats(&filtered);
-            if needs_complexity_fix(layer_stats) {
+            let layer_edge_energy = local_edge_energy(&filtered, config.width, config.height);
+            if needs_complexity_fix(layer_stats, layer_edge_energy) {
                 complexity_fixed = true;
                 apply_detail_waves(
                     &mut filtered,
@@ -2888,7 +2916,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
         let mut final_stats = luma_stats(&layered);
         let mut final_complexity_fixed = false;
-        if needs_complexity_fix(final_stats) {
+        let final_edge_energy = local_edge_energy(&layered, config.width, config.height);
+        if needs_complexity_fix(final_stats, final_edge_energy) {
             final_complexity_fixed = true;
             apply_detail_waves(
                 &mut layered,

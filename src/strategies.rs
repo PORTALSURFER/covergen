@@ -92,12 +92,18 @@ pub enum CpuStrategy {
     KochSnowflake,
     /// Branching transport process that recursively splits path segments.
     BifurcationTree,
+    /// Multi-scale elevation-like relief with ridge-derived structure.
+    DepthRelief,
+    /// Chaotic attractor trajectory projected through a 3D tunnel warp.
+    AttractorTunnel,
+    /// Nested orbital rings with branching filament paths.
+    OrbitalLabyrinth,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        41
+        44
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -143,7 +149,10 @@ impl CpuStrategy {
             37 => Self::CliffordAttractor,
             38 => Self::JuliaSet,
             39 => Self::KochSnowflake,
-            _ => Self::BifurcationTree,
+            40 => Self::BifurcationTree,
+            41 => Self::DepthRelief,
+            42 => Self::AttractorTunnel,
+            _ => Self::OrbitalLabyrinth,
         }
     }
 
@@ -191,6 +200,9 @@ impl CpuStrategy {
             Self::JuliaSet => "julia-set",
             Self::KochSnowflake => "koch-snowflake",
             Self::BifurcationTree => "bifurcation-tree",
+            Self::DepthRelief => "depth-relief",
+            Self::AttractorTunnel => "attractor-tunnel",
+            Self::OrbitalLabyrinth => "orbital-labyrinth",
         }
     }
 }
@@ -228,7 +240,7 @@ pub struct StrategyProfile {
 /// Returns a render strategy for the next layer.
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
     let strategy_roll = rng.next_f32();
-    let gpu_chance = if fast { 0.50 } else { 0.48 };
+    let gpu_chance = if fast { 0.33 } else { 0.35 };
 
     if strategy_roll < gpu_chance {
         return RenderStrategy::Gpu(crate::ArtStyle::from_u32(rng.next_u32()).as_u32());
@@ -307,6 +319,9 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
             | CpuStrategy::CliffordAttractor
             | CpuStrategy::KochSnowflake
             | CpuStrategy::BifurcationTree
+            | CpuStrategy::DepthRelief
+            | CpuStrategy::AttractorTunnel
+            | CpuStrategy::OrbitalLabyrinth
             | CpuStrategy::JuliaSet => StrategyProfile {
                 filter_bias: 0.13,
                 gradient_bias: 0.12,
@@ -377,6 +392,9 @@ pub fn render_cpu_strategy(
         CpuStrategy::JuliaSet => render_julia_set(width, height, &mut rng),
         CpuStrategy::KochSnowflake => render_koch_snowflake(width, height, &mut rng),
         CpuStrategy::BifurcationTree => render_bifurcation_tree(width, height, &mut rng),
+        CpuStrategy::DepthRelief => render_depth_relief(width, height, &mut rng),
+        CpuStrategy::AttractorTunnel => render_attractor_tunnel(width, height, &mut rng),
+        CpuStrategy::OrbitalLabyrinth => render_orbital_labyrinth(width, height, &mut rng),
     }
 }
 
@@ -3673,6 +3691,301 @@ fn render_bifurcation_tree(width: u32, height: u32, rng: &mut XorShift32) -> Vec
     resized
 }
 
+fn render_depth_relief(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(192);
+    let sim_h = (height / 2).max(192);
+    let size = (sim_w * sim_h) as usize;
+    let mut field = noise_field(sim_w, sim_h, rng, 4);
+    let mut next = vec![0.0f32; size];
+    let mut seed = XorShift32::new(rng.next_u32());
+    let passes = 4 + (seed.next_u32() % 4) as usize;
+    let layer_count = 2 + (seed.next_u32() % 3) as usize;
+    let mut stage = 0usize;
+
+    while stage < layer_count {
+        let mut pass = 0usize;
+        while pass < passes {
+            for y in 0..sim_h as i32 {
+                for x in 0..sim_w as i32 {
+                    let idx = (y as usize * sim_w as usize) + x as usize;
+                    if x == 0 || y == 0 || x + 1 >= sim_w as i32 || y + 1 >= sim_h as i32 {
+                        next[idx] = field[idx];
+                        continue;
+                    }
+
+                    let i = idx;
+                    let left = field[i - 1];
+                    let right = field[i + 1];
+                    let up = field[i - sim_w as usize];
+                    let down = field[i + sim_w as usize];
+                    let center = field[i];
+                    let laplacian = (left + right + up + down) * 0.25 - center;
+                    let warp = value_noise(
+                        x as f32 * (0.002 + stage as f32 * 0.0008) + y as f32 * 0.0001,
+                        y as f32 * (0.002 + pass as f32 * 0.0006) + 13.0,
+                        seed.next_u32() + (pass as u32 * 3),
+                    );
+                    let ridge = warp * 0.16;
+                    let blend = if stage == 0 { 0.82 } else { 0.63 };
+                    let value = center + laplacian * blend + (ridge - 0.5) * 0.12;
+                    next[idx] = clamp01(value.clamp(0.0, 1.0));
+                }
+            }
+            std::mem::swap(&mut field, &mut next);
+            pass += 1;
+        }
+        stage += 1;
+    }
+
+    let mut out = vec![0.0f32; size];
+    for y in 1..(sim_h as i32 - 1) {
+        for x in 1..(sim_w as i32 - 1) {
+            let idx = (y as usize * sim_w as usize) + x as usize;
+            let left = field[idx - 1];
+            let right = field[idx + 1];
+            let up = field[idx - sim_w as usize];
+            let down = field[idx + sim_w as usize];
+            let gradient = ((right - left).abs() + (down - up).abs()) * 0.5;
+            let ridge = (field[idx] - (left + right + up + down) * 0.25).abs();
+            let mut value = field[idx] * 0.72 + (1.0 - gradient * 1.6).clamp(0.0, 1.0) * 0.22;
+            value = value + ridge * 0.35;
+            out[idx] = clamp01(value);
+        }
+    }
+
+    let mut i = 0usize;
+    while i < size {
+        if out[i] == 0.0 {
+            out[i] = field[i];
+        }
+        out[i] = clamp01(out[i]);
+        i += 1;
+    }
+
+    normalize(&mut out);
+    for value in out.iter_mut() {
+        let tone = 0.75 + 0.18 * value_noise(*value * 8.0, 0.21, seed.next_u32());
+        *value = clamp01(value.powf(0.9) * tone);
+    }
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(*value * 1.05 + 0.02);
+    }
+    normalize(&mut resized);
+    resized
+}
+
+fn render_attractor_tunnel(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(192);
+    let sim_h = (height / 2).max(192);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let points = 220_000 + (sim_w * sim_h);
+    let warmup = 420u32;
+    let seed = rng.next_u32();
+    let a = 1.3 + rng.next_f32() * 2.0;
+    let b = 1.9 + rng.next_f32() * 1.8;
+    let c = 1.1 + rng.next_f32() * 2.1;
+    let d = 0.7 + rng.next_f32() * 1.6;
+    let e = 0.4 + rng.next_f32() * 1.2;
+    let mut x = rng.next_f32() * 2.0 - 1.0;
+    let mut y = rng.next_f32() * 2.0 - 1.0;
+    let mut z = rng.next_f32() * 2.0 - 1.0;
+    let mut prev_set = false;
+    let mut prev_x = 0.0f32;
+    let mut prev_y = 0.0f32;
+    let mut i = 0u32;
+
+    while i < points + warmup {
+        let n1 = value_noise(x * 0.7 + i as f32 * 0.000_4, y * 0.7, seed ^ i) - 0.5;
+        let n2 = value_noise(
+            y * 0.5 + z * 0.4,
+            z * 0.8 + i as f32 * 0.000_3,
+            seed ^ (i + 17),
+        ) - 0.5;
+        let tunnel = (n1 + n2) * 0.5;
+        let _blend = (i as f32 / points.max(1) as f32) * TAU;
+        let nx = (a * (y + tunnel)).sin() - (d * x * z).cos() + tunnel * 0.2;
+        let ny = (b * (z + tunnel)).cos() + (c * x).sin() + tunnel * 0.18;
+        let nz = (d * (x - y)).sin() - (e * z * tunnel).cos();
+        x = (nx * 0.97).tanh();
+        y = (ny * 0.97).tanh();
+        z = (nz * 0.97).tanh();
+
+        if i >= warmup {
+            let px = ((x * 0.53 + 0.5) * (sim_w as f32 - 1.0)).clamp(0.0, sim_w as f32 - 1.0);
+            let py = (((y + 0.35 * z) * 0.53 + 0.5) * (sim_h as f32 - 1.0))
+                .clamp(0.0, sim_h as f32 - 1.0);
+            let strength = 0.38 + (0.62 * (1.0 - z.abs())) * (0.75 + tunnel.abs());
+            if prev_set {
+                draw_line(
+                    prev_x.round() as i32,
+                    prev_y.round() as i32,
+                    px.round() as i32,
+                    py.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    strength,
+                    &mut density,
+                );
+                if i % 4 == 0 {
+                    draw_point(
+                        px.round() as i32,
+                        py.round() as i32,
+                        sim_w as usize,
+                        sim_h as usize,
+                        1,
+                        strength * 0.8,
+                        &mut density,
+                    );
+                }
+            }
+            prev_x = px;
+            prev_y = py;
+            prev_set = true;
+        }
+
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            x = (value_noise(i as f32, z, seed) - 0.5) * 1.4;
+            y = (value_noise(x, i as f32, seed ^ 0x1234) - 0.5) * 1.4;
+            z = (value_noise(y, x, seed ^ 0x5678) - 0.5) * 1.4;
+        }
+
+        i += 1;
+    }
+
+    for value in density.iter_mut() {
+        *value = (*value * 0.92 + value.powf(1.02) * 0.16).clamp(0.0, 1.0);
+    }
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.88));
+    }
+    normalize(&mut out);
+    out
+}
+
+#[derive(Clone, Copy)]
+struct OrbitalLabyrinthArc {
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    phase: f32,
+    spins: f32,
+    depth: u32,
+}
+
+fn render_orbital_labyrinth(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(192);
+    let sim_h = (height / 2).max(192);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut arcs = Vec::with_capacity(64);
+    let root_count = 3 + (rng.next_u32() % 5);
+    let mut root = 0u32;
+    let field_seed = rng.next_u32();
+
+    while root < root_count {
+        let cx = sim_w as f32 * (0.2 + rng.next_f32() * 0.6);
+        let cy = sim_h as f32 * (0.2 + rng.next_f32() * 0.6);
+        let radius = (sim_w.min(sim_h) as f32) * (0.16 + rng.next_f32() * 0.18);
+        arcs.push(OrbitalLabyrinthArc {
+            cx,
+            cy,
+            radius,
+            phase: rng.next_f32() * TAU,
+            spins: 1.0 + rng.next_f32() * 0.9,
+            depth: 4 + (rng.next_u32() % 3),
+        });
+        root += 1;
+    }
+
+    while let Some(arc) = arcs.pop() {
+        if arc.radius < 2.5 || arc.depth == 0 {
+            continue;
+        }
+
+        let segments = 24 + (rng.next_u32() % 32) as i32;
+        let mut prev_x = arc.cx + arc.radius * arc.phase.cos();
+        let mut prev_y = arc.cy + arc.radius * arc.phase.sin();
+        for step in 0..=segments {
+            let t = (step as f32) / (segments as f32 + 1e-6);
+            let angle = arc.phase
+                + t * TAU * arc.spins
+                + (value_noise(t * 5.0, field_seed as f32, rng.next_u32()) - 0.5) * 0.65;
+            let wave = value_noise(
+                arc.cx * 0.001 + t * 4.2,
+                arc.cy * 0.001 + t * 3.3,
+                field_seed ^ step as u32,
+            );
+            let radius = arc.radius * (0.65 + (wave - 0.5) * 0.18 + t * 0.08);
+            let x = (arc.cx + radius * angle.cos()).clamp(0.0, sim_w as f32 - 1.0);
+            let y = (arc.cy + radius * angle.sin() * (1.0 + 0.35 * wave))
+                .clamp(0.0, sim_h as f32 - 1.0);
+            let depth = arc.depth as f32 / 8.0;
+            let strength = 0.38 + 0.2 * wave + (0.16 * depth);
+            draw_line(
+                prev_x.round() as i32,
+                prev_y.round() as i32,
+                x.round() as i32,
+                y.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                strength,
+                &mut out,
+            );
+            if step % 4 == 0 {
+                draw_point(
+                    x.round() as i32,
+                    y.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength * 0.76,
+                    &mut out,
+                );
+            }
+            if step == segments / 2 && arc.depth > 1 && rng.next_f32() < 0.74 {
+                arcs.push(OrbitalLabyrinthArc {
+                    cx: x,
+                    cy: y,
+                    radius: arc.radius * (0.48 + rng.next_f32() * 0.18),
+                    phase: angle + (rng.next_f32() * 1.1 - 0.55),
+                    spins: arc.spins * (1.1 + rng.next_f32() * 0.8),
+                    depth: arc.depth - 1,
+                });
+            } else if step == segments / 3 && arc.depth > 1 && rng.next_f32() < 0.55 {
+                arcs.push(OrbitalLabyrinthArc {
+                    cx: x,
+                    cy: y,
+                    radius: arc.radius * (0.54 + rng.next_f32() * 0.22),
+                    phase: angle + TAU * 0.5 + (rng.next_f32() * 0.7 - 0.35),
+                    spins: arc.spins * (0.7 + rng.next_f32() * 0.6),
+                    depth: arc.depth - 1,
+                });
+            }
+            prev_x = x;
+            prev_y = y;
+        }
+    }
+
+    normalize(&mut out);
+    let grain = noise_field(sim_w, sim_h, rng, 2);
+    let mut i = 0usize;
+    while i < out.len() {
+        out[i] = clamp01(out[i] * 0.88 + grain[i] * 0.12);
+        i += 1;
+    }
+    normalize(&mut out);
+    let mut resized = resize_nearest(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        let v = *value;
+        *value = clamp01(v.powf(0.82) + v * 0.12);
+    }
+    normalize(&mut resized);
+    resized
+}
+
 fn segment_wave(step: u32) -> f32 {
     let phase = step as f32 * 0.4;
     let s = phase.sin() * 0.5 + 0.5;
@@ -3739,6 +4052,9 @@ mod tests {
             CpuStrategy::JuliaSet,
             CpuStrategy::KochSnowflake,
             CpuStrategy::BifurcationTree,
+            CpuStrategy::DepthRelief,
+            CpuStrategy::AttractorTunnel,
+            CpuStrategy::OrbitalLabyrinth,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
