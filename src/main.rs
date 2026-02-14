@@ -9,6 +9,7 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use image::{ImageBuffer, Rgba};
+use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
 const SHADER: &str = r#"
@@ -322,6 +323,7 @@ struct Config {
     seed: u32,
     fill_scale: f32,
     fractal_zoom: f32,
+    fast: bool,
     count: u32,
     output: String,
 }
@@ -361,6 +363,7 @@ impl Config {
             seed: random_seed(),
             fill_scale: 1.35,
             fractal_zoom: 0.72,
+            fast: false,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -396,6 +399,9 @@ impl Config {
                 "--zoom" => {
                     let value = args.next().ok_or("missing zoom value, pass --zoom <f32>")?;
                     cfg.fractal_zoom = value.parse()?;
+                }
+                "--fast" => {
+                    cfg.fast = true;
                 }
                 "--count" | "-n" => {
                     let value = args
@@ -493,6 +499,20 @@ fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
     }
 }
 
+fn tune_filter_for_speed(cfg: BlurConfig, fast: bool) -> BlurConfig {
+    if !fast {
+        return cfg;
+    }
+
+    BlurConfig {
+        mode: cfg.mode,
+        max_radius: ((cfg.max_radius / 2).max(1)).min(4),
+        axis_x: cfg.axis_x.signum(),
+        axis_y: cfg.axis_y.signum(),
+        softness: cfg.softness.min(2),
+    }
+}
+
 fn pick_gradient_from_rng(rng: &mut XorShift32) -> GradientConfig {
     let mode = GradientMode::from_u32(rng.next_u32());
     let gamma = 0.45 + (rng.next_u32() % 160) as f32 * 0.01;
@@ -528,41 +548,38 @@ fn apply_posterize(mut value: f32, bands: u32) -> f32 {
     (value.floor() / levels).min(1.0)
 }
 
-fn apply_gradient_map(src: Vec<f32>, cfg: GradientConfig) -> Vec<f32> {
-    src.into_iter()
-        .map(|value| {
-            let mut mapped = clamp01(value);
-            match cfg.mode {
-                GradientMode::Linear => {}
-                GradientMode::Contrast => {
-                    mapped = mapped.powf(1.0 + cfg.contrast * 0.05) * cfg.pivot;
-                    mapped = mapped.clamp(0.0, 1.0);
-                }
-                GradientMode::Gamma => {
-                    mapped = mapped.powf(cfg.gamma);
-                }
-                GradientMode::Sine => {
-                    mapped = 0.5
-                        + (0.5
-                            * (cfg.frequency * mapped * std::f32::consts::PI * 2.0 + cfg.phase)
-                                .sin());
-                }
-                GradientMode::Sigmoid => {
-                    let x = cfg.contrast * 0.1 * (mapped - cfg.pivot);
-                    mapped = 1.0 / (1.0 + (-x).exp());
-                }
-                GradientMode::Posterize => {}
+fn apply_gradient_map(src: &mut [f32], cfg: GradientConfig) {
+    for value in src {
+        let mut mapped = clamp01(*value);
+        match cfg.mode {
+            GradientMode::Linear => {}
+            GradientMode::Contrast => {
+                mapped = mapped.powf(1.0 + cfg.contrast * 0.05) * cfg.pivot;
+                mapped = mapped.clamp(0.0, 1.0);
             }
-
-            if cfg.invert {
-                mapped = 1.0 - mapped;
+            GradientMode::Gamma => {
+                mapped = mapped.powf(cfg.gamma);
             }
+            GradientMode::Sine => {
+                mapped = 0.5
+                    + (0.5
+                        * (cfg.frequency * mapped * std::f32::consts::PI * 2.0 + cfg.phase).sin());
+            }
+            GradientMode::Sigmoid => {
+                let x = cfg.contrast * 0.1 * (mapped - cfg.pivot);
+                mapped = 1.0 / (1.0 + (-x).exp());
+            }
+            GradientMode::Posterize => {}
+        }
 
-            mapped = (mapped * cfg.contrast.recip()).clamp(0.0, 1.0);
-            mapped = apply_posterize(mapped, cfg.bands);
-            clamp01(mapped)
-        })
-        .collect()
+        if cfg.invert {
+            mapped = 1.0 - mapped;
+        }
+
+        mapped = (mapped * cfg.contrast.recip()).clamp(0.0, 1.0);
+        mapped = apply_posterize(mapped, cfg.bands);
+        *value = clamp01(mapped);
+    }
 }
 
 fn pixel_index(x: i32, y: i32, width: i32) -> usize {
@@ -576,24 +593,25 @@ fn sample_luma(src: &[f32], width: i32, height: i32, x: i32, y: i32) -> f32 {
     src[idx]
 }
 
-fn decode_luma(rgba: &[u8]) -> Vec<f32> {
-    let mut luma = Vec::with_capacity(rgba.len() / 4);
-    for px in rgba.chunks_exact(4) {
-        luma.push(px[0] as f32 / 255.0);
+fn decode_luma(raw: &[u8], out: &mut [f32]) {
+    debug_assert_eq!(out.len() * 4, raw.len());
+
+    for (i, px) in raw.chunks_exact(4).enumerate() {
+        out[i] = px[0] as f32 / 255.0;
     }
-    luma
 }
 
-fn encode_rgba_gray(luma: &[f32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(luma.len() * 4);
-    for &v in luma {
+fn encode_rgba_gray(dst: &mut [u8], luma: &[f32]) {
+    debug_assert_eq!(luma.len() * 4, dst.len());
+
+    for (i, &v) in luma.iter().enumerate() {
         let c = (clamp01(v) * 255.0).round() as u8;
-        out.push(c);
-        out.push(c);
-        out.push(c);
-        out.push(255);
+        let base = i * 4;
+        dst[base] = c;
+        dst[base + 1] = c;
+        dst[base + 2] = c;
+        dst[base + 3] = 255;
     }
-    out
 }
 
 #[derive(Clone, Copy)]
@@ -638,40 +656,47 @@ fn luma_stats(luma: &[f32]) -> LumaStats {
     }
 }
 
-fn stretch_to_percentile(src: &[f32], low_pct: f32, high_pct: f32) -> Vec<f32> {
+fn stretch_to_percentile(src: &mut [f32], scratch: &mut [f32], low_pct: f32, high_pct: f32) {
     if src.is_empty() {
-        return Vec::new();
+        return;
     }
 
-    let mut sorted = src.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-    let len_minus_1 = sorted.len() - 1;
+    debug_assert_eq!(src.len(), scratch.len());
+
+    scratch.copy_from_slice(src);
+    let len_minus_1 = src.len() - 1;
     let low = (len_minus_1 as f32 * low_pct.clamp(0.0, 1.0)).round() as usize;
     let high = (len_minus_1 as f32 * high_pct.clamp(0.0, 1.0)).round() as usize;
-    let in_min = sorted[low];
-    let in_max = sorted[high];
+    scratch.select_nth_unstable_by(low, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let in_min = scratch[low];
+    scratch.select_nth_unstable_by(high, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let in_max = scratch[high];
     let span = in_max - in_min;
 
     if span <= f32::EPSILON {
-        return vec![0.5; src.len()];
+        for value in src.iter_mut() {
+            *value = 0.5;
+        }
+        return;
     }
 
-    src.iter()
-        .map(|value| ((value - in_min) / span).clamp(0.0, 1.0))
-        .collect()
+    for value in src.iter_mut() {
+        *value = ((*value - in_min) / span).clamp(0.0, 1.0);
+    }
 }
 
-fn inject_noise(mut src: Vec<f32>, seed: u32, strength: f32) -> Vec<f32> {
+fn inject_noise(src: &mut [f32], seed: u32, strength: f32) {
     let mut rng = XorShift32::new(seed);
     let gain = strength * 0.5;
-    for value in &mut src {
+    for value in src.iter_mut() {
         let noise = ((rng.next_u32() as f32) / (u32::MAX as f32) - 0.5) * 2.0;
         *value = clamp01(*value + noise * gain);
     }
-    src
 }
 
-fn create_soft_background(width: u32, height: u32, seed: u32) -> Vec<f32> {
+fn create_soft_background(width: u32, height: u32, seed: u32, out: &mut [f32]) {
+    debug_assert_eq!(out.len(), (width as usize) * (height as usize));
+
     let mut rng = XorShift32::new(seed ^ 0x9e37_79b9);
     let freq_x = 0.25 + (rng.next_f32() * 1.8);
     let freq_y = 0.25 + (rng.next_f32() * 1.8);
@@ -680,7 +705,7 @@ fn create_soft_background(width: u32, height: u32, seed: u32) -> Vec<f32> {
     let noise_strength = 0.08 + (rng.next_f32() * 0.1);
     let mut jitter_rng = XorShift32::new(seed ^ 0xA53F_12B1);
 
-    let mut out = Vec::with_capacity((width as usize) * (height as usize));
+    let mut iter = out.iter_mut();
     let width_f = width as f32;
     let height_f = height as f32;
     for y in 0..height {
@@ -694,191 +719,186 @@ fn create_soft_background(width: u32, height: u32, seed: u32) -> Vec<f32> {
             let cross = ((u - v) * 1.5).sin() * 0.2;
             let jitter = (jitter_rng.next_f32() - 0.5) * 2.0;
             let l1_falloff = 0.82 - (u_l1 + v_l1) * 0.22;
-            out.push(clamp01(
+            let value = clamp01(
                 0.46 + (wave_x * 0.24)
                     + (wave_y * 0.24)
                     + (cross * 0.16)
                     + (l1_falloff * 0.24)
                     + (jitter - 0.5) * noise_strength,
-            ));
+            );
+            if let Some(px) = iter.next() {
+                *px = value;
+            }
         }
     }
-    out
 }
 
-fn blend_background(mut src: Vec<f32>, bg: &[f32], strength: f32) -> Vec<f32> {
-    for (value, bg_value) in src.iter_mut().zip(bg.iter()) {
-        *value = clamp01((*value * (1.0 - strength)) + (*bg_value * strength));
-    }
-    src
+fn blend_background(src: &mut [f32], bg: &[f32], strength: f32) {
+    debug_assert_eq!(src.len(), bg.len());
+
+    src.par_iter_mut()
+        .zip(bg.par_iter())
+        .for_each(|(value, bg_value)| {
+            *value = clamp01((*value * (1.0 - strength)) + (*bg_value * strength));
+        });
 }
 
-fn apply_motion_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+fn apply_motion_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
     let width_i32 = width as i32;
     let height_i32 = height as i32;
-    let mut dst = vec![0.0f32; src.len()];
+    let width_usize = width as usize;
+    let cfg = *cfg;
 
-    for y in 0..height_i32 {
-        for x in 0..width_i32 {
-            let idx = pixel_index(x, y, width_i32);
-            let center = src[idx];
-            let local_blur = (1.0 - center).powi(2);
-            let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
+    dst.par_iter_mut().enumerate().for_each(|(idx, out)| {
+        let y = (idx / width_usize) as i32;
+        let x = (idx % width_usize) as i32;
+        let center = sample_luma(src, width_i32, height_i32, x, y);
+        let local_blur = (1.0 - center).powi(2);
+        let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
 
-            let mut numerator = 0.0;
-            let mut denominator = 0.0;
-            let half = -radius;
-            let mut step = half;
-            while step <= radius {
-                let t = 1.0 - (step.abs() as f32 / (radius as f32 + 1.0));
-                let sx = x + step * cfg.axis_x;
-                let sy = y + step * cfg.axis_y;
+        let mut numerator = 0.0;
+        let mut denominator = 0.0;
+        let mut step = -radius;
+        while step <= radius {
+            let t = 1.0 - (step.abs() as f32 / (radius as f32 + 1.0));
+            let sx = x + step * cfg.axis_x;
+            let sy = y + step * cfg.axis_y;
+            let sample = sample_luma(src, width_i32, height_i32, sx, sy);
+            numerator += sample * t;
+            denominator += t;
+            step += 1;
+        }
+
+        if denominator > 0.0 {
+            *out = numerator / denominator;
+        } else {
+            *out = center;
+        }
+    });
+}
+
+fn apply_gaussian_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let width_usize = width as usize;
+    let cfg = *cfg;
+
+    dst.par_iter_mut().enumerate().for_each(|(idx, out)| {
+        let y = (idx / width_usize) as i32;
+        let x = (idx % width_usize) as i32;
+        let center = sample_luma(src, width_i32, height_i32, x, y);
+        let local_blur = (1.0 - center).powf(1.5);
+        let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
+        let sigma = (radius as f32 + 1.0) * 0.5;
+        let sigma2 = sigma * sigma * 2.0;
+
+        let mut num = 0.0;
+        let mut den = 0.0;
+        let mut dy = -radius;
+        while dy <= radius {
+            let mut dx = -radius;
+            while dx <= radius {
+                let sx = x + dx;
+                let sy = y + dy;
+                let d2 = (dx * dx + dy * dy) as f32;
+                let spatial = (-d2 / sigma2).exp();
                 let sample = sample_luma(src, width_i32, height_i32, sx, sy);
-                numerator += sample * t;
-                denominator += t;
-                step += 1;
+                num += sample * spatial;
+                den += spatial;
+                dx += 1;
             }
-
-            if denominator > 0.0 {
-                dst[idx] = numerator / denominator;
-            } else {
-                dst[idx] = center;
-            }
+            dy += 1;
         }
-    }
 
-    dst
+        if den > 0.0 {
+            *out = num / den;
+        } else {
+            *out = center;
+        }
+    });
 }
 
-fn apply_gaussian_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+fn apply_median_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
     let width_i32 = width as i32;
     let height_i32 = height as i32;
-    let mut dst = vec![0.0f32; src.len()];
+    let width_usize = width as usize;
+    let cfg = *cfg;
 
-    for y in 0..height_i32 {
-        for x in 0..width_i32 {
-            let idx = pixel_index(x, y, width_i32);
-            let center = src[idx];
-            let local_blur = (1.0 - center).powf(1.5);
-            let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
-            let sigma = (radius as f32 + 1.0) * 0.5;
-            let sigma2 = sigma * sigma * 2.0;
+    dst.par_iter_mut().enumerate().for_each(|(idx, out)| {
+        let y = (idx / width_usize) as i32;
+        let x = (idx % width_usize) as i32;
+        let center = sample_luma(src, width_i32, height_i32, x, y);
+        let local_blur = (1.0 - center).powi(2);
+        let base = 1 + ((cfg.max_radius as f32 * (0.4 + 0.6 * local_blur)).floor() as i32);
+        let radius = base.clamp(1, 2);
+        let mut values = [0f32; 25];
+        let mut count = 0usize;
 
-            let mut num = 0.0;
-            let mut den = 0.0;
-            let mut dy = -radius;
-            while dy <= radius {
-                let mut dx = -radius;
-                while dx <= radius {
-                    let sx = x + dx;
-                    let sy = y + dy;
-                    let d2 = (dx * dx + dy * dy) as f32;
-                    let spatial = (-d2 / sigma2).exp();
-                    let weight = spatial;
-                    let sample = sample_luma(src, width_i32, height_i32, sx, sy);
-                    num += sample * weight;
-                    den += weight;
-                    dx += 1;
-                }
-                dy += 1;
+        let mut dy = -radius;
+        while dy <= radius {
+            let mut dx = -radius;
+            while dx <= radius {
+                let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
+                values[count] = sample;
+                count += 1;
+                dx += 1;
             }
-
-            if den > 0.0 {
-                dst[idx] = num / den;
-            } else {
-                dst[idx] = center;
-            }
+            dy += 1;
         }
-    }
 
-    dst
+        values[..count].sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        *out = values[count / 2];
+    });
 }
 
-fn apply_median_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+fn apply_bilateral_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
     let width_i32 = width as i32;
     let height_i32 = height as i32;
-    let mut dst = vec![0.0f32; src.len()];
-
-    for y in 0..height_i32 {
-        for x in 0..width_i32 {
-            let idx = pixel_index(x, y, width_i32);
-            let center = src[idx];
-            let local_blur = (1.0 - center).powi(2);
-            let base = 1 + ((cfg.max_radius as f32 * (0.4 + 0.6 * local_blur)).floor() as i32);
-            let radius = base.clamp(1, 2);
-            let mut values = [0f32; 25];
-            let mut count = 0usize;
-
-            let mut dy = -radius;
-            while dy <= radius {
-                let mut dx = -radius;
-                while dx <= radius {
-                    let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
-                    values[count] = sample;
-                    count += 1;
-                    dx += 1;
-                }
-                dy += 1;
-            }
-
-            let slice = &mut values[..count];
-            slice.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-            dst[idx] = slice[count / 2];
-        }
-    }
-
-    dst
-}
-
-fn apply_bilateral_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
-    let width_i32 = width as i32;
-    let height_i32 = height as i32;
-    let mut dst = vec![0.0f32; src.len()];
+    let width_usize = width as usize;
     let sigma_r = 0.1 + (cfg.softness as f32 * 0.03);
+    let cfg = *cfg;
+    let radius_limit = cfg.max_radius as f32;
 
-    for y in 0..height_i32 {
-        for x in 0..width_i32 {
-            let idx = pixel_index(x, y, width_i32);
-            let center = src[idx];
-            let local_blur = (1.0 - center).powi(2);
-            let radius = (1 + ((cfg.max_radius as f32 * (0.2 + 0.8 * local_blur)).round() as i32))
-                .max(1)
-                .min(2);
+    dst.par_iter_mut().enumerate().for_each(|(idx, out)| {
+        let y = (idx / width_usize) as i32;
+        let x = (idx % width_usize) as i32;
+        let center = sample_luma(src, width_i32, height_i32, x, y);
+        let local_blur = (1.0 - center).powi(2);
+        let radius = (1 + ((radius_limit * (0.2 + 0.8 * local_blur)).round() as i32))
+            .max(1)
+            .min(2);
 
-            let mut num = 0.0;
-            let mut den = 0.0;
-            let mut dy = -radius;
-            while dy <= radius {
-                let mut dx = -radius;
-                while dx <= radius {
-                    let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
-                    let d = sample - center;
-                    let range = (-(d * d / (2.0 * sigma_r * sigma_r))).exp();
-                    let weight = (-((dx * dx + dy * dy) as f32) / 16.0).exp() * range;
-                    num += sample * weight;
-                    den += weight;
-                    dx += 1;
-                }
-                dy += 1;
+        let mut num = 0.0;
+        let mut den = 0.0;
+        let mut dy = -radius;
+        while dy <= radius {
+            let mut dx = -radius;
+            while dx <= radius {
+                let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
+                let d = sample - center;
+                let range = (-(d * d / (2.0 * sigma_r * sigma_r))).exp();
+                let weight = (-((dx * dx + dy * dy) as f32) / 16.0).exp() * range;
+                num += sample * weight;
+                den += weight;
+                dx += 1;
             }
-
-            if den > 0.0 {
-                dst[idx] = num / den;
-            } else {
-                dst[idx] = center;
-            }
+            dy += 1;
         }
-    }
 
-    dst
+        if den > 0.0 {
+            *out = num / den;
+        } else {
+            *out = center;
+        }
+    });
 }
 
-fn apply_dynamic_filter(width: u32, height: u32, luma: Vec<f32>, cfg: BlurConfig) -> Vec<f32> {
+fn apply_dynamic_filter(width: u32, height: u32, luma: &[f32], dst: &mut [f32], cfg: BlurConfig) {
     match cfg.mode {
-        FilterMode::Motion => apply_motion_blur(width, height, &luma, &cfg),
-        FilterMode::Gaussian => apply_gaussian_blur(width, height, &luma, &cfg),
-        FilterMode::Median => apply_median_blur(width, height, &luma, &cfg),
-        FilterMode::Bilateral => apply_bilateral_blur(width, height, &luma, &cfg),
+        FilterMode::Motion => apply_motion_blur(width, height, luma, dst, &cfg),
+        FilterMode::Gaussian => apply_gaussian_blur(width, height, luma, dst, &cfg),
+        FilterMode::Median => apply_median_blur(width, height, luma, dst, &cfg),
+        FilterMode::Bilateral => apply_bilateral_blur(width, height, luma, dst, &cfg),
     }
 }
 
@@ -967,6 +987,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     let output_size =
         (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
+    let pixel_count = (config.width as usize) * (config.height as usize);
+    let mut filtered = vec![0.0f32; pixel_count];
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output storage"),
@@ -1041,6 +1063,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
     let mut image_rng = XorShift32::new(config.seed);
+    let mut luma = vec![0.0f32; pixel_count];
+    let mut background = vec![0.0f32; pixel_count];
+    let mut percentile = vec![0.0f32; pixel_count];
 
     for i in 0..config.count {
         let mut image_seed = image_rng.next_u32();
@@ -1083,44 +1108,52 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
         }
 
-        let filter = pick_filter_from_rng(&mut image_rng);
+        let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), config.fast);
         let gradient = pick_gradient_from_rng(&mut image_rng);
-        let background = create_soft_background(
+        create_soft_background(
             config.width,
             config.height,
             params.seed ^ (i + 0x0BADC0DEu32),
+            &mut background,
         );
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
-        let frame_bytes = {
+
+        {
             let raw = slice.get_mapped_range();
-            let data = raw.to_vec();
-            drop(raw);
-            data
-        };
+            decode_luma(&raw, &mut luma);
+        }
         staging_buffer.unmap();
 
-        let gray = decode_luma(&frame_bytes);
-        let pre_filter_stats = luma_stats(&gray);
-        let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
-        let filtered = stretch_to_percentile(&filtered, 0.04, 0.96);
-        let mapped = apply_gradient_map(filtered, gradient);
-        let mut final_luma = blend_background(
-            stretch_to_percentile(&mapped, 0.02, 0.98),
-            &background,
-            background_strength,
+        let pre_filter_stats = luma_stats(&luma);
+        apply_dynamic_filter(config.width, config.height, &luma, &mut filtered, filter);
+        let low_stretch = if config.fast { 0.03 } else { 0.04 };
+        let high_stretch = if config.fast { 0.97 } else { 0.96 };
+        stretch_to_percentile(&mut filtered, &mut percentile, low_stretch, high_stretch);
+        apply_gradient_map(&mut filtered, gradient);
+        stretch_to_percentile(
+            &mut filtered,
+            &mut percentile,
+            if config.fast { 0.01 } else { 0.02 },
+            if config.fast { 0.99 } else { 0.98 },
         );
-        let mut final_stats = luma_stats(&final_luma);
-
+        blend_background(&mut filtered, &background, background_strength);
+        let mut final_stats = luma_stats(&filtered);
         if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
-            final_luma = stretch_to_percentile(
-                &inject_noise(final_luma, params.seed ^ (i + 1), 0.06),
-                0.01,
-                0.99,
+            inject_noise(
+                &mut filtered,
+                params.seed ^ (i + 1),
+                if config.fast { 0.04 } else { 0.06 },
             );
-            final_stats = luma_stats(&final_luma);
+            stretch_to_percentile(
+                &mut filtered,
+                &mut percentile,
+                if config.fast { 0.01 } else { 0.01 },
+                if config.fast { 0.99 } else { 0.99 },
+            );
+            final_stats = luma_stats(&filtered);
         }
-
-        let final_pixels = encode_rgba_gray(&final_luma);
+        let mut final_pixels = vec![0u8; pixel_count * 4];
+        encode_rgba_gray(&mut final_pixels, &filtered);
         let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(config.width, config.height, final_pixels)
                 .ok_or("could not create image buffer from GPU output")?;
