@@ -247,6 +247,10 @@ impl XorShift32 {
         self.state = x;
         x
     }
+
+    fn next_f32(&mut self) -> f32 {
+        (self.next_u32() as f32) / (u32::MAX as f32)
+    }
 }
 
 impl Config {
@@ -353,8 +357,26 @@ fn random_seed() -> u32 {
     seed
 }
 
-fn pick_filter(seed: u32) -> BlurConfig {
-    let mut rng = XorShift32::new(seed);
+fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
+    let spread = base.max(2);
+    let low = base.saturating_sub(spread);
+    let high = base.saturating_add(spread);
+    let value = low + (rng.next_u32() % (high - low + 1));
+    value.max(1)
+}
+
+fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
+    let low = (base as f32 * 0.4).floor().max(64.0) as u32;
+    let high = (base as f32 * 1.8).ceil().max(80.0) as u32;
+    low + (rng.next_u32() % (high - low + 1))
+}
+
+fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
+    let jitter = 0.55 + (rng.next_f32() * 1.3);
+    (base * jitter).clamp(0.45, 4.0)
+}
+
+fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
     let mode = FilterMode::from_u32(rng.next_u32());
     let mut axis_x = (rng.next_u32() % 5) as i32 - 2;
     let mut axis_y = (rng.next_u32() % 5) as i32 - 2;
@@ -371,8 +393,7 @@ fn pick_filter(seed: u32) -> BlurConfig {
     }
 }
 
-fn pick_gradient(seed: u32) -> GradientConfig {
-    let mut rng = XorShift32::new(seed);
+fn pick_gradient_from_rng(rng: &mut XorShift32) -> GradientConfig {
     let mode = GradientMode::from_u32(rng.next_u32());
     let gamma = 0.45 + (rng.next_u32() % 160) as f32 * 0.01;
     let contrast = 0.6 + (rng.next_u32() % 240) as f32 * 0.01;
@@ -381,6 +402,7 @@ fn pick_gradient(seed: u32) -> GradientConfig {
     let frequency = 0.5 + (rng.next_u32() % 250) as f32 * 0.02;
     let phase = (rng.next_u32() % 360) as f32 * 0.0174533;
     let bands = (rng.next_u32() % 6) + 1;
+
     GradientConfig {
         mode,
         gamma,
@@ -799,9 +821,17 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         entry_point: "main",
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
+    let mut image_rng = XorShift32::new(config.seed);
 
     for i in 0..config.count {
-        params.seed = config.seed.wrapping_add(i);
+        let mut image_seed = image_rng.next_u32();
+        if image_seed == 0 {
+            image_seed = 0x9e3779b9;
+        }
+        params.seed = image_seed;
+        params.symmetry = randomize_symmetry(config.symmetry, &mut image_rng);
+        params.iterations = randomize_iterations(config.iterations, &mut image_rng);
+        params.fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
         queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -832,8 +862,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
         }
 
-        let filter = pick_filter(params.seed);
-        let gradient = pick_gradient(params.seed);
+        let filter = pick_filter_from_rng(&mut image_rng);
+        let gradient = pick_gradient_from_rng(&mut image_rng);
         let frame_bytes = {
             let raw = slice.get_mapped_range();
             let data = raw.to_vec();
@@ -853,10 +883,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | seed {} | fill {} | filter {} | radius {} | gradient {} ({:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {} | symmetry {} | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2})",
             final_output.display(),
+            i,
             params.seed,
             params.fill_scale,
+            params.symmetry,
+            params.iterations,
             filter.mode.label(),
             filter.max_radius,
             gradient.mode.label(),
