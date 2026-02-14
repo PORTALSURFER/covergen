@@ -619,6 +619,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         layout: Some(&pipeline_layout),
         module: &shader_module,
         entry_point: "main",
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
