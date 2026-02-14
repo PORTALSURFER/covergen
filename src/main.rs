@@ -16,6 +16,7 @@ struct Params {
     width: u32,
     height: u32,
     symmetry: u32,
+    symmetry_style: u32,
     iterations: u32,
     seed: u32,
     fill_scale: f32,
@@ -32,7 +33,19 @@ fn hash01(x: f32, y: f32, seed: u32) -> f32 {
     return fract(sin(dot(vec2<f32>(x, y), vec2<f32>(12.9898, 78.233)) + s) * 43758.5453123);
 }
 
-fn fold_for_symmetry(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
+    if (style == 1u) {
+        return fold_symmetry_mirror(px, py, symmetry);
+    }
+
+    if (style == 2u) {
+        return fold_symmetry_grid(px, py, symmetry);
+    }
+
+    return fold_symmetry_radial(px, py, symmetry);
+}
+
+fn fold_symmetry_radial(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     let radius = length(vec2<f32>(px, py));
     if (radius <= 0.0 || symmetry <= 1u) {
         return vec2<f32>(px, py);
@@ -42,7 +55,46 @@ fn fold_for_symmetry(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     let sector = 6.283185307179586 / f32(symmetry);
     let folded = fract((angle / sector) + 0.5) - 0.5;
     let folded_angle = folded * sector;
-    return vec2<f32>(radius * cos(folded_angle), radius * sin(folded_angle));
+
+    let corner = 2.0 + (f32(symmetry) * 0.2);
+    let edge = pow(abs(cos(folded_angle)), corner) + pow(abs(sin(folded_angle)), corner);
+    let squircle = pow(edge, -1.0 / corner);
+    let petals = abs(cos(folded_angle * f32(symmetry)));
+    let folded_radius = radius * (0.75 + (petals * 0.45)) * squircle * 0.72;
+
+    return vec2<f32>(folded_radius * cos(folded_angle), folded_radius * sin(folded_angle));
+}
+
+fn fold_symmetry_mirror(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    if (symmetry <= 1u) {
+        return vec2<f32>(px, py);
+    }
+
+    var sx = px;
+    var sy = py;
+    sx = abs(sx);
+    if (symmetry > 2u) {
+        sy = abs(sy);
+    }
+    if (symmetry > 3u) {
+        if (abs(sy) > abs(sx)) {
+            let t = sx;
+            sx = sy;
+            sy = t;
+        }
+    }
+
+    return vec2<f32>(sx * 1.0, sy * 1.0);
+}
+
+fn fold_symmetry_grid(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    let repeats = max(2.0, f32(symmetry) * 0.7);
+    let gx = fract((px * repeats) + 0.5) - 0.5;
+    let gy = fract((py * repeats * 1.15) + 0.5) - 0.5;
+    let mx = abs(gx) * 2.0 - 0.5;
+    let my = abs(gy) * 2.0 - 0.5;
+    let skew = sin(px * 8.0 + py * 4.0) * 0.15;
+    return vec2<f32>(mx * (2.0 / repeats) + (my * 0.08), (my * (2.0 / repeats)) + skew);
 }
 
 fn pack_gray(level: f32) -> u32 {
@@ -106,7 +158,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let layer_scale: f32 = 1.0 / f32(layer_count);
 
     if (params.symmetry > 1u) {
-        let folded = fold_for_symmetry(px, py, params.symmetry);
+        let folded = fold_for_symmetry(px, py, params.symmetry, params.symmetry_style);
         px = folded.x;
         py = folded.y;
     }
@@ -136,6 +188,7 @@ struct Params {
     width: u32,
     height: u32,
     symmetry: u32,
+    symmetry_style: u32,
     iterations: u32,
     seed: u32,
     fill_scale: f32,
@@ -222,6 +275,39 @@ struct GradientConfig {
     frequency: f32,
     phase: f32,
     bands: u32,
+}
+
+#[derive(Clone, Copy)]
+enum SymmetryStyle {
+    Radial,
+    Mirror,
+    Grid,
+}
+
+impl SymmetryStyle {
+    fn from_u32(value: u32) -> Self {
+        match value % 3 {
+            0 => Self::Radial,
+            1 => Self::Mirror,
+            _ => Self::Grid,
+        }
+    }
+
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Radial => 0,
+            Self::Mirror => 1,
+            Self::Grid => 2,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Radial => "radial",
+            Self::Mirror => "mirror",
+            Self::Grid => "grid",
+        }
+    }
 }
 
 struct Config {
@@ -380,6 +466,10 @@ fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
     let jitter = 0.8 + (rng.next_f32() * 0.6);
     (base * jitter).clamp(1.2, 2.4)
+}
+
+fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
+    SymmetryStyle::from_u32(rng.next_u32()).as_u32()
 }
 
 fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
@@ -583,23 +673,29 @@ fn create_soft_background(width: u32, height: u32, seed: u32) -> Vec<f32> {
     let freq_y = 0.25 + (rng.next_f32() * 1.8);
     let phase_a = rng.next_f32() * std::f32::consts::TAU;
     let phase_b = rng.next_f32() * std::f32::consts::TAU;
-    let falloff = 0.45 + (rng.next_f32() * 0.4);
+    let noise_strength = 0.08 + (rng.next_f32() * 0.1);
+    let mut jitter_rng = XorShift32::new(seed ^ 0xA53F_12B1);
 
     let mut out = Vec::with_capacity((width as usize) * (height as usize));
     let width_f = width as f32;
     let height_f = height as f32;
     for y in 0..height {
         let v = (y as f32 / height_f) * 2.0 - 1.0;
-        let dy = v * v;
+        let v_l1 = v.abs();
         for x in 0..width {
             let u = (x as f32 / width_f) * 2.0 - 1.0;
-            let dx = u * u;
-            let radial = 1.0 - ((dx + dy).sqrt() * falloff);
+            let u_l1 = u.abs();
             let wave_x = (u * std::f32::consts::TAU * freq_x + phase_a).sin() * 0.3;
             let wave_y = (v * std::f32::consts::TAU * freq_y + phase_b).cos() * 0.3;
-            let cross = ((u + v) * 1.5).sin() * 0.2;
+            let cross = ((u - v) * 1.5).sin() * 0.2;
+            let jitter = (jitter_rng.next_f32() - 0.5) * 2.0;
+            let l1_falloff = 0.82 - (u_l1 + v_l1) * 0.22;
             out.push(clamp01(
-                0.52 + radial * 0.32 + wave_x * 0.22 + wave_y * 0.22 + cross * 0.1,
+                0.46 + (wave_x * 0.24)
+                    + (wave_y * 0.24)
+                    + (cross * 0.16)
+                    + (l1_falloff * 0.24)
+                    + (jitter - 0.5) * noise_strength,
             ));
         }
     }
@@ -858,6 +954,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         width: config.width,
         height: config.height,
         symmetry: config.symmetry,
+        symmetry_style: 0,
         iterations: config.iterations,
         seed: config.seed,
         fill_scale: config.fill_scale,
@@ -949,6 +1046,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         params.symmetry = randomize_symmetry(config.symmetry, &mut image_rng);
         params.iterations = randomize_iterations(config.iterations, &mut image_rng);
         params.fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
+        params.symmetry_style = pick_symmetry_style(&mut image_rng);
         queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1024,12 +1122,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | index {} | seed {} | fill {} | symmetry {} | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {} | symmetry {} [{}] | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             params.seed,
             params.fill_scale,
             params.symmetry,
+            SymmetryStyle::from_u32(params.symmetry_style).label(),
             params.iterations,
             filter.mode.label(),
             filter.max_radius,
