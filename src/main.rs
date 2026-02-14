@@ -345,57 +345,6 @@ impl SymmetryStyle {
 }
 
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
-enum ArtStyle {
-    Hybrid,
-    Julia,
-    BurningShip,
-    Tricorn,
-    Phoenix,
-    Spiral,
-    OrbitTrap,
-}
-
-#[allow(dead_code)]
-impl ArtStyle {
-    fn from_u32(value: u32) -> Self {
-        match value % 7u32 {
-            0 => Self::Hybrid,
-            1 => Self::Julia,
-            2 => Self::BurningShip,
-            3 => Self::Tricorn,
-            4 => Self::Phoenix,
-            5 => Self::Spiral,
-            _ => Self::OrbitTrap,
-        }
-    }
-
-    fn as_u32(self) -> u32 {
-        match self {
-            Self::Hybrid => 0,
-            Self::Julia => 1,
-            Self::BurningShip => 2,
-            Self::Tricorn => 3,
-            Self::Phoenix => 4,
-            Self::Spiral => 5,
-            Self::OrbitTrap => 6,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Hybrid => "hybrid",
-            Self::Julia => "julia",
-            Self::BurningShip => "burning_ship",
-            Self::Tricorn => "tricorn",
-            Self::Phoenix => "phoenix",
-            Self::Spiral => "spiral",
-            Self::OrbitTrap => "orbit_trap",
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
 enum LayerBlendMode {
     Normal,
     Add,
@@ -795,16 +744,11 @@ fn decode_luma(raw: &[u8], out: &mut [f32]) {
     }
 }
 
-fn encode_rgba_gray(dst: &mut [u8], luma: &[f32]) {
-    debug_assert_eq!(luma.len() * 4, dst.len());
+fn encode_gray(dst: &mut [u8], luma: &[f32]) {
+    debug_assert_eq!(luma.len(), dst.len());
 
     for (i, &v) in luma.iter().enumerate() {
-        let c = (clamp01(v) * 255.0).round() as u8;
-        let base = i * 4;
-        dst[base] = c;
-        dst[base + 1] = c;
-        dst[base + 2] = c;
-        dst[base + 3] = 255;
+        dst[i] = (clamp01(v) * 255.0).round() as u8;
     }
 }
 
@@ -1172,16 +1116,16 @@ fn resolve_output_path(output: &str) -> PathBuf {
     }
 }
 
-fn encode_png_bytes(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
-    if rgba.len() != width as usize * height as usize * 4 {
-        return Err("invalid buffer size for RGBA image".into());
+fn encode_png_bytes(width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    if data.len() != width as usize * height as usize {
+        return Err("invalid buffer size for grayscale image".into());
     }
 
     let mut cursor = Cursor::new(Vec::new());
     {
         let encoder =
             PngEncoder::new_with_quality(&mut cursor, CompressionType::Best, FilterType::Adaptive);
-        encoder.write_image(rgba, width, height, image::ColorType::Rgba8)?;
+        encoder.write_image(data, width, height, image::ColorType::L8)?;
     }
 
     Ok(cursor.into_inner())
@@ -1191,9 +1135,9 @@ fn save_png_under_10mb(
     output: &Path,
     mut width: u32,
     mut height: u32,
-    rgba: &[u8],
+    gray: &[u8],
 ) -> Result<(u32, u32, usize), Box<dyn Error>> {
-    let mut working = rgba.to_vec();
+    let mut working = gray.to_vec();
     let mut encoded = encode_png_bytes(width, height, &working)?;
     let mut shrink_passes = 0u32;
 
@@ -1214,7 +1158,7 @@ fn save_png_under_10mb(
             break;
         }
 
-        let source = image::RgbaImage::from_raw(width, height, working)
+        let source = image::GrayImage::from_raw(width, height, working)
             .ok_or("invalid working image buffer during resize")?;
         let resized = image::imageops::resize(
             &source,
@@ -1253,7 +1197,7 @@ fn save_png_under_10mb(
                 break;
             }
 
-            let source = image::RgbaImage::from_raw(width, height, working)
+            let source = image::GrayImage::from_raw(width, height, working)
                 .ok_or("invalid working image buffer during final resize")?;
             let resized = image::imageops::resize(
                 &source,
@@ -1323,7 +1267,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let pixel_count = (config.width as usize) * (config.height as usize);
     let mut filtered = vec![0.0f32; pixel_count];
     let mut layered = vec![0.0f32; pixel_count];
-    let mut final_pixels = vec![0u8; pixel_count * 4];
+    let mut final_pixels = vec![0u8; pixel_count];
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output storage"),
@@ -1552,7 +1496,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             final_stats = luma_stats(&layered);
         }
 
-        encode_rgba_gray(&mut final_pixels, &layered);
+        encode_gray(&mut final_pixels, &layered);
         let final_output = resolve_output_path(&config.output);
         let (final_width, final_height, final_bytes) =
             save_png_under_10mb(&final_output, config.width, config.height, &final_pixels)?;
