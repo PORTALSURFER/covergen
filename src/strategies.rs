@@ -52,12 +52,20 @@ pub enum CpuStrategy {
     BarnsleyFern,
     /// Particle advection in a turbulent vector field.
     TurbulentFlow,
+    /// Deep mandelbrot-style orbit trap render.
+    MandelbrotField,
+    /// Recursive tile subdivision with edge-dominant structure.
+    RecursiveTiling,
+    /// Multi-stage reaction-diffusion cascade with injected turbulence.
+    TuringCascade,
+    /// Dense flow field filaments with high curvature paths.
+    FlowFilaments,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        21
+        25
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -83,7 +91,11 @@ impl CpuStrategy {
             17 => Self::PlasmaField,
             18 => Self::SierpinskiCarpet,
             19 => Self::BarnsleyFern,
-            _ => Self::TurbulentFlow,
+            20 => Self::TurbulentFlow,
+            21 => Self::MandelbrotField,
+            22 => Self::RecursiveTiling,
+            23 => Self::TuringCascade,
+            _ => Self::FlowFilaments,
         }
     }
 
@@ -111,6 +123,10 @@ impl CpuStrategy {
             Self::SierpinskiCarpet => "sierpinski-carpet",
             Self::BarnsleyFern => "barnsley-fern",
             Self::TurbulentFlow => "turbulent-flow",
+            Self::MandelbrotField => "mandelbrot-field",
+            Self::RecursiveTiling => "recursive-tiling",
+            Self::TuringCascade => "turing-cascade",
+            Self::FlowFilaments => "flow-filaments",
         }
     }
 }
@@ -201,9 +217,17 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
             | CpuStrategy::PlasmaField
             | CpuStrategy::SierpinskiCarpet
             | CpuStrategy::BarnsleyFern
-            | CpuStrategy::TurbulentFlow => StrategyProfile {
+            | CpuStrategy::TurbulentFlow
+            | CpuStrategy::MandelbrotField
+            | CpuStrategy::TuringCascade
+            | CpuStrategy::FlowFilaments => StrategyProfile {
                 filter_bias: 0.18,
                 gradient_bias: 0.24,
+                force_detail: true,
+            },
+            CpuStrategy::RecursiveTiling => StrategyProfile {
+                filter_bias: 0.24,
+                gradient_bias: 0.18,
                 force_detail: true,
             },
             CpuStrategy::CannyEdge => StrategyProfile {
@@ -246,6 +270,10 @@ pub fn render_cpu_strategy(
         CpuStrategy::SierpinskiCarpet => render_sierpinski_carpet(width, height, &mut rng),
         CpuStrategy::BarnsleyFern => render_barnsley_fern(width, height, &mut rng),
         CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, &mut rng, fast),
+        CpuStrategy::MandelbrotField => render_mandelbrot_field(width, height, &mut rng),
+        CpuStrategy::RecursiveTiling => render_recursive_tiling(width, height, &mut rng),
+        CpuStrategy::TuringCascade => render_turing_cascade(width, height, &mut rng),
+        CpuStrategy::FlowFilaments => render_flow_filaments(width, height, &mut rng),
     }
 }
 
@@ -1493,6 +1521,334 @@ fn render_attractor_hybrid(width: u32, height: u32, rng: &mut XorShift32, fast: 
     out
 }
 
+fn render_mandelbrot_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(144);
+    let sim_h = (height / 2).max(144);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let cx = (rng.next_f32() - 0.5) * 0.8;
+    let cy = (rng.next_f32() - 0.5) * 0.8;
+    let zoom = 0.65 + rng.next_f32() * 0.9;
+    let max_iter = 180 + (rng.next_u32() % 260);
+    let mut y = 0u32;
+    while y < sim_h {
+        let mut x = 0u32;
+        while x < sim_w {
+            let cr = ((x as f32 / sim_w as f32) - 0.5) * 2.9 * zoom + cx;
+            let ci = ((y as f32 / sim_h as f32) - 0.5) * 2.9 * zoom + cy;
+            let mut zr = 0.0f32;
+            let mut zi = 0.0f32;
+            let mut i = 0u32;
+            let mut orbit = 0.0f32;
+            let mut mag2 = 0.0f32;
+
+            while i < max_iter {
+                let zr2 = zr * zr - zi * zi + cr;
+                let zi2 = 2.0 * zr * zi + ci;
+                zr = zr2;
+                zi = zi2;
+                mag2 = zr2 * zr2 + zi2 * zi2;
+                orbit += (mag2.sqrt() * 0.22) * (1.0 - (i as f32 / max_iter as f32));
+                if mag2 > 256.0 {
+                    break;
+                }
+                i += 1;
+            }
+
+            let idx = (y * sim_w + x) as usize;
+            if mag2 <= 256.0 {
+                out[idx] = 0.02;
+            } else {
+                let smooth = (i as f32 + 1.0 - mag2.max(1.0).log2()).max(1.0);
+                let value = 1.0 - (smooth / max_iter as f32);
+                out[idx] =
+                    (value * 0.78 + (orbit / (max_iter as f32 + 1.0) * 0.22)).clamp(0.0, 1.0);
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+
+    normalize(&mut out);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.81 + rng.next_f32() * 0.22));
+    }
+    normalize(&mut out);
+    resize_bilinear(&out, sim_w, sim_h, width, height)
+}
+
+fn render_recursive_tiling(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim = width.min(height).max(176);
+    let mut canvas = vec![0.0f32; (sim * sim) as usize];
+    let max_depth = 3 + (rng.next_u32() % 3);
+    let mut queue = vec![(0i32, 0i32, sim as i32, sim as i32, 0u32)];
+    let mut regions = Vec::with_capacity(72);
+
+    while let Some((x, y, w, h, depth)) = queue.pop() {
+        let can_split = w > 40 && h > 40 && depth < max_depth && rng.next_f32() < 0.84;
+        if !can_split {
+            regions.push((x, y, w, h, depth));
+            continue;
+        }
+
+        if rng.next_f32() < 0.54 {
+            let min = (w as f32 * 0.32) as i32;
+            let max = (w as f32 * 0.68) as i32;
+            let cut = min.max(2) + (rng.next_u32() as i32 % (max.max(min + 3) - min).max(1));
+            queue.push((x + cut, y, w - cut, h, depth + 1));
+            queue.push((x, y, cut, h, depth + 1));
+        } else {
+            let min = (h as f32 * 0.33) as i32;
+            let max = (h as f32 * 0.67) as i32;
+            let cut = min.max(2) + (rng.next_u32() as i32 % (max.max(min + 3) - min).max(1));
+            queue.push((x, y + cut, w, h - cut, depth + 1));
+            queue.push((x, y, w, cut, depth + 1));
+        }
+    }
+
+    for &(x, y, w, h, depth) in regions.iter() {
+        let x0 = x.max(0);
+        let y0 = y.max(0);
+        let x1 = (x + w).min(sim as i32);
+        let y1 = (y + h).min(sim as i32);
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let edge = 0.36 + (depth as f32 * 0.09) + (rng.next_f32() * 0.2);
+        let x0u = x0;
+        let y0u = y0;
+        let x1u = x1 - 1;
+        let y1u = y1 - 1;
+
+        draw_line(
+            x0u,
+            y0u,
+            x1u,
+            y0u,
+            sim as usize,
+            sim as usize,
+            edge * 0.85,
+            &mut canvas,
+        );
+        draw_line(
+            x1u,
+            y0u,
+            x1u,
+            y1u,
+            sim as usize,
+            sim as usize,
+            edge * 0.85,
+            &mut canvas,
+        );
+        draw_line(
+            x1u,
+            y1u,
+            x0u,
+            y1u,
+            sim as usize,
+            sim as usize,
+            edge,
+            &mut canvas,
+        );
+        draw_line(
+            x0u,
+            y1u,
+            x0u,
+            y0u,
+            sim as usize,
+            sim as usize,
+            edge,
+            &mut canvas,
+        );
+
+        if rng.next_f32() < 0.66 {
+            let mx = ((x0 + x1) / 2).clamp(0, sim as i32 - 1);
+            let my = ((y0 + y1) / 2).clamp(0, sim as i32 - 1);
+            draw_line(
+                mx,
+                y0,
+                mx,
+                y1 - 1,
+                sim as usize,
+                sim as usize,
+                edge * 0.55,
+                &mut canvas,
+            );
+            if rng.next_f32() < 0.5 {
+                draw_line(
+                    x0,
+                    my,
+                    x1 - 1,
+                    my,
+                    sim as usize,
+                    sim as usize,
+                    edge * 0.45,
+                    &mut canvas,
+                );
+            }
+        }
+    }
+
+    normalize(&mut canvas);
+    let mut out = resize_bilinear(&canvas, sim, sim, width, height);
+    let grain = noise_field(sim, sim, rng, 2);
+    let mut i = 0usize;
+    while i < out.len() {
+        out[i] = clamp01(0.83 * out[i] + 0.17 * grain[i]);
+        i += 1;
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_turing_cascade(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 3).max(112);
+    let sim_h = (height / 3).max(112);
+    let size = (sim_w * sim_h) as usize;
+    let mut u = vec![1.0f32; size];
+    let mut v = vec![0.0f32; size];
+    let mut u_next = vec![0.0f32; size];
+    let mut v_next = vec![0.0f32; size];
+    let mut seed_rng = XorShift32::new(rng.next_u32());
+    for value in v.iter_mut() {
+        *value = if seed_rng.next_f32() < 0.05 { 1.0 } else { 0.0 };
+    }
+
+    let phases = 2 + (rng.next_u32() % 2);
+    let mut phase = 0u32;
+    while phase < phases {
+        let iterations = 78 + (phase * 14);
+        let du = 0.14 + rng.next_f32() * 0.07;
+        let dv = 0.06 + rng.next_f32() * 0.06;
+        let f = 0.024 + rng.next_f32() * 0.028;
+        let k = 0.045 + rng.next_f32() * 0.028;
+        let field_scale = 0.0018 + rng.next_f32() * 0.0025;
+        let phase_seed = seed_rng.next_u32();
+        let mut step = 0u32;
+        while step < iterations {
+            let mut y = 0u32;
+            while y < sim_h {
+                let y_prev = if y == 0 { sim_h - 1 } else { y - 1 };
+                let y_next = if y + 1 >= sim_h { 0 } else { y + 1 };
+                let mut x = 0u32;
+                while x < sim_w {
+                    let x_prev = if x == 0 { sim_w - 1 } else { x - 1 };
+                    let x_next = if x + 1 >= sim_w { 0 } else { x + 1 };
+                    let idx = (y * sim_w + x) as usize;
+                    let lap_u = u[(y * sim_w + x_prev) as usize]
+                        + u[(y * sim_w + x_next) as usize]
+                        + u[(y_prev * sim_w + x) as usize]
+                        + u[(y_next * sim_w + x) as usize]
+                        - 4.0 * u[idx];
+                    let lap_v = v[(y * sim_w + x_prev) as usize]
+                        + v[(y * sim_w + x_next) as usize]
+                        + v[(y_prev * sim_w + x) as usize]
+                        + v[(y_next * sim_w + x) as usize]
+                        - 4.0 * v[idx];
+                    let uvv = u[idx] * v[idx] * v[idx];
+                    u_next[idx] = clamp01(u[idx] + du * lap_u - uvv + f * (1.0 - u[idx]));
+                    v_next[idx] = clamp01(v[idx] + dv * lap_v + uvv - (f + k) * v[idx]);
+                    x += 1;
+                }
+                y += 1;
+            }
+            std::mem::swap(&mut u, &mut u_next);
+            std::mem::swap(&mut v, &mut v_next);
+            if step % 3 == 0 {
+                let mut i = 0usize;
+                while i < size {
+                    let fx = i as f32 / sim_w as f32;
+                    let fy = (i / sim_w as usize) as f32;
+                    let wave = value_noise(
+                        fx * field_scale * 600.0,
+                        fy * field_scale * 600.0,
+                        phase_seed ^ step,
+                    );
+                    v[i] = clamp01(v[i] + (wave - 0.5) * 0.02);
+                    u[i] = clamp01(u[i] - (wave - 0.5) * 0.01);
+                    i += 1;
+                }
+            }
+            step += 1;
+        }
+        phase += 1;
+    }
+
+    let mut out = resize_bilinear(&v, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.78));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_flow_filaments(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let strands = ((sim_w * sim_h) / 190).max(850);
+    let steps = 180 + (rng.next_u32() % 180);
+    let base_scale = 0.0017 + rng.next_f32() * 0.0022;
+    let speed = 0.42 + rng.next_f32() * 1.2;
+    let swirl = 1.2 + rng.next_f32() * 2.4;
+    let mut i = 0u32;
+    while i < strands {
+        let mut x = rng.next_f32() * (sim_w as f32 - 1.0);
+        let mut y = rng.next_f32() * (sim_h as f32 - 1.0);
+        let mut angle = rng.next_f32() * TAU;
+        let seed = rng.next_u32();
+        let mut step = 0u32;
+        while step < steps {
+            let fx = value_noise(x * base_scale * swirl, y * base_scale, seed ^ step);
+            let fy = value_noise(
+                y * base_scale * 0.9,
+                x * base_scale * 1.1,
+                seed ^ (step + 23),
+            );
+            let target = (fx * 2.0 - 1.0).atan2(fy * 2.0 - 1.0);
+            let mut delta = (target - angle + TAU * 0.5).rem_euclid(TAU) - TAU * 0.5;
+            delta *= 0.22 + 0.32 * (rng.next_f32() - 0.5).abs();
+            angle += delta;
+            let nx = (x + angle.cos() * speed + (fx - 0.5) * 2.2).rem_euclid(sim_w as f32 - 1.0);
+            let ny = (y + angle.sin() * speed + (fy - 0.5) * 2.2).rem_euclid(sim_h as f32 - 1.0);
+            draw_line(
+                x.round() as i32,
+                y.round() as i32,
+                nx.round() as i32,
+                ny.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                0.9 + if step % 3 == 0 { 0.2 } else { 0.0 },
+                &mut density,
+            );
+            if step % 10 == 0 {
+                let glow_x = ((x + (fx - 0.5) * 7.0).round() as i32).clamp(0, sim_w as i32 - 1);
+                let glow_y = ((y + (fy - 0.5) * 7.0).round() as i32).clamp(0, sim_h as i32 - 1);
+                draw_point(
+                    glow_x,
+                    glow_y,
+                    sim_w as usize,
+                    sim_h as usize,
+                    2,
+                    0.4,
+                    &mut density,
+                );
+            }
+            x = nx;
+            y = ny;
+            step += 1;
+        }
+        i += 1;
+    }
+
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.86) * 1.06);
+    }
+    normalize(&mut out);
+    out
+}
+
 #[allow(dead_code)]
 fn delaunay_length(a: (i32, i32), b: (i32, i32)) -> f32 {
     let dx = (a.0 - b.0) as f32;
@@ -1528,6 +1884,10 @@ mod tests {
             CpuStrategy::SierpinskiCarpet,
             CpuStrategy::BarnsleyFern,
             CpuStrategy::TurbulentFlow,
+            CpuStrategy::MandelbrotField,
+            CpuStrategy::RecursiveTiling,
+            CpuStrategy::TuringCascade,
+            CpuStrategy::FlowFilaments,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
