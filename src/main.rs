@@ -20,6 +20,7 @@ struct Params {
     iterations: u32,
     seed: u32,
     fill_scale: f32,
+    fractal_zoom: f32,
 }
 
 @group(0) @binding(0)
@@ -107,14 +108,15 @@ fn layer_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
     let jitter = hash01(x + base, y - base, params.seed + layer);
     let layer_shift = f32(layer) * 0.24 + (jitter - 0.5) * 0.35;
     let angle = layer_shift;
-    let radius = 0.48 + 0.08 * f32(layer) + (jitter - 0.5) * 0.1;
+    let radius = 0.42 + 0.06 * f32(layer) + (jitter - 0.5) * 0.08;
     let cx = (radius * x * (3.2 + 0.2 * jitter)) + 0.16 * (sin(angle) + cos(angle * 0.7 + base));
     let cy = (radius * y * (3.0 + 0.2 * (1.0 - jitter))) + 0.16 * (cos(angle) + sin(angle * 0.9 - base));
 
     let rot_x = x * cos(angle) - y * sin(angle);
     let rot_y = x * sin(angle) + y * cos(angle);
-    var zx = rot_x * 2.6;
-    var zy = rot_y * 2.6;
+    let orbit_scale = 2.22 + (f32(layer) * 0.03);
+    var zx = rot_x * orbit_scale;
+    var zy = rot_y * orbit_scale;
     var i: u32 = 0u;
     var mag2 = 0.0;
     var escaped = false;
@@ -151,10 +153,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     var px = ((f32(id.x) + 0.5) / f32(params.width)) * 2.0 - 1.0;
     var py = ((f32(id.y) + 0.5) / f32(params.height)) * 2.0 - 1.0;
-    px = px * params.fill_scale;
-    py = py * params.fill_scale;
+    let zoom = max(0.2, params.fractal_zoom);
+    px = px * params.fill_scale * zoom;
+    py = py * params.fill_scale * zoom;
     var value = 0.0;
-    let layer_count = 6u;
+    let layer_count = 7u;
     let layer_scale: f32 = 1.0 / f32(layer_count);
 
     if (params.symmetry > 1u) {
@@ -192,6 +195,7 @@ struct Params {
     iterations: u32,
     seed: u32,
     fill_scale: f32,
+    fractal_zoom: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -317,6 +321,7 @@ struct Config {
     iterations: u32,
     seed: u32,
     fill_scale: f32,
+    fractal_zoom: f32,
     count: u32,
     output: String,
 }
@@ -354,7 +359,8 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
-            fill_scale: 1.55,
+            fill_scale: 1.35,
+            fractal_zoom: 0.72,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -401,6 +407,10 @@ impl Config {
                     let value = args.next().ok_or("missing fill value, pass --fill <f32>")?;
                     cfg.fill_scale = value.parse()?;
                 }
+                "--zoom" => {
+                    let value = args.next().ok_or("missing zoom value, pass --zoom <f32>")?;
+                    cfg.fractal_zoom = value.parse()?;
+                }
                 "--count" | "-n" => {
                     let value = args
                         .next()
@@ -428,6 +438,9 @@ impl Config {
         }
         if cfg.fill_scale <= 0.0 {
             return Err("fill scale must be greater than 0".into());
+        }
+        if cfg.fractal_zoom <= 0.0 {
+            return Err("zoom must be greater than 0".into());
         }
         if cfg.count == 0 {
             return Err("count must be at least 1".into());
@@ -458,14 +471,19 @@ fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
-    let low = (base as f32 * 0.4).floor().max(64.0) as u32;
-    let high = (base as f32 * 1.8).ceil().max(80.0) as u32;
+    let low = (base as f32 * 0.6).floor().max(120.0) as u32;
+    let high = (base as f32 * 2.2).ceil().max(160.0) as u32;
     low + (rng.next_u32() % (high - low + 1))
 }
 
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.8 + (rng.next_f32() * 0.6);
-    (base * jitter).clamp(1.2, 2.4)
+    let jitter = 0.8 + (rng.next_f32() * 0.5);
+    (base * jitter).clamp(0.95, 1.75)
+}
+
+fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
+    let jitter = 0.45 + (rng.next_f32() * 0.35);
+    (base * jitter).clamp(0.35, 0.95)
 }
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
@@ -958,6 +976,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         iterations: config.iterations,
         seed: config.seed,
         fill_scale: config.fill_scale,
+        fractal_zoom: config.fractal_zoom,
     };
 
     let output_size =
@@ -1047,6 +1066,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         params.iterations = randomize_iterations(config.iterations, &mut image_rng);
         params.fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
         params.symmetry_style = pick_symmetry_style(&mut image_rng);
+        params.fractal_zoom = randomize_zoom(config.fractal_zoom, &mut image_rng);
         queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1122,11 +1142,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | index {} | seed {} | fill {} | symmetry {} [{}] | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {} | zoom {} | symmetry {} [{}] | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             params.seed,
             params.fill_scale,
+            params.fractal_zoom,
             params.symmetry,
             SymmetryStyle::from_u32(params.symmetry_style).label(),
             params.iterations,
