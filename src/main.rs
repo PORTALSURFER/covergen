@@ -642,8 +642,107 @@ fn ifs_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
     );
 }
 
+fn moire_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let a_seed = hash01(x * 2.1, y * 1.6, params.seed + layer + 261u);
+    let b_seed = hash01(y * 2.3, x * 1.8, params.seed + layer + 263u);
+    var phase = (a_seed - 0.5) * 3.2;
+    var px = x * (1.4 + a_seed * 0.25);
+    var py = y * (1.35 + b_seed * 0.25);
+    var mag2 = 0.0;
+    var escaped = false;
+    var energy = 0.0;
+    var i: u32 = 0u;
+
+    loop {
+        if (i >= 12u) {
+            break;
+        }
+        if (mag2 > 24.0) {
+            escaped = true;
+            break;
+        }
+
+        let freq = 2.4 + a_seed * 3.7 + f32(i) * 0.11;
+        let pulse = 0.5 + 0.5 * sin((px * freq + phase) * 6.28318530718 + b_seed * 5.0);
+        let wave = 0.5 + 0.5 * cos((py * (freq + 0.8) - phase) * 6.28318530718 - base);
+        let stripe = 0.5 + 0.5 * sin((pulse + wave + sin((px + py + phase) * 2.2)) * 7.2);
+        let jitter = (hash01(px, py, params.seed + layer + i + 271u) - 0.5) * 0.8;
+        phase = phase + stripe + jitter;
+        energy = energy + stripe;
+
+        let c = cos(phase);
+        let s = sin(phase);
+        let nx = (px * c - py * s) + (pulse - 0.5) * 0.16;
+        let ny = (px * s + py * c) + (wave - 0.5) * 0.16;
+        px = nx * 0.86;
+        py = ny * 0.86;
+        mag2 = px * px + py * py;
+        i = i + 1u;
+    }
+
+    let iter_term = energy / 12.0;
+    let wave_term = 0.5 + 0.5 * sin(energy * 2.4 + phase + base);
+    let radial_term = 1.0 - clamp(sqrt(max(mag2, 0.0001)) * 0.24, 0.0, 1.0);
+    return select(
+        0.0,
+        clamp((0.34 * iter_term) + (0.36 * wave_term) + (0.30 * radial_term), 0.0, 1.0),
+        escaped,
+    );
+}
+
+fn knot_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let knot_seed = hash01(x * 1.4, y * 1.9, params.seed + layer + 293u);
+    let twist_seed = hash01(y * 1.1, x * 2.2, params.seed + layer + 307u);
+    var px = x * (1.08 + knot_seed * 0.35);
+    var py = y * (1.08 + twist_seed * 0.35);
+    var i: u32 = 0u;
+    var mag2 = 0.0;
+    var escaped = false;
+    var knot = 0.0;
+    var ring = 0.0;
+    let max_iter = min(params.iterations, 220u);
+
+    loop {
+        if (i >= max_iter) {
+            break;
+        }
+        if (mag2 > 40.0) {
+            escaped = true;
+            break;
+        }
+
+        let radius = max(sqrt(max(mag2, 1e-6)), 0.08);
+        let angle = atan2(py, px) + (base * 12.0);
+        let spin = (1.0 / (radius + 0.2)) + (twist_seed * 0.45);
+        let cx = cos(angle + spin + f32(i) * 0.06);
+        let sx = sin(angle + spin + base);
+        let fold = hash01(cx, sx, params.seed + layer + i + 311u);
+        let rx = 0.9 * px + (fold - 0.5) * 0.24 + cos(radius * 3.4 + base + f32(i) * 0.13) * 0.04;
+        let ry = 0.9 * py + (fold - 0.5) * 0.24 + sin(radius * 3.9 + f32(i) * 0.11 + base) * 0.04;
+        let knot_line = abs(sin(radius * 2.2 + angle * 1.6 + fold * 2.4));
+        knot = knot + knot_line;
+        ring = ring + (1.0 - clamp(abs(radius - (0.28 + 0.15 * fold)), 0.0, 1.0));
+        px = rx + cx * 0.18 * knot_line;
+        py = ry + sx * 0.18 * knot_line;
+        mag2 = rx * rx + ry * ry;
+        i = i + 1u;
+    }
+
+    let i_term = f32(i) / max(f32(max_iter), 1.0);
+    let knot_term = clamp(knot / max(f32(max_iter), 1.0), 0.0, 1.0);
+    let ring_term = clamp(ring / max(f32(max_iter), 1.0), 0.0, 1.0);
+    let escape_term = 1.0 - i_term;
+    return select(
+        0.0,
+        clamp((0.36 * knot_term) + (0.30 * ring_term) + (0.34 * escape_term), 0.0, 1.0),
+        escaped,
+    );
+}
+
 fn style_value(x: f32, y: f32, params: Params, layer: u32, style_selector: u32) -> f32 {
-    let style = style_selector % 12u;
+    let style = style_selector % 14u;
     switch (style) {
         case 0u: {
             return hybrid_style_value(x, y, params, layer);
@@ -680,6 +779,12 @@ fn style_value(x: f32, y: f32, params: Params, layer: u32, style_selector: u32) 
         }
         case 11u: {
             return ifs_style_value(x, y, params, layer);
+        }
+        case 12u: {
+            return moire_style_value(x, y, params, layer);
+        }
+        case 13u: {
+            return knot_style_value(x, y, params, layer);
         }
         default: {
             return field_style_value(x, y, params, layer);
@@ -775,11 +880,13 @@ enum ArtStyle {
     Vortex,
     Dragon,
     IFS,
+    Moire,
+    Knot,
 }
 
 impl ArtStyle {
     fn from_u32(value: u32) -> Self {
-        match value % 12 {
+        match value % 14 {
             0 => Self::Hybrid,
             1 => Self::Julia,
             2 => Self::BurningShip,
@@ -791,7 +898,9 @@ impl ArtStyle {
             8 => Self::Nova,
             9 => Self::Vortex,
             10 => Self::Dragon,
-            _ => Self::IFS,
+            11 => Self::IFS,
+            12 => Self::Moire,
+            _ => Self::Knot,
         }
     }
 
@@ -809,6 +918,8 @@ impl ArtStyle {
             Self::Vortex => 9,
             Self::Dragon => 10,
             Self::IFS => 11,
+            Self::Moire => 12,
+            Self::Knot => 13,
         }
     }
 
@@ -826,11 +937,13 @@ impl ArtStyle {
             Self::Vortex => "vortex",
             Self::Dragon => "dragon",
             Self::IFS => "ifs",
+            Self::Moire => "moire",
+            Self::Knot => "knot",
         }
     }
 
     fn total() -> u32 {
-        12
+        14
     }
 }
 
