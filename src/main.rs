@@ -1508,7 +1508,7 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    if rng.next_f32() < 0.28 {
+    if rng.next_f32() < 0.14 {
         return 1;
     }
 
@@ -1516,15 +1516,20 @@ fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
         return 2 + (rng.next_u32() % 8);
     }
 
-    let spread = (base as f32 * 0.45).round() as u32;
+    let full_range: u32 = 16;
+    if rng.next_f32() < 0.40 {
+        return 1 + (rng.next_u32() % full_range);
+    }
+
+    let spread = (base as f32 * 0.65).round() as u32;
     let low = base.saturating_sub(spread).max(1);
-    let high = (base.saturating_add(spread)).max(low + 1).min(16);
+    let high = (base.saturating_add(spread)).max(low + 1).min(full_range);
     low + (rng.next_u32() % (high - low + 1))
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
-    let low = (base as f32 * 0.5).floor().max(140.0) as u32;
-    let high = (base as f32 * 2.5).ceil().max(220.0) as u32;
+    let low = (base as f32 * 0.45).floor().max(120.0) as u32;
+    let high = (base as f32 * 2.8).ceil().max(260.0) as u32;
     low + (rng.next_u32() % (high - low + 1))
 }
 
@@ -1534,18 +1539,18 @@ fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
 }
 
 fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.3 + (rng.next_f32() * 0.55);
+    let jitter = 0.2 + (rng.next_f32() * 0.75);
     (base * jitter).clamp(0.20, 0.95)
 }
 
 fn randomize_center_offset(rng: &mut XorShift32, fast: bool) -> (f32, f32) {
-    let drift = if fast { 0.60 } else { 0.75 };
-    if rng.next_f32() > drift {
+    let center_lock = if fast { 0.12 } else { 0.18 };
+    if rng.next_f32() < center_lock {
         return (0.0, 0.0);
     }
 
     let max_shift = if fast { 0.18 } else { 0.32 };
-    let radius = max_shift * rng.next_f32().powf(1.35);
+    let radius = max_shift * rng.next_f32().sqrt();
     let angle = rng.next_f32() * 6.283185307179586;
     (radius * angle.cos(), radius * angle.sin())
 }
@@ -1556,11 +1561,11 @@ fn modulate_center_offset(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
 }
 
 fn pick_bend_strength(rng: &mut XorShift32) -> f32 {
-    (rng.next_f32().powf(1.7)) * 1.5
+    1.5 * rng.next_f32()
 }
 
 fn pick_warp_strength(rng: &mut XorShift32) -> f32 {
-    (rng.next_f32().powf(1.2)) * 1.5
+    1.5 * rng.next_f32()
 }
 
 fn pick_warp_frequency(rng: &mut XorShift32) -> f32 {
@@ -1581,26 +1586,27 @@ fn pick_art_style(rng: &mut XorShift32) -> ArtStyle {
 
 fn modulate_art_style(base: ArtStyle, rng: &mut XorShift32, fast: bool) -> ArtStyle {
     let roll = rng.next_f32();
+    let stride = 1 + (rng.next_u32() % (ArtStyle::total() - 1));
     if fast {
-        if roll < 0.70 {
+        if roll < 0.35 {
             return base;
         }
-        if roll < 0.82 {
-            return ArtStyle::from_u32(base.as_u32() + 1);
+        if roll < 0.45 {
+            return ArtStyle::from_u32(base.as_u32() + stride);
         }
-        if roll < 0.94 {
+        if roll < 0.55 {
             return ArtStyle::from_u32(base.as_u32() + ArtStyle::total() - 1);
         }
         return pick_art_style(rng);
     }
 
-    if roll < 0.45 {
+    if roll < 0.33 {
         return base;
     }
-    if roll < 0.70 {
-        return ArtStyle::from_u32(base.as_u32() + 1);
+    if roll < 0.50 {
+        return ArtStyle::from_u32(base.as_u32() + stride);
     }
-    if roll < 0.95 {
+    if roll < 0.67 {
         return ArtStyle::from_u32(base.as_u32() + ArtStyle::total() - 1);
     }
     pick_art_style(rng)
@@ -1653,17 +1659,18 @@ fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
 }
 
 fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
-    let keep_base = if fast { 0.88 } else { 0.80 };
+    let keep_base = if fast { 0.48 } else { 0.52 };
     let roll = rng.next_f32();
     if roll < keep_base {
         return SymmetryStyle::from_u32(base).as_u32();
     }
 
-    if roll < 0.94 {
-        return SymmetryStyle::from_u32(base + 1).as_u32();
+    let mut style = SymmetryStyle::from_u32(base + rng.next_u32());
+    if style.as_u32() == base {
+        style = SymmetryStyle::from_u32(pick_symmetry_style(rng));
     }
 
-    pick_symmetry_style(rng)
+    style.as_u32()
 }
 
 fn modulate_iterations(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {

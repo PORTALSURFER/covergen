@@ -228,14 +228,13 @@ pub struct StrategyProfile {
 /// Returns a render strategy for the next layer.
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
     let strategy_roll = rng.next_f32();
-    let gpu_chance = if fast { 0.44 } else { 0.34 };
+    let gpu_chance = if fast { 0.50 } else { 0.48 };
 
     if strategy_roll < gpu_chance {
         return RenderStrategy::Gpu(crate::ArtStyle::from_u32(rng.next_u32()).as_u32());
     }
 
-    let cpu_bias = if fast { 31 } else { 37 };
-    RenderStrategy::Cpu(CpuStrategy::from_u32(rng.next_u32() + cpu_bias))
+    RenderStrategy::Cpu(CpuStrategy::from_u32(rng.next_u32()))
 }
 
 /// Returns post-processing guidance for a strategy.
