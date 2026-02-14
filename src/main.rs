@@ -794,8 +794,180 @@ fn knot_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
     );
 }
 
+fn radial_wave_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let ring_seed = hash01(x * 2.1, y * 1.7, params.seed + layer + 317u);
+    let drift_seed = hash01(x * 1.4, y * 2.2, params.seed + layer + 331u);
+    var px = x * (1.10 + (ring_seed * 0.25));
+    var py = y * (1.10 + ((1.0 - ring_seed) * 0.25));
+    let max_iter = min(params.iterations, 180u);
+    var i: u32 = 0u;
+    var mag2 = 0.0;
+    var escaped = false;
+    var envelope = 0.0;
+    var phase = base * 2.5 + drift_seed * 2.0;
+    var radius = max(length(vec2<f32>(px, py)), 0.0001);
+    let base_angle = atan2(py, px);
+
+    loop {
+        if (i >= max_iter) {
+            break;
+        }
+        if (mag2 > 40.0) {
+            escaped = true;
+            break;
+        }
+
+        let ring = (f32(i) * 0.12) + phase;
+        let harmonic = (f32(((i + layer) % 4u) + 1u) * 0.75) + (drift_seed * 1.2);
+        let pulse = 0.25 + 0.15 * sin(radius * harmonic + base_angle * 2.2 + ring);
+        let twist = 0.15 + (0.18 * sin(base + ring * 0.4));
+        let nr = radius + (0.22 * pulse) + (0.08 * cos(ring + phase));
+        let local_angle = (base_angle * twist) + (ring * 0.24) + (pulse * 0.9);
+
+        var wx = nr * cos(local_angle);
+        var wy = nr * sin(local_angle);
+        let wave = sin(wx * 3.1 + wy * 1.7 + phase);
+        let blend = 0.55 + (0.45 * (wave * 0.5 + 0.5));
+        wx = mix(wx, px, 0.38);
+        wy = mix(wy, py, 0.38);
+
+        px = (wx * 0.68) + (0.16 * (wave + 1.0) * cos(local_angle + base_angle));
+        py = (wy * 0.68) + (0.16 * (wave + 1.0) * sin(local_angle - base_angle));
+        px = px * (1.0 - (0.06 * blend));
+        py = py * (1.0 + (0.06 * (1.0 - blend)));
+
+        radius = max(length(vec2<f32>(px, py)), 0.0001);
+        mag2 = radius * radius;
+        envelope = envelope + (1.0 - clamp(abs(radius - (0.18 + pulse * 0.28)), 0.0, 1.0));
+        phase = phase + (wave * 0.07) + (f32(i) * 0.002);
+        i = i + 1u;
+    }
+
+    let iters = max(f32(max_iter), 1.0);
+    let iter_term = 1.0 - (f32(i) / iters);
+    let ring_term = clamp(envelope / iters, 0.0, 1.0);
+    let orbit_term = 1.0 - clamp(radius * 0.4, 0.0, 1.0);
+    return select(
+        0.0,
+        clamp((0.38 * iter_term) + (0.38 * ring_term) + (0.24 * orbit_term), 0.0, 1.0),
+        escaped,
+    );
+}
+
+fn recursive_fold_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let k1 = hash01(x * 1.3, y * 1.8, params.seed + layer + 347u);
+    let k2 = hash01(x * 1.9, y * 1.6, params.seed + layer + 359u);
+    let k3 = hash01(x * 2.4, y * 1.1, params.seed + layer + 367u);
+    var px = x * (1.0 + (k1 - 0.5) * 0.45);
+    var py = y * (1.0 + (k2 - 0.5) * 0.45);
+    let max_iter = min(params.iterations, 240u);
+    var i: u32 = 0u;
+    var mag2 = 0.0;
+    var escaped = false;
+    var fold_score = 0.0;
+    let seed_angle = base * 4.0;
+
+    loop {
+        if (i >= max_iter) {
+            break;
+        }
+        if (mag2 > 70.0) {
+            escaped = true;
+            break;
+        }
+
+        let a = sin(seed_angle + f32(i) * 0.13);
+        let b = cos(seed_angle * 1.2 + f32(i) * 0.17);
+        let fold_angle = atan2(py, px) + a * 1.6;
+        let c = cos(fold_angle);
+        let s = sin(fold_angle);
+        let rx = px * c - py * s;
+        let ry = px * s + py * c;
+        let fold_x = abs(rx) - (0.26 + k1 * 0.24);
+        let fold_y = abs(ry * 0.95) - (0.18 + k2 * 0.28);
+        let twist = 0.34 + (0.26 * k3);
+        let nx = (fold_x * (1.0 + a * 0.35)) * twist;
+        let ny = (fold_y * (1.0 - b * 0.35)) * twist;
+        px = nx + b * 0.09;
+        py = ny - a * 0.09;
+        px = px + (0.15 * sin(f32(i) * 0.21 + base + k1));
+        py = py + (0.15 * cos(f32(i) * 0.23 + base + k2));
+        mag2 = px * px + py * py;
+        let fold_density = 1.0 - clamp(abs(fold_x * fold_y + 0.1), 0.0, 1.0);
+        fold_score = fold_score + fold_density * (1.0 - clamp(mag2 * 0.02, 0.0, 1.0));
+        i = i + 1u;
+    }
+
+    let iters = max(f32(max_iter), 1.0);
+    let iter_term = 1.0 - f32(i) / iters;
+    let fold_term = clamp(fold_score / iters, 0.0, 1.0);
+    let orbit_term = 1.0 - clamp((sqrt(max(mag2, 0.0001)) * 0.28), 0.0, 1.0);
+    return select(
+        0.0,
+        clamp((0.34 * iter_term) + (0.44 * fold_term) + (0.22 * orbit_term), 0.0, 1.0),
+        escaped,
+    );
+}
+
+fn attractor_hybrid_style_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let k1 = hash01(x * 1.9, y * 1.1, params.seed + layer + 379u);
+    let k2 = hash01(x * 2.5, y * 2.2, params.seed + layer + 389u);
+    let k3 = hash01(x * 1.4, y * 2.7, params.seed + layer + 397u);
+    let a = 1.2 + k1 * 1.1;
+    let b = -0.4 + k2 * 1.6;
+    let c = -1.6 + k3 * 1.2;
+    let d = 0.7 + hash01(x * 3.1, y * 1.9, params.seed + layer + 401u) * 0.9;
+    var zx = x * (1.3 + (k1 - 0.5) * 0.2);
+    var zy = y * (1.3 + (k2 - 0.5) * 0.2);
+    var i: u32 = 0u;
+    var mag2 = 0.0;
+    var escaped = false;
+    var attract_term = 0.0;
+    var orbit_term = 0.0;
+    let max_iter = min(params.iterations, 240u);
+
+    loop {
+        if (i >= max_iter) {
+            break;
+        }
+        if (mag2 > 120.0) {
+            escaped = true;
+            break;
+        }
+
+        let attract_mix = fract(hash01(zx + base, zy - base, params.seed + layer + i) + (0.15 * k3));
+        let attractor_x = sin(a * zy) + c * cos(b * zx);
+        let attractor_y = sin(d * zx) + b * cos(c * zy);
+        let fallback_x = 1.4 - (1.2 * zx * zx) + (0.3 * zy);
+        let fallback_y = -0.6 * zy + 0.8 * sin(zx + base);
+        let nx = mix(attractor_x, fallback_x, attract_mix);
+        let ny = mix(attractor_y, fallback_y, attract_mix);
+        zx = nx * 0.48 + (0.52 * zx);
+        zy = ny * 0.48 + (0.52 * zy);
+        mag2 = zx * zx + zy * zy;
+        let trap = 1.0 - clamp(abs(sqrt(max(mag2, 0.000001)) - (0.30 + 0.20 * k2)), 0.0, 1.0);
+        attract_term = attract_term + (0.5 + 0.5 * sin(trap * 9.0 + base));
+        orbit_term = orbit_term + (1.0 - clamp(mag2 * 0.02, 0.0, 1.0));
+        i = i + 1u;
+    }
+
+    let iters = max(f32(max_iter), 1.0);
+    let iter_term = 1.0 - f32(i) / iters;
+    let attract_norm = clamp(attract_term / iters, 0.0, 1.0);
+    let orbit_norm = clamp(orbit_term / iters, 0.0, 1.0);
+    let radius_term = 1.0 - clamp(sqrt(max(mag2, 0.0001)) * 0.09, 0.0, 1.0);
+    return select(
+        0.0,
+        clamp((0.30 * iter_term) + (0.40 * attract_norm) + (0.20 * orbit_norm) + (0.10 * radius_term), 0.0, 1.0),
+        escaped,
+    );
+}
+
 fn style_value(x: f32, y: f32, params: Params, layer: u32, style_selector: u32) -> f32 {
-    let style = style_selector % 14u;
+    let style = style_selector % 17u;
     switch (style) {
         case 0u: {
             return hybrid_style_value(x, y, params, layer);
@@ -838,6 +1010,15 @@ fn style_value(x: f32, y: f32, params: Params, layer: u32, style_selector: u32) 
         }
         case 13u: {
             return knot_style_value(x, y, params, layer);
+        }
+        case 14u: {
+            return radial_wave_style_value(x, y, params, layer);
+        }
+        case 15u: {
+            return recursive_fold_style_value(x, y, params, layer);
+        }
+        case 16u: {
+            return attractor_hybrid_style_value(x, y, params, layer);
         }
         default: {
             return field_style_value(x, y, params, layer);
@@ -943,11 +1124,14 @@ enum ArtStyle {
     IFS,
     Moire,
     Knot,
+    RadialWave,
+    RecursiveFold,
+    AttractorHybrid,
 }
 
 impl ArtStyle {
     fn from_u32(value: u32) -> Self {
-        match value % 14 {
+        match value % 17 {
             0 => Self::Hybrid,
             1 => Self::Julia,
             2 => Self::BurningShip,
@@ -961,7 +1145,10 @@ impl ArtStyle {
             10 => Self::Dragon,
             11 => Self::IFS,
             12 => Self::Moire,
-            _ => Self::Knot,
+            13 => Self::Knot,
+            14 => Self::RadialWave,
+            15 => Self::RecursiveFold,
+            _ => Self::AttractorHybrid,
         }
     }
 
@@ -981,6 +1168,9 @@ impl ArtStyle {
             Self::IFS => 11,
             Self::Moire => 12,
             Self::Knot => 13,
+            Self::RadialWave => 14,
+            Self::RecursiveFold => 15,
+            Self::AttractorHybrid => 16,
         }
     }
 
@@ -1000,11 +1190,14 @@ impl ArtStyle {
             Self::IFS => "ifs",
             Self::Moire => "moire",
             Self::Knot => "knot",
+            Self::RadialWave => "radial-wave",
+            Self::RecursiveFold => "recursive-fold",
+            Self::AttractorHybrid => "attractor-hybrid",
         }
     }
 
     fn total() -> u32 {
-        14
+        17
     }
 }
 
