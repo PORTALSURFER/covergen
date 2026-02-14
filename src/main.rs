@@ -17,6 +17,12 @@ use image::{
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
+mod strategies;
+
+use crate::strategies::{
+    RenderStrategy, pick_render_strategy, render_cpu_strategy, strategy_profile,
+};
+
 const SHADER: &str = r#"
 struct Params {
     width: u32,
@@ -1744,10 +1750,12 @@ fn should_apply_dynamic_filter(
     rng: &mut XorShift32,
     fast: bool,
     structural_profile: bool,
+    strategy_bias: f32,
 ) -> bool {
     let base: f32 = if fast { 0.34 } else { 0.24 };
     let layer_bias: f32 = if layer_index == 0 { -0.20 } else { 0.12 };
-    let threshold = (base + layer_bias).clamp(0.05, 0.8);
+    let strategy_bias = strategy_bias.clamp(0.0, 1.5);
+    let threshold = ((base + layer_bias) * strategy_bias).clamp(0.02, 0.95);
     let adjusted = if structural_profile {
         threshold * 0.35
     } else {
@@ -1761,10 +1769,12 @@ fn should_apply_gradient_map(
     rng: &mut XorShift32,
     fast: bool,
     structural_profile: bool,
+    strategy_bias: f32,
 ) -> bool {
     let base: f32 = if fast { 0.42 } else { 0.30 };
     let layer_bias: f32 = if layer_index == 0 { -0.25 } else { 0.00 };
-    let threshold = (base + layer_bias).clamp(0.15, 0.95);
+    let strategy_bias = strategy_bias.clamp(0.0, 1.5);
+    let threshold = ((base + layer_bias) * strategy_bias).clamp(0.05, 0.95);
     let adjusted = if structural_profile {
         threshold * 0.33
     } else {
@@ -2614,7 +2624,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
         let base_art_mix = image_rng.next_f32();
-        let structural_profile = should_use_structural_profile(config.fast, &mut image_rng);
+        let base_strategy = pick_render_strategy(&mut image_rng, config.fast);
+        let base_strategy_name = base_strategy.label();
+        let base_profile = strategy_profile(base_strategy);
+        let mut structural_profile =
+            should_use_structural_profile(config.fast, &mut image_rng) || base_profile.force_detail;
         let mut layer_steps = Vec::new();
 
         create_soft_background(
@@ -2634,6 +2648,28 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
         for layer_index in 0..layer_count {
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
+            let layer_strategy = if layer_index == 0 {
+                base_strategy
+            } else {
+                pick_render_strategy(&mut image_rng, config.fast)
+            };
+            let strategy_profile = strategy_profile(layer_strategy);
+            let layer_force_detail = structural_profile || strategy_profile.force_detail;
+            structural_profile = layer_force_detail;
+
+            let mut layer_style = modulate_art_style(base_art_style, &mut image_rng, config.fast);
+            let mut layer_style_secondary =
+                modulate_art_style(base_art_style_secondary, &mut image_rng, config.fast);
+
+            if let RenderStrategy::Gpu(style) = layer_strategy {
+                layer_style = ArtStyle::from_u32(style);
+                layer_style_secondary = modulate_art_style(
+                    ArtStyle::from_u32((style + 1) % ArtStyle::total()),
+                    &mut image_rng,
+                    config.fast,
+                );
+            }
+
             params = Params {
                 width: config.width,
                 height: config.height,
@@ -2666,17 +2702,24 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 tile_phase: modulate_tile_phase(base_tile_phase, &mut image_rng, config.fast),
                 center_x: modulate_center_offset(base_center_x, &mut image_rng, config.fast),
                 center_y: modulate_center_offset(base_center_y, &mut image_rng, config.fast),
-                art_style: modulate_art_style(base_art_style, &mut image_rng, config.fast).as_u32(),
-                art_style_secondary: modulate_art_style(
-                    base_art_style_secondary,
-                    &mut image_rng,
-                    config.fast,
-                )
-                .as_u32(),
+                art_style: layer_style.as_u32(),
+                art_style_secondary: layer_style_secondary.as_u32(),
                 art_style_mix: modulate_style_mix(base_art_mix, &mut image_rng, config.fast),
             };
 
-            render_layer(&params, &mut luma)?;
+            match layer_strategy {
+                RenderStrategy::Gpu(_) => render_layer(&params, &mut luma)?,
+                RenderStrategy::Cpu(cpu_strategy) => {
+                    let generated = render_cpu_strategy(
+                        cpu_strategy,
+                        config.width,
+                        config.height,
+                        layer_seed,
+                        config.fast,
+                    );
+                    luma.copy_from_slice(&generated);
+                }
+            }
             if layer_index == 0 {
                 pre_filter_stats = luma_stats(&luma);
             }
@@ -2689,13 +2732,15 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 layer_index,
                 &mut image_rng,
                 config.fast,
-                structural_profile,
+                layer_force_detail,
+                strategy_profile.filter_bias,
             );
             let apply_gradient = should_apply_gradient_map(
                 layer_index,
                 &mut image_rng,
                 config.fast,
-                structural_profile,
+                layer_force_detail,
+                strategy_profile.gradient_bias,
             );
             let opacity = if layer_index == 0 {
                 1.0
@@ -2798,16 +2843,23 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 blend_layer_stack(&mut layered, &filtered, opacity, overlay);
             }
 
+            let layer_strategy_name = match layer_strategy {
+                RenderStrategy::Cpu(cpu) => format!("[{}]", cpu.label()),
+                RenderStrategy::Gpu(_) => String::new(),
+            };
+            let filter_name = if apply_filter {
+                filter.mode.label()
+            } else {
+                "none"
+            };
+
             layer_steps.push(format!(
-                "L{}:{}({:.2}, f{}, g{}, d{}, c{:.2}) S{}+{}:{:.2}",
+                "L{}:{}({:.2}, f{}{}, g{}, d{}, c{:.2}) S{}+{}:{:.2}",
                 layer_index + 1,
                 overlay.label(),
                 opacity,
-                if apply_filter {
-                    filter.mode.label()
-                } else {
-                    "none"
-                },
+                filter_name,
+                layer_strategy_name,
                 if apply_gradient { "on" } else { "off" },
                 if complexity_fixed { "on" } else { "off" },
                 layer_contrast,
@@ -2885,7 +2937,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         };
 
         println!(
-            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] center({:.2},{:.2}) | iterations {} | styles {}+{}:{:.2} | final d{} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] center({:.2},{:.2}) | iterations {} | strategy {} | final d{} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             base_seed,
@@ -2896,9 +2948,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             base_center_x,
             base_center_y,
             base_iterations,
-            base_art_style.label(),
-            base_art_style_secondary.label(),
-            base_art_mix,
+            base_strategy_name,
             if final_complexity_fixed { "on" } else { "off" },
             layer_count,
             layer_summary,
