@@ -18,6 +18,7 @@ struct Params {
     symmetry: u32,
     iterations: u32,
     seed: u32,
+    fill_scale: f32,
 }
 
 @group(0) @binding(0)
@@ -83,8 +84,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    var px = (f32(id.x) / f32(params.width)) - 0.5;
-    var py = (f32(id.y) / f32(params.height)) - 0.5;
+    var px = ((f32(id.x) + 0.5) / f32(params.width)) * 2.0 - 1.0;
+    var py = ((f32(id.y) + 0.5) / f32(params.height)) * 2.0 - 1.0;
+    px = px * params.fill_scale;
+    py = py * params.fill_scale;
     var value = 0.0;
     let layer_count = 6u;
     let layer_scale: f32 = 1.0 / f32(layer_count);
@@ -103,15 +106,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
 
-    let aspect = f32(params.height) / f32(params.width);
-    let sx = px * aspect;
+    let sx = px;
+    let sy = py;
 
     var layer: u32 = 0u;
     loop {
         if (layer >= layer_count) {
             break;
         }
-        let layer_brightness = layer_value(sx, py, params, layer);
+        let layer_brightness = layer_value(sx, sy, params, layer);
         let weight = 1.0 - (f32(layer) * 0.11);
         value = value + (layer_brightness * layer_brightness * weight * layer_scale);
         layer = layer + 1u;
@@ -129,6 +132,7 @@ struct Params {
     symmetry: u32,
     iterations: u32,
     seed: u32,
+    fill_scale: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -174,6 +178,7 @@ struct Config {
     symmetry: u32,
     iterations: u32,
     seed: u32,
+    fill_scale: f32,
     count: u32,
     output: String,
 }
@@ -207,6 +212,7 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
+            fill_scale: 1.35,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -226,7 +232,9 @@ impl Config {
                     cfg.height = value.parse()?;
                 }
                 "--size" => {
-                    let value = args.next().ok_or("missing size value, pass --size <width>x<height>")?;
+                    let value = args
+                        .next()
+                        .ok_or("missing size value, pass --size <width>x<height>")?;
                     let mut split = value.split('x');
                     cfg.width = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
                     cfg.height = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
@@ -244,10 +252,12 @@ impl Config {
                     cfg.iterations = value.parse()?;
                 }
                 "--seed" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing seed value, pass --seed <u32>")?;
+                    let value = args.next().ok_or("missing seed value, pass --seed <u32>")?;
                     cfg.seed = value.parse()?;
+                }
+                "--fill" => {
+                    let value = args.next().ok_or("missing fill value, pass --fill <f32>")?;
+                    cfg.fill_scale = value.parse()?;
                 }
                 "--count" | "-n" => {
                     let value = args
@@ -273,6 +283,9 @@ impl Config {
         }
         if cfg.iterations == 0 {
             return Err("iterations must be at least 1".into());
+        }
+        if cfg.fill_scale <= 0.0 {
+            return Err("fill scale must be greater than 0".into());
         }
         if cfg.count == 0 {
             return Err("count must be at least 1".into());
@@ -357,8 +370,7 @@ fn apply_motion_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> 
             let idx = pixel_index(x, y, width_i32);
             let center = src[idx];
             let local_blur = (1.0 - center).powi(2);
-            let radius =
-                (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
+            let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
 
             let mut numerator = 0.0;
             let mut denominator = 0.0;
@@ -444,7 +456,7 @@ fn apply_median_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> 
             let mut values = [0f32; 25];
             let mut count = 0usize;
 
-                let mut dy = -radius;
+            let mut dy = -radius;
             while dy <= radius {
                 let mut dx = -radius;
                 while dx <= radius {
@@ -528,7 +540,10 @@ fn resolve_output_path(output: &str) -> PathBuf {
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("output");
-    let extension = base_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let extension = base_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
     let mut index = 1u32;
 
     loop {
@@ -592,6 +607,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         symmetry: config.symmetry,
         iterations: config.iterations,
         seed: config.seed,
+        fill_scale: config.fill_scale,
     };
 
     let output_size =
@@ -721,9 +737,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | seed {} | filter {} | radius {}",
+            "Generated {} | seed {} | fill {} | filter {} | radius {}",
             final_output.display(),
             params.seed,
+            params.fill_scale,
             filter.mode.label(),
             filter.max_radius
         );
