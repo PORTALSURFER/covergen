@@ -1277,7 +1277,7 @@ struct GradientConfig {
     bands: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum SymmetryStyle {
     Radial,
     Mirror,
@@ -1666,12 +1666,19 @@ fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
     let keep_base = if fast { 0.30 } else { 0.35 };
     let roll = rng.next_f32();
     if roll < keep_base {
-        return SymmetryStyle::from_u32(base).as_u32();
+        let style = SymmetryStyle::from_u32(base);
+        if style == SymmetryStyle::Grid && rng.next_f32() > 0.12 {
+            return pick_non_grid_symmetry_style(rng).as_u32();
+        }
+        return style.as_u32();
     }
 
     let mut style = SymmetryStyle::from_u32(base + rng.next_u32());
     if style.as_u32() == base {
         style = SymmetryStyle::from_u32(pick_symmetry_style(rng));
+        if style == SymmetryStyle::Grid && rng.next_f32() > 0.12 {
+            return pick_non_grid_symmetry_style(rng).as_u32();
+        }
     }
 
     style.as_u32()
@@ -1736,7 +1743,22 @@ fn layer_opacity(rng: &mut XorShift32) -> f32 {
 }
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
-    SymmetryStyle::from_u32(rng.next_u32()).as_u32()
+    let roll = rng.next_f32();
+    if roll < 0.08 {
+        SymmetryStyle::Grid.as_u32()
+    } else if roll < 0.54 {
+        SymmetryStyle::Radial.as_u32()
+    } else {
+        SymmetryStyle::Mirror.as_u32()
+    }
+}
+
+fn pick_non_grid_symmetry_style(rng: &mut XorShift32) -> SymmetryStyle {
+    if rng.next_f32() < 0.52 {
+        SymmetryStyle::Radial
+    } else {
+        SymmetryStyle::Mirror
+    }
 }
 
 fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
