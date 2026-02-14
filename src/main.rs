@@ -268,7 +268,7 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
-            fill_scale: 1.35,
+            fill_scale: 1.55,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -378,8 +378,8 @@ fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.7 + (rng.next_f32() * 0.7);
-    (base * jitter).clamp(1.0, 2.0)
+    let jitter = 0.8 + (rng.next_f32() * 0.6);
+    (base * jitter).clamp(1.2, 2.4)
 }
 
 fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
@@ -573,6 +573,42 @@ fn inject_noise(mut src: Vec<f32>, seed: u32, strength: f32) -> Vec<f32> {
     for value in &mut src {
         let noise = ((rng.next_u32() as f32) / (u32::MAX as f32) - 0.5) * 2.0;
         *value = clamp01(*value + noise * gain);
+    }
+    src
+}
+
+fn create_soft_background(width: u32, height: u32, seed: u32) -> Vec<f32> {
+    let mut rng = XorShift32::new(seed ^ 0x9e37_79b9);
+    let freq_x = 0.25 + (rng.next_f32() * 1.8);
+    let freq_y = 0.25 + (rng.next_f32() * 1.8);
+    let phase_a = rng.next_f32() * std::f32::consts::TAU;
+    let phase_b = rng.next_f32() * std::f32::consts::TAU;
+    let falloff = 0.45 + (rng.next_f32() * 0.4);
+
+    let mut out = Vec::with_capacity((width as usize) * (height as usize));
+    let width_f = width as f32;
+    let height_f = height as f32;
+    for y in 0..height {
+        let v = (y as f32 / height_f) * 2.0 - 1.0;
+        let dy = v * v;
+        for x in 0..width {
+            let u = (x as f32 / width_f) * 2.0 - 1.0;
+            let dx = u * u;
+            let radial = 1.0 - ((dx + dy).sqrt() * falloff);
+            let wave_x = (u * std::f32::consts::TAU * freq_x + phase_a).sin() * 0.3;
+            let wave_y = (v * std::f32::consts::TAU * freq_y + phase_b).cos() * 0.3;
+            let cross = ((u + v) * 1.5).sin() * 0.2;
+            out.push(clamp01(
+                0.52 + radial * 0.32 + wave_x * 0.22 + wave_y * 0.22 + cross * 0.1,
+            ));
+        }
+    }
+    out
+}
+
+fn blend_background(mut src: Vec<f32>, bg: &[f32], strength: f32) -> Vec<f32> {
+    for (value, bg_value) in src.iter_mut().zip(bg.iter()) {
+        *value = clamp01((*value * (1.0 - strength)) + (*bg_value * strength));
     }
     src
 }
@@ -945,6 +981,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
         let filter = pick_filter_from_rng(&mut image_rng);
         let gradient = pick_gradient_from_rng(&mut image_rng);
+        let background = create_soft_background(
+            config.width,
+            config.height,
+            params.seed ^ (i + 0x0BADC0DEu32),
+        );
+        let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
         let frame_bytes = {
             let raw = slice.get_mapped_range();
             let data = raw.to_vec();
@@ -958,7 +1000,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
         let filtered = stretch_to_percentile(&filtered, 0.04, 0.96);
         let mapped = apply_gradient_map(filtered, gradient);
-        let mut final_luma = stretch_to_percentile(&mapped, 0.02, 0.98);
+        let mut final_luma = blend_background(
+            stretch_to_percentile(&mapped, 0.02, 0.98),
+            &background,
+            background_strength,
+        );
         let mut final_stats = luma_stats(&final_luma);
 
         if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
