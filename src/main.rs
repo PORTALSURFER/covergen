@@ -109,18 +109,22 @@ fn layer_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
     let jitter = hash01(x + base, y - base, params.seed + layer);
     let layer_shift = f32(layer) * 0.24 + (jitter - 0.5) * 0.35;
     let angle = layer_shift;
+    let phase = hash01(x * 3.1, y * 4.7, params.seed + layer + 1u);
     let radius = 0.42 + 0.06 * f32(layer) + (jitter - 0.5) * 0.08;
     let cx = (radius * x * (3.2 + 0.2 * jitter)) + 0.16 * (sin(angle) + cos(angle * 0.7 + base));
     let cy = (radius * y * (3.0 + 0.2 * (1.0 - jitter))) + 0.16 * (cos(angle) + sin(angle * 0.9 - base));
 
     let rot_x = x * cos(angle) - y * sin(angle);
     let rot_y = x * sin(angle) + y * cos(angle);
-    let orbit_scale = 2.22 + (f32(layer) * 0.03);
+    let orbit_scale = 1.62 + (f32(layer) * 0.02) + (phase - 0.5) * 0.15;
     var zx = rot_x * orbit_scale;
     var zy = rot_y * orbit_scale;
     var i: u32 = 0u;
     var mag2 = 0.0;
     var escaped = false;
+    var orbit_depth = 0.0;
+    var z_angle = 0.0;
+    var c_angle = 0.0;
 
     loop {
         if (i >= params.iterations) {
@@ -131,19 +135,47 @@ fn layer_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
             break;
         }
 
-        let x2 = zx * zx - zy * zy + cx;
-        let y2 = 2.0 * zx * zy + cy;
-        zx = x2;
-        zy = y2;
+        let radius2 = max(mag2, 0.0001);
+        let z_radius = sqrt(radius2);
+        z_angle = atan2(zy, zx);
+        let mode = hash01(f32(i) * 0.17 + base, f32(layer) * 0.11 + base, params.seed ^ (i + layer));
+        let power = 2.0 + (phase * 0.6) + (mode * 0.7);
+        let twist = 0.12 * sin(z_angle * 5.0 + phase * 6.28318530718 + f32(i) * 0.03);
+        let scaled = pow(z_radius, power) * 0.55;
+        c_angle = z_angle * power + twist;
+        let polar_x = scaled * cos(c_angle);
+        let polar_y = scaled * sin(c_angle);
+        let folded_x = abs(polar_x) + 0.18 * (0.5 - mode);
+        let folded_y = abs(polar_y) + 0.12 * (0.5 - phase);
+        let p1 = folded_x - folded_y * 0.35;
+        let p2 = folded_y + folded_x * 0.28;
+
+        var x2 = p1 + cx;
+        var y2 = 1.5 * p2 + cy + cos(twist * 2.0);
+        if (mode >= 0.33 && mode < 0.66) {
+            x2 = (p1 * p1 - p2 * p2) * 0.5 + cx;
+            y2 = (2.0 * p1 * p2) + cy;
+        } else if (mode >= 0.66) {
+            x2 = polar_x + p2 * 0.24 + cx + sin(twist * 3.0);
+            y2 = polar_y + cx * 0.18 + cos(polar_x * 1.4);
+        }
+
+        zx = x2 + (jitter - 0.5) * 0.09;
+        zy = y2 + (1.0 - (f32(layer) + 1.0) * 0.06) * (mode - 0.5) * 0.22;
         mag2 = zx * zx + zy * zy;
+        orbit_depth = orbit_depth + abs(z_radius - 1.0);
         i = i + 1u;
     }
 
-    return select(
-        0.0,
-        1.0 - (f32(i) / f32(params.iterations)),
-        escaped,
-    );
+    let iter_ratio = f32(i) / max(f32(params.iterations), 1.0);
+    let escape_term = 1.0 - iter_ratio;
+    let trap_term = 1.0 - clamp(orbit_depth / (f32(params.iterations) * 0.65 + 1.0), 0.0, 1.0);
+    let angle_term = 0.5 + 0.5 * sin(z_angle + c_angle + base);
+    let detail_term = hash01(zx, zy, params.seed + layer + i);
+    let warp_term = 0.5 + 0.5 * sin(zx * 2.3 + zy * 1.9 + base);
+    let value = (0.20 * angle_term) + (0.20 * trap_term) + (0.20 * escape_term) + (0.20 * detail_term) + (0.20 * warp_term);
+
+    return select(0.0, clamp(value, 0.0, 1.0), escaped);
 }
 
 @compute @workgroup_size(16, 16)
@@ -158,8 +190,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     px = px * params.fill_scale * zoom;
     py = py * params.fill_scale * zoom;
     var value = 0.0;
-    let layer_count = 7u;
-    let layer_scale: f32 = 1.0 / f32(layer_count);
+    let layer_count = 10u;
 
     if (params.symmetry > 1u) {
         let folded = fold_for_symmetry(px, py, params.symmetry, params.symmetry_style);
@@ -177,8 +208,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             break;
         }
         let layer_brightness = layer_value(sx, sy, params, layer);
-        let weight = 1.0 - (f32(layer) * 0.11);
-        value = value + (layer_brightness * layer_brightness * weight * layer_scale);
+        let layer_factor = f32(layer) / f32(layer_count);
+        let weight = pow(1.0 - layer_factor, 1.2) * 1.15;
+        value = value + (layer_brightness * layer_brightness * weight);
         layer = layer + 1u;
     }
 
@@ -395,7 +427,7 @@ impl Config {
             width: 1024,
             height: 1024,
             symmetry: 4,
-            iterations: 240,
+            iterations: 320,
             seed: random_seed(),
             fill_scale: 1.35,
             fractal_zoom: 0.72,
@@ -510,8 +542,8 @@ fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
-    let low = (base as f32 * 0.6).floor().max(120.0) as u32;
-    let high = (base as f32 * 2.2).ceil().max(160.0) as u32;
+    let low = (base as f32 * 0.5).floor().max(140.0) as u32;
+    let high = (base as f32 * 2.5).ceil().max(220.0) as u32;
     low + (rng.next_u32() % (high - low + 1))
 }
 
@@ -521,8 +553,8 @@ fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
 }
 
 fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.45 + (rng.next_f32() * 0.35);
-    (base * jitter).clamp(0.35, 0.95)
+    let jitter = 0.3 + (rng.next_f32() * 0.55);
+    (base * jitter).clamp(0.20, 0.95)
 }
 
 fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -> u32 {
