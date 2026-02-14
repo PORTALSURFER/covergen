@@ -158,6 +158,7 @@ impl FilterMode {
     }
 }
 
+#[derive(Clone, Copy)]
 struct BlurConfig {
     mode: FilterMode,
     max_radius: u32,
