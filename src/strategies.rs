@@ -60,12 +60,44 @@ pub enum CpuStrategy {
     TuringCascade,
     /// Dense flow field filaments with high curvature paths.
     FlowFilaments,
+    /// Multi-orbit trajectory atlas with layered chaotic maps.
+    OrbitalAtlas,
+    /// Diffusion-limited crystal growth grown by random walkers.
+    CrystalGrowth,
+    /// Vortex-driven particle convection with noise-warped fields.
+    VortexConvection,
+    /// Erosion-like channel carving on a synthetic terrain field.
+    ErosionChannels,
+    /// Stochastic affine-IFS style orbit map with mixed nonlinear transforms.
+    StochasticIFS,
+    /// De Jong-style chaotic attractor traced through nonlinear maps.
+    DeJongAttractor,
+    /// Recursive ribbon traces with branching and angular modulation.
+    RecursiveRibbon,
+    /// Magnetic dipole-like field-line tracing with pseudo-physical dynamics.
+    MagneticFieldlines,
+    /// Lorenz-style chaotic attractor projected into 2D.
+    LorenzAttractor,
+    /// Recursive starburst growth with branching trajectories.
+    RecursiveStarburst,
+    /// Chaotic logistic-map evolution in 2D projected to the canvas.
+    LogisticChaos,
+    /// Interference-like wave superposition on a noisy phase field.
+    InterferenceWaves,
+    /// Clifford attractor family projected in 2D with folding nonlinearities.
+    CliffordAttractor,
+    /// Julia set escape-time rendering with randomized complex parameter.
+    JuliaSet,
+    /// Recursive Koch-like curve network with bifurcating segments.
+    KochSnowflake,
+    /// Branching transport process that recursively splits path segments.
+    BifurcationTree,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        25
+        41
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -95,7 +127,23 @@ impl CpuStrategy {
             21 => Self::MandelbrotField,
             22 => Self::RecursiveTiling,
             23 => Self::TuringCascade,
-            _ => Self::FlowFilaments,
+            24 => Self::FlowFilaments,
+            25 => Self::OrbitalAtlas,
+            26 => Self::CrystalGrowth,
+            27 => Self::VortexConvection,
+            28 => Self::ErosionChannels,
+            29 => Self::StochasticIFS,
+            30 => Self::DeJongAttractor,
+            31 => Self::RecursiveRibbon,
+            32 => Self::MagneticFieldlines,
+            33 => Self::LorenzAttractor,
+            34 => Self::RecursiveStarburst,
+            35 => Self::LogisticChaos,
+            36 => Self::InterferenceWaves,
+            37 => Self::CliffordAttractor,
+            38 => Self::JuliaSet,
+            39 => Self::KochSnowflake,
+            _ => Self::BifurcationTree,
         }
     }
 
@@ -114,6 +162,9 @@ impl CpuStrategy {
             Self::Delaunay => "delaunay",
             Self::IteratedFractal => "iterated-fractal",
             Self::StrangeAttractor => "strange-attractor",
+            Self::DeJongAttractor => "de-jong-attractor",
+            Self::RecursiveRibbon => "recursive-ribbon",
+            Self::MagneticFieldlines => "magnetic-fieldlines",
             Self::RadialWave => "radial-wave",
             Self::RecursiveFold => "recursive-fold",
             Self::AttractorHybrid => "attractor-hybrid",
@@ -127,6 +178,19 @@ impl CpuStrategy {
             Self::RecursiveTiling => "recursive-tiling",
             Self::TuringCascade => "turing-cascade",
             Self::FlowFilaments => "flow-filaments",
+            Self::OrbitalAtlas => "orbital-atlas",
+            Self::CrystalGrowth => "crystal-growth",
+            Self::VortexConvection => "vortex-convection",
+            Self::ErosionChannels => "erosion-channels",
+            Self::StochasticIFS => "stochastic-ifs",
+            Self::LorenzAttractor => "lorenz-attractor",
+            Self::RecursiveStarburst => "recursive-starburst",
+            Self::LogisticChaos => "logistic-chaos",
+            Self::InterferenceWaves => "interference-waves",
+            Self::CliffordAttractor => "clifford-attractor",
+            Self::JuliaSet => "julia-set",
+            Self::KochSnowflake => "koch-snowflake",
+            Self::BifurcationTree => "bifurcation-tree",
         }
     }
 }
@@ -225,9 +289,33 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
                 gradient_bias: 0.24,
                 force_detail: true,
             },
-            CpuStrategy::RecursiveTiling => StrategyProfile {
+            CpuStrategy::OrbitalAtlas
+            | CpuStrategy::CrystalGrowth
+            | CpuStrategy::RecursiveTiling => StrategyProfile {
                 filter_bias: 0.24,
                 gradient_bias: 0.18,
+                force_detail: true,
+            },
+            CpuStrategy::VortexConvection
+            | CpuStrategy::ErosionChannels
+            | CpuStrategy::StochasticIFS
+            | CpuStrategy::DeJongAttractor
+            | CpuStrategy::RecursiveRibbon
+            | CpuStrategy::MagneticFieldlines
+            | CpuStrategy::LorenzAttractor
+            | CpuStrategy::RecursiveStarburst
+            | CpuStrategy::InterferenceWaves
+            | CpuStrategy::CliffordAttractor
+            | CpuStrategy::KochSnowflake
+            | CpuStrategy::BifurcationTree
+            | CpuStrategy::JuliaSet => StrategyProfile {
+                filter_bias: 0.13,
+                gradient_bias: 0.12,
+                force_detail: true,
+            },
+            CpuStrategy::LogisticChaos => StrategyProfile {
+                filter_bias: 0.18,
+                gradient_bias: 0.20,
                 force_detail: true,
             },
             CpuStrategy::CannyEdge => StrategyProfile {
@@ -274,6 +362,22 @@ pub fn render_cpu_strategy(
         CpuStrategy::RecursiveTiling => render_recursive_tiling(width, height, &mut rng),
         CpuStrategy::TuringCascade => render_turing_cascade(width, height, &mut rng),
         CpuStrategy::FlowFilaments => render_flow_filaments(width, height, &mut rng),
+        CpuStrategy::OrbitalAtlas => render_orbital_atlas(width, height, &mut rng),
+        CpuStrategy::CrystalGrowth => render_crystal_growth(width, height, &mut rng),
+        CpuStrategy::VortexConvection => render_vortex_convection(width, height, &mut rng),
+        CpuStrategy::ErosionChannels => render_erosion_channels(width, height, &mut rng),
+        CpuStrategy::StochasticIFS => render_stochastic_ifs(width, height, &mut rng),
+        CpuStrategy::LorenzAttractor => render_lorenz_attractor(width, height, &mut rng),
+        CpuStrategy::RecursiveStarburst => render_recursive_starburst(width, height, &mut rng),
+        CpuStrategy::LogisticChaos => render_logistic_chaos(width, height, &mut rng),
+        CpuStrategy::DeJongAttractor => render_de_jong_attractor(width, height, &mut rng),
+        CpuStrategy::RecursiveRibbon => render_recursive_ribbon(width, height, &mut rng),
+        CpuStrategy::MagneticFieldlines => render_magnetic_fieldlines(width, height, &mut rng),
+        CpuStrategy::InterferenceWaves => render_interference_waves(width, height, &mut rng),
+        CpuStrategy::CliffordAttractor => render_clifford_attractor(width, height, &mut rng),
+        CpuStrategy::JuliaSet => render_julia_set(width, height, &mut rng),
+        CpuStrategy::KochSnowflake => render_koch_snowflake(width, height, &mut rng),
+        CpuStrategy::BifurcationTree => render_bifurcation_tree(width, height, &mut rng),
     }
 }
 
@@ -1849,6 +1953,1738 @@ fn render_flow_filaments(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f
     out
 }
 
+fn render_orbital_atlas(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(168);
+    let sim_h = (height / 2).max(168);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let layers = 2 + (rng.next_u32() % 3);
+    let mut phase = 0u32;
+    let mut base = 0.75f32 + rng.next_f32() * 0.7;
+    let jitter = 0.34f32 + rng.next_f32() * 0.42;
+    let scale = 0.0019 + rng.next_f32() * 0.0046;
+
+    while phase < layers {
+        let steps = 60_000 + (sim_w * sim_h / 8) + (phase * 8_000);
+        let mut x = 0.23 + (rng.next_f32() * 0.54);
+        let mut y = 0.23 + (rng.next_f32() * 0.54);
+        let k1 = 0.9 + rng.next_f32() * 1.1;
+        let k2 = -1.6 + rng.next_f32() * 2.9;
+        let k3 = 0.15 + rng.next_f32() * 0.9;
+        let k4 = 1.1 + rng.next_f32() * 1.2;
+        let k5 = rng.next_f32();
+        let seed = rng.next_u32();
+
+        let mut i = 0u32;
+        while i < steps {
+            let n1 = value_noise(x * 3.3 + phase as f32 * 0.11, y * 2.8, seed + i) - 0.5;
+            let n2 = value_noise(
+                y * 2.7 - phase as f32 * 0.13,
+                x * 3.1 + i as f32,
+                seed + i + 23,
+            );
+            let n2 = n2 - 0.5;
+            let theta = (n2 * 2.2 + y.atan2(x) + (phase as f32 + 1.0) * 0.18).sin();
+            let r = (x * x + y * y).sqrt() + 0.0003;
+            let mix = (n1 * 2.0 + jitter * 0.2).sin();
+            let nx = (1.2 * x - k2 * y * y + k3 * mix * theta).tanh();
+            let ny = (k4 * y + k1 * x * x.sin() + k5 * mix - k2 * x * n1).tanh();
+
+            let vx = k1 * theta + n1 * base;
+            let vy = k2 * (theta * 1.2) + n2 * base;
+            x = (nx + vx * 0.07 + k3 * r * 0.5 * base).clamp(-1.0, 1.0);
+            y = (ny + vy * 0.07 + k4 * r * 0.5 * base).clamp(-1.0, 1.0);
+
+            let sx = ((x + 1.0) * 0.5 * (sim_w as f32 - 1.0)).round() as i32;
+            let sy = ((y + 1.0) * 0.5 * (sim_h as f32 - 1.0)).round() as i32;
+            let s = (sim_w as i32 - 1).max(1);
+            let t = (sim_h as i32 - 1).max(1);
+            let ix = sx.rem_euclid(s) as usize;
+            let iy = sy.rem_euclid(t) as usize;
+            let idx = iy * sim_w as usize + ix;
+            density[idx] += 0.85 / (1.0 + phase as f32);
+
+            let pulse = value_noise(x * 12.0 + i as f32 * 0.003, y * 11.0, seed ^ i);
+            if pulse > 0.74 {
+                let ox =
+                    (ix as i32 + ((pulse - 0.5) * 9.0).round() as i32).clamp(0, sim_w as i32 - 1);
+                let oy = (iy as i32 + (((1.0 - pulse) - 0.5) * 9.0).round() as i32)
+                    .clamp(0, sim_h as i32 - 1);
+                draw_point(
+                    ox,
+                    oy,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    0.55,
+                    &mut density,
+                );
+            }
+
+            if i % 4 == 0 {
+                draw_point(
+                    ix as i32,
+                    iy as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    0,
+                    1.0,
+                    &mut density,
+                );
+            }
+            i += 1;
+        }
+
+        if phase > 0 {
+            let detail = resize_nearest(&density, sim_w, sim_h, sim_w / 2, sim_h / 2);
+            let blurred = resize_nearest(&detail, sim_w / 2, sim_h / 2, sim_w, sim_h);
+            let mut j = 0usize;
+            while j < density.len() {
+                density[j] = clamp01(density[j] * 0.82 + blurred[j] * 0.18);
+                j += 1;
+            }
+        }
+        base *= 0.91 + rng.next_f32() * 0.05;
+        phase += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.76 + (scale % 0.3)));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_crystal_growth(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(190);
+    let sim_h = (height / 2).max(190);
+    let size = (sim_w * sim_h) as usize;
+    let mut density = vec![0.0f32; size];
+    let mut occupied = vec![false; size];
+
+    let center_x = (sim_w / 2) as i32;
+    let center_y = (sim_h / 2) as i32;
+    let center_idx = center_y as usize * sim_w as usize + center_x as usize;
+    occupied[center_idx] = true;
+    density[center_idx] = 1.0;
+
+    let mut frontier = vec![(center_x, center_y)];
+    let walkers = ((size as u32 / 60) + (rng.next_u32() % 900)) as usize;
+    let max_steps = 260 + (rng.next_u32() % 260) as i32;
+    let mut placed = 1usize;
+    let mut attempts = 0u32;
+    let mut i = 0u32;
+
+    while placed < walkers && i < walkers as u32 * 5 {
+        if frontier.is_empty() {
+            break;
+        }
+
+        let pivot = frontier[(rng.next_u32() as usize) % frontier.len()];
+        let mut wx = pivot.0 + 2 - (rng.next_u32() % 5) as i32;
+        let mut wy = pivot.1 + 2 - (rng.next_u32() % 5) as i32;
+        wx = wx.clamp(1, sim_w as i32 - 2);
+        wy = wy.clamp(1, sim_h as i32 - 2);
+
+        let mut step = 0i32;
+        while step < max_steps {
+            let choice = rng.next_u32() % 8;
+            wx += match choice {
+                0 => 1,
+                1 => -1,
+                2 | 3 => 0,
+                _ => 0,
+            };
+            wy += match choice {
+                2 => 1,
+                3 => -1,
+                4 | 5 => 0,
+                _ => 0,
+            };
+            wx = wx.clamp(1, sim_w as i32 - 2);
+            wy = wy.clamp(1, sim_h as i32 - 2);
+
+            let idx = wy as usize * sim_w as usize + wx as usize;
+            if occupied[idx] {
+                wx = (rng.next_u32() % (sim_w - 2)) as i32 + 1;
+                wy = (rng.next_u32() % (sim_h - 2)) as i32 + 1;
+                step += 1;
+                continue;
+            }
+
+            let has_neighbor = {
+                let left = density[(wy as usize) * sim_w as usize + (wx as usize - 1)] > 0.0;
+                let right = density[(wy as usize) * sim_w as usize + (wx as usize + 1)] > 0.0;
+                let up = density[(wy as usize - 1) * sim_w as usize + (wx as usize)] > 0.0;
+                let down = density[(wy as usize + 1) * sim_w as usize + (wx as usize)] > 0.0;
+                left || right || up || down
+            };
+
+            if has_neighbor {
+                let noise = value_noise(wx as f32 * 0.018, wy as f32 * 0.018, rng.next_u32());
+                let glow = 0.8 + noise * 0.2;
+                occupied[idx] = true;
+                draw_point(
+                    wx,
+                    wy,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    glow,
+                    &mut density,
+                );
+                frontier.push((wx, wy));
+                placed += 1;
+                break;
+            }
+
+            if rng.next_f32() < 0.03 {
+                let drift_x = (noise_value(wx as f32, wy as f32, i) - 0.5) * 0.85;
+                wx = (wx + drift_x as i32).clamp(1, sim_w as i32 - 2);
+            }
+            step += 1;
+            attempts += 1;
+        }
+
+        if i % 2 == 0 {
+            let sx = 1.0 - (attempts as f32 / ((walkers * 3) as f32)).min(0.8);
+            let noise = noise_field(sim_w, sim_h, rng, 2);
+            let mut p = 0usize;
+            while p < density.len() {
+                density[p] =
+                    clamp01((density[p] * (0.9 + 0.1 * sx)) + (noise[p] * (1.0 - sx) * 0.3));
+                p += 1;
+            }
+        }
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.82));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_vortex_convection(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(176);
+    let sim_h = (height / 2).max(176);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let vortex_count = 3 + (rng.next_u32() % 4);
+    let mut vortices = Vec::with_capacity(vortex_count as usize);
+    let mut i = 0u32;
+
+    let diag = sim_w.max(sim_h) as f32;
+    while i < vortex_count {
+        let cx = rng.next_f32() * (sim_w as f32 - 1.0);
+        let cy = rng.next_f32() * (sim_h as f32 - 1.0);
+        let strength = 0.7 + rng.next_f32() * 2.0;
+        let radius = diag * (0.18 + rng.next_f32() * 0.34);
+        let rotation = (if rng.next_f32() < 0.5 { 1.0 } else { -1.0 }) * (0.75 + rng.next_f32());
+        vortices.push((cx, cy, strength, radius * radius, rotation));
+        i += 1;
+    }
+
+    let strands = (((sim_w * sim_h) as u32) / 56).max(1_600);
+    let steps = 220 + (rng.next_u32() % 220);
+    let base_seed = rng.next_u32();
+    let noise_seed = rng.next_u32();
+
+    let mut strand = 0u32;
+    while strand < strands {
+        let mut x = rng.next_f32() * (sim_w as f32 - 1.0);
+        let mut y = rng.next_f32() * (sim_h as f32 - 1.0);
+        let mut phase = rng.next_f32() * TAU;
+        let mut step = 0u32;
+
+        while step < steps {
+            let mut vx = 0.0f32;
+            let mut vy = 0.0f32;
+            for &(cx, cy, strength, radius2, rotation) in vortices.iter() {
+                let dx = x - cx;
+                let dy = y - cy;
+                let dist2 = dx * dx + dy * dy + 0.001;
+                let falloff = (-dist2 / radius2.max(1.0)).exp();
+                let tangent = dy.atan2(dx) + TAU * 0.25;
+                vx += rotation * strength * tangent.cos() * falloff;
+                vy += rotation * strength * tangent.sin() * falloff;
+            }
+
+            let n1 = value_noise(
+                x * 0.006 + phase,
+                y * 0.006 + (step as f32 * 0.003),
+                base_seed ^ step,
+            );
+            let n2 = value_noise(y * 0.005 + 7.0, x * 0.005 - 11.0, noise_seed + strand);
+            let n3 = value_noise(
+                (x + y) * 0.004 + (strand as f32),
+                (x - y) * 0.004 - (strand as f32),
+                base_seed ^ (noise_seed + step),
+            );
+
+            vx = (vx + (n1 - 0.5) * 2.4 + (n3 - 0.5) * 0.9) * 1.3;
+            vy = (vy + (n2 - 0.5) * 2.4 - (n3 - 0.5) * 0.9) * 1.3;
+            let nx = (x + vx).rem_euclid(sim_w as f32 - 1.0);
+            let ny = (y + vy).rem_euclid(sim_h as f32 - 1.0);
+
+            draw_line(
+                x.round() as i32,
+                y.round() as i32,
+                nx.round() as i32,
+                ny.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                0.82 + ((n1 + n2) * 0.06),
+                &mut density,
+            );
+
+            if step % 14 == 0 {
+                let px = (nx + ((n3 - 0.5) * 2.6)).clamp(0.0, sim_w as f32 - 1.0) as i32;
+                let py = (ny - ((n3 - 0.5) * 2.6)).clamp(0.0, sim_h as f32 - 1.0) as i32;
+                draw_point(
+                    px,
+                    py,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    0.36,
+                    &mut density,
+                );
+            }
+
+            x = nx;
+            y = ny;
+            phase += 0.055 + (n1 - 0.5) * 0.06;
+            step += 1;
+        }
+        strand += 1;
+    }
+
+    let warp = noise_field(sim_w, sim_h, rng, 2);
+    let mut i = 0usize;
+    while i < density.len() {
+        density[i] = clamp01(density[i] * 0.94 + warp[i] * 0.06);
+        i += 1;
+    }
+
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.87));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_erosion_channels(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 3).max(224);
+    let sim_h = (height / 3).max(224);
+    let size = (sim_w * sim_h) as usize;
+    let mut terrain = noise_field(sim_w, sim_h, rng, 6);
+    let mut channels = vec![0.0f32; size];
+
+    let drops = ((size as u32) / 35).max(1_600);
+    let steps = 130 + (rng.next_u32() % 160);
+    let mut drop = 0u32;
+
+    while drop < drops {
+        let mut x = if rng.next_f32() < 0.5 {
+            if rng.next_u32() & 1 == 0 {
+                0.0
+            } else {
+                sim_w as f32 - 1.0
+            }
+        } else {
+            rng.next_f32() * (sim_w as f32 - 1.0)
+        };
+        let mut y = if rng.next_f32() < 0.5 {
+            if rng.next_u32() & 1 == 0 {
+                0.0
+            } else {
+                sim_h as f32 - 1.0
+            }
+        } else {
+            rng.next_f32() * (sim_h as f32 - 1.0)
+        };
+        let mut speed = 1.0 + (rng.next_f32() * 0.9);
+        let mut sediment = 0.0f32;
+        let mut step = 0u32;
+
+        while step < steps {
+            let cx = x.round() as i32;
+            let cy = y.round() as i32;
+            let ix = cx.clamp(0, sim_w as i32 - 1) as usize;
+            let iy = cy.clamp(0, sim_h as i32 - 1) as usize;
+            let idx = iy * sim_w as usize + ix;
+            let mut best_drop = 0.0f32;
+            let mut nx = cx;
+            let mut ny = cy;
+
+            let mut oy = -1i32;
+            while oy <= 1 {
+                let mut ox = -1i32;
+                while ox <= 1 {
+                    if ox != 0 || oy != 0 {
+                        let sx = (ix as i32 + ox).clamp(0, sim_w as i32 - 1);
+                        let sy = (iy as i32 + oy).clamp(0, sim_h as i32 - 1);
+                        let nidx = sy as usize * sim_w as usize + sx as usize;
+                        let drop_delta = terrain[idx] - terrain[nidx];
+                        let orth = if ox == 0 || oy == 0 { 1.0 } else { 0.74 };
+                        let score = drop_delta * orth;
+                        if score > best_drop {
+                            best_drop = score;
+                            nx = sx;
+                            ny = sy;
+                        }
+                    }
+                    ox += 1;
+                }
+                oy += 1;
+            }
+
+            if best_drop <= 0.0008 {
+                terrain[idx] = clamp01(terrain[idx] + sediment * 0.16);
+                channels[idx] = clamp01(channels[idx] + sediment * 0.12);
+                break;
+            }
+
+            let transfer = ((speed * 0.06) + (best_drop * 2.2))
+                .min(terrain[idx])
+                .min(0.028);
+            terrain[idx] = clamp01(terrain[idx] - transfer);
+            let next_idx = ny as usize * sim_w as usize + nx as usize;
+            terrain[next_idx] = clamp01(terrain[next_idx] + transfer * 0.38);
+            channels[idx] = clamp01(channels[idx] + transfer * 1.9);
+            channels[next_idx] = clamp01(channels[next_idx] + transfer * 0.8);
+
+            sediment = (sediment + transfer * 2.1) * 0.96;
+            let edge = 0.74
+                + (transfer + (sediment * 0.4)).clamp(0.0, 0.2)
+                + value_noise(
+                    nx as f32 * 0.2 + steps as f32 * 0.001,
+                    ny as f32 * 0.2 + drop as f32 * 0.001,
+                    drop ^ step,
+                ) * 0.07;
+            draw_line(
+                ix as i32,
+                iy as i32,
+                nx,
+                ny,
+                sim_w as usize,
+                sim_h as usize,
+                edge,
+                &mut channels,
+            );
+
+            let drift = (value_noise(
+                x * 0.008 + step as f32 * 0.004,
+                y * 0.008 - step as f32 * 0.002,
+                drop ^ 0x55AA_55AA,
+            ) - 0.5)
+                * 0.7;
+            x = (nx as f32 + drift).clamp(0.0, sim_w as f32 - 1.0);
+            y = (ny as f32 - drift).clamp(0.0, sim_h as f32 - 1.0);
+            speed = (speed * 1.08 + transfer * 14.0).clamp(0.4, 2.5);
+            step += 1;
+        }
+
+        drop += 1;
+    }
+
+    let noise = noise_field(sim_w, sim_h, rng, 2);
+    let mut out = vec![0.0f32; size];
+    let mut i = 0usize;
+    while i < size {
+        out[i] = clamp01(channels[i] * 1.02 + (1.0 - terrain[i]) * 0.37 + noise[i] * 0.05);
+        i += 1;
+    }
+
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(value.powf(0.84));
+    }
+    normalize(&mut resized);
+    resized
+}
+
+#[derive(Clone, Copy)]
+struct StochasticTransform {
+    mode: u32,
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+    scale: f32,
+    twist: f32,
+    weight: f32,
+}
+
+fn render_stochastic_ifs(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(148);
+    let sim_h = (height / 2).max(148);
+    let size = (sim_w * sim_h) as usize;
+    let mut density = vec![0.0f32; size];
+    let transform_count = 5 + (rng.next_u32() % 5) as usize;
+    let mut transforms = Vec::with_capacity(transform_count);
+    let mut total_weight = 0.0f32;
+    let mut i = 0usize;
+
+    while i < transform_count {
+        let mode = rng.next_u32() % 4;
+        let a = 1.3 + rng.next_f32() * 1.2;
+        let b = 0.8 + rng.next_f32() * 0.9;
+        let c = 0.8 + rng.next_f32() * 0.9;
+        let d = 1.3 + rng.next_f32() * 1.2;
+        let e = (rng.next_f32() * 2.0) - 1.0;
+        let f = (rng.next_f32() * 2.0) - 1.0;
+        let scale = 0.55 + rng.next_f32() * 1.15;
+        let twist = (rng.next_f32() * TAU) - (TAU * 0.5);
+        let weight = 0.35 + rng.next_f32() * 0.8;
+        transforms.push(StochasticTransform {
+            mode,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            scale,
+            twist,
+            weight,
+        });
+        total_weight += weight;
+        i += 1;
+    }
+
+    let points = 120_000 + ((sim_w * sim_h) / 2);
+    let warmup = 240u32;
+    let seed = rng.next_u32();
+    let mut xs = Vec::with_capacity(points as usize);
+    let mut ys = Vec::with_capacity(points as usize);
+    let mut x = rng.next_f32() * 0.2 + -0.1;
+    let mut y = rng.next_f32() * 0.2 + -0.1;
+    let mut min_x = f32::INFINITY;
+    let mut max_x = -f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = -f32::INFINITY;
+    let mut i = 0u32;
+
+    while i < points + warmup {
+        let mut pick = rng.next_f32() * total_weight;
+        let mut idx = 0usize;
+        let mut selected = 0usize;
+        while idx < transforms.len() {
+            pick -= transforms[idx].weight;
+            if pick <= 0.0 {
+                selected = idx;
+                break;
+            }
+            idx += 1;
+        }
+        let tr = transforms[selected];
+        let (nx_raw, ny_raw) = match tr.mode {
+            0 => {
+                let nx = tr.a * x + tr.b * y + tr.e;
+                let ny = tr.c * x + tr.d * y + tr.f;
+                (nx * 0.45, ny * 0.45)
+            }
+            1 => {
+                let r2 = (x * x + y * y).max(0.000_01);
+                let nx = (tr.a * x - tr.b * y) / r2 + tr.e;
+                let ny = (tr.c * y + tr.d * x) / (r2 * 1.1) + tr.f;
+                (nx * 0.52, ny * 0.52)
+            }
+            2 => {
+                let r = (x * x + y * y).max(0.000_01).sqrt();
+                let ang = y.atan2(x) * tr.scale + tr.twist;
+                let nx = (ang.cos() * r) * 0.56 + tr.e;
+                let ny = (ang.sin() * r) * 0.56 + tr.f;
+                (nx, ny)
+            }
+            _ => {
+                let swirl = (tr.scale * (x * x + y * y).sqrt()).sin() * tr.twist.sin();
+                let nx = tr.a * x + tr.b * swirl + tr.e;
+                let ny = tr.c * y + tr.d * swirl + tr.f;
+                (nx, ny)
+            }
+        };
+
+        let n = value_noise(nx_raw * 0.7, ny_raw * 0.7, seed ^ i);
+        x = nx_raw + (n - 0.5) * 0.16;
+        y = ny_raw - (n - 0.5) * 0.16;
+        let scale = tr.scale * 0.92;
+        x = x.clamp(-scale, scale);
+        y = y.clamp(-scale, scale);
+
+        if i >= warmup {
+            xs.push(x);
+            ys.push(y);
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+        i += 1;
+    }
+
+    let span_x = (max_x - min_x).max(0.000_01);
+    let span_y = (max_y - min_y).max(0.000_01);
+    let mut i = 0usize;
+    let mut px = 0.0f32;
+    let mut py = 0.0f32;
+    while i < xs.len() {
+        let ux = (xs[i] - min_x) / span_x;
+        let uy = (ys[i] - min_y) / span_y;
+        let px_i = (ux * (sim_w as f32 - 1.0)).clamp(0.0, sim_w as f32 - 1.0);
+        let py_i = (uy * (sim_h as f32 - 1.0)).clamp(0.0, sim_h as f32 - 1.0);
+        let x_i = px_i.round() as i32;
+        let y_i = py_i.round() as i32;
+        let value = 0.7 + (ux * 0.3);
+        density[sim_w as usize * y_i.max(0) as usize + x_i.max(0) as usize] = clamp01(
+            density[sim_w as usize * y_i.max(0) as usize + x_i.max(0) as usize] + value * 1.05,
+        );
+
+        if i > 0 {
+            let nx = x_i;
+            let ny = y_i;
+            draw_line(
+                px as i32,
+                py as i32,
+                nx,
+                ny,
+                sim_w as usize,
+                sim_h as usize,
+                0.84,
+                &mut density,
+            );
+        }
+        px = px_i;
+        py = py_i;
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    let grain = noise_field(width, height, rng, 2);
+    let mut i = 0usize;
+    while i < out.len() {
+        out[i] = clamp01((out[i] * 0.9) + (grain[i] * 0.03));
+        i += 1;
+    }
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.84));
+    }
+    normalize(&mut out);
+    out
+}
+
+#[derive(Clone, Copy)]
+struct MagneticPole {
+    x: f32,
+    y: f32,
+    polarity: f32,
+}
+
+fn render_de_jong_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let points = 300_000 + ((sim_w * sim_h) / 2);
+    let warmup = 180u32;
+
+    let mut x = rng.next_f32() * 0.8 - 0.4;
+    let mut y = rng.next_f32() * 0.8 - 0.4;
+    let a = 1.5 + rng.next_f32() * 2.2;
+    let b = 0.9 + rng.next_f32() * 2.2;
+    let c = 0.7 + rng.next_f32() * 1.8;
+    let d = 1.4 + rng.next_f32() * 2.4;
+    let mix = 0.12 + rng.next_f32() * 0.55;
+    let seed = rng.next_u32();
+
+    let mut previous_x = x;
+    let mut previous_y = y;
+    let mut i = 0u32;
+    while i < points + warmup {
+        let nx = (a * y.sin() + b * y - c * x * x).sin() + (mix * (x * y)).sin();
+        let ny = (c * x.cos() + d * x - a * y * y).cos() + (mix * (x * x)).cos();
+        x = nx.rem_euclid(2.0) - 1.0;
+        y = ny.rem_euclid(2.0) - 1.0;
+
+        if !x.is_finite() || !y.is_finite() {
+            x = 0.1 + (value_noise(i as f32, y, seed) - 0.5) * 0.4;
+            y = 0.1 + (value_noise(x, i as f32, seed ^ 0x9e37_79b9) - 0.5) * 0.4;
+            i += 1;
+            continue;
+        }
+
+        if i >= warmup {
+            let ux = ((x + 1.0) * 0.5 * (sim_w as f32 - 1.0)).clamp(0.0, sim_w as f32 - 1.0);
+            let uy = ((y + 1.0) * 0.5 * (sim_h as f32 - 1.0)).clamp(0.0, sim_h as f32 - 1.0);
+            let px = ux.round() as i32;
+            let py = uy.round() as i32;
+
+            let jitter = value_noise(ux * 0.11, uy * 0.15, seed ^ (i as u32)) * 0.36;
+            draw_line(
+                previous_x.round() as i32,
+                previous_y.round() as i32,
+                px,
+                py,
+                sim_w as usize,
+                sim_h as usize,
+                0.5 + jitter,
+                &mut density,
+            );
+            if i % 3 == 0 {
+                draw_point(
+                    px,
+                    py,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    0.8 + jitter,
+                    &mut density,
+                );
+            }
+            previous_x = ux;
+            previous_y = uy;
+        }
+
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(*value * 1.08 + 0.03 * value.powf(1.25));
+    }
+    normalize(&mut out);
+    out
+}
+
+#[derive(Clone, Copy)]
+struct RibbonThread {
+    x: f32,
+    y: f32,
+    angle: f32,
+    length: f32,
+    depth: u32,
+    density: f32,
+}
+
+fn render_recursive_ribbon(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(196);
+    let sim_h = (height / 2).max(196);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut stack: Vec<RibbonThread> = Vec::with_capacity(768);
+    let start_count = 3 + (rng.next_u32() % 8);
+    let base_length = (sim_w.min(sim_h) as f32 * (0.22 + rng.next_f32() * 0.10)).max(20.0);
+    let base_seed = rng.next_u32();
+
+    let mut i = 0u32;
+    while i < start_count {
+        let radius = (sim_w.min(sim_h) as f32 * (0.33 + rng.next_f32() * 0.20)) * 0.5;
+        let base_angle = rng.next_f32() * TAU + value_noise(i as f32, radius, base_seed) * 0.35;
+        let sx = ((sim_w as f32 * 0.5) + base_angle.cos() * radius).clamp(0.0, sim_w as f32 - 1.0);
+        let sy = ((sim_h as f32 * 0.5) + base_angle.sin() * radius).clamp(0.0, sim_h as f32 - 1.0);
+        stack.push(RibbonThread {
+            x: sx,
+            y: sy,
+            angle: base_angle + 0.5 * rng.next_f32(),
+            length: base_length * (0.7 + rng.next_f32() * 0.45),
+            depth: 5 + (rng.next_u32() % 4),
+            density: 0.62 + rng.next_f32() * 0.35,
+        });
+        i += 1;
+    }
+
+    while let Some(thread) = stack.pop() {
+        if thread.length < 2.5 || thread.depth == 0 {
+            continue;
+        }
+
+        let mut x = thread.x;
+        let mut y = thread.y;
+        let mut angle = thread.angle;
+        let steps = 6 + (rng.next_u32() % 7);
+        let mut step = 0u32;
+        while step < steps {
+            let seg = thread.length / (steps as f32);
+            let wave = value_noise(x * 0.008, y * 0.009, base_seed + step) - 0.5;
+            let curvature = wave * 0.92;
+            let modulation = (value_noise(x * 0.013, y * 0.011, base_seed ^ step) - 0.5) * 0.55;
+            angle += curvature + modulation;
+            let nx = x + angle.cos() * seg * (0.95 + 0.18 * wave);
+            let ny = y + angle.sin() * seg * (1.02 - 0.12 * wave);
+            let px = nx.clamp(0.0, sim_w as f32 - 1.0);
+            let py = ny.clamp(0.0, sim_h as f32 - 1.0);
+            let strength = thread.density * (0.56 + 0.2 * wave);
+            draw_line(
+                x.round() as i32,
+                y.round() as i32,
+                px.round() as i32,
+                py.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                strength,
+                &mut out,
+            );
+
+            if step % 2 == 0 {
+                draw_point(
+                    px.round() as i32,
+                    py.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength * 1.05,
+                    &mut out,
+                );
+            }
+
+            if step == 2 && thread.depth > 1 && rng.next_f32() < 0.42 {
+                stack.push(RibbonThread {
+                    x: px,
+                    y: py,
+                    angle: angle + (rng.next_f32() * 1.2 - 0.6),
+                    length: thread.length * (0.42 + rng.next_f32() * 0.21),
+                    depth: thread.depth - 1,
+                    density: (thread.density * 0.86).max(0.18),
+                });
+            } else if step == 4 && thread.depth > 2 && rng.next_f32() < 0.33 {
+                stack.push(RibbonThread {
+                    x: px,
+                    y: py,
+                    angle: angle + (rng.next_f32() * 1.2 - 0.6) - std::f32::consts::PI * 0.25,
+                    length: thread.length * (0.35 + rng.next_f32() * 0.20),
+                    depth: thread.depth - 1,
+                    density: (thread.density * 0.74).max(0.18),
+                });
+            }
+
+            x = px;
+            y = py;
+            step += 1;
+        }
+    }
+
+    for value in out.iter_mut() {
+        *value = (*value + (value.powf(1.05) * 0.16)).clamp(0.0, 1.0);
+    }
+    normalize(&mut out);
+    resize_bilinear(&out, sim_w, sim_h, width, height)
+}
+
+fn render_magnetic_fieldlines(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let pole_count = 4 + (rng.next_u32() % 6) as usize;
+    let mut poles = Vec::with_capacity(pole_count);
+    let mut i = 0usize;
+    while i < pole_count {
+        poles.push(MagneticPole {
+            x: 0.2 + rng.next_f32() * 0.6,
+            y: 0.2 + rng.next_f32() * 0.6,
+            polarity: (if rng.next_f32() < 0.55 { 1.0 } else { -1.0 })
+                * (0.7 + rng.next_f32() * 0.9),
+        });
+        i += 1;
+    }
+
+    let tracks = 4 + (sim_w * sim_h / 420);
+    let track_steps = 320 + (rng.next_u32() % 260);
+    let base_speed = 0.72 + rng.next_f32() * 0.65;
+    let seed = rng.next_u32();
+
+    let mut track = 0u32;
+    while track < tracks {
+        let mut x = rng.next_f32();
+        let mut y = rng.next_f32();
+        if rng.next_f32() < 0.35 {
+            x = if rng.next_f32() < 0.5 { 0.0 } else { 1.0 };
+            y = rng.next_f32();
+        } else if rng.next_f32() < 0.5 {
+            x = rng.next_f32();
+            y = if rng.next_f32() < 0.5 { 0.0 } else { 1.0 };
+        }
+
+        let mut step = 0u32;
+        while step < track_steps {
+            let mut vx = 0.0f32;
+            let mut vy = 0.0f32;
+            let nx = x * (sim_w as f32 - 1.0);
+            let ny = y * (sim_h as f32 - 1.0);
+            let sx = nx / sim_w.max(1) as f32;
+            let sy = ny / sim_h.max(1) as f32;
+
+            let mut p = 0usize;
+            while p < poles.len() {
+                let pole = poles[p];
+                let dx = sx - pole.x;
+                let dy = sy - pole.y;
+                let dist2 = dx * dx + dy * dy + 0.000_3;
+                let inv = 1.0 / (dist2.sqrt() * dist2);
+                let swirl = pole.polarity * inv;
+                vx += -dy * swirl;
+                vy += dx * swirl;
+                p += 1;
+            }
+
+            let noise = value_noise(sx * 4.6 + seed as f32 * 0.000_4, sy * 4.2, seed ^ track) - 0.5;
+            let angle = noise * TAU;
+            vx += angle.cos() * 0.04;
+            vy += angle.sin() * 0.04;
+            let speed = base_speed + ((noise + 0.5) * 0.5);
+            let mag = (vx * vx + vy * vy).sqrt().max(1e-6);
+            let dx = (vx / mag) * speed;
+            let dy = (vy / mag) * speed;
+
+            let px = nx;
+            let py = ny;
+            let nx = (nx + dx).clamp(0.0, sim_w as f32 - 1.0);
+            let ny = (ny + dy).clamp(0.0, sim_h as f32 - 1.0);
+            draw_line(
+                px as i32,
+                py as i32,
+                nx as i32,
+                ny as i32,
+                sim_w as usize,
+                sim_h as usize,
+                0.48 + (noise.abs() * 0.45),
+                &mut density,
+            );
+            if step % 4 == 0 {
+                draw_point(
+                    nx as i32,
+                    ny as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    0.55 + noise.abs() * 0.28,
+                    &mut density,
+                );
+            }
+            x = nx / sim_w.max(1) as f32;
+            y = ny / sim_h.max(1) as f32;
+            step += 1;
+        }
+        track += 1;
+    }
+
+    for value in density.iter_mut() {
+        *value = (*value * 0.95).powf(0.84);
+    }
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    let grain = noise_field(width, height, rng, 1);
+    let mut i = 0usize;
+    while i < out.len() {
+        out[i] = clamp01(out[i] + grain[i] * 0.04);
+        i += 1;
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_lorenz_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let size = (sim_w * sim_h) as usize;
+    let mut density = vec![0.0f32; size];
+    let mut trajectory_x = Vec::with_capacity(180_000);
+    let mut trajectory_y = Vec::with_capacity(180_000);
+
+    let points = 180_000 + ((sim_w * sim_h) / 2);
+    let warmup = 220u32;
+
+    let mut x = rng.next_f32() * 0.8 - 0.4;
+    let mut y = rng.next_f32() * 0.8 - 0.4;
+    let mut z = rng.next_f32() * 0.8 - 0.4;
+    let sigma = 8.5 + rng.next_f32() * 4.7;
+    let rho = 20.0 + rng.next_f32() * 45.0;
+    let beta = 1.8 + rng.next_f32() * 0.9;
+    let dt = 0.0025 + rng.next_f32() * 0.0035;
+    let seed = rng.next_u32();
+
+    let mut min_x = f32::INFINITY;
+    let mut max_x = -f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = -f32::INFINITY;
+
+    let mut i = 0u32;
+    while i < points + warmup {
+        let dx = sigma * (y - x);
+        let dy = x * (rho - z) - y;
+        let dz = x * y - beta * z;
+        x = x + dx * dt;
+        y = y + dy * dt;
+        z = z + dz * dt;
+
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            x = 0.1 + (value_noise(i as f32, z, seed) - 0.5) * 0.3;
+            y = 0.1 + (value_noise(y, i as f32, seed ^ 0x1a2b_3c4d) - 0.5) * 0.3;
+            z = 0.1 + (value_noise(z, y, seed ^ 0x2b3c_4d5e) - 0.5) * 0.3;
+            i = i.saturating_add(1);
+            continue;
+        }
+
+        if i >= warmup {
+            trajectory_x.push(x);
+            trajectory_y.push(y);
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+
+        i += 1;
+    }
+
+    let span_x = (max_x - min_x).max(0.000_05);
+    let span_y = (max_y - min_y).max(0.000_05);
+    let mut i = 0usize;
+    let mut prev_x = if !trajectory_x.is_empty() {
+        ((trajectory_x[0] - min_x) / span_x * (sim_w as f32 - 1.0)).clamp(0.0, sim_w as f32 - 1.0)
+    } else {
+        0.0
+    };
+    let mut prev_y = if !trajectory_y.is_empty() {
+        ((trajectory_y[0] - min_y) / span_y * (sim_h as f32 - 1.0)).clamp(0.0, sim_h as f32 - 1.0)
+    } else {
+        0.0
+    };
+
+    while i < trajectory_x.len() {
+        let tx = (trajectory_x[i] - min_x) / span_x * (sim_w as f32 - 1.0);
+        let ty = (trajectory_y[i] - min_y) / span_y * (sim_h as f32 - 1.0);
+        let ux = tx.clamp(0.0, sim_w as f32 - 1.0);
+        let uy = ty.clamp(0.0, sim_h as f32 - 1.0);
+        let px = ux.round() as i32;
+        let py = uy.round() as i32;
+        let wave = value_noise(ux * 0.13, uy * 0.21, seed ^ (i as u32)) * 0.5;
+        let strength = 0.45 + wave * 0.35;
+        draw_line(
+            prev_x.round() as i32,
+            prev_y.round() as i32,
+            px,
+            py,
+            sim_w as usize,
+            sim_h as usize,
+            strength,
+            &mut density,
+        );
+        draw_point(
+            px,
+            py,
+            sim_w as usize,
+            sim_h as usize,
+            1,
+            strength * 0.9,
+            &mut density,
+        );
+        prev_x = ux;
+        prev_y = uy;
+        i += 1;
+    }
+
+    normalize(&mut density);
+    for value in density.iter_mut() {
+        *value = (*value * 1.03).clamp(0.0, 1.0);
+    }
+    normalize(&mut density);
+    resize_bilinear(&density, sim_w, sim_h, width, height)
+}
+
+#[derive(Clone, Copy)]
+struct StarburstBranch {
+    x: f32,
+    y: f32,
+    angle: f32,
+    length: f32,
+    depth: u32,
+}
+
+fn render_recursive_starburst(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(200);
+    let sim_h = (height / 2).max(200);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let root_count = 2 + (rng.next_u32() % 6);
+    let max_depth = 5 + (rng.next_u32() % 4);
+    let base_len = (sim_w.min(sim_h) as f32 * (0.10 + rng.next_f32() * 0.16)).max(8.0);
+    let mut stack: Vec<StarburstBranch> = Vec::with_capacity(768);
+    let mut i = 0u32;
+
+    while i < root_count {
+        let side = rng.next_u32() % 4;
+        let (sx, sy, dir) = match side {
+            0 => (
+                (rng.next_f32() * sim_w as f32),
+                0.0,
+                rng.next_f32() * std::f32::consts::PI + std::f32::consts::FRAC_PI_2,
+            ),
+            1 => (
+                sim_w as f32 - 1.0,
+                rng.next_f32() * sim_h as f32,
+                rng.next_f32() * std::f32::consts::PI + std::f32::consts::PI,
+            ),
+            2 => (
+                rng.next_f32() * sim_w as f32,
+                sim_h as f32 - 1.0,
+                rng.next_f32() * std::f32::consts::PI - std::f32::consts::FRAC_PI_2,
+            ),
+            _ => (
+                0.0,
+                rng.next_f32() * sim_h as f32,
+                rng.next_f32() * std::f32::consts::PI,
+            ),
+        };
+
+        let jitter = (value_noise(sx, sy, rng.next_u32()) - 0.5) * 0.9;
+        stack.push(StarburstBranch {
+            x: sx,
+            y: sy,
+            angle: dir + jitter,
+            length: base_len,
+            depth: max_depth,
+        });
+        i += 1;
+    }
+
+    while let Some(branch) = stack.pop() {
+        if branch.length < 3.0 || branch.depth == 0 {
+            continue;
+        }
+        let mut x = branch.x;
+        let mut y = branch.y;
+        let segments = 4 + (rng.next_u32() % 6);
+        let mut segment = 0u32;
+        while segment < segments {
+            let seg_len = branch.length * (0.45 + 0.25 * rng.next_f32()) / (segments as f32 * 0.85);
+            let noise = value_noise(
+                x * 0.007 + branch.angle,
+                y * 0.009 - branch.angle,
+                rng.next_u32(),
+            ) - 0.5;
+            let angle = branch.angle + (noise * 0.85);
+            let nx = x + angle.cos() * seg_len;
+            let ny = y + angle.sin() * seg_len;
+            let strength = 0.45 + noise * 0.35;
+            draw_line(
+                x.round() as i32,
+                y.round() as i32,
+                nx.round() as i32,
+                ny.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                strength * 0.82,
+                &mut density,
+            );
+            if segment % 2 == 0 {
+                draw_point(
+                    nx.round() as i32,
+                    ny.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1 + (segment % 3) as i32,
+                    strength,
+                    &mut density,
+                );
+            }
+
+            let branch_remaining = branch.depth.saturating_sub(1);
+            if segment >= 1 && rng.next_f32() < 0.54 && branch_remaining > 0 {
+                let child_count = 1 + (rng.next_u32() % 2);
+                let mut c = 0u32;
+                while c < child_count {
+                    let child_angle = angle + (rng.next_f32() * 1.9 - 0.95);
+                    let child_len = branch.length * (0.44 + rng.next_f32() * 0.32);
+                    let child_depth = branch_remaining;
+                    stack.push(StarburstBranch {
+                        x: nx,
+                        y: ny,
+                        angle: child_angle,
+                        length: child_len,
+                        depth: child_depth,
+                    });
+                    c += 1;
+                }
+            } else if segment % 4 == 0 && branch_remaining > 0 && rng.next_f32() < 0.35 {
+                let child_angle = angle + (rng.next_f32() * 0.6 - 0.3) + std::f32::consts::PI * 0.5;
+                stack.push(StarburstBranch {
+                    x: nx,
+                    y: ny,
+                    angle: child_angle,
+                    length: branch.length * (0.32 + rng.next_f32() * 0.25),
+                    depth: branch_remaining,
+                });
+            }
+
+            x = nx;
+            y = ny;
+            segment += 1;
+        }
+    }
+
+    for value in density.iter_mut() {
+        *value = (*value + (value.powf(1.07) * 0.15)).clamp(0.0, 1.0);
+    }
+    normalize(&mut density);
+    resize_bilinear(&density, sim_w, sim_h, width, height)
+}
+
+fn render_logistic_chaos(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(176);
+    let sim_h = (height / 2).max(176);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let points = 320_000 + (sim_w * sim_h);
+    let warmup = 500u32;
+    let mut x = rng.next_f32() * 0.8 + 0.1;
+    let mut y = rng.next_f32() * 0.8 + 0.1;
+    let a = 3.56 + rng.next_f32() * 0.3;
+    let b = 0.18 + rng.next_f32() * 0.45;
+    let c = 0.22 + rng.next_f32() * 0.48;
+    let seed = rng.next_u32();
+    let mut prev_x = x;
+    let mut prev_y = y;
+    let mut i = 0u32;
+    while i < points + warmup {
+        let nx = (a * x * (1.0 - x) + b * (y - 0.5) * (y - 0.5)).rem_euclid(1.0);
+        let ny = (c * y * (1.0 - y) + (a - b) * (x - 0.5).abs() * (y - 0.5)).rem_euclid(1.0);
+        x = nx;
+        y = ny;
+        if i >= warmup {
+            let ux = (x * (sim_w as f32 - 1.0)).clamp(0.0, sim_w as f32 - 1.0);
+            let uy = (y * (sim_h as f32 - 1.0)).clamp(0.0, sim_h as f32 - 1.0);
+            let px = ux.round() as i32;
+            let py = uy.round() as i32;
+            let jitter = value_noise(ux * 0.23, uy * 0.19, seed + i) * 0.5;
+            draw_line(
+                (prev_x * (sim_w as f32 - 1.0)).round() as i32,
+                (prev_y * (sim_h as f32 - 1.0)).round() as i32,
+                px,
+                py,
+                sim_w as usize,
+                sim_h as usize,
+                0.62 + jitter,
+                &mut density,
+            );
+            draw_point(
+                px,
+                py,
+                sim_w as usize,
+                sim_h as usize,
+                0,
+                0.84,
+                &mut density,
+            );
+            prev_x = x;
+            prev_y = y;
+        }
+        i += 1;
+    }
+    normalize(&mut density);
+    let mut out = resize_nearest(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = (*value * 0.88 + 0.12 * value.powf(1.18)).clamp(0.0, 1.0);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_interference_waves(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(192);
+    let sim_h = (height / 2).max(192);
+    let mut field = vec![0.0f32; (sim_w * sim_h) as usize];
+    let wave_count = 16 + (rng.next_u32() % 18);
+    let mut i = 0u32;
+
+    while i < wave_count {
+        let cx = rng.next_f32() * sim_w as f32;
+        let cy = rng.next_f32() * sim_h as f32;
+        let freq = 0.7 + rng.next_f32() * 3.6;
+        let speed = 0.6 + rng.next_f32() * 1.4;
+        let rot = rng.next_f32() * TAU;
+        let phase = rng.next_f32() * TAU;
+        let amp = 0.08 + rng.next_f32() * 0.15;
+        let mut y = 0u32;
+        while y < sim_h {
+            let mut x = 0u32;
+            while x < sim_w {
+                let nx = (x as f32 - cx) / sim_w.max(1) as f32;
+                let ny = (y as f32 - cy) / sim_h.max(1) as f32;
+                let r = nx * nx + ny * ny;
+                let wave = (nx * freq * rot.cos()
+                    + ny * freq * rot.sin()
+                    + (nx * speed).sin() * (ny * speed).cos()
+                    + phase)
+                    .sin()
+                    * amp;
+                let phase_term = r.sqrt().sin() * 1.7;
+                let noise = value_noise(nx * 5.3 + phase, ny * 5.7 + phase, i ^ (x * 13 + y * 17));
+                let idx = (y * sim_w + x) as usize;
+                field[idx] += wave * (0.8 + noise * 0.2) + phase_term;
+                x += 1;
+            }
+            y += 1;
+        }
+        i += 1;
+    }
+
+    normalize(&mut field);
+    let mut edges = vec![0.0f32; field.len()];
+    let mut y = 1u32;
+    while y + 1 < sim_h {
+        let mut x = 1u32;
+        while x + 1 < sim_w {
+            let idx = y as usize * sim_w as usize + x as usize;
+            let c = sample_nearest(&field, sim_w, sim_h, x as i32, y as i32);
+            let gx = (sample_nearest(&field, sim_w, sim_h, x as i32 + 1, y as i32)
+                - sample_nearest(&field, sim_w, sim_h, x as i32 - 1, y as i32))
+            .abs();
+            let gy = (sample_nearest(&field, sim_w, sim_h, x as i32, y as i32 + 1)
+                - sample_nearest(&field, sim_w, sim_h, x as i32, y as i32 - 1))
+            .abs();
+            let mut value = (gx + gy) * 0.75 + (1.0 - c) * 0.35;
+            if (c > 0.52 && (gx + gy) > 0.08) || rng.next_f32() < 0.0008 {
+                value += 0.25;
+            }
+            edges[idx] = clamp01(value);
+            x += 1;
+        }
+        y += 1;
+    }
+
+    let mut out = resize_bilinear(&edges, sim_w, sim_h, width, height);
+    normalize(&mut out);
+    for value in out.iter_mut() {
+        let jitter = value_noise(*value * 9.0, *value * 7.0, 0xA5A5_77F7) * 0.14;
+        *value = clamp01(*value + (jitter - 0.07));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_clifford_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(176);
+    let sim_h = (height / 2).max(176);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let points = 320_000 + ((sim_w * sim_h) / 2);
+    let warmup = 320u32;
+    let a = 1.1 + rng.next_f32() * 2.4;
+    let b = 0.7 + rng.next_f32() * 1.8;
+    let c = 0.2 + rng.next_f32() * 1.6;
+    let d = 0.9 + rng.next_f32() * 1.8;
+    let mut x = (rng.next_f32() * 2.0) - 1.0;
+    let mut y = (rng.next_f32() * 2.0) - 1.0;
+    let mut px = x;
+    let mut py = y;
+    let seed = rng.next_u32();
+
+    let mut i = 0u32;
+    while i < points + warmup {
+        let nx = (a * y).sin() + c * (x * y).cos();
+        let ny = (b * x).sin() + d * (x - y).cos();
+        x = (nx * 0.98).rem_euclid(2.0) - 1.0;
+        y = (ny * 0.98).rem_euclid(2.0) - 1.0;
+
+        if !x.is_finite() || !y.is_finite() {
+            let jitter = (value_noise(i as f32, y, seed) - 0.5) * 0.2;
+            x = (x + jitter).clamp(-1.0, 1.0);
+            y = (y - jitter).clamp(-1.0, 1.0);
+        }
+
+        if i >= warmup {
+            let sx = ((x + 1.0) * 0.5 * (sim_w as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim_w as f32 - 1.0);
+            let sy = ((y + 1.0) * 0.5 * (sim_h as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim_h as f32 - 1.0);
+            let ox = sx as i32;
+            let oy = sy as i32;
+            let strength = 0.46 + (value_noise(sx * 0.2, sy * 0.2, seed ^ i) * 0.34);
+            draw_line(
+                (px * 0.5 * (sim_w as f32 - 1.0)).round() as i32,
+                (py * 0.5 * (sim_h as f32 - 1.0)).round() as i32,
+                ox,
+                oy,
+                sim_w as usize,
+                sim_h as usize,
+                strength,
+                &mut density,
+            );
+            if i % 2 == 0 {
+                draw_point(
+                    ox,
+                    oy,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength + 0.2,
+                    &mut density,
+                );
+            }
+            px = sx / (sim_w as f32 - 1.0) * 2.0 - 1.0;
+            py = sy / (sim_h as f32 - 1.0) * 2.0 - 1.0;
+        }
+        i += 1;
+    }
+
+    for value in density.iter_mut() {
+        *value = clamp01(*value * 0.9 + (*value).powf(1.12) * 0.15);
+    }
+    normalize(&mut density);
+    resize_bilinear(&density, sim_w, sim_h, width, height)
+}
+
+fn render_julia_set(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(160);
+    let sim_h = (height / 2).max(160);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let cx = (rng.next_f32() - 0.5) * 1.6;
+    let cy = (rng.next_f32() - 0.5) * 1.6;
+    let zoom = 0.28 + rng.next_f32() * 0.65;
+    let max_iter = 140 + (rng.next_u32() % 220);
+    let seed = rng.next_u32();
+
+    let mut y = 0u32;
+    while y < sim_h {
+        let mut x = 0u32;
+        while x < sim_w {
+            let mut zx = (x as f32 / sim_w as f32 - 0.5) * 2.6 * zoom
+                + (value_noise(seed as f32, y as f32, seed ^ x) - 0.5) * 0.06;
+            let mut zy = (y as f32 / sim_h as f32 - 0.5) * 2.6 * zoom
+                + (value_noise(x as f32, seed as f32, seed ^ (y << 1)) - 0.5) * 0.06;
+            let mut i = 0u32;
+            let mut escaped = false;
+            let mut smooth = 0.0f32;
+            while i < max_iter {
+                let x2 = zx * zx - zy * zy + cx;
+                let y2 = 2.0 * zx * zy + cy;
+                zx = x2;
+                zy = y2;
+                let mag2 = x2 * x2 + y2 * y2;
+                if mag2 > 12.0 {
+                    smooth = (i as f32 - mag2.log(2.0)) / max_iter as f32;
+                    escaped = true;
+                    break;
+                }
+                i += 1;
+            }
+
+            let idx = (y * sim_w + x) as usize;
+            out[idx] = if !escaped {
+                0.06
+            } else {
+                (1.0 - smooth).clamp(0.0, 1.0)
+            };
+            x += 1;
+        }
+        y += 1;
+    }
+
+    for value in out.iter_mut() {
+        let noise = value_noise(*value * 8.0, 0.33, seed) * 0.11;
+        *value = clamp01(*value + noise * 0.25 + (1.0 - *value) * 0.08);
+    }
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(value.powf(0.79));
+    }
+    normalize(&mut resized);
+    resized
+}
+
+fn render_koch_snowflake(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(212);
+    let sim_h = (height / 2).max(212);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let ring_count = 2 + (rng.next_u32() % 4);
+    let depth = 3 + (rng.next_u32() % 2);
+    let seed = rng.next_u32();
+
+    let mut ring = 0u32;
+    while ring < ring_count {
+        let cx = (sim_w as f32 * 0.5) + ((rng.next_f32() - 0.5) * sim_w as f32 * 0.22);
+        let cy = (sim_h as f32 * 0.5) + ((rng.next_f32() - 0.5) * sim_h as f32 * 0.22);
+        let radius = sim_w.min(sim_h) as f32 * (0.12 + rng.next_f32() * 0.28);
+        let sides = 3 + (rng.next_u32() % 3);
+
+        let mut p = 0u32;
+        while p < sides {
+            let a0 = TAU * (p as f32 / sides as f32) + (seed as f32 * 0.000_001);
+            let a1 = TAU * ((p as f32 + 1.0) / sides as f32) + (seed as f32 * 0.000_001);
+            let x0 = cx + radius * a0.cos();
+            let y0 = cy + radius * a0.sin();
+            let x1 = cx + radius * a1.cos();
+            let y1 = cy + radius * a1.sin();
+            render_koch_curve(
+                x0,
+                y0,
+                x1,
+                y1,
+                depth,
+                1.0,
+                sim_w as usize,
+                sim_h as usize,
+                (1.0 - ring as f32 / ring_count as f32).clamp(0.2, 1.0),
+                &mut out,
+                rng,
+                seed,
+            );
+            p += 1;
+        }
+        ring += 1;
+    }
+
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(*value * 1.1 - 0.1 * (value.sqrt()));
+    }
+    normalize(&mut resized);
+    resized
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_koch_curve(
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    depth: u32,
+    side_sign: f32,
+    width: usize,
+    height: usize,
+    value: f32,
+    out: &mut [f32],
+    rng: &mut XorShift32,
+    seed: u32,
+) {
+    if depth == 0 {
+        draw_line(
+            x0.round() as i32,
+            y0.round() as i32,
+            x1.round() as i32,
+            y1.round() as i32,
+            width,
+            height,
+            value.clamp(0.1, 1.0),
+            out,
+        );
+        return;
+    }
+
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let x3 = x0 + dx / 3.0;
+    let y3 = y0 + dy / 3.0;
+    let x4 = x0 + 2.0 * dx / 3.0;
+    let y4 = y0 + 2.0 * dy / 3.0;
+    let ux = x4 - x3;
+    let uy = y4 - y3;
+    let len = (ux * ux + uy * uy).sqrt().max(1e-6);
+    let offset = len * (0.86 * 0.5);
+    let nx = -uy / len;
+    let ny = ux / len;
+    let peak_x = (x3 + x4) * 0.5 + nx * offset * side_sign;
+    let peak_y = (y3 + y4) * 0.5 + ny * offset * side_sign;
+    let jitter = 1.0 + (value_noise(seed as f32, value * 10.0, seed ^ (depth << 8)) - 0.5) * 0.2;
+    let next_depth = depth - 1;
+    let next = value * jitter.clamp(0.75, 1.25);
+    let next_side = if rng.next_f32() < 0.5 {
+        side_sign
+    } else {
+        -side_sign
+    };
+    render_koch_curve(
+        x0,
+        y0,
+        x3,
+        y3,
+        next_depth,
+        next_side,
+        width,
+        height,
+        next,
+        out,
+        rng,
+        seed ^ 0x1,
+    );
+    render_koch_curve(
+        x3,
+        y3,
+        peak_x,
+        peak_y,
+        next_depth,
+        next_side,
+        width,
+        height,
+        next * 1.03,
+        out,
+        rng,
+        seed ^ 0x2,
+    );
+    render_koch_curve(
+        peak_x,
+        peak_y,
+        x4,
+        y4,
+        next_depth,
+        -next_side,
+        width,
+        height,
+        next * 1.03,
+        out,
+        rng,
+        seed ^ 0x3,
+    );
+    render_koch_curve(
+        x4,
+        y4,
+        x1,
+        y1,
+        next_depth,
+        -next_side,
+        width,
+        height,
+        next,
+        out,
+        rng,
+        seed ^ 0x4,
+    );
+}
+
+#[derive(Clone, Copy)]
+struct BifurcationBranch {
+    x: f32,
+    y: f32,
+    angle: f32,
+    length: f32,
+    depth: u32,
+    density: f32,
+}
+
+fn render_bifurcation_tree(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(200);
+    let sim_h = (height / 2).max(200);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let roots = 2 + (rng.next_u32() % 4);
+    let base_len = sim_w.min(sim_h) as f32 * (0.24 + rng.next_f32() * 0.12);
+    let mut stack: Vec<BifurcationBranch> = Vec::with_capacity(128);
+    let mut i = 0u32;
+
+    while i < roots {
+        let angle = rng.next_f32() * TAU + (if rng.next_f32() < 0.5 { 0.0 } else { TAU * 0.5 });
+        let sx = (sim_w as f32 * 0.15) + rng.next_f32() * (sim_w as f32 * 0.7);
+        let sy = (sim_h as f32 * 0.15) + rng.next_f32() * (sim_h as f32 * 0.7);
+        stack.push(BifurcationBranch {
+            x: sx,
+            y: sy,
+            angle,
+            length: base_len * (0.35 + rng.next_f32() * 0.65),
+            depth: 6 + (rng.next_u32() % 3),
+            density: 1.0,
+        });
+        i += 1;
+    }
+
+    while let Some(branch) = stack.pop() {
+        if branch.depth == 0 || branch.length < 1.5 {
+            continue;
+        }
+        let mut x = branch.x;
+        let mut y = branch.y;
+        let mut angle = branch.angle;
+        let mut step = 0u32;
+        let segments = 10 + (rng.next_u32() % 14);
+
+        while step < segments {
+            let n = value_noise(x * 0.013, y * 0.011, rng.next_u32()) - 0.5;
+            let drift = (n * 2.0).clamp(-1.0, 1.0);
+            angle += drift * 0.35 + (segment_wave(step) - 0.5) * 0.08;
+            let seg = branch.length / segments as f32;
+            let nx = x + angle.cos() * seg * (0.5 + n.abs());
+            let ny = y + angle.sin() * seg * (0.9 - n.abs() * 0.2);
+            let sx = x.clamp(0.0, sim_w as f32 - 1.0).round() as i32;
+            let sy = y.clamp(0.0, sim_h as f32 - 1.0).round() as i32;
+            let ex = nx.clamp(0.0, sim_w as f32 - 1.0).round() as i32;
+            let ey = ny.clamp(0.0, sim_h as f32 - 1.0).round() as i32;
+            let strength =
+                branch.density * (0.42 + 0.14 * (1.0 - (step as f32 / segments as f32)).powf(1.0));
+            draw_line(
+                sx,
+                sy,
+                ex,
+                ey,
+                sim_w as usize,
+                sim_h as usize,
+                strength,
+                &mut out,
+            );
+            if step % 3 == 0 {
+                draw_point(
+                    ex,
+                    ey,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength * 1.02,
+                    &mut out,
+                );
+            }
+
+            if step > 1 && branch.depth > 1 && step % 4 == 0 {
+                let child_angle = angle + (rng.next_f32() * 1.5 - 0.75);
+                stack.push(BifurcationBranch {
+                    x: nx,
+                    y: ny,
+                    angle: child_angle,
+                    length: branch.length * (0.32 + rng.next_f32() * 0.24),
+                    depth: branch.depth - 1,
+                    density: (branch.density * 0.84).max(0.2),
+                });
+            } else if branch.depth > 2 && rng.next_f32() < 0.24 {
+                let child_angle = angle + (rng.next_f32() * 0.52 - 0.26) + TAU * 0.5;
+                stack.push(BifurcationBranch {
+                    x: nx,
+                    y: ny,
+                    angle: child_angle,
+                    length: branch.length * (0.2 + rng.next_f32() * 0.22),
+                    depth: branch.depth - 1,
+                    density: (branch.density * 0.77).max(0.16),
+                });
+            }
+
+            x = nx;
+            y = ny;
+            step += 1;
+        }
+    }
+
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(value.powf(0.82) + *value * 0.08);
+    }
+    normalize(&mut resized);
+    resized
+}
+
+fn segment_wave(step: u32) -> f32 {
+    let phase = step as f32 * 0.4;
+    let s = phase.sin() * 0.5 + 0.5;
+    s * 0.5 + 0.25
+}
+
+fn noise_value(x: f32, y: f32, seed: u32) -> f32 {
+    let base = 0.003_2 * ((seed % 129) as f32 + 11.0);
+    value_noise(x * 1.9 + base, y * 1.7 + base, seed).clamp(0.0, 1.0)
+}
+
 #[allow(dead_code)]
 fn delaunay_length(a: (i32, i32), b: (i32, i32)) -> f32 {
     let dx = (a.0 - b.0) as f32;
@@ -1888,6 +3724,22 @@ mod tests {
             CpuStrategy::RecursiveTiling,
             CpuStrategy::TuringCascade,
             CpuStrategy::FlowFilaments,
+            CpuStrategy::OrbitalAtlas,
+            CpuStrategy::CrystalGrowth,
+            CpuStrategy::VortexConvection,
+            CpuStrategy::ErosionChannels,
+            CpuStrategy::StochasticIFS,
+            CpuStrategy::DeJongAttractor,
+            CpuStrategy::RecursiveRibbon,
+            CpuStrategy::MagneticFieldlines,
+            CpuStrategy::LorenzAttractor,
+            CpuStrategy::RecursiveStarburst,
+            CpuStrategy::LogisticChaos,
+            CpuStrategy::InterferenceWaves,
+            CpuStrategy::CliffordAttractor,
+            CpuStrategy::JuliaSet,
+            CpuStrategy::KochSnowflake,
+            CpuStrategy::BifurcationTree,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
