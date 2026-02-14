@@ -32,6 +32,11 @@ fn hash01(x: f32, y: f32, seed: u32) -> f32 {
     return fract(sin(dot(vec2<f32>(x, y), vec2<f32>(12.9898, 78.233)) + s) * 43758.5453123);
 }
 
+fn coverage_warp(v: f32) -> f32 {
+    let sign_v = sign(v);
+    return sign_v * pow(abs(v), 0.75);
+}
+
 fn pack_gray(level: f32) -> u32 {
     let c = u32(clamp(level, 0.0, 1.0) * 255.0 + 0.5);
     return (255u << 24u) | (c << 16u) | (c << 8u) | c;
@@ -86,6 +91,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     var px = ((f32(id.x) + 0.5) / f32(params.width)) * 2.0 - 1.0;
     var py = ((f32(id.y) + 0.5) / f32(params.height)) * 2.0 - 1.0;
+    px = coverage_warp(px);
+    py = coverage_warp(py);
     px = px * params.fill_scale;
     py = py * params.fill_scale;
     var value = 0.0;
@@ -262,7 +269,7 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
-            fill_scale: 1.35,
+            fill_scale: 2.0,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -372,8 +379,8 @@ fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 0.55 + (rng.next_f32() * 1.3);
-    (base * jitter).clamp(0.45, 4.0)
+    let jitter = 1.2 + (rng.next_f32() * 1.2);
+    (base * jitter).max(1.4).min(4.5)
 }
 
 fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
