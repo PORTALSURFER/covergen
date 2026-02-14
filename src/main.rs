@@ -164,12 +164,58 @@ impl FilterMode {
 }
 
 #[derive(Clone, Copy)]
+enum GradientMode {
+    Linear,
+    Contrast,
+    Gamma,
+    Sine,
+    Sigmoid,
+    Posterize,
+}
+
+impl GradientMode {
+    fn from_u32(value: u32) -> Self {
+        match value % 6 {
+            0 => Self::Linear,
+            1 => Self::Contrast,
+            2 => Self::Gamma,
+            3 => Self::Sine,
+            4 => Self::Sigmoid,
+            _ => Self::Posterize,
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+            Self::Contrast => "contrast",
+            Self::Gamma => "gamma",
+            Self::Sine => "sine",
+            Self::Sigmoid => "sigmoid",
+            Self::Posterize => "posterize",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 struct BlurConfig {
     mode: FilterMode,
     max_radius: u32,
     axis_x: i32,
     axis_y: i32,
     softness: u32,
+}
+
+#[derive(Clone, Copy)]
+struct GradientConfig {
+    mode: GradientMode,
+    gamma: f32,
+    contrast: f32,
+    pivot: f32,
+    invert: bool,
+    frequency: f32,
+    phase: f32,
+    bands: u32,
 }
 
 struct Config {
@@ -325,8 +371,76 @@ fn pick_filter(seed: u32) -> BlurConfig {
     }
 }
 
+fn pick_gradient(seed: u32) -> GradientConfig {
+    let mut rng = XorShift32::new(seed);
+    let mode = GradientMode::from_u32(rng.next_u32());
+    let gamma = 0.45 + (rng.next_u32() % 160) as f32 * 0.01;
+    let contrast = 0.6 + (rng.next_u32() % 240) as f32 * 0.01;
+    let pivot = 0.25 + (rng.next_u32() % 70) as f32 * 0.01;
+    let invert = (rng.next_u32() % 2) == 0;
+    let frequency = 0.5 + (rng.next_u32() % 250) as f32 * 0.02;
+    let phase = (rng.next_u32() % 360) as f32 * 0.0174533;
+    let bands = (rng.next_u32() % 6) + 1;
+    GradientConfig {
+        mode,
+        gamma,
+        contrast,
+        pivot,
+        invert,
+        frequency,
+        phase,
+        bands,
+    }
+}
+
 fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
+}
+
+fn apply_posterize(mut value: f32, bands: u32) -> f32 {
+    if bands <= 1 {
+        return clamp01(value);
+    }
+    let levels = bands as f32;
+    value = clamp01(value) * levels;
+    (value.floor() / levels).min(1.0)
+}
+
+fn apply_gradient_map(src: Vec<f32>, cfg: GradientConfig) -> Vec<f32> {
+    src.into_iter()
+        .map(|value| {
+            let mut mapped = clamp01(value);
+            match cfg.mode {
+                GradientMode::Linear => {}
+                GradientMode::Contrast => {
+                    mapped = mapped.powf(1.0 + cfg.contrast * 0.05) * cfg.pivot;
+                    mapped = mapped.clamp(0.0, 1.0);
+                }
+                GradientMode::Gamma => {
+                    mapped = mapped.powf(cfg.gamma);
+                }
+                GradientMode::Sine => {
+                    mapped = 0.5
+                        + (0.5
+                            * (cfg.frequency * mapped * std::f32::consts::PI * 2.0 + cfg.phase)
+                                .sin());
+                }
+                GradientMode::Sigmoid => {
+                    let x = cfg.contrast * 0.1 * (mapped - cfg.pivot);
+                    mapped = 1.0 / (1.0 + (-x).exp());
+                }
+                GradientMode::Posterize => {}
+            }
+
+            if cfg.invert {
+                mapped = 1.0 - mapped;
+            }
+
+            mapped = (mapped * cfg.contrast.recip()).clamp(0.0, 1.0);
+            mapped = apply_posterize(mapped, cfg.bands);
+            clamp01(mapped)
+        })
+        .collect()
 }
 
 fn pixel_index(x: i32, y: i32, width: i32) -> usize {
@@ -719,6 +833,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         }
 
         let filter = pick_filter(params.seed);
+        let gradient = pick_gradient(params.seed);
         let frame_bytes = {
             let raw = slice.get_mapped_range();
             let data = raw.to_vec();
@@ -729,7 +844,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
         let gray = decode_luma(&frame_bytes);
         let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
-        let final_pixels = encode_rgba_gray(&filtered);
+        let mapped = apply_gradient_map(filtered, gradient);
+        let final_pixels = encode_rgba_gray(&mapped);
         let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(config.width, config.height, final_pixels)
                 .ok_or("could not create image buffer from GPU output")?;
@@ -737,12 +853,15 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | seed {} | fill {} | filter {} | radius {}",
+            "Generated {} | seed {} | fill {} | filter {} | radius {} | gradient {} ({:.2},{:.2})",
             final_output.display(),
             params.seed,
             params.fill_scale,
             filter.mode.label(),
-            filter.max_radius
+            filter.max_radius,
+            gradient.mode.label(),
+            gradient.gamma,
+            gradient.contrast
         );
     }
     Ok(())
