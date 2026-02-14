@@ -32,9 +32,17 @@ fn hash01(x: f32, y: f32, seed: u32) -> f32 {
     return fract(sin(dot(vec2<f32>(x, y), vec2<f32>(12.9898, 78.233)) + s) * 43758.5453123);
 }
 
-fn coverage_warp(v: f32) -> f32 {
-    let sign_v = sign(v);
-    return sign_v * pow(abs(v), 0.75);
+fn fold_for_symmetry(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    let radius = length(vec2<f32>(px, py));
+    if (radius <= 0.0 || symmetry <= 1u) {
+        return vec2<f32>(px, py);
+    }
+
+    let angle = atan2(py, px);
+    let sector = 6.283185307179586 / f32(symmetry);
+    let folded = fract((angle / sector) + 0.5) - 0.5;
+    let folded_angle = folded * sector;
+    return vec2<f32>(radius * cos(folded_angle), radius * sin(folded_angle));
 }
 
 fn pack_gray(level: f32) -> u32 {
@@ -91,8 +99,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     var px = ((f32(id.x) + 0.5) / f32(params.width)) * 2.0 - 1.0;
     var py = ((f32(id.y) + 0.5) / f32(params.height)) * 2.0 - 1.0;
-    px = coverage_warp(px);
-    py = coverage_warp(py);
     px = px * params.fill_scale;
     py = py * params.fill_scale;
     var value = 0.0;
@@ -100,21 +106,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let layer_scale: f32 = 1.0 / f32(layer_count);
 
     if (params.symmetry > 1u) {
-        px = abs(px);
-        if (params.symmetry > 2u) {
-            py = abs(py);
-        }
-        if (params.symmetry > 3u) {
-            if (py > px) {
-                let t = px;
-                px = py;
-                py = t;
-            }
-        }
+        let folded = fold_for_symmetry(px, py, params.symmetry);
+        px = folded.x;
+        py = folded.y;
     }
 
-    let sx = px;
-    let sy = py;
+    let swirl = hash01(px * 11.0, py * 13.0, params.seed);
+    let sx = px + (swirl - 0.5) * 0.08;
+    let sy = py + (swirl - 0.5) * 0.08;
 
     var layer: u32 = 0u;
     loop {
@@ -269,7 +268,7 @@ impl Config {
             symmetry: 4,
             iterations: 240,
             seed: random_seed(),
-            fill_scale: 2.0,
+            fill_scale: 1.35,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -365,11 +364,11 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    let spread = base.max(2);
-    let low = base.saturating_sub(spread);
-    let high = base.saturating_add(spread);
+    let spread = (base as f32 * 0.2).round() as u32;
+    let low = base.saturating_sub(spread).max(1);
+    let high = (base.saturating_add(spread)).max(low);
     let value = low + (rng.next_u32() % (high - low + 1));
-    value.max(1)
+    value
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
@@ -379,8 +378,8 @@ fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
 }
 
 fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
-    let jitter = 1.2 + (rng.next_f32() * 1.2);
-    (base * jitter).max(1.4).min(4.5)
+    let jitter = 0.7 + (rng.next_f32() * 0.7);
+    (base * jitter).clamp(1.0, 2.0)
 }
 
 fn pick_filter_from_rng(rng: &mut XorShift32) -> BlurConfig {
@@ -501,6 +500,81 @@ fn encode_rgba_gray(luma: &[f32]) -> Vec<u8> {
         out.push(255);
     }
     out
+}
+
+#[derive(Clone, Copy)]
+struct LumaStats {
+    min: f32,
+    max: f32,
+    mean: f32,
+    std: f32,
+}
+
+fn luma_stats(luma: &[f32]) -> LumaStats {
+    let mut min: f32 = 1.0;
+    let mut max: f32 = 0.0;
+    let mut sum = 0.0;
+    for &value in luma {
+        min = min.min(value);
+        max = max.max(value);
+        sum += value;
+    }
+    let mean = if luma.is_empty() {
+        0.0
+    } else {
+        sum / (luma.len() as f32)
+    };
+
+    let mut variance = 0.0;
+    for &value in luma {
+        let delta = value - mean;
+        variance += delta * delta;
+    }
+    let std = if luma.is_empty() {
+        0.0
+    } else {
+        (variance / (luma.len() as f32)).sqrt()
+    };
+
+    LumaStats {
+        min,
+        max,
+        mean,
+        std,
+    }
+}
+
+fn stretch_to_percentile(src: &[f32], low_pct: f32, high_pct: f32) -> Vec<f32> {
+    if src.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sorted = src.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let len_minus_1 = sorted.len() - 1;
+    let low = (len_minus_1 as f32 * low_pct.clamp(0.0, 1.0)).round() as usize;
+    let high = (len_minus_1 as f32 * high_pct.clamp(0.0, 1.0)).round() as usize;
+    let in_min = sorted[low];
+    let in_max = sorted[high];
+    let span = in_max - in_min;
+
+    if span <= f32::EPSILON {
+        return vec![0.5; src.len()];
+    }
+
+    src.iter()
+        .map(|value| ((value - in_min) / span).clamp(0.0, 1.0))
+        .collect()
+}
+
+fn inject_noise(mut src: Vec<f32>, seed: u32, strength: f32) -> Vec<f32> {
+    let mut rng = XorShift32::new(seed);
+    let gain = strength * 0.5;
+    for value in &mut src {
+        let noise = ((rng.next_u32() as f32) / (u32::MAX as f32) - 0.5) * 2.0;
+        *value = clamp01(*value + noise * gain);
+    }
+    src
 }
 
 fn apply_motion_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
@@ -880,9 +954,23 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         staging_buffer.unmap();
 
         let gray = decode_luma(&frame_bytes);
+        let pre_filter_stats = luma_stats(&gray);
         let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
+        let filtered = stretch_to_percentile(&filtered, 0.04, 0.96);
         let mapped = apply_gradient_map(filtered, gradient);
-        let final_pixels = encode_rgba_gray(&mapped);
+        let mut final_luma = stretch_to_percentile(&mapped, 0.02, 0.98);
+        let mut final_stats = luma_stats(&final_luma);
+
+        if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
+            final_luma = stretch_to_percentile(
+                &inject_noise(final_luma, params.seed ^ (i + 1), 0.06),
+                0.01,
+                0.99,
+            );
+            final_stats = luma_stats(&final_luma);
+        }
+
+        let final_pixels = encode_rgba_gray(&final_luma);
         let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(config.width, config.height, final_pixels)
                 .ok_or("could not create image buffer from GPU output")?;
@@ -890,7 +978,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         image.save(&final_output)?;
 
         println!(
-            "Generated {} | index {} | seed {} | fill {} | symmetry {} | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {} | symmetry {} | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             params.seed,
@@ -901,7 +989,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             filter.max_radius,
             gradient.mode.label(),
             gradient.gamma,
-            gradient.contrast
+            gradient.contrast,
+            pre_filter_stats.min,
+            pre_filter_stats.max,
+            pre_filter_stats.mean,
+            final_stats.min,
+            final_stats.max,
+            final_stats.mean
         );
     }
     Ok(())
