@@ -1866,6 +1866,19 @@ fn modulate_zoom(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
     (base * factor).clamp(0.35, 0.95)
 }
 
+fn bias_layer_strategy(
+    current: RenderStrategy,
+    rng: &mut XorShift32,
+    fast: bool,
+) -> RenderStrategy {
+    let switch_prob = if fast { 0.06 } else { 0.04 };
+    if rng.next_f32() < switch_prob {
+        pick_render_strategy(rng, fast)
+    } else {
+        current
+    }
+}
+
 fn pick_layer_blend(rng: &mut XorShift32) -> LayerBlendMode {
     LayerBlendMode::from_u32(rng.next_u32())
 }
@@ -2891,6 +2904,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let mut structural_profile =
             should_use_structural_profile(config.fast, &mut image_rng) || base_profile.force_detail;
         let mut layer_steps = Vec::new();
+        let mut active_strategy = base_strategy;
 
         create_soft_background(
             render_width,
@@ -2910,10 +2924,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         for layer_index in 0..layer_count {
             spinner_state.set_layer((layer_index + 1) as usize);
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
+            if layer_index > 0 {
+                active_strategy = bias_layer_strategy(active_strategy, &mut image_rng, config.fast);
+            }
             let layer_strategy = if layer_index == 0 {
                 base_strategy
             } else {
-                pick_render_strategy(&mut image_rng, config.fast)
+                active_strategy
             };
             let strategy_profile = strategy_profile(layer_strategy);
             let layer_force_detail = structural_profile || strategy_profile.force_detail;
