@@ -3,6 +3,7 @@ use std::sync::mpsc::channel;
 use std::{
     env,
     error::Error,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -505,6 +506,41 @@ fn apply_dynamic_filter(width: u32, height: u32, luma: Vec<f32>, cfg: BlurConfig
     }
 }
 
+fn resolve_output_path(output: &str) -> PathBuf {
+    let base_path = Path::new(output);
+    if !base_path.exists() {
+        return base_path.to_path_buf();
+    }
+
+    let parent = base_path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = base_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("output");
+    let extension = base_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let mut index = 1u32;
+
+    loop {
+        let candidate_name = if extension.is_empty() {
+            format!("{stem}_{index}")
+        } else {
+            format!("{stem}_{index}.{extension}")
+        };
+
+        let candidate = if parent.as_os_str().is_empty() {
+            PathBuf::from(candidate_name)
+        } else {
+            parent.join(candidate_name)
+        };
+
+        if !candidate.exists() {
+            return candidate;
+        }
+
+        index += 1;
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::from_env()?;
     pollster::block_on(run(config))?;
@@ -666,11 +702,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
         ImageBuffer::from_raw(config.width, config.height, final_pixels)
             .ok_or("could not create image buffer from GPU output")?;
-    image.save(&config.output)?;
+    let final_output = resolve_output_path(&config.output);
+    image.save(&final_output)?;
 
     println!(
         "Generated {} | seed {} | filter {} | radius {}",
-        config.output,
+        final_output.display(),
         config.seed,
         filter.mode.label(),
         filter.max_radius
