@@ -367,25 +367,11 @@ impl Config {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--width" | "-w" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing width value, pass --width <u32>")?;
-                    cfg.width = value.parse()?;
-                }
-                "--height" | "-h" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing height value, pass --height <u32>")?;
-                    cfg.height = value.parse()?;
-                }
                 "--size" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing size value, pass --size <width>x<height>")?;
-                    let mut split = value.split('x');
-                    cfg.width = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
-                    cfg.height = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
+                    let value = args.next().ok_or("missing size value, pass --size <u32>")?;
+                    let size = value.parse::<u32>()?;
+                    cfg.width = size;
+                    cfg.height = size;
                 }
                 "--symmetry" => {
                     let value = args
