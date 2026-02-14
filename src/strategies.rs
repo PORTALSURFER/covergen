@@ -34,12 +34,18 @@ pub enum CpuStrategy {
     IteratedFractal,
     /// Chaotic strange-attractor trajectory density.
     StrangeAttractor,
+    /// Radial-wave-like interference pattern.
+    RadialWave,
+    /// Recursive folding map with multiple map iterations.
+    RecursiveFold,
+    /// Attractor trajectory blended from two chaotic updates.
+    AttractorHybrid,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        12
+        15
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -56,7 +62,10 @@ impl CpuStrategy {
             8 => Self::Voronoi,
             9 => Self::Delaunay,
             10 => Self::IteratedFractal,
-            _ => Self::StrangeAttractor,
+            11 => Self::StrangeAttractor,
+            12 => Self::RadialWave,
+            13 => Self::RecursiveFold,
+            _ => Self::AttractorHybrid,
         }
     }
 
@@ -75,6 +84,9 @@ impl CpuStrategy {
             Self::Delaunay => "delaunay",
             Self::IteratedFractal => "iterated-fractal",
             Self::StrangeAttractor => "strange-attractor",
+            Self::RadialWave => "radial-wave",
+            Self::RecursiveFold => "recursive-fold",
+            Self::AttractorHybrid => "attractor-hybrid",
         }
     }
 }
@@ -149,10 +161,20 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
                 gradient_bias: 0.22,
                 force_detail: true,
             },
+            CpuStrategy::RadialWave | CpuStrategy::RecursiveFold => StrategyProfile {
+                filter_bias: 0.22,
+                gradient_bias: 0.20,
+                force_detail: true,
+            },
             CpuStrategy::CellularAutomata | CpuStrategy::ProceduralNoise => StrategyProfile {
                 filter_bias: 0.44,
                 gradient_bias: 0.38,
                 force_detail: false,
+            },
+            CpuStrategy::AttractorHybrid => StrategyProfile {
+                filter_bias: 0.18,
+                gradient_bias: 0.24,
+                force_detail: true,
             },
         },
     }
@@ -180,6 +202,9 @@ pub fn render_cpu_strategy(
         CpuStrategy::Delaunay => render_delaunay(width, height, &mut rng),
         CpuStrategy::IteratedFractal => render_iterated_fractal(width, height, &mut rng, fast),
         CpuStrategy::StrangeAttractor => render_strange_attractor(width, height, &mut rng, fast),
+        CpuStrategy::RadialWave => render_radial_wave(width, height, &mut rng),
+        CpuStrategy::RecursiveFold => render_recursive_fold(width, height, &mut rng, fast),
+        CpuStrategy::AttractorHybrid => render_attractor_hybrid(width, height, &mut rng, fast),
     }
 }
 
@@ -204,13 +229,15 @@ fn hash01(value: u32, seed: u32) -> f32 {
     (mix_hash(value, value.rotate_left(13), seed) as f32) / (u32::MAX as f32)
 }
 
-fn value_noise(mut x: f32, mut y: f32, seed: u32) -> f32 {
-    x = x.floor();
-    y = y.floor();
-    let x0 = x as i32;
-    let y0 = y as i32;
-    let fx = x.fract();
-    let fy = y.fract();
+fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
+    let xf = x.floor();
+    let yf = y.floor();
+    let xq = xf.rem_euclid(8192.0);
+    let yq = yf.rem_euclid(8192.0);
+    let x0 = xq as i32;
+    let y0 = yq as i32;
+    let fx = x - xf;
+    let fy = y - yf;
 
     let a = hash01(x0 as u32, seed ^ (y0 as u32));
     let b = hash01((x0 + 1) as u32, seed ^ (y0 as u32));
@@ -649,6 +676,98 @@ fn render_noise_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32>
     out
 }
 
+fn render_radial_wave(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let width_f = width.max(1) as f32;
+    let height_f = height.max(1) as f32;
+    let cx = (rng.next_f32() - 0.5) * 0.2;
+    let cy = (rng.next_f32() - 0.5) * 0.2;
+    let base_freq = 2.0 + rng.next_f32() * 6.0;
+    let bands = 2 + (rng.next_u32() % 4) as u32;
+    let seed = rng.next_u32();
+
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let nx = (x as f32 / width_f) * 2.0 - 1.0 + cx;
+            let ny = (y as f32 / height_f) * 2.0 - 1.0 + cy;
+            let angle = ny.atan2(nx);
+            let radius = (nx * nx + ny * ny).sqrt().max(1e-6);
+            let mut value = 0.0f32;
+            let mut i = 0u32;
+            while i < bands {
+                let tone = 0.30 + (i as f32) * 0.18;
+                let frequency = base_freq * (1.0 + i as f32 * 0.33);
+                let wave =
+                    (radius * frequency * TAU + angle * (0.75 + i as f32 * 0.22) + angle * 2.8)
+                        .sin()
+                        .abs();
+                let orbital = (angle * frequency * 1.1).cos().abs();
+                let shell = (1.0 - (radius * tone).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+                let noise = value_noise(
+                    nx * 4.5 + 0.5 * i as f32 + seed as f32 / 16_777_216.0,
+                    ny * 4.5 - 0.5 * i as f32 + seed as f32 / 32_768.0,
+                    seed + i,
+                );
+                value += (wave * shell + orbital * 0.35 + noise * 0.12) / (1.0 + i as f32 * 0.8);
+                i += 1;
+            }
+            out[(y as usize * width as usize) + x as usize] = value;
+        }
+    }
+
+    normalize(&mut out);
+    out
+}
+
+fn render_recursive_fold(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let width_f = width.max(1) as f32;
+    let height_f = height.max(1) as f32;
+    let fold_center_x = (rng.next_f32() - 0.5) * 0.35;
+    let fold_center_y = (rng.next_f32() - 0.5) * 0.35;
+    let base_rot = rng.next_f32() * TAU;
+    let base_scale = if fast { 0.86 } else { 0.78 };
+    let iterations = if fast { 26 } else { 44 };
+    let seed = rng.next_u32();
+
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let mut px = (x as f32 / width_f) * 2.0 - 1.0 + fold_center_x;
+            let mut py = (y as f32 / height_f) * 2.0 - 1.0 + fold_center_y;
+            let mut field = 0.0f32;
+            let mut loop_idx = 0u32;
+            while loop_idx < iterations {
+                let step = loop_idx as f32 / iterations as f32;
+                let angle = base_rot + 0.85 + step * 2.3;
+                let c = angle.cos();
+                let s = angle.sin();
+                let tx = px * c - py * s;
+                let ty = px * s + py * c;
+                let cx = 0.48 + 0.18 * (seed as f32 * 0.000001 + step).sin();
+                let cy = 0.34 + 0.16 * (seed as f32 * 0.000002 - step).cos();
+                px = (tx.abs() - cx) * (1.0 - 0.55 * step);
+                py = (ty.abs() - cy) * (1.0 - 0.47 * step);
+                let n = value_noise(
+                    px * 3.5 + step * 1.7 + seed as f32,
+                    py * 3.5 - step * 1.3 - seed as f32,
+                    seed + loop_idx,
+                );
+                let magnitude = (px * px + py * py).sqrt();
+                let fold = (1.0 / (1.0 + magnitude)).clamp(0.0, 1.0);
+                field += (fold * 0.72 + 0.28 * n) * (base_scale + 0.22 * (1.0 - step));
+                field = field.clamp(0.0, 1.0);
+                px = px * base_scale + (n - 0.5) * 0.25 * (1.0 - step);
+                py = py * base_scale + (0.5 - n) * 0.25 * (1.0 - step);
+                loop_idx += 1;
+            }
+            out[(y as usize * width as usize) + x as usize] = field;
+        }
+    }
+
+    normalize(&mut out);
+    out
+}
+
 fn render_cellular_automata(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
     let sim_w = (width / 2).max(128);
     let sim_h = (height / 2).max(128);
@@ -966,6 +1085,83 @@ fn render_strange_attractor(width: u32, height: u32, rng: &mut XorShift32, fast:
     out
 }
 
+fn render_attractor_hybrid(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim_w = (width / 2).max(128);
+    let sim_h = (height / 2).max(128);
+    let points = if fast { 150_000 } else { 280_000 };
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut x = rng.next_f32() * 0.4 - 0.2;
+    let mut y = rng.next_f32() * 0.4 - 0.2;
+    let a = -1.5 + rng.next_f32() * 1.6;
+    let b = 1.0 + rng.next_f32() * 1.2;
+    let c = -0.8 + rng.next_f32() * 1.6;
+    let d = 0.5 + rng.next_f32() * 1.2;
+    let phase = rng.next_f32() * TAU;
+    let blend = 0.35 + rng.next_f32() * 0.45;
+    let mut min_x = f32::INFINITY;
+    let mut max_x = -f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = -f32::INFINITY;
+    let seed = rng.next_u32();
+
+    for i in 0..points {
+        let step = i as f32 / points as f32;
+        let m = ((step * 11.0 + phase).sin() + 1.0) * 0.5;
+        let map_a = if m > blend {
+            (
+                1.2 * y + c * x.cos() + a * (b * x).sin(),
+                b * x - d * (b * y).sin() + c * m,
+            )
+        } else {
+            (a - y * y + b * x, x + d * (c - y))
+        };
+        let map_b = if m > 0.5 {
+            (y - (x.signum() * (x.abs() + c).sqrt()), b * x - a * y - c)
+        } else {
+            (d - y * y - c * x.sin(), a * x + b * y)
+        };
+        let nx = map_a.0 * (1.0 - m) + map_b.0 * m;
+        let ny = map_a.1 * (1.0 - m) + map_b.1 * m;
+        x = clamp01(nx * 0.98 + 0.01 * (step * TAU).cos());
+        y = clamp01(ny * 0.98 + 0.01 * (step * TAU).sin());
+
+        if !x.is_finite() || !y.is_finite() {
+            x = rng.next_f32() * 0.4 - 0.2;
+            y = rng.next_f32() * 0.4 - 0.2;
+        }
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+
+        let xr = (x - min_x) / (max_x - min_x).max(1e-6);
+        let yr = (y - min_y) / (max_y - min_y).max(1e-6);
+        let ix = (xr * (sim_w as f32 - 1.0))
+            .round()
+            .clamp(0.0, sim_w as f32 - 1.0) as usize;
+        let iy = (yr * (sim_h as f32 - 1.0))
+            .round()
+            .clamp(0.0, sim_h as f32 - 1.0) as usize;
+        density[iy * sim_w as usize + ix] += 1.0;
+        if i % 3 == 0 {
+            let seed_f = (seed % 4_096) as f32;
+            let noise = value_noise(x * 3.0 + seed_f * 0.25, y * 3.0 - seed_f * 0.25, seed ^ i);
+            let jx = ((ix as f32 + (noise - 0.5) * 2.0).clamp(0.0, (sim_w - 1) as f32)) as usize;
+            let jy = ((iy as f32 + (noise - 0.5) * 2.0).clamp(0.0, (sim_h - 1) as f32)) as usize;
+            density[jy * sim_w as usize + jx] += 0.35;
+        }
+    }
+
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        let curve = if fast { 0.86 } else { 0.92 };
+        *value = clamp01(value.powf(curve));
+    }
+    normalize(&mut out);
+    out
+}
+
 #[allow(dead_code)]
 fn delaunay_length(a: (i32, i32), b: (i32, i32)) -> f32 {
     let dx = (a.0 - b.0) as f32;
@@ -992,6 +1188,9 @@ mod tests {
             CpuStrategy::Delaunay,
             CpuStrategy::IteratedFractal,
             CpuStrategy::StrangeAttractor,
+            CpuStrategy::RadialWave,
+            CpuStrategy::RecursiveFold,
+            CpuStrategy::AttractorHybrid,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
