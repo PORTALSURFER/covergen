@@ -249,16 +249,6 @@ impl GradientMode {
         }
     }
 
-    fn label(&self) -> &'static str {
-        match self {
-            Self::Linear => "linear",
-            Self::Contrast => "contrast",
-            Self::Gamma => "gamma",
-            Self::Sine => "sine",
-            Self::Sigmoid => "sigmoid",
-            Self::Posterize => "posterize",
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
