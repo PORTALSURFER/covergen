@@ -35,6 +35,8 @@ struct Params {
     warp_frequency: f32,
     tile_scale: f32,
     tile_phase: f32,
+    center_x: f32,
+    center_y: f32,
 }
 
 @group(0) @binding(0)
@@ -1047,6 +1049,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let warped = apply_domain_warp(px, py);
     px = warped.x;
     py = warped.y;
+    px = px + params.center_x;
+    py = py + params.center_y;
     var value = 0.0;
     let layer_count = 10u;
 
@@ -1098,6 +1102,8 @@ struct Params {
     warp_frequency: f32,
     tile_scale: f32,
     tile_phase: f32,
+    center_x: f32,
+    center_y: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -1496,11 +1502,18 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    let spread = (base as f32 * 0.2).round() as u32;
+    if rng.next_f32() < 0.28 {
+        return 1;
+    }
+
+    if base <= 1 {
+        return 2 + (rng.next_u32() % 8);
+    }
+
+    let spread = (base as f32 * 0.45).round() as u32;
     let low = base.saturating_sub(spread).max(1);
-    let high = (base.saturating_add(spread)).max(low);
-    let value = low + (rng.next_u32() % (high - low + 1));
-    value
+    let high = (base.saturating_add(spread)).max(low + 1).min(16);
+    low + (rng.next_u32() % (high - low + 1))
 }
 
 fn randomize_iterations(base: u32, rng: &mut XorShift32) -> u32 {
@@ -1517,6 +1530,23 @@ fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
 fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
     let jitter = 0.3 + (rng.next_f32() * 0.55);
     (base * jitter).clamp(0.20, 0.95)
+}
+
+fn randomize_center_offset(rng: &mut XorShift32, fast: bool) -> (f32, f32) {
+    let drift = if fast { 0.60 } else { 0.75 };
+    if rng.next_f32() > drift {
+        return (0.0, 0.0);
+    }
+
+    let max_shift = if fast { 0.18 } else { 0.32 };
+    let radius = max_shift * rng.next_f32().powf(1.35);
+    let angle = rng.next_f32() * 6.283185307179586;
+    (radius * angle.cos(), radius * angle.sin())
+}
+
+fn modulate_center_offset(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let jitter = (rng.next_f32() * 2.0 - 1.0) * if fast { 0.07 } else { 0.12 };
+    (base + jitter).clamp(-0.5, 0.5)
 }
 
 fn pick_bend_strength(rng: &mut XorShift32) -> f32 {
@@ -1598,14 +1628,36 @@ fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -
 }
 
 fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
-    let jitter = if fast { 1 } else { 2 };
-    if base <= 1 {
+    if rng.next_f32() < 0.12 {
         return 1;
+    }
+
+    if base <= 1 {
+        return 2;
+    }
+
+    let jitter = if fast { 3 } else { 6 };
+    if rng.next_f32() < 0.30 {
+        return 2 + (rng.next_u32() % 15);
     }
 
     let jitter_range = jitter.min(base - 1);
     let shift = (rng.next_u32() % (jitter_range * 2 + 1) as u32) as i32 - jitter_range as i32;
-    ((base as i32 + shift).max(1)) as u32
+    ((base as i32 + shift).clamp(1, 16)) as u32
+}
+
+fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
+    let keep_base = if fast { 0.88 } else { 0.80 };
+    let roll = rng.next_f32();
+    if roll < keep_base {
+        return SymmetryStyle::from_u32(base).as_u32();
+    }
+
+    if roll < 0.94 {
+        return SymmetryStyle::from_u32(base + 1).as_u32();
+    }
+
+    pick_symmetry_style(rng)
 }
 
 fn modulate_iterations(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
@@ -2414,6 +2466,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         warp_frequency: 1.0,
         tile_scale: 1.0,
         tile_phase: 0.0,
+        center_x: 0.0,
+        center_y: 0.0,
     };
 
     let output_size =
@@ -2555,6 +2609,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_warp_frequency = pick_warp_frequency(&mut image_rng);
         let base_tile_scale = pick_tile_scale(&mut image_rng);
         let base_tile_phase = pick_tile_phase(&mut image_rng);
+        let (base_center_x, base_center_y) = randomize_center_offset(&mut image_rng, config.fast);
         let layer_count = pick_layer_count(&mut image_rng, config.layers, config.fast);
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
@@ -2583,7 +2638,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 width: config.width,
                 height: config.height,
                 symmetry: modulate_symmetry(base_symmetry, &mut image_rng, config.fast),
-                symmetry_style: base_symmetry_style,
+                symmetry_style: modulate_symmetry_style(
+                    base_symmetry_style,
+                    &mut image_rng,
+                    config.fast,
+                ),
                 iterations: modulate_iterations(base_iterations, &mut image_rng, config.fast),
                 seed: layer_seed,
                 fill_scale: modulate_fill_scale(base_fill_scale, &mut image_rng, config.fast),
@@ -2605,6 +2664,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 ),
                 tile_scale: modulate_tile_scale(base_tile_scale, &mut image_rng, config.fast),
                 tile_phase: modulate_tile_phase(base_tile_phase, &mut image_rng, config.fast),
+                center_x: modulate_center_offset(base_center_x, &mut image_rng, config.fast),
+                center_y: modulate_center_offset(base_center_y, &mut image_rng, config.fast),
                 art_style: modulate_art_style(base_art_style, &mut image_rng, config.fast).as_u32(),
                 art_style_secondary: modulate_art_style(
                     base_art_style_secondary,
@@ -2824,7 +2885,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         };
 
         println!(
-            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] | iterations {} | styles {}+{}:{:.2} | final d{} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] center({:.2},{:.2}) | iterations {} | styles {}+{}:{:.2} | final d{} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             base_seed,
@@ -2832,6 +2893,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             base_zoom,
             base_symmetry,
             SymmetryStyle::from_u32(base_symmetry_style).label(),
+            base_center_x,
+            base_center_y,
             base_iterations,
             base_art_style.label(),
             base_art_style_secondary.label(),
