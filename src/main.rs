@@ -95,7 +95,9 @@ fn apply_domain_warp(px: f32, py: f32) -> vec2<f32> {
 }
 
 fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
-    let repeats = clamp(f32(symmetry) * 0.75 * clamp(params.tile_scale, 0.25, 2.5), 1.2, 10.0);
+    var repeats = f32(symmetry) * 0.55 * clamp(params.tile_scale, 0.25, 1.8);
+    repeats = repeats + sin((params.tile_phase * 6.283185307179586) * 0.22);
+    repeats = clamp(repeats, 1.2, 4.8);
     if (style == 1u) {
         return fold_symmetry_mirror(px, py, symmetry);
     }
@@ -1093,6 +1095,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 const MIN_IMAGE_DIMENSION: u32 = 64;
+const MAX_RENDER_PIXELS: u64 = 16_777_216;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1434,6 +1437,7 @@ struct Config {
     layers: Option<u32>,
     count: u32,
     output: String,
+    antialias: u32,
 }
 
 struct XorShift32 {
@@ -1475,6 +1479,7 @@ impl Config {
             layers: None,
             count: 1,
             output: "fractal.png".to_string(),
+            antialias: 1,
         };
 
         while let Some(arg) = args.next() {
@@ -1531,6 +1536,12 @@ impl Config {
                         .ok_or("missing output file name, pass --output <path>")?
                         .to_string();
                 }
+                "--antialias" | "--aa" => {
+                    cfg.antialias = args
+                        .next()
+                        .ok_or("missing antialias value, pass --antialias <1|2|3|4>")?
+                        .parse()?;
+                }
                 _ => return Err(format!("unknown argument: {arg}").into()),
             }
         }
@@ -1556,9 +1567,39 @@ impl Config {
         if cfg.count == 0 {
             return Err("count must be at least 1".into());
         }
+        if cfg.antialias == 0 {
+            return Err("antialias must be at least 1".into());
+        }
 
         Ok(cfg)
     }
+}
+
+fn resolve_render_resolution(
+    width: u32,
+    height: u32,
+    requested_supersample: u32,
+) -> (u32, u32, u32) {
+    let mut supersample = requested_supersample.max(1);
+    while supersample > 1 {
+        let Some(render_width) = width.checked_mul(supersample) else {
+            supersample -= 1;
+            continue;
+        };
+        let Some(render_height) = height.checked_mul(supersample) else {
+            supersample -= 1;
+            continue;
+        };
+
+        let render_pixels = u64::from(render_width) * u64::from(render_height);
+        if render_pixels <= MAX_RENDER_PIXELS {
+            return (render_width, render_height, supersample);
+        }
+
+        supersample -= 1;
+    }
+
+    (width, height, 1)
 }
 
 fn random_seed() -> u32 {
@@ -1574,21 +1615,21 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    if rng.next_f32() < 0.18 {
+    if rng.next_f32() < 0.24 {
         return 1;
     }
 
-    if rng.next_f32() < 0.72 {
-        return 1 + (rng.next_u32() % 16);
-    }
-
-    if base <= 1 {
+    if rng.next_f32() < 0.58 {
         return 2 + (rng.next_u32() % 8);
     }
 
-    let full_range: u32 = 16;
-    if rng.next_f32() < 0.40 {
-        return 1 + (rng.next_u32() % full_range);
+    if base <= 1 {
+        return 2 + (rng.next_u32() % 5);
+    }
+
+    let full_range: u32 = 12;
+    if rng.next_f32() < 0.45 {
+        return 2 + (rng.next_u32() % 7);
     }
 
     let spread = (base as f32 * 0.65).round() as u32;
@@ -1643,7 +1684,7 @@ fn pick_warp_frequency(rng: &mut XorShift32) -> f32 {
 }
 
 fn pick_tile_scale(rng: &mut XorShift32) -> f32 {
-    0.35 + (rng.next_f32() * 2.8)
+    0.45 + (rng.next_f32() * 1.0)
 }
 
 fn pick_tile_phase(rng: &mut XorShift32) -> f32 {
@@ -1710,7 +1751,7 @@ fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -
 }
 
 fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
-    if rng.next_f32() < 0.12 {
+    if rng.next_f32() < 0.10 {
         return 1;
     }
 
@@ -1743,7 +1784,7 @@ fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool, allow_gr
     };
 
     if allow_grid {
-        if style == SymmetryStyle::Grid && rng.next_f32() > 0.12 {
+        if style == SymmetryStyle::Grid && rng.next_f32() > 0.22 {
             return pick_non_grid_symmetry_style(rng).as_u32();
         }
     } else if style == SymmetryStyle::Grid {
@@ -1763,7 +1804,7 @@ fn should_apply_grid_across_layers(
         return false;
     }
 
-    let base_chance = if fast { 0.15 } else { 0.20 };
+    let base_chance = if fast { 0.03 } else { 0.05 };
     let layer_scale = ((layer_count as f32) / 8.0).clamp(0.45, 1.0);
     rng.next_f32() < (base_chance * layer_scale)
 }
@@ -1808,9 +1849,10 @@ fn modulate_warp_frequency(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
     (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.2, 6.2)
 }
 
-fn modulate_tile_scale(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+fn modulate_tile_scale(base: f32, for_grid: bool, rng: &mut XorShift32, fast: bool) -> f32 {
     let spread = if fast { 0.18 } else { 0.33 };
-    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.22, 3.05)
+    let clamp_max = if for_grid { 1.2 } else { 1.7 };
+    (base + ((rng.next_f32() * 2.0 - 1.0) * spread)).clamp(0.22, clamp_max)
 }
 
 fn modulate_tile_phase(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
@@ -1840,9 +1882,9 @@ fn layer_opacity(rng: &mut XorShift32) -> f32 {
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
     let roll = rng.next_f32();
-    if roll < 0.08 {
+    if roll < 0.01 {
         SymmetryStyle::Grid.as_u32()
-    } else if roll < 0.54 {
+    } else if roll < 0.58 {
         SymmetryStyle::Radial.as_u32()
     } else {
         SymmetryStyle::Mirror.as_u32()
@@ -2031,6 +2073,51 @@ fn encode_gray(dst: &mut [u8], luma: &[f32]) {
     for (i, &v) in luma.iter().enumerate() {
         dst[i] = (clamp01(v) * 255.0).round() as u8;
     }
+}
+
+fn downsample_luma(
+    source: &[f32],
+    source_width: u32,
+    source_height: u32,
+    target_width: u32,
+    target_height: u32,
+) -> Result<Vec<f32>, Box<dyn Error>> {
+    if source.is_empty() {
+        return Ok(vec![
+            0.0;
+            (target_width as usize) * (target_height as usize)
+        ]);
+    }
+
+    if source.len() != (source_width as usize) * (source_height as usize) {
+        return Err("invalid source luma size for downsample".into());
+    }
+
+    if source_width == target_width && source_height == target_height {
+        return Ok(source.to_vec());
+    }
+
+    let source_bytes = source
+        .iter()
+        .map(|value| (clamp01(*value) * 255.0).round() as u8)
+        .collect::<Vec<u8>>();
+
+    let source_image = image::GrayImage::from_raw(source_width, source_height, source_bytes)
+        .ok_or("invalid source image buffer during downsample")?;
+
+    let resized = image::imageops::resize(
+        &source_image,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    let mut target = vec![0.0f32; (target_width as usize) * (target_height as usize)];
+    for (out, value) in target.iter_mut().zip(resized.into_raw().into_iter()) {
+        *out = (value as f32) / 255.0;
+    }
+
+    Ok(target)
 }
 
 #[derive(Clone, Copy)]
@@ -2611,9 +2698,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await?;
 
     let shader_module = device.create_shader_module(shader);
+    let (render_width, render_height, resolved_antialias) =
+        resolve_render_resolution(config.width, config.height, config.antialias);
     let mut params = Params {
-        width: config.width,
-        height: config.height,
+        width: render_width,
+        height: render_height,
         symmetry: config.symmetry,
         symmetry_style: 0,
         iterations: config.iterations,
@@ -2633,12 +2722,14 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     };
 
     let output_size =
-        (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
-    let pixel_count = (config.width as usize) * (config.height as usize);
+        (render_width as usize * render_height as usize * std::mem::size_of::<u32>()) as u64;
+    let pixel_count = (render_width as usize) * (render_height as usize);
+    let final_pixel_count = (config.width as usize) * (config.height as usize);
     let mut filtered = vec![0.0f32; pixel_count];
     let mut detail = vec![0.0f32; pixel_count];
     let mut layered = vec![0.0f32; pixel_count];
-    let mut final_pixels = vec![0u8; pixel_count];
+    let mut final_pixels = vec![0u8; final_pixel_count];
+    let mut final_luma = vec![0.0f32; final_pixel_count];
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output storage"),
@@ -2720,6 +2811,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let (spinner_running, spinner_handle) = start_spinner(spinner_state.clone());
 
     let render_layer = |layer_params: &Params, out: &mut [f32]| -> Result<(), Box<dyn Error>> {
+        debug_assert_eq!(
+            out.len(),
+            (layer_params.width as usize) * (layer_params.height as usize)
+        );
         queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(layer_params));
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("command encoder"),
@@ -2731,8 +2826,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
-            let work_x = (config.width + 15) / 16;
-            let work_y = (config.height + 15) / 16;
+            let work_x = (layer_params.width + 15) / 16;
+            let work_y = (layer_params.height + 15) / 16;
             pass.dispatch_workgroups(work_x, work_y, 1);
         }
         encoder.copy_buffer_to_buffer(&out_buffer, 0, &staging_buffer, 0, output_size);
@@ -2798,8 +2893,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let mut layer_steps = Vec::new();
 
         create_soft_background(
-            config.width,
-            config.height,
+            render_width,
+            render_height,
             base_seed ^ (i + 0x0BADC0DEu32),
             &mut background,
         );
@@ -2827,6 +2922,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let mut layer_style = modulate_art_style(base_art_style, &mut image_rng, config.fast);
             let mut layer_style_secondary =
                 modulate_art_style(base_art_style_secondary, &mut image_rng, config.fast);
+            let symmetry_style = SymmetryStyle::from_u32(modulate_symmetry_style(
+                base_symmetry_style,
+                &mut image_rng,
+                config.fast,
+                grid_on_all_layers,
+            ));
 
             if let RenderStrategy::Gpu(style) = layer_strategy {
                 layer_style = ArtStyle::from_u32(style);
@@ -2838,15 +2939,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
 
             params = Params {
-                width: config.width,
-                height: config.height,
+                width: render_width,
+                height: render_height,
                 symmetry: modulate_symmetry(base_symmetry, &mut image_rng, config.fast),
-                symmetry_style: modulate_symmetry_style(
-                    base_symmetry_style,
-                    &mut image_rng,
-                    config.fast,
-                    grid_on_all_layers,
-                ),
+                symmetry_style: symmetry_style.as_u32(),
                 iterations: modulate_iterations(base_iterations, &mut image_rng, config.fast),
                 seed: layer_seed,
                 fill_scale: modulate_fill_scale(base_fill_scale, &mut image_rng, config.fast),
@@ -2866,7 +2962,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     &mut image_rng,
                     config.fast,
                 ),
-                tile_scale: modulate_tile_scale(base_tile_scale, &mut image_rng, config.fast),
+                tile_scale: modulate_tile_scale(
+                    base_tile_scale,
+                    symmetry_style == SymmetryStyle::Grid,
+                    &mut image_rng,
+                    config.fast,
+                ),
                 tile_phase: modulate_tile_phase(base_tile_phase, &mut image_rng, config.fast),
                 center_x: modulate_center_offset(base_center_x, &mut image_rng, config.fast),
                 center_y: modulate_center_offset(base_center_y, &mut image_rng, config.fast),
@@ -2880,8 +2981,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 RenderStrategy::Cpu(cpu_strategy) => {
                     let generated = render_cpu_strategy(
                         cpu_strategy,
-                        config.width,
-                        config.height,
+                        render_width,
+                        render_height,
                         layer_seed,
                         config.fast,
                     );
@@ -2918,7 +3019,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let mut complexity_fixed = false;
 
             if apply_filter {
-                apply_dynamic_filter(config.width, config.height, &luma, &mut filtered, filter);
+                apply_dynamic_filter(render_width, render_height, &luma, &mut filtered, filter);
                 let low_stretch = if config.fast { 0.03 } else { 0.04 };
                 let high_stretch = if config.fast { 0.97 } else { 0.96 };
                 stretch_to_percentile(&mut filtered, &mut percentile, low_stretch, high_stretch);
@@ -2945,24 +3046,24 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if structural_profile {
                     apply_detail_waves(
                         &mut filtered,
-                        config.width,
-                        config.height,
+                        render_width,
+                        render_height,
                         layer_seed ^ 0x2f7f_8d3d,
                         if config.fast { 0.05 } else { 0.09 },
                     );
                 } else if image_rng.next_f32() < 0.35 {
                     apply_detail_waves(
                         &mut filtered,
-                        config.width,
-                        config.height,
+                        render_width,
+                        render_height,
                         layer_seed ^ 0x9d7e_4f2a,
                         if config.fast { 0.04 } else { 0.07 },
                     );
                 }
 
                 apply_sharpen(
-                    config.width,
-                    config.height,
+                    render_width,
+                    render_height,
                     &filtered,
                     &mut detail,
                     if structural_profile {
@@ -2984,19 +3085,19 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             };
             apply_contrast(&mut filtered, layer_contrast.max(1.0));
             let layer_stats = luma_stats(&filtered);
-            let layer_edge_energy = local_edge_energy(&filtered, config.width, config.height);
+            let layer_edge_energy = local_edge_energy(&filtered, render_width, render_height);
             if needs_complexity_fix(layer_stats, layer_edge_energy) {
                 complexity_fixed = true;
                 apply_detail_waves(
                     &mut filtered,
-                    config.width,
-                    config.height,
+                    render_width,
+                    render_height,
                     layer_seed ^ 0x4445_6d63,
                     if config.fast { 0.10 } else { 0.18 },
                 );
                 apply_sharpen(
-                    config.width,
-                    config.height,
+                    render_width,
+                    render_height,
                     &filtered,
                     &mut detail,
                     if config.fast { 0.55 } else { 0.9 },
@@ -3050,19 +3151,19 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
         let mut final_stats = luma_stats(&layered);
         let mut final_complexity_fixed = false;
-        let final_edge_energy = local_edge_energy(&layered, config.width, config.height);
+        let final_edge_energy = local_edge_energy(&layered, render_width, render_height);
         if needs_complexity_fix(final_stats, final_edge_energy) {
             final_complexity_fixed = true;
             apply_detail_waves(
                 &mut layered,
-                config.width,
-                config.height,
+                render_width,
+                render_height,
                 base_seed ^ (i + 0x445f_6e65),
                 if config.fast { 0.08 } else { 0.14 },
             );
             apply_sharpen(
-                config.width,
-                config.height,
+                render_width,
+                render_height,
                 &layered,
                 &mut detail,
                 if config.fast { 0.45 } else { 0.75 },
@@ -3087,7 +3188,22 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             final_stats = luma_stats(&layered);
         }
 
-        encode_gray(&mut final_pixels, &layered);
+        let output_luma = if resolved_antialias == 1
+            && render_width == config.width
+            && render_height == config.height
+        {
+            &layered
+        } else {
+            final_luma = downsample_luma(
+                &layered,
+                render_width,
+                render_height,
+                config.width,
+                config.height,
+            )?;
+            final_luma.as_slice()
+        };
+        encode_gray(&mut final_pixels, output_luma);
         let final_output = resolve_output_path(&config.output);
         let (final_width, final_height, final_bytes) =
             save_png_under_10mb(&final_output, config.width, config.height, &final_pixels)?;
@@ -3107,7 +3223,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         };
 
         println!(
-            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] center({:.2},{:.2}) | iterations {} | strategy {} | final d{} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | fill {:.2} | zoom {:.2} | symmetry {} [{}] center({:.2},{:.2}) | iterations {} | strategy {} | final d{} | layers {} | layers [{}] | image {}x{} (aa {}) (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             base_seed,
@@ -3124,6 +3240,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             layer_summary,
             final_width,
             final_height,
+            resolved_antialias,
             scale,
             final_bytes as f64 / (1024.0 * 1024.0),
             pre_filter_stats.min,
