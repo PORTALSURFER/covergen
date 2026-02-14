@@ -1,5 +1,9 @@
 use std::sync::mpsc::channel;
-use std::{env, error::Error};
+use std::{
+    env,
+    error::Error,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use bytemuck::{Pod, Zeroable};
 use image::{ImageBuffer, Rgba};
@@ -11,6 +15,7 @@ struct Params {
     height: u32,
     symmetry: u32,
     iterations: u32,
+    seed: u32,
 }
 
 @group(0) @binding(0)
@@ -19,14 +24,56 @@ var<storage, read_write> out_pixels: array<u32>;
 @group(0) @binding(1)
 var<uniform> params: Params;
 
-fn pack_color(i: f32, u: f32, v: f32) -> u32 {
-    let r = 0.5 + 0.5 * sin(i * 6.28318530718 + u * 8.0);
-    let g = 0.5 + 0.5 * sin(i * 5.28318530718 + v * 11.0);
-    let b = 0.5 + 0.5 * sin(i * 4.28318530718 + (u + v) * 6.0);
-    let rb = u32(clamp(r, 0.0, 1.0) * 255.0 + 0.5);
-    let gb = u32(clamp(g, 0.0, 1.0) * 255.0 + 0.5);
-    let bb = u32(clamp(b, 0.0, 1.0) * 255.0 + 0.5);
-    return (255u << 24u) | (bb << 16u) | (gb << 8u) | rb;
+fn hash01(x: f32, y: f32, seed: u32) -> f32 {
+    let s = f32(seed) * 0.00000011920928955;
+    return fract(sin(dot(vec2<f32>(x, y), vec2<f32>(12.9898, 78.233)) + s) * 43758.5453123);
+}
+
+fn pack_gray(level: f32) -> u32 {
+    let c = u32(clamp(level, 0.0, 1.0) * 255.0 + 0.5);
+    return (255u << 24u) | (c << 16u) | (c << 8u) | c;
+}
+
+fn layer_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
+    let base = f32(params.seed) * 0.00000011920928955;
+    let jitter = hash01(x + base, y - base, params.seed + layer);
+    let layer_shift = f32(layer) * 0.24 + (jitter - 0.5) * 0.35;
+    let angle = layer_shift;
+    let radius = 0.48 + 0.08 * f32(layer) + (jitter - 0.5) * 0.1;
+    let cx = (radius * x * (3.2 + 0.2 * jitter)) + 0.16 * (sin(angle) + cos(angle * 0.7 + base));
+    let cy = (radius * y * (3.0 + 0.2 * (1.0 - jitter))) + 0.16 * (cos(angle) + sin(angle * 0.9 - base));
+
+    let rot_x = x * cos(angle) - y * sin(angle);
+    let rot_y = x * sin(angle) + y * cos(angle);
+    var zx = rot_x * 2.6;
+    var zy = rot_y * 2.6;
+
+    var i: u32 = 0u;
+    var mag2 = 0.0;
+    var escaped = false;
+
+    loop {
+        if (i >= params.iterations) {
+            break;
+        }
+        if (mag2 > 4.0) {
+            escaped = true;
+            break;
+        }
+
+        let x2 = zx * zx - zy * zy + cx;
+        let y2 = 2.0 * zx * zy + cy;
+        zx = x2;
+        zy = y2;
+        mag2 = zx * zx + zy * zy;
+        i = i + 1u;
+    }
+
+    return select(
+        0.0,
+        1.0 - (f32(i) / f32(params.iterations)),
+        escaped,
+    );
 }
 
 @compute @workgroup_size(16, 16)
@@ -37,6 +84,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let mut px = (f32(id.x) / f32(params.width)) - 0.5;
     let mut py = (f32(id.y) / f32(params.height)) - 0.5;
+    let mut value = 0.0;
+    let layer_count = 6u;
+    let layer_scale: f32 = 1.0 / f32(layer_count);
 
     if (params.symmetry > 1u) {
         px = abs(px);
@@ -52,28 +102,21 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
 
-    let aspect = f32(params.width) / f32(params.height);
-    var zx = (px * aspect) * 2.8;
-    var zy = py * 2.8;
-    let cx = px * 3.0;
-    let cy = py * 3.0;
+    let aspect = f32(params.height) / f32(params.width);
+    let sx = px * aspect;
 
-    var i: u32 = 0u;
-    var mag2 = 0.0;
+    var layer: u32 = 0u;
     loop {
-        if (i >= params.iterations || mag2 > 4.0) {
+        if (layer >= layer_count) {
             break;
         }
-        let x2 = zx * zx - zy * zy + cx;
-        let y2 = 2.0 * zx * zy + cy;
-        zx = x2;
-        zy = y2;
-        mag2 = zx * zx + zy * zy;
-        i = i + 1u;
+        let layer_brightness = layer_value(sx, py, params, layer);
+        let weight = 1.0 - (f32(layer) * 0.11);
+        value = value + (layer_brightness * layer_brightness * weight * layer_scale);
+        layer = layer + 1u;
     }
 
-    let t = f32(i) / f32(params.iterations);
-    out_pixels[id.x + id.y * params.width] = pack_color(t, cx, cy);
+    out_pixels[id.x + id.y * params.width] = pack_gray(value);
 }
 "#;
 
@@ -84,6 +127,7 @@ struct Params {
     height: u32,
     symmetry: u32,
     iterations: u32,
+    seed: u32,
 }
 
 struct Config {
@@ -91,17 +135,19 @@ struct Config {
     height: u32,
     symmetry: u32,
     iterations: u32,
+    seed: u32,
     output: String,
 }
 
 impl Config {
     fn from_env() -> Result<Self, Box<dyn Error>> {
-        let mut args = env::args().skip(1).peekable();
+        let mut args = env::args().skip(1);
         let mut cfg = Config {
             width: 1024,
             height: 1024,
             symmetry: 4,
             iterations: 240,
+            seed: random_seed(),
             output: "fractal.png".to_string(),
         };
 
@@ -141,6 +187,10 @@ impl Config {
                         .ok_or("missing iterations value, pass --iterations <u32>")?;
                     cfg.iterations = value.parse()?;
                 }
+                "--seed" => {
+                    let value = args.next().ok_or("missing seed value, pass --seed <u32>")?;
+                    cfg.seed = value.parse()?;
+                }
                 "--output" | "-o" => {
                     cfg.output = args
                         .next()
@@ -163,6 +213,18 @@ impl Config {
 
         Ok(cfg)
     }
+}
+
+fn random_seed() -> u32 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|dur| dur.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut seed = (nanos as u32) ^ ((nanos >> 32) as u32);
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    seed
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -200,12 +262,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await?;
 
     let shader_module = device.create_shader_module(shader);
-    let params = Params {
-        width: config.width,
-        height: config.height,
-        symmetry: config.symmetry,
-        iterations: config.iterations,
-    };
+        let params = Params {
+            width: config.width,
+            height: config.height,
+            symmetry: config.symmetry,
+            iterations: config.iterations,
+            seed: config.seed,
+        };
     let output_size = (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -320,6 +383,6 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .ok_or("could not create image buffer from GPU output")?;
 
     img.save(&config.output)?;
-    println!("Generated {}", config.output);
+    println!("Generated {} (seed: {})", config.output, config.seed);
     Ok(())
 }
