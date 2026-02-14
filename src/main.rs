@@ -1,12 +1,17 @@
-use std::cmp::Ordering;
-use std::io::Cursor;
-use std::sync::mpsc::channel;
+use std::cmp::Ordering as CmpOrdering;
+use std::io::{self, Cursor, Write};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc::channel,
+};
 use std::{
     env,
     error::Error,
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -1284,6 +1289,67 @@ enum SymmetryStyle {
     Grid,
 }
 
+#[derive(Default)]
+struct SpinnerState {
+    total_images: usize,
+    current_image: AtomicUsize,
+    current_layer: AtomicUsize,
+    total_layers: AtomicUsize,
+}
+
+impl SpinnerState {
+    fn new(total_images: usize) -> Self {
+        Self {
+            total_images,
+            ..Self::default()
+        }
+    }
+
+    fn set_image(&self, image_index: usize, layer_total: usize) {
+        self.current_image.store(image_index, Ordering::Relaxed);
+        self.total_layers.store(layer_total, Ordering::Relaxed);
+        self.current_layer.store(0, Ordering::Relaxed);
+    }
+
+    fn set_layer(&self, layer_index: usize) {
+        self.current_layer.store(layer_index, Ordering::Relaxed);
+    }
+}
+
+fn start_spinner(state: Arc<SpinnerState>) -> (Arc<AtomicBool>, thread::JoinHandle<()>) {
+    let running = Arc::new(AtomicBool::new(true));
+    let thread_state = state.clone();
+    let running_thread = running.clone();
+    let frames = ["|", "/", "-", "\\"];
+
+    let handle = thread::spawn(move || {
+        let mut tick = 0usize;
+        while running_thread.load(Ordering::Acquire) {
+            let image = thread_state.current_image.load(Ordering::Relaxed);
+            let layer = thread_state.current_layer.load(Ordering::Relaxed);
+            let total_layers = thread_state.total_layers.load(Ordering::Relaxed);
+            let layer_text = if total_layers == 0 {
+                "starting".to_string()
+            } else {
+                format!("layer {}/{}", layer, total_layers)
+            };
+            let _ = write!(
+                io::stdout(),
+                "\r{} image {}/{} {}",
+                frames[tick % frames.len()],
+                image,
+                thread_state.total_images,
+                layer_text,
+            );
+            let _ = io::stdout().flush();
+            tick = tick.wrapping_add(1);
+            thread::sleep(Duration::from_millis(90));
+        }
+    });
+
+    (running, handle)
+}
+
 impl SymmetryStyle {
     fn from_u32(value: u32) -> Self {
         match value % 3 {
@@ -1990,9 +2056,9 @@ fn stretch_to_percentile(src: &mut [f32], scratch: &mut [f32], low_pct: f32, hig
     let len_minus_1 = src.len() - 1;
     let low = (len_minus_1 as f32 * low_pct.clamp(0.0, 1.0)).round() as usize;
     let high = (len_minus_1 as f32 * high_pct.clamp(0.0, 1.0)).round() as usize;
-    scratch.select_nth_unstable_by(low, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    scratch.select_nth_unstable_by(low, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
     let in_min = scratch[low];
-    scratch.select_nth_unstable_by(high, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    scratch.select_nth_unstable_by(high, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
     let in_max = scratch[high];
     let span = in_max - in_min;
 
@@ -2207,7 +2273,7 @@ fn apply_median_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg:
             dy += 1;
         }
 
-        values[..count].sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        values[..count].sort_by(|a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
         *out = values[count / 2];
     });
 }
@@ -2620,6 +2686,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut luma = vec![0.0f32; pixel_count];
     let mut background = vec![0.0f32; pixel_count];
     let mut percentile = vec![0.0f32; pixel_count];
+    let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
+    let (spinner_running, spinner_handle) = start_spinner(spinner_state.clone());
 
     let render_layer = |layer_params: &Params, out: &mut [f32]| -> Result<(), Box<dyn Error>> {
         queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(layer_params));
@@ -2660,6 +2728,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     };
 
     for i in 0..config.count {
+        spinner_state.set_image((i + 1) as usize, 0);
         let mut image_seed = image_rng.next_u32();
         if image_seed == 0 {
             image_seed = 0x9e3779b9;
@@ -2677,6 +2746,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_tile_phase = pick_tile_phase(&mut image_rng);
         let (base_center_x, base_center_y) = randomize_center_offset(&mut image_rng, config.fast);
         let layer_count = pick_layer_count(&mut image_rng, config.layers, config.fast);
+        spinner_state.set_image((i + 1) as usize, layer_count as usize);
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
         let base_art_mix = image_rng.next_f32();
@@ -2703,6 +2773,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         layered.fill(0.0);
 
         for layer_index in 0..layer_count {
+            spinner_state.set_layer((layer_index + 1) as usize);
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
             let layer_strategy = if layer_index == 0 {
                 base_strategy
@@ -3022,5 +3093,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             final_stats.mean
         );
     }
+    spinner_running.store(false, Ordering::Release);
+    let _ = spinner_handle.join();
+    let _ = write!(io::stdout(), "\r{:<120}\r", "");
+    let _ = io::stdout().flush();
     Ok(())
 }
