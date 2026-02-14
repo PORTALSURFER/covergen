@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::sync::mpsc::channel;
 use std::{
     env,
@@ -47,7 +48,6 @@ fn layer_value(x: f32, y: f32, params: Params, layer: u32) -> f32 {
     let rot_y = x * sin(angle) + y * cos(angle);
     var zx = rot_x * 2.6;
     var zy = rot_y * 2.6;
-
     var i: u32 = 0u;
     var mag2 = 0.0;
     var escaped = false;
@@ -82,9 +82,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    let mut px = (f32(id.x) / f32(params.width)) - 0.5;
-    let mut py = (f32(id.y) / f32(params.height)) - 0.5;
-    let mut value = 0.0;
+    var px = (f32(id.x) / f32(params.width)) - 0.5;
+    var py = (f32(id.y) / f32(params.height)) - 0.5;
+    var value = 0.0;
     let layer_count = 6u;
     let layer_scale: f32 = 1.0 / f32(layer_count);
 
@@ -130,6 +130,42 @@ struct Params {
     seed: u32,
 }
 
+#[derive(Clone, Copy)]
+enum FilterMode {
+    Motion,
+    Gaussian,
+    Median,
+    Bilateral,
+}
+
+impl FilterMode {
+    fn from_u32(value: u32) -> Self {
+        match value % 4 {
+            0 => Self::Motion,
+            1 => Self::Gaussian,
+            2 => Self::Median,
+            _ => Self::Bilateral,
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Motion => "motion",
+            Self::Gaussian => "gaussian",
+            Self::Median => "median",
+            Self::Bilateral => "bilateral",
+        }
+    }
+}
+
+struct BlurConfig {
+    mode: FilterMode,
+    max_radius: u32,
+    axis_x: i32,
+    axis_y: i32,
+    softness: u32,
+}
+
 struct Config {
     width: u32,
     height: u32,
@@ -137,6 +173,26 @@ struct Config {
     iterations: u32,
     seed: u32,
     output: String,
+}
+
+struct XorShift32 {
+    state: u32,
+}
+
+impl XorShift32 {
+    fn new(seed: u32) -> Self {
+        let state = if seed == 0 { 0x9e3779b9 } else { seed };
+        Self { state }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.state = x;
+        x
+    }
 }
 
 impl Config {
@@ -166,14 +222,10 @@ impl Config {
                     cfg.height = value.parse()?;
                 }
                 "--size" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing size value, pass --size <width>x<height>")?;
+                    let value = args.next().ok_or("missing size value, pass --size <width>x<height>")?;
                     let mut split = value.split('x');
-                    let w: u32 = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
-                    let h: u32 = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
-                    cfg.width = w;
-                    cfg.height = h;
+                    cfg.width = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
+                    cfg.height = split.next().ok_or("size needs WIDTHxHEIGHT")?.parse()?;
                 }
                 "--symmetry" => {
                     let value = args
@@ -188,7 +240,9 @@ impl Config {
                     cfg.iterations = value.parse()?;
                 }
                 "--seed" => {
-                    let value = args.next().ok_or("missing seed value, pass --seed <u32>")?;
+                    let value = args
+                        .next()
+                        .ok_or("missing seed value, pass --seed <u32>")?;
                     cfg.seed = value.parse()?;
                 }
                 "--output" | "-o" => {
@@ -216,15 +270,238 @@ impl Config {
 }
 
 fn random_seed() -> u32 {
-    let nanos = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|dur| dur.as_nanos() as u64)
+        .map(|time| time.as_nanos() as u64)
         .unwrap_or(0);
-    let mut seed = (nanos as u32) ^ ((nanos >> 32) as u32);
+    let mut seed = now as u32 ^ (now >> 32) as u32;
     seed ^= seed << 13;
     seed ^= seed >> 17;
     seed ^= seed << 5;
     seed
+}
+
+fn pick_filter(seed: u32) -> BlurConfig {
+    let mut rng = XorShift32::new(seed);
+    let mode = FilterMode::from_u32(rng.next_u32());
+    let mut axis_x = (rng.next_u32() % 5) as i32 - 2;
+    let mut axis_y = (rng.next_u32() % 5) as i32 - 2;
+    if axis_x == 0 && axis_y == 0 {
+        axis_x = 1;
+        axis_y = 0;
+    }
+    BlurConfig {
+        mode,
+        max_radius: 2 + (rng.next_u32() % 8),
+        axis_x,
+        axis_y,
+        softness: 1 + (rng.next_u32() % 4),
+    }
+}
+
+fn clamp01(value: f32) -> f32 {
+    value.clamp(0.0, 1.0)
+}
+
+fn pixel_index(x: i32, y: i32, width: i32) -> usize {
+    (y * width + x) as usize
+}
+
+fn sample_luma(src: &[f32], width: i32, height: i32, x: i32, y: i32) -> f32 {
+    let clamped_x = x.clamp(0, width - 1);
+    let clamped_y = y.clamp(0, height - 1);
+    let idx = pixel_index(clamped_x, clamped_y, width);
+    src[idx]
+}
+
+fn decode_luma(rgba: &[u8]) -> Vec<f32> {
+    let mut luma = Vec::with_capacity(rgba.len() / 4);
+    for px in rgba.chunks_exact(4) {
+        luma.push(px[0] as f32 / 255.0);
+    }
+    luma
+}
+
+fn encode_rgba_gray(luma: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(luma.len() * 4);
+    for &v in luma {
+        let c = (clamp01(v) * 255.0).round() as u8;
+        out.push(c);
+        out.push(c);
+        out.push(c);
+        out.push(255);
+    }
+    out
+}
+
+fn apply_motion_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let mut dst = vec![0.0f32; src.len()];
+
+    for y in 0..height_i32 {
+        for x in 0..width_i32 {
+            let idx = pixel_index(x, y, width_i32);
+            let center = src[idx];
+            let local_blur = (1.0 - center).powi(2);
+            let radius =
+                (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
+
+            let mut numerator = 0.0;
+            let mut denominator = 0.0;
+            let half = -radius;
+            let mut step = half;
+            while step <= radius {
+                let t = 1.0 - (step.abs() as f32 / (radius as f32 + 1.0));
+                let sx = x + step * cfg.axis_x;
+                let sy = y + step * cfg.axis_y;
+                let sample = sample_luma(src, width_i32, height_i32, sx, sy);
+                numerator += sample * t;
+                denominator += t;
+                step += 1;
+            }
+
+            if denominator > 0.0 {
+                dst[idx] = numerator / denominator;
+            } else {
+                dst[idx] = center;
+            }
+        }
+    }
+
+    dst
+}
+
+fn apply_gaussian_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let mut dst = vec![0.0f32; src.len()];
+
+    for y in 0..height_i32 {
+        for x in 0..width_i32 {
+            let idx = pixel_index(x, y, width_i32);
+            let center = src[idx];
+            let local_blur = (1.0 - center).powf(1.5);
+            let radius = (1.0 + (cfg.max_radius as f32 * (0.2 + 0.8 * local_blur))).round() as i32;
+            let sigma = (radius as f32 + 1.0) * 0.5;
+            let sigma2 = sigma * sigma * 2.0;
+
+            let mut num = 0.0;
+            let mut den = 0.0;
+            let mut dy = -radius;
+            while dy <= radius {
+                let mut dx = -radius;
+                while dx <= radius {
+                    let sx = x + dx;
+                    let sy = y + dy;
+                    let d2 = (dx * dx + dy * dy) as f32;
+                    let spatial = (-d2 / sigma2).exp();
+                    let weight = spatial;
+                    let sample = sample_luma(src, width_i32, height_i32, sx, sy);
+                    num += sample * weight;
+                    den += weight;
+                    dx += 1;
+                }
+                dy += 1;
+            }
+
+            if den > 0.0 {
+                dst[idx] = num / den;
+            } else {
+                dst[idx] = center;
+            }
+        }
+    }
+
+    dst
+}
+
+fn apply_median_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let mut dst = vec![0.0f32; src.len()];
+
+    for y in 0..height_i32 {
+        for x in 0..width_i32 {
+            let idx = pixel_index(x, y, width_i32);
+            let center = src[idx];
+            let local_blur = (1.0 - center).powi(2);
+            let base = 1 + ((cfg.max_radius as f32 * (0.4 + 0.6 * local_blur)).floor() as i32);
+            let radius = base.clamp(1, 2);
+            let mut values = [0f32; 25];
+            let mut count = 0usize;
+
+                let mut dy = -radius;
+            while dy <= radius {
+                let mut dx = -radius;
+                while dx <= radius {
+                    let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
+                    values[count] = sample;
+                    count += 1;
+                    dx += 1;
+                }
+                dy += 1;
+            }
+
+            let slice = &mut values[..count];
+            slice.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            dst[idx] = slice[count / 2];
+        }
+    }
+
+    dst
+}
+
+fn apply_bilateral_blur(width: u32, height: u32, src: &[f32], cfg: &BlurConfig) -> Vec<f32> {
+    let width_i32 = width as i32;
+    let height_i32 = height as i32;
+    let mut dst = vec![0.0f32; src.len()];
+    let sigma_r = 0.1 + (cfg.softness as f32 * 0.03);
+
+    for y in 0..height_i32 {
+        for x in 0..width_i32 {
+            let idx = pixel_index(x, y, width_i32);
+            let center = src[idx];
+            let local_blur = (1.0 - center).powi(2);
+            let radius = (1 + ((cfg.max_radius as f32 * (0.2 + 0.8 * local_blur)).round() as i32))
+                .max(1)
+                .min(2);
+
+            let mut num = 0.0;
+            let mut den = 0.0;
+            let mut dy = -radius;
+            while dy <= radius {
+                let mut dx = -radius;
+                while dx <= radius {
+                    let sample = sample_luma(src, width_i32, height_i32, x + dx, y + dy);
+                    let d = sample - center;
+                    let range = (-(d * d / (2.0 * sigma_r * sigma_r))).exp();
+                    let weight = (-((dx * dx + dy * dy) as f32) / 16.0).exp() * range;
+                    num += sample * weight;
+                    den += weight;
+                    dx += 1;
+                }
+                dy += 1;
+            }
+
+            if den > 0.0 {
+                dst[idx] = num / den;
+            } else {
+                dst[idx] = center;
+            }
+        }
+    }
+
+    dst
+}
+
+fn apply_dynamic_filter(width: u32, height: u32, luma: Vec<f32>, cfg: BlurConfig) -> Vec<f32> {
+    match cfg.mode {
+        FilterMode::Motion => apply_motion_blur(width, height, &luma, &cfg),
+        FilterMode::Gaussian => apply_gaussian_blur(width, height, &luma, &cfg),
+        FilterMode::Median => apply_median_blur(width, height, &luma, &cfg),
+        FilterMode::Bilateral => apply_bilateral_blur(width, height, &luma, &cfg),
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -262,14 +539,16 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await?;
 
     let shader_module = device.create_shader_module(shader);
-        let params = Params {
-            width: config.width,
-            height: config.height,
-            symmetry: config.symmetry,
-            iterations: config.iterations,
-            seed: config.seed,
-        };
-    let output_size = (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
+    let params = Params {
+        width: config.width,
+        height: config.height,
+        symmetry: config.symmetry,
+        iterations: config.iterations,
+        seed: config.seed,
+    };
+
+    let output_size =
+        (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output storage"),
@@ -277,13 +556,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
-
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("uniforms"),
         contents: bytemuck::bytes_of(&params),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
-
     let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("staging"),
         size: output_size,
@@ -343,12 +620,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         layout: Some(&pipeline_layout),
         module: &shader_module,
         entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
     });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("command encoder"),
     });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("compute pass"),
@@ -359,30 +637,43 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let work_y = (config.height + 15) / 16;
         pass.dispatch_workgroups(work_x, work_y, 1);
     }
-
     encoder.copy_buffer_to_buffer(&out_buffer, 0, &staging_buffer, 0, output_size);
     queue.submit(Some(encoder.finish()));
 
     let slice = staging_buffer.slice(..);
-    let (tx, rx) = channel();
+    let (sender, receiver) = channel();
     slice.map_async(wgpu::MapMode::Read, move |result| {
-        tx.send(result).expect("map callback dropped");
+        sender.send(result).expect("map callback dropped");
     });
     device.poll(wgpu::Maintain::Wait);
-    match rx.recv()? {
+    match receiver.recv()? {
         Ok(()) => {}
         Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
     }
 
-    let data = slice.get_mapped_range();
-    let image_data = data.to_vec();
-    drop(data);
+    let filter = pick_filter(config.seed);
+    let frame_bytes = {
+        let raw = slice.get_mapped_range();
+        let data = raw.to_vec();
+        drop(raw);
+        data
+    };
     staging_buffer.unmap();
 
-    let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(config.width, config.height, image_data)
-        .ok_or("could not create image buffer from GPU output")?;
+    let gray = decode_luma(&frame_bytes);
+    let filtered = apply_dynamic_filter(config.width, config.height, gray, filter);
+    let final_pixels = encode_rgba_gray(&filtered);
+    let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_raw(config.width, config.height, final_pixels)
+            .ok_or("could not create image buffer from GPU output")?;
+    image.save(&config.output)?;
 
-    img.save(&config.output)?;
-    println!("Generated {} (seed: {})", config.output, config.seed);
+    println!(
+        "Generated {} | seed {} | filter {} | radius {}",
+        config.output,
+        config.seed,
+        filter.mode.label(),
+        filter.max_radius
+    );
     Ok(())
 }
