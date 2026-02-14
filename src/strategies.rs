@@ -40,12 +40,24 @@ pub enum CpuStrategy {
     RecursiveFold,
     /// Attractor trajectory blended from two chaotic updates.
     AttractorHybrid,
+    /// Canny-like edge map from layered noise gradients.
+    CannyEdge,
+    /// Ridged, multi-octave noise composition.
+    PerlinRidge,
+    /// Plasma field generated from phase-shifted sine and cosine waves.
+    PlasmaField,
+    /// Sierpinski-style recursive point distribution.
+    SierpinskiCarpet,
+    /// Affine fern-like attractor growth.
+    BarnsleyFern,
+    /// Particle advection in a turbulent vector field.
+    TurbulentFlow,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        15
+        21
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -65,7 +77,13 @@ impl CpuStrategy {
             11 => Self::StrangeAttractor,
             12 => Self::RadialWave,
             13 => Self::RecursiveFold,
-            _ => Self::AttractorHybrid,
+            14 => Self::AttractorHybrid,
+            15 => Self::CannyEdge,
+            16 => Self::PerlinRidge,
+            17 => Self::PlasmaField,
+            18 => Self::SierpinskiCarpet,
+            19 => Self::BarnsleyFern,
+            _ => Self::TurbulentFlow,
         }
     }
 
@@ -87,6 +105,12 @@ impl CpuStrategy {
             Self::RadialWave => "radial-wave",
             Self::RecursiveFold => "recursive-fold",
             Self::AttractorHybrid => "attractor-hybrid",
+            Self::CannyEdge => "canny-edge",
+            Self::PerlinRidge => "perlin-ridge",
+            Self::PlasmaField => "plasma-field",
+            Self::SierpinskiCarpet => "sierpinski-carpet",
+            Self::BarnsleyFern => "barnsley-fern",
+            Self::TurbulentFlow => "turbulent-flow",
         }
     }
 }
@@ -130,7 +154,7 @@ pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy 
         return RenderStrategy::Gpu(crate::ArtStyle::from_u32(rng.next_u32()).as_u32());
     }
 
-    let cpu_bias = if fast { 21 } else { 15 };
+    let cpu_bias = if fast { 31 } else { 37 };
     RenderStrategy::Cpu(CpuStrategy::from_u32(rng.next_u32() + cpu_bias))
 }
 
@@ -166,14 +190,25 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
                 gradient_bias: 0.20,
                 force_detail: true,
             },
-            CpuStrategy::CellularAutomata | CpuStrategy::ProceduralNoise => StrategyProfile {
+            CpuStrategy::CellularAutomata
+            | CpuStrategy::ProceduralNoise
+            | CpuStrategy::PerlinRidge => StrategyProfile {
                 filter_bias: 0.44,
                 gradient_bias: 0.38,
                 force_detail: false,
             },
-            CpuStrategy::AttractorHybrid => StrategyProfile {
+            CpuStrategy::AttractorHybrid
+            | CpuStrategy::PlasmaField
+            | CpuStrategy::SierpinskiCarpet
+            | CpuStrategy::BarnsleyFern
+            | CpuStrategy::TurbulentFlow => StrategyProfile {
                 filter_bias: 0.18,
                 gradient_bias: 0.24,
+                force_detail: true,
+            },
+            CpuStrategy::CannyEdge => StrategyProfile {
+                filter_bias: 0.42,
+                gradient_bias: 0.26,
                 force_detail: true,
             },
         },
@@ -205,6 +240,12 @@ pub fn render_cpu_strategy(
         CpuStrategy::RadialWave => render_radial_wave(width, height, &mut rng),
         CpuStrategy::RecursiveFold => render_recursive_fold(width, height, &mut rng, fast),
         CpuStrategy::AttractorHybrid => render_attractor_hybrid(width, height, &mut rng, fast),
+        CpuStrategy::CannyEdge => render_canny_edge(width, height, &mut rng, fast),
+        CpuStrategy::PerlinRidge => render_perlin_ridge(width, height, &mut rng),
+        CpuStrategy::PlasmaField => render_plasma_field(width, height, &mut rng),
+        CpuStrategy::SierpinskiCarpet => render_sierpinski_carpet(width, height, &mut rng),
+        CpuStrategy::BarnsleyFern => render_barnsley_fern(width, height, &mut rng),
+        CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, &mut rng, fast),
     }
 }
 
@@ -445,6 +486,296 @@ fn render_edge_field(width: u32, height: u32, rng: &mut XorShift32, sobel: bool)
     normalize(&mut out);
     for value in out.iter_mut() {
         *value = (*value * (0.8 + rng.next_f32() * 0.5)).clamp(0.0, 1.0);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_canny_edge(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let base = noise_field(width, height, rng, if fast { 4 } else { 6 });
+    let mut edge = vec![0.0f32; base.len()];
+    let low = 0.22 + rng.next_f32() * 0.18;
+    let high = (low + 0.24 + rng.next_f32() * 0.25).min(0.98);
+
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            let c = sample_nearest(&base, width, height, x, y);
+            let n = sample_nearest(&base, width, height, x, y - 1);
+            let s = sample_nearest(&base, width, height, x, y + 1);
+            let e = sample_nearest(&base, width, height, x + 1, y);
+            let wv = sample_nearest(&base, width, height, x - 1, y);
+            let ne = sample_nearest(&base, width, height, x + 1, y - 1);
+            let nw = sample_nearest(&base, width, height, x - 1, y - 1);
+            let se = sample_nearest(&base, width, height, x + 1, y + 1);
+            let sw = sample_nearest(&base, width, height, x - 1, y + 1);
+
+            let gx = -ne - 2.0 * e - se + nw + 2.0 * wv + sw;
+            let gy = -nw - 2.0 * n - ne + sw + 2.0 * s + se;
+            let mag = (gx.abs() + gy.abs()) * 0.35;
+
+            let is_edge = if mag >= high {
+                1.0
+            } else if mag <= low {
+                0.0
+            } else {
+                let mut has_strong = false;
+                let checks = [
+                    sample_nearest(&base, width, height, x - 1, y - 1),
+                    sample_nearest(&base, width, height, x, y - 1),
+                    sample_nearest(&base, width, height, x + 1, y - 1),
+                    sample_nearest(&base, width, height, x - 1, y),
+                    sample_nearest(&base, width, height, x + 1, y),
+                    sample_nearest(&base, width, height, x - 1, y + 1),
+                    sample_nearest(&base, width, height, x, y + 1),
+                    sample_nearest(&base, width, height, x + 1, y + 1),
+                ];
+                for sample in checks {
+                    if (sample - c).abs() > high {
+                        has_strong = true;
+                        break;
+                    }
+                }
+                if has_strong { 0.72 } else { 0.0 }
+            };
+            edge[(y as usize * width as usize) + x as usize] = is_edge;
+        }
+    }
+
+    normalize(&mut edge);
+    edge
+}
+
+fn render_perlin_ridge(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let width_f = width.max(1) as f32;
+    let height_f = height.max(1) as f32;
+    let seed = rng.next_u32();
+    let octaves = 4 + (rng.next_u32() % 3) as u32;
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let mut level = 0u32;
+    while level < octaves {
+        let freq = (1.1 + rng.next_f32()) * (1.85f32).powi(level as i32);
+        let amp = 0.58f32.powi(level as i32);
+        for y in 0..height {
+            for x in 0..width {
+                let u = x as f32 / width_f;
+                let v = y as f32 / height_f;
+                let n = value_noise(
+                    u * 6.2 * freq + (seed as f32 * 0.0001),
+                    v * 6.2 * freq + (seed as f32 * 0.0002),
+                    seed + level,
+                );
+                let ridge = 1.0 - ((n * 2.0 - 1.0).abs());
+                let idx = (y * width + x) as usize;
+                out[idx] += amp * ridge.max(0.0);
+            }
+        }
+        level += 1;
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_plasma_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let width_f = width.max(1) as f32;
+    let height_f = height.max(1) as f32;
+    let bands = 3 + (rng.next_u32() % 4) as i32;
+    let base_angle = rng.next_f32() * TAU;
+    let mut out = vec![0.0f32; (width * height) as usize];
+
+    for y in 0..height {
+        let v = y as f32 / height_f - 0.5;
+        for x in 0..width {
+            let u = x as f32 / width_f - 0.5;
+            let mut value = 0.0f32;
+            let mut level = 0;
+            let mut amp = 1.0f32;
+            let mut norm = 0.0f32;
+            while level < bands {
+                let freq = 1.3 + level as f32 * 1.7;
+                let phase = base_angle + 0.27 * level as f32;
+                let s1 = (u * freq * 9.0 + phase).sin();
+                let s2 = (v * freq * 7.0 + phase * 1.2).cos();
+                let noise = value_noise(
+                    u * freq * 4.2 + phase,
+                    v * freq * 3.8 + phase * 0.8,
+                    rng.next_u32(),
+                );
+                value += (s1 + s2 * 0.65 + noise) * amp;
+                norm += amp;
+                amp *= 0.46;
+                level += 1;
+            }
+            out[(y * width + x) as usize] = (value / norm.max(1e-6) + 1.2) * 0.5;
+        }
+    }
+    normalize(&mut out);
+    for value in out.iter_mut() {
+        *value = (*value * (0.95 + rng.next_f32() * 0.12)).clamp(0.0, 1.0);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_sierpinski_carpet(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim = (width.min(height)).max(1);
+    let mut density = vec![0.0f32; (sim * sim) as usize];
+    let iterations = if width * height > 600_000 {
+        260_000
+    } else {
+        170_000
+    };
+    let skew = 0.5 + (rng.next_f32() * 0.1);
+    let mut x = 0.5f32;
+    let mut y = 0.5f32;
+
+    let mut i = 0u32;
+    while i < iterations {
+        let noise_x = (value_noise(x * 0.5, y * 0.5, i) - 0.5) * 0.01;
+        let noise_y = (value_noise(x * 0.61, y * 0.43, i ^ 0x9f1f_1234) - 0.5) * 0.01;
+
+        match rng.next_u32() % 3 {
+            0 => {
+                x = (x + noise_x) * 0.5;
+                y = (y + noise_y) * 0.5;
+            }
+            1 => {
+                x = 0.5 + (x + noise_x) * 0.5;
+                y = (y + noise_y) * 0.5;
+            }
+            _ => {
+                x = 0.5 + (x + noise_x) * 0.5 - skew * 0.02;
+                y = 0.5 + (y + noise_y) * 0.5 - skew * 0.02;
+            }
+        }
+
+        if i > 120 {
+            let ix = (x * (sim as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim as f32 - 1.0) as usize;
+            let iy = (y * (sim as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim as f32 - 1.0) as usize;
+            draw_point(
+                ix as i32,
+                iy as i32,
+                sim as usize,
+                sim as usize,
+                0,
+                0.85,
+                &mut density,
+            );
+            if i % 4 == 0 {
+                let ox = (ix as i32 + if rng.next_f32() < 0.5 { -1 } else { 1 })
+                    .clamp(0, sim as i32 - 1);
+                let oy = (iy as i32 + if rng.next_f32() < 0.5 { -1 } else { 1 })
+                    .clamp(0, sim as i32 - 1);
+                draw_point(ox, oy, sim as usize, sim as usize, 0, 0.34, &mut density);
+            }
+        }
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim, sim, width, height);
+    for value in out.iter_mut() {
+        *value = (*value * (1.1 + rng.next_f32() * 0.2)).clamp(0.0, 1.0);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_barnsley_fern(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim = (width.min(height)).max(1);
+    let mut density = vec![0.0f32; (sim * sim) as usize];
+    let points = if width * height > 600_000 {
+        300_000
+    } else {
+        180_000
+    };
+    let mut x = 0.0f32;
+    let mut y = 0.0f32;
+
+    let mut i = 0u32;
+    while i < points {
+        let roll = rng.next_f32();
+        let (nx, ny) = if roll < 0.01 {
+            (0.0, 0.16 * y)
+        } else if roll < 0.08 {
+            (0.20 * x - 0.05, 0.26 * y + 0.23)
+        } else if roll < 0.15 {
+            (-0.15 * x + 0.28 * y + 0.42, 0.26 * x + 0.24 * y + 0.44)
+        } else {
+            (0.85 * x + 0.04 * y, -0.04 * x + 0.85 * y + 1.6)
+        };
+        x = nx;
+        y = ny;
+        if i > 80 {
+            let xr = (x + 2.5) / 6.0;
+            let yr = (8.0 - y) / 11.0;
+            let ix = (xr * (sim as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim as f32 - 1.0) as usize;
+            let iy = (yr * (sim as f32 - 1.0))
+                .round()
+                .clamp(0.0, sim as f32 - 1.0) as usize;
+            draw_point(
+                ix as i32,
+                iy as i32,
+                sim as usize,
+                sim as usize,
+                1,
+                0.95,
+                &mut density,
+            );
+        }
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim, sim, width, height);
+    normalize(&mut out);
+    out
+}
+
+fn render_turbulent_flow(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim = (width / 2).max(160);
+    let mut density = vec![0.0f32; (sim * sim) as usize];
+    let particles = if fast { 1_800 } else { 3_200 };
+    let steps = if fast { 140 } else { 260 };
+    let scale = 0.003 + rng.next_f32() * 0.004;
+    let speed = 0.35 + rng.next_f32() * 1.05;
+    let seed = rng.next_u32();
+
+    for p in 0..particles {
+        let mut x = (rng.next_u32() as f32 / (u32::MAX as f32)) * (sim as f32 - 1.0);
+        let mut y = (rng.next_u32() as f32 / (u32::MAX as f32)) * (sim as f32 - 1.0);
+        let mut step = 0u32;
+        while step < steps {
+            let fx = value_noise(x * scale, y * scale, seed + p) * 2.0 - 1.0;
+            let fy =
+                value_noise(y * scale * 1.2 + 11.0, x * scale * 1.3, seed + p + 21) * 2.0 - 1.0;
+            let swirl =
+                (value_noise(x * 0.1 + step as f32 * 0.01, y * 0.1, seed + step) - 0.5) * 0.4;
+            let vx = fx * speed * (1.0 + swirl);
+            let vy = fy * speed * (1.0 - swirl);
+            x = (x + vx - vy * 0.08).rem_euclid(sim as f32 - 1.0);
+            y = (y + vy + vx * 0.08).rem_euclid(sim as f32 - 1.0);
+            if step > 10 {
+                draw_point(
+                    x as i32,
+                    y as i32,
+                    sim as usize,
+                    sim as usize,
+                    1,
+                    0.86,
+                    &mut density,
+                );
+            }
+            step += 1;
+        }
+    }
+
+    let mut out = resize_nearest(&density, sim, sim, width, height);
+    for value in out.iter_mut() {
+        *value = value.powf(0.97);
     }
     normalize(&mut out);
     out
@@ -1191,6 +1522,12 @@ mod tests {
             CpuStrategy::RadialWave,
             CpuStrategy::RecursiveFold,
             CpuStrategy::AttractorHybrid,
+            CpuStrategy::CannyEdge,
+            CpuStrategy::PerlinRidge,
+            CpuStrategy::PlasmaField,
+            CpuStrategy::SierpinskiCarpet,
+            CpuStrategy::BarnsleyFern,
+            CpuStrategy::TurbulentFlow,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
