@@ -248,7 +248,6 @@ impl GradientMode {
             _ => Self::Posterize,
         }
     }
-
 }
 
 #[derive(Clone, Copy)]
@@ -313,17 +312,25 @@ enum LayerBlendMode {
     Screen,
     Overlay,
     Difference,
+    Lighten,
+    Darken,
+    Glow,
+    Shadow,
 }
 
 impl LayerBlendMode {
     fn from_u32(value: u32) -> Self {
-        match value % 6 {
+        match value % 10 {
             0 => Self::Normal,
             1 => Self::Add,
             2 => Self::Multiply,
             3 => Self::Screen,
             4 => Self::Overlay,
-            _ => Self::Difference,
+            5 => Self::Difference,
+            6 => Self::Lighten,
+            7 => Self::Darken,
+            8 => Self::Glow,
+            _ => Self::Shadow,
         }
     }
 
@@ -335,6 +342,10 @@ impl LayerBlendMode {
             Self::Screen => "screen",
             Self::Overlay => "overlay",
             Self::Difference => "difference",
+            Self::Lighten => "lighten",
+            Self::Darken => "darken",
+            Self::Glow => "glow",
+            Self::Shadow => "shadow",
         }
     }
 }
@@ -558,6 +569,12 @@ fn modulate_zoom(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
 
 fn pick_layer_blend(rng: &mut XorShift32) -> LayerBlendMode {
     LayerBlendMode::from_u32(rng.next_u32())
+}
+
+fn pick_layer_contrast(rng: &mut XorShift32, fast: bool) -> f32 {
+    let low = if fast { 1.18 } else { 1.35 };
+    let high = if fast { 1.58 } else { 1.95 };
+    low + (rng.next_f32() * (high - low))
 }
 
 fn layer_opacity(rng: &mut XorShift32) -> f32 {
@@ -849,10 +866,22 @@ fn blend_layer_stack(dst: &mut [f32], layer: &[f32], strength: f32, mode: LayerB
                     }
                 }
                 LayerBlendMode::Difference => (*base - *top).abs(),
+                LayerBlendMode::Lighten => (*base).max(*top),
+                LayerBlendMode::Darken => (*base).min(*top),
+                LayerBlendMode::Glow => *base + (1.0 - *base) * (*top * *top),
+                LayerBlendMode::Shadow => *base * *top,
             };
 
             *base = clamp01((1.0 - alpha) * *base + alpha * mixed);
         });
+}
+
+fn apply_contrast(src: &mut [f32], strength: f32) {
+    let clamped = strength.max(1.0).min(3.0);
+    let midpoint = 0.5;
+    for value in src.iter_mut() {
+        *value = clamp01(((*value - midpoint) * clamped) + midpoint);
+    }
 }
 
 fn apply_motion_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
@@ -1269,6 +1298,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), config.fast);
             let gradient = pick_gradient_from_rng(&mut image_rng);
             let overlay = pick_layer_blend(&mut image_rng);
+            let layer_contrast = pick_layer_contrast(&mut image_rng, config.fast);
             let opacity = if layer_index == 0 {
                 1.0
             } else {
@@ -1286,6 +1316,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if config.fast { 0.01 } else { 0.02 },
                 if config.fast { 0.99 } else { 0.98 },
             );
+            apply_contrast(&mut filtered, layer_contrast);
 
             if layer_index == 0 {
                 layered.copy_from_slice(&filtered);
@@ -1294,15 +1325,24 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
 
             layer_steps.push(format!(
-                "L{}:{}({:.2}, {})",
+                "L{}:{}({:.2}, {}, c{:.2})",
                 layer_index + 1,
                 overlay.label(),
                 opacity,
                 filter.mode.label(),
+                layer_contrast,
             ));
         }
 
         blend_background(&mut layered, &background, background_strength);
+        let final_contrast = if config.fast { 1.45 } else { 1.8 };
+        apply_contrast(&mut layered, final_contrast);
+        stretch_to_percentile(
+            &mut layered,
+            &mut percentile,
+            if config.fast { 0.01 } else { 0.01 },
+            if config.fast { 0.99 } else { 0.99 },
+        );
 
         let mut final_stats = luma_stats(&layered);
         if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
