@@ -1728,26 +1728,56 @@ fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
     ((base as i32 + shift).clamp(1, 16)) as u32
 }
 
-fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
+fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool, allow_grid: bool) -> u32 {
     let keep_base = if fast { 0.30 } else { 0.35 };
     let roll = rng.next_f32();
-    if roll < keep_base {
-        let style = SymmetryStyle::from_u32(base);
-        if style == SymmetryStyle::Grid && rng.next_f32() > 0.12 {
-            return pick_non_grid_symmetry_style(rng).as_u32();
+    let mut style = if roll < keep_base {
+        SymmetryStyle::from_u32(base)
+    } else {
+        let sampled = SymmetryStyle::from_u32(base + rng.next_u32());
+        if sampled.as_u32() == base {
+            SymmetryStyle::from_u32(pick_symmetry_style(rng))
+        } else {
+            sampled
         }
-        return style.as_u32();
-    }
+    };
 
-    let mut style = SymmetryStyle::from_u32(base + rng.next_u32());
-    if style.as_u32() == base {
-        style = SymmetryStyle::from_u32(pick_symmetry_style(rng));
+    if allow_grid {
         if style == SymmetryStyle::Grid && rng.next_f32() > 0.12 {
             return pick_non_grid_symmetry_style(rng).as_u32();
         }
+    } else if style == SymmetryStyle::Grid {
+        style = pick_non_grid_symmetry_style(rng);
     }
 
     style.as_u32()
+}
+
+fn should_apply_grid_across_layers(
+    base_style: SymmetryStyle,
+    layer_count: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+) -> bool {
+    if base_style != SymmetryStyle::Grid || layer_count <= 1 {
+        return false;
+    }
+
+    let base_chance = if fast { 0.15 } else { 0.20 };
+    let layer_scale = ((layer_count as f32) / 8.0).clamp(0.45, 1.0);
+    rng.next_f32() < (base_chance * layer_scale)
+}
+
+fn resolve_symmetry_style(
+    base_style: SymmetryStyle,
+    apply_to_all_layers: bool,
+    rng: &mut XorShift32,
+) -> SymmetryStyle {
+    if base_style == SymmetryStyle::Grid && !apply_to_all_layers {
+        return pick_non_grid_symmetry_style(rng);
+    }
+
+    base_style
 }
 
 fn modulate_iterations(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
@@ -2747,6 +2777,16 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let (base_center_x, base_center_y) = randomize_center_offset(&mut image_rng, config.fast);
         let layer_count = pick_layer_count(&mut image_rng, config.layers, config.fast);
         spinner_state.set_image((i + 1) as usize, layer_count as usize);
+        let base_symmetry_style = SymmetryStyle::from_u32(base_symmetry_style);
+        let grid_on_all_layers = should_apply_grid_across_layers(
+            base_symmetry_style,
+            layer_count,
+            &mut image_rng,
+            config.fast,
+        );
+        let base_symmetry_style =
+            resolve_symmetry_style(base_symmetry_style, grid_on_all_layers, &mut image_rng)
+                .as_u32();
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
         let base_art_mix = image_rng.next_f32();
@@ -2805,6 +2845,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     base_symmetry_style,
                     &mut image_rng,
                     config.fast,
+                    grid_on_all_layers,
                 ),
                 iterations: modulate_iterations(base_iterations, &mut image_rng, config.fast),
                 seed: layer_seed,
