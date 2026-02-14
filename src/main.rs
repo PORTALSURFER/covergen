@@ -315,6 +315,40 @@ impl SymmetryStyle {
     }
 }
 
+#[derive(Clone, Copy)]
+enum LayerBlendMode {
+    Normal,
+    Add,
+    Multiply,
+    Screen,
+    Overlay,
+    Difference,
+}
+
+impl LayerBlendMode {
+    fn from_u32(value: u32) -> Self {
+        match value % 6 {
+            0 => Self::Normal,
+            1 => Self::Add,
+            2 => Self::Multiply,
+            3 => Self::Screen,
+            4 => Self::Overlay,
+            _ => Self::Difference,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Add => "add",
+            Self::Multiply => "multiply",
+            Self::Screen => "screen",
+            Self::Overlay => "overlay",
+            Self::Difference => "difference",
+        }
+    }
+}
+
 struct Config {
     width: u32,
     height: u32,
@@ -324,6 +358,7 @@ struct Config {
     fill_scale: f32,
     fractal_zoom: f32,
     fast: bool,
+    layers: Option<u32>,
     count: u32,
     output: String,
 }
@@ -364,6 +399,7 @@ impl Config {
             fill_scale: 1.35,
             fractal_zoom: 0.72,
             fast: false,
+            layers: None,
             count: 1,
             output: "fractal.png".to_string(),
         };
@@ -403,6 +439,13 @@ impl Config {
                 "--fast" => {
                     cfg.fast = true;
                 }
+                "--layers" => {
+                    cfg.layers = Some(
+                        args.next()
+                            .ok_or("missing layers value, pass --layers <u32>")?
+                            .parse()?,
+                    );
+                }
                 "--count" | "-n" => {
                     let value = args
                         .next()
@@ -433,6 +476,9 @@ impl Config {
         }
         if cfg.fractal_zoom <= 0.0 {
             return Err("zoom must be greater than 0".into());
+        }
+        if let Some(0) = cfg.layers {
+            return Err("layers must be greater than 0".into());
         }
         if cfg.count == 0 {
             return Err("count must be at least 1".into());
@@ -476,6 +522,56 @@ fn randomize_fill_scale(base: f32, rng: &mut XorShift32) -> f32 {
 fn randomize_zoom(base: f32, rng: &mut XorShift32) -> f32 {
     let jitter = 0.45 + (rng.next_f32() * 0.35);
     (base * jitter).clamp(0.35, 0.95)
+}
+
+fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -> u32 {
+    if let Some(fixed) = user_count {
+        return fixed;
+    }
+
+    if fast {
+        2 + (rng.next_u32() % 3)
+    } else {
+        2 + (rng.next_u32() % 5)
+    }
+}
+
+fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
+    let jitter = if fast { 1 } else { 2 };
+    if base <= 1 {
+        return 1;
+    }
+
+    let jitter_range = jitter.min(base - 1);
+    let shift = (rng.next_u32() % (jitter_range * 2 + 1) as u32) as i32 - jitter_range as i32;
+    ((base as i32 + shift).max(1)) as u32
+}
+
+fn modulate_iterations(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
+    let spread = if fast { 0.18 } else { 0.42 };
+    let factor = (1.0 - spread) + (rng.next_f32() * (2.0 * spread));
+    let value = (base as f32 * factor).max(64.0).round() as u32;
+    value.max(1)
+}
+
+fn modulate_fill_scale(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.08 } else { 0.20 };
+    let factor = (1.0 - spread) + (rng.next_f32() * (2.0 * spread));
+    (base * factor).clamp(0.85, 1.7)
+}
+
+fn modulate_zoom(base: f32, rng: &mut XorShift32, fast: bool) -> f32 {
+    let spread = if fast { 0.08 } else { 0.20 };
+    let factor = (1.0 - spread) + (rng.next_f32() * (2.0 * spread));
+    (base * factor).clamp(0.35, 0.95)
+}
+
+fn pick_layer_blend(rng: &mut XorShift32) -> LayerBlendMode {
+    LayerBlendMode::from_u32(rng.next_u32())
+}
+
+fn layer_opacity(rng: &mut XorShift32) -> f32 {
+    0.30 + (rng.next_f32() * 0.55)
 }
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
@@ -743,6 +839,32 @@ fn blend_background(src: &mut [f32], bg: &[f32], strength: f32) {
         });
 }
 
+fn blend_layer_stack(dst: &mut [f32], layer: &[f32], strength: f32, mode: LayerBlendMode) {
+    debug_assert_eq!(dst.len(), layer.len());
+
+    let alpha = strength.clamp(0.0, 1.0);
+    dst.par_iter_mut()
+        .zip(layer.par_iter())
+        .for_each(|(base, top)| {
+            let mixed = match mode {
+                LayerBlendMode::Normal => *top,
+                LayerBlendMode::Add => clamp01(*base + *top),
+                LayerBlendMode::Multiply => clamp01(*base * *top),
+                LayerBlendMode::Screen => 1.0 - ((1.0 - *base) * (1.0 - *top)),
+                LayerBlendMode::Overlay => {
+                    if *base < 0.5 {
+                        2.0 * *base * *top
+                    } else {
+                        1.0 - (2.0 * (1.0 - *base) * (1.0 - *top))
+                    }
+                }
+                LayerBlendMode::Difference => (*base - *top).abs(),
+            };
+
+            *base = clamp01((1.0 - alpha) * *base + alpha * mixed);
+        });
+}
+
 fn apply_motion_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
     let width_i32 = width as i32;
     let height_i32 = height as i32;
@@ -989,6 +1111,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         (config.width as usize * config.height as usize * std::mem::size_of::<u32>()) as u64;
     let pixel_count = (config.width as usize) * (config.height as usize);
     let mut filtered = vec![0.0f32; pixel_count];
+    let mut layered = vec![0.0f32; pixel_count];
+    let mut final_pixels = vec![0u8; pixel_count * 4];
 
     let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output storage"),
@@ -1067,19 +1191,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut background = vec![0.0f32; pixel_count];
     let mut percentile = vec![0.0f32; pixel_count];
 
-    for i in 0..config.count {
-        let mut image_seed = image_rng.next_u32();
-        if image_seed == 0 {
-            image_seed = 0x9e3779b9;
-        }
-        params.seed = image_seed;
-        params.symmetry = randomize_symmetry(config.symmetry, &mut image_rng);
-        params.iterations = randomize_iterations(config.iterations, &mut image_rng);
-        params.fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
-        params.symmetry_style = pick_symmetry_style(&mut image_rng);
-        params.fractal_zoom = randomize_zoom(config.fractal_zoom, &mut image_rng);
-        queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&params));
-
+    let render_layer = |layer_params: &Params, out: &mut [f32]| -> Result<(), Box<dyn Error>> {
+        queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(layer_params));
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("command encoder"),
         });
@@ -1108,73 +1221,140 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
         }
 
-        let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), config.fast);
-        let gradient = pick_gradient_from_rng(&mut image_rng);
+        {
+            let raw = slice.get_mapped_range();
+            decode_luma(&raw, out);
+        }
+        staging_buffer.unmap();
+        Ok(())
+    };
+
+    for i in 0..config.count {
+        let mut image_seed = image_rng.next_u32();
+        if image_seed == 0 {
+            image_seed = 0x9e3779b9;
+        }
+        let base_seed = image_seed;
+        let base_symmetry = randomize_symmetry(config.symmetry, &mut image_rng);
+        let base_iterations = randomize_iterations(config.iterations, &mut image_rng);
+        let base_fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
+        let base_symmetry_style = pick_symmetry_style(&mut image_rng);
+        let base_zoom = randomize_zoom(config.fractal_zoom, &mut image_rng);
+        let layer_count = pick_layer_count(&mut image_rng, config.layers, config.fast);
+        let mut layer_steps = Vec::new();
+
         create_soft_background(
             config.width,
             config.height,
-            params.seed ^ (i + 0x0BADC0DEu32),
+            base_seed ^ (i + 0x0BADC0DEu32),
             &mut background,
         );
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
+        let mut pre_filter_stats = LumaStats {
+            min: 1.0,
+            max: 0.0,
+            mean: 0.0,
+            std: 0.0,
+        };
+        layered.fill(0.0);
 
-        {
-            let raw = slice.get_mapped_range();
-            decode_luma(&raw, &mut luma);
+        for layer_index in 0..layer_count {
+            let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
+            params = Params {
+                width: config.width,
+                height: config.height,
+                symmetry: modulate_symmetry(base_symmetry, &mut image_rng, config.fast),
+                symmetry_style: base_symmetry_style,
+                iterations: modulate_iterations(base_iterations, &mut image_rng, config.fast),
+                seed: layer_seed,
+                fill_scale: modulate_fill_scale(base_fill_scale, &mut image_rng, config.fast),
+                fractal_zoom: modulate_zoom(base_zoom, &mut image_rng, config.fast),
+            };
+
+            render_layer(&params, &mut luma)?;
+            if layer_index == 0 {
+                pre_filter_stats = luma_stats(&luma);
+            }
+
+            let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), config.fast);
+            let gradient = pick_gradient_from_rng(&mut image_rng);
+            let overlay = pick_layer_blend(&mut image_rng);
+            let opacity = if layer_index == 0 {
+                1.0
+            } else {
+                layer_opacity(&mut image_rng)
+            };
+
+            apply_dynamic_filter(config.width, config.height, &luma, &mut filtered, filter);
+            let low_stretch = if config.fast { 0.03 } else { 0.04 };
+            let high_stretch = if config.fast { 0.97 } else { 0.96 };
+            stretch_to_percentile(&mut filtered, &mut percentile, low_stretch, high_stretch);
+            apply_gradient_map(&mut filtered, gradient);
+            stretch_to_percentile(
+                &mut filtered,
+                &mut percentile,
+                if config.fast { 0.01 } else { 0.02 },
+                if config.fast { 0.99 } else { 0.98 },
+            );
+
+            if layer_index == 0 {
+                layered.copy_from_slice(&filtered);
+            } else {
+                blend_layer_stack(&mut layered, &filtered, opacity, overlay);
+            }
+
+            layer_steps.push(format!(
+                "L{}:{}({:.2}, {})",
+                layer_index + 1,
+                overlay.label(),
+                opacity,
+                filter.mode.label(),
+            ));
         }
-        staging_buffer.unmap();
 
-        let pre_filter_stats = luma_stats(&luma);
-        apply_dynamic_filter(config.width, config.height, &luma, &mut filtered, filter);
-        let low_stretch = if config.fast { 0.03 } else { 0.04 };
-        let high_stretch = if config.fast { 0.97 } else { 0.96 };
-        stretch_to_percentile(&mut filtered, &mut percentile, low_stretch, high_stretch);
-        apply_gradient_map(&mut filtered, gradient);
-        stretch_to_percentile(
-            &mut filtered,
-            &mut percentile,
-            if config.fast { 0.01 } else { 0.02 },
-            if config.fast { 0.99 } else { 0.98 },
-        );
-        blend_background(&mut filtered, &background, background_strength);
-        let mut final_stats = luma_stats(&filtered);
+        blend_background(&mut layered, &background, background_strength);
+
+        let mut final_stats = luma_stats(&layered);
         if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
             inject_noise(
-                &mut filtered,
-                params.seed ^ (i + 1),
+                &mut layered,
+                base_seed ^ (i + 1),
                 if config.fast { 0.04 } else { 0.06 },
             );
             stretch_to_percentile(
-                &mut filtered,
+                &mut layered,
                 &mut percentile,
                 if config.fast { 0.01 } else { 0.01 },
                 if config.fast { 0.99 } else { 0.99 },
             );
-            final_stats = luma_stats(&filtered);
+            final_stats = luma_stats(&layered);
         }
-        let mut final_pixels = vec![0u8; pixel_count * 4];
-        encode_rgba_gray(&mut final_pixels, &filtered);
+
+        encode_rgba_gray(&mut final_pixels, &layered);
         let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(config.width, config.height, final_pixels)
+            ImageBuffer::from_raw(config.width, config.height, final_pixels.clone())
                 .ok_or("could not create image buffer from GPU output")?;
         let final_output = resolve_output_path(&config.output);
         image.save(&final_output)?;
 
+        let layer_summary = if layer_steps.is_empty() {
+            "none".to_string()
+        } else {
+            layer_steps.join(", ")
+        };
+
         println!(
-            "Generated {} | index {} | seed {} | fill {} | zoom {} | symmetry {} [{}] | iterations {} | filter {} | radius {} | gradient {} ({:.2},{:.2}) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | base fill {:.2} | zoom {:.2} | symmetry {} [{}] | iterations {} | layers {} | layers [{}] | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
-            params.seed,
-            params.fill_scale,
-            params.fractal_zoom,
-            params.symmetry,
-            SymmetryStyle::from_u32(params.symmetry_style).label(),
-            params.iterations,
-            filter.mode.label(),
-            filter.max_radius,
-            gradient.mode.label(),
-            gradient.gamma,
-            gradient.contrast,
+            base_seed,
+            base_fill_scale,
+            base_zoom,
+            base_symmetry,
+            SymmetryStyle::from_u32(base_symmetry_style).label(),
+            base_iterations,
+            layer_count,
+            layer_summary,
             pre_filter_stats.min,
             pre_filter_stats.max,
             pre_filter_stats.mean,
