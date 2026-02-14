@@ -532,7 +532,6 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
             },
             None,
         )
@@ -619,9 +618,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         label: Some("compute pipeline"),
         layout: Some(&pipeline_layout),
         module: &shader_module,
-        entry_point: Some("main"),
-        compilation_options: Default::default(),
-        cache: None,
+        entry_point: "main",
     });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -630,6 +627,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("compute pass"),
+            timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
