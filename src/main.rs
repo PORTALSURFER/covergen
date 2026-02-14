@@ -1,14 +1,19 @@
 use std::cmp::Ordering;
+use std::io::Cursor;
 use std::sync::mpsc::channel;
 use std::{
     env,
     error::Error,
+    fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use bytemuck::{Pod, Zeroable};
-use image::{ImageBuffer, Rgba};
+use image::{
+    ImageEncoder,
+    codecs::png::{CompressionType, FilterType, PngEncoder},
+};
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
@@ -218,6 +223,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 "#;
 
+const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
+const MIN_IMAGE_DIMENSION: u32 = 64;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
@@ -332,6 +340,57 @@ impl SymmetryStyle {
             Self::Radial => "radial",
             Self::Mirror => "mirror",
             Self::Grid => "grid",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum ArtStyle {
+    Hybrid,
+    Julia,
+    BurningShip,
+    Tricorn,
+    Phoenix,
+    Spiral,
+    OrbitTrap,
+}
+
+#[allow(dead_code)]
+impl ArtStyle {
+    fn from_u32(value: u32) -> Self {
+        match value % 7u32 {
+            0 => Self::Hybrid,
+            1 => Self::Julia,
+            2 => Self::BurningShip,
+            3 => Self::Tricorn,
+            4 => Self::Phoenix,
+            5 => Self::Spiral,
+            _ => Self::OrbitTrap,
+        }
+    }
+
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Hybrid => 0,
+            Self::Julia => 1,
+            Self::BurningShip => 2,
+            Self::Tricorn => 3,
+            Self::Phoenix => 4,
+            Self::Spiral => 5,
+            Self::OrbitTrap => 6,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Hybrid => "hybrid",
+            Self::Julia => "julia",
+            Self::BurningShip => "burning_ship",
+            Self::Tricorn => "tricorn",
+            Self::Phoenix => "phoenix",
+            Self::Spiral => "spiral",
+            Self::OrbitTrap => "orbit_trap",
         }
     }
 }
@@ -1113,6 +1172,107 @@ fn resolve_output_path(output: &str) -> PathBuf {
     }
 }
 
+fn encode_png_bytes(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    if rgba.len() != width as usize * height as usize * 4 {
+        return Err("invalid buffer size for RGBA image".into());
+    }
+
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let encoder =
+            PngEncoder::new_with_quality(&mut cursor, CompressionType::Best, FilterType::Adaptive);
+        encoder.write_image(rgba, width, height, image::ColorType::Rgba8)?;
+    }
+
+    Ok(cursor.into_inner())
+}
+
+fn save_png_under_10mb(
+    output: &Path,
+    mut width: u32,
+    mut height: u32,
+    rgba: &[u8],
+) -> Result<(u32, u32, usize), Box<dyn Error>> {
+    let mut working = rgba.to_vec();
+    let mut encoded = encode_png_bytes(width, height, &working)?;
+    let mut shrink_passes = 0u32;
+
+    while encoded.len() > MAX_OUTPUT_BYTES
+        && width > MIN_IMAGE_DIMENSION
+        && height > MIN_IMAGE_DIMENSION
+    {
+        let next_width = ((width as f32) * 0.9)
+            .round()
+            .max(MIN_IMAGE_DIMENSION as f32)
+            .min(width as f32) as u32;
+        let next_height = ((height as f32) * 0.9)
+            .round()
+            .max(MIN_IMAGE_DIMENSION as f32)
+            .min(height as f32) as u32;
+
+        if next_width == width && next_height == height {
+            break;
+        }
+
+        let source = image::RgbaImage::from_raw(width, height, working)
+            .ok_or("invalid working image buffer during resize")?;
+        let resized = image::imageops::resize(
+            &source,
+            next_width,
+            next_height,
+            image::imageops::FilterType::Lanczos3,
+        );
+        width = next_width;
+        height = next_height;
+        working = resized.into_raw();
+        encoded = encode_png_bytes(width, height, &working)?;
+        shrink_passes += 1;
+
+        if shrink_passes > 48 {
+            break;
+        }
+    }
+
+    if encoded.len() > MAX_OUTPUT_BYTES {
+        // Final safety pass: progressively force down to minimum dimension in bigger steps.
+        while encoded.len() > MAX_OUTPUT_BYTES
+            && width > MIN_IMAGE_DIMENSION
+            && height > MIN_IMAGE_DIMENSION
+        {
+            let width_scale = (MAX_OUTPUT_BYTES as f32 / encoded.len() as f32).sqrt() * 0.95;
+            let next_width = ((width as f32) * width_scale)
+                .floor()
+                .max(MIN_IMAGE_DIMENSION as f32) as u32;
+            let next_height = ((height as f32) * width_scale)
+                .floor()
+                .max(MIN_IMAGE_DIMENSION as f32) as u32;
+            let target_width = next_width.max(1).min(width);
+            let target_height = next_height.max(1).min(height);
+
+            if target_width == width && target_height == height {
+                break;
+            }
+
+            let source = image::RgbaImage::from_raw(width, height, working)
+                .ok_or("invalid working image buffer during final resize")?;
+            let resized = image::imageops::resize(
+                &source,
+                target_width,
+                target_height,
+                image::imageops::FilterType::Lanczos3,
+            );
+            width = target_width;
+            height = target_height;
+            working = resized.into_raw();
+            encoded = encode_png_bytes(width, height, &working)?;
+        }
+    }
+
+    let final_size = encoded.len();
+    fs::write(output, encoded)?;
+    Ok((width, height, final_size))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::from_env()?;
     pollster::block_on(run(config))?;
@@ -1393,11 +1553,17 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         }
 
         encode_rgba_gray(&mut final_pixels, &layered);
-        let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(config.width, config.height, final_pixels.clone())
-                .ok_or("could not create image buffer from GPU output")?;
         let final_output = resolve_output_path(&config.output);
-        image.save(&final_output)?;
+        let (final_width, final_height, final_bytes) =
+            save_png_under_10mb(&final_output, config.width, config.height, &final_pixels)?;
+        let scale = format!(
+            "{:.2}",
+            if final_width == config.width {
+                1.0
+            } else {
+                (final_width as f32) / (config.width as f32)
+            }
+        );
 
         let layer_summary = if layer_steps.is_empty() {
             "none".to_string()
@@ -1406,7 +1572,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         };
 
         println!(
-            "Generated {} | index {} | seed {} | base fill {:.2} | zoom {:.2} | symmetry {} [{}] | iterations {} | layers {} | layers [{}] | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
+            "Generated {} | index {} | seed {} | base fill {:.2} | zoom {:.2} | symmetry {} [{}] | iterations {} | layers {} | layers [{}] | image {}x{} (scale {} / {:.2}MB) | pre({:.2}-{:.2},{:.2}) post({:.2}-{:.2},{:.2})",
             final_output.display(),
             i,
             base_seed,
@@ -1417,6 +1583,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             base_iterations,
             layer_count,
             layer_summary,
+            final_width,
+            final_height,
+            scale,
+            final_bytes as f64 / (1024.0 * 1024.0),
             pre_filter_stats.min,
             pre_filter_stats.max,
             pre_filter_stats.mean,
