@@ -171,8 +171,8 @@ impl GpuLayerRenderer {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
-            let work_x = (params.width + 15) / 16;
-            let work_y = (params.height + 15) / 16;
+            let work_x = params.width.div_ceil(16);
+            let work_y = params.height.div_ceil(16);
             pass.dispatch_workgroups(work_x, work_y, 1);
         }
 

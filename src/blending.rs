@@ -117,8 +117,28 @@ pub fn pick_layer_mask_kind(rng: &mut XorShift32, structural: bool) -> LayerMask
     }
 }
 
-fn generate_edge_mask(source: &[f32], width: u32, height: u32) -> Vec<f32> {
-    let mut out = vec![0.0f32; source.len()];
+/// Parameters and scratch buffers used to generate a reusable layer mask.
+pub(crate) struct LayerMaskBuildRequest<'a> {
+    /// Primary rendered luma input.
+    pub(crate) primary: &'a [f32],
+    /// Render width for mask sampling.
+    pub(crate) width: u32,
+    /// Render height for mask sampling.
+    pub(crate) height: u32,
+    /// Seed used for randomized math masks.
+    pub(crate) source_seed: u32,
+    /// Which pattern family to generate.
+    pub(crate) kind: LayerMaskKind,
+    /// Destination map for the generated mask.
+    pub(crate) out: &'a mut [f32],
+    /// Reusable blur scratch for mask generation.
+    pub(crate) blur_work: &'a mut [f32],
+    /// Enable faster blur profile for performance mode.
+    pub(crate) fast: bool,
+}
+
+fn generate_edge_mask(source: &[f32], width: u32, height: u32, out: &mut [f32]) {
+    out.fill(0.0);
     let width_i32 = width as i32;
     let height_i32 = height as i32;
     let mut max_edge = 0.0f32;
@@ -142,13 +162,12 @@ fn generate_edge_mask(source: &[f32], width: u32, height: u32) -> Vec<f32> {
     }
 
     if max_edge <= f32::EPSILON {
-        return out;
+        return;
     }
 
-    for value in &mut out {
+    for value in out.iter_mut() {
         *value = (*value / max_edge).clamp(0.0, 1.0);
     }
-    out
 }
 
 fn generate_math_mask(
@@ -157,8 +176,9 @@ fn generate_math_mask(
     seed: u32,
     kind: LayerMaskKind,
     rng: &mut XorShift32,
-) -> Vec<f32> {
-    let mut mask = vec![0.0f32; (width as usize) * (height as usize)];
+    out: &mut [f32],
+) {
+    out.fill(0.0);
     let freq = 1.4 + (rng.next_f32() * 3.1);
     let freq_y = 1.8 + (rng.next_f32() * 2.9);
     let phase = rng.next_f32() * std::f32::consts::TAU;
@@ -192,56 +212,63 @@ fn generate_math_mask(
                 LayerMaskKind::EdgeSource => unreachable!("edge source must be handled separately"),
             };
             let idx = y as usize * width as usize + x as usize;
-            mask[idx] = value.clamp(0.0, 1.0);
+            out[idx] = value.clamp(0.0, 1.0);
         }
     }
 
-    normalize(&mut mask);
-    mask
+    normalize(out);
 }
 
 fn angle_component(x: f32, y: f32) -> f32 {
     y.atan2(x)
 }
 
-/// Construct a blend mask from the main layer source and return a normalized map.
-pub fn build_layer_mask(
-    primary: &[f32],
-    width: u32,
-    height: u32,
-    source_seed: u32,
-    kind: LayerMaskKind,
-    rng: &mut XorShift32,
-    fast: bool,
-) -> Vec<f32> {
-    let mut mask = match kind {
-        LayerMaskKind::EdgeSource => generate_edge_mask(primary, width, height),
-        _ => generate_math_mask(width, height, source_seed, kind, rng),
-    };
+/// Construct a blend mask into `out` with reusable temporary storage in `blur_work`.
+pub fn build_layer_mask(request: &mut LayerMaskBuildRequest<'_>, rng: &mut XorShift32) {
+    debug_assert_eq!(request.primary.len(), request.out.len());
+    debug_assert_eq!(request.out.len(), request.blur_work.len());
 
-    let blur_cfg = tune_filter_for_speed(pick_filter_from_rng(rng), fast);
-    let mut blurred = vec![0.0f32; mask.len()];
-    apply_dynamic_filter(width, height, &mask, &mut blurred, &blur_cfg);
-    std::mem::swap(&mut mask, &mut blurred);
+    match request.kind {
+        LayerMaskKind::EdgeSource => {
+            generate_edge_mask(request.primary, request.width, request.height, request.out)
+        }
+        _ => generate_math_mask(
+            request.width,
+            request.height,
+            request.source_seed,
+            request.kind,
+            rng,
+            request.out,
+        ),
+    }
+
+    let blur_cfg = tune_filter_for_speed(pick_filter_from_rng(rng), request.fast);
+    apply_dynamic_filter(
+        request.width,
+        request.height,
+        request.out,
+        request.blur_work,
+        &blur_cfg,
+    );
+    request.out.copy_from_slice(request.blur_work);
 
     let gamma = 0.35 + (rng.next_f32() * 1.45);
-    for value in &mut mask {
+    for value in request.out.iter_mut() {
         *value = value.powf(gamma);
     }
 
     let add_detail = if rng.next_f32() < 0.4 { 0.82 } else { 0.0 };
     if add_detail > 0.0 {
         apply_detail_waves(
-            &mut mask,
-            width,
-            height,
-            source_seed ^ 0x4d5a_2f1f,
+            request.out,
+            request.width,
+            request.height,
+            request.source_seed ^ 0x4d5a_2f1f,
             add_detail,
         );
     }
 
-    normalize(&mut mask);
-    mask
+    normalize(request.out);
 }
 
 /// Blend an alternate layer into `base` using `mask` as the per-pixel interpolation weight.
@@ -284,9 +311,32 @@ mod tests {
     fn strategy_mix_probability_never_panics() {
         let mut rng = XorShift32::new(123_456_789);
         let base = RenderStrategy::Gpu(0);
-        let mixed = should_mix_strategies(1, &mut rng, true, false, 1.0);
-        assert!(mixed == true || mixed == false);
+        let _mixed = should_mix_strategies(1, &mut rng, true, false, 1.0);
         let name = strategy_name(base);
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn build_layer_mask_reuses_provided_scratch() {
+        let mut rng = XorShift32::new(7_654_321);
+        let primary = vec![0.1f32, 0.2, 0.3, 0.4];
+        let mut out = vec![0.0f32; primary.len()];
+        let mut blur = vec![0.0f32; primary.len()];
+        let mut request = LayerMaskBuildRequest {
+            primary: &primary,
+            width: 2,
+            height: 2,
+            source_seed: 123,
+            kind: LayerMaskKind::MathNoise,
+            out: &mut out,
+            blur_work: &mut blur,
+            fast: true,
+        };
+
+        build_layer_mask(&mut request, &mut rng);
+
+        assert_eq!(out.len(), primary.len());
+        assert!(!out.iter().all(|value| *value == 0.0));
+        assert!(blur.iter().all(|value| value.is_finite()));
     }
 }

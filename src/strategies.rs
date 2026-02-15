@@ -436,7 +436,7 @@ fn gpu_style_family(style: u32) -> StrategyFamily {
     match style % 17 {
         0 | 1 | 2 | 3 | 4 | 5 | 7 | 8 | 10 | 16 => StrategyFamily::Fractal,
         11 => StrategyFamily::Flow,
-        12 | 13 | 14 | 15 => StrategyFamily::Harmonic,
+        12..=15 => StrategyFamily::Harmonic,
         _ => StrategyFamily::Geometry,
     }
 }
@@ -889,6 +889,7 @@ fn draw_point(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_line(
     x0: i32,
     y0: i32,
@@ -1016,7 +1017,7 @@ fn render_perlin_ridge(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
     let width_f = width.max(1) as f32;
     let height_f = height.max(1) as f32;
     let seed = rng.next_u32();
-    let octaves = 4 + (rng.next_u32() % 3) as u32;
+    let octaves = 4 + (rng.next_u32() % 3);
     let mut out = vec![0.0f32; (width * height) as usize];
     let mut level = 0u32;
     while level < octaves {
@@ -1131,7 +1132,7 @@ fn render_sierpinski_carpet(width: u32, height: u32, rng: &mut XorShift32) -> Ve
                 0.85,
                 &mut density,
             );
-            if i % 4 == 0 {
+            if i.is_multiple_of(4) {
                 let ox = (ix as i32 + if rng.next_f32() < 0.5 { -1 } else { 1 })
                     .clamp(0, sim as i32 - 1);
                 let oy = (iy as i32 + if rng.next_f32() < 0.5 { -1 } else { 1 })
@@ -1249,12 +1250,12 @@ fn render_turbulent_flow(width: u32, height: u32, rng: &mut XorShift32, fast: bo
 }
 
 fn render_maze_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
-    let maze_w = (width / 6).max(56).min(168);
-    let maze_h = (height / 6).max(56).min(168);
+    let maze_w = (width / 6).clamp(56, 168);
+    let maze_h = (height / 6).clamp(56, 168);
     let maze_grid_w = (maze_w | 1) as usize;
     let maze_grid_h = (maze_h | 1) as usize;
-    let cell_w = (maze_grid_w / 2) as usize;
-    let cell_h = (maze_grid_h / 2) as usize;
+    let cell_w = maze_grid_w / 2;
+    let cell_h = maze_grid_h / 2;
 
     let mut walls = vec![true; maze_grid_w * maze_grid_h];
     let mut visited = vec![false; cell_w * cell_h];
@@ -1481,7 +1482,7 @@ fn render_radial_wave(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32>
     let cx = (rng.next_f32() - 0.5) * 0.2;
     let cy = (rng.next_f32() - 0.5) * 0.2;
     let base_freq = 2.0 + rng.next_f32() * 6.0;
-    let bands = 2 + (rng.next_u32() % 4) as u32;
+    let bands = 2 + (rng.next_u32() % 4);
     let seed = rng.next_u32();
 
     for y in 0..height as i32 {
@@ -1708,7 +1709,7 @@ fn render_voronoi(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
     }
     if max_diff > 0.0 {
         for value in out.iter_mut() {
-            *value = *value / max_diff;
+            *value /= max_diff;
         }
     }
     normalize(&mut out);
@@ -2192,7 +2193,7 @@ fn render_turing_cascade(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f
             }
             std::mem::swap(&mut u, &mut u_next);
             std::mem::swap(&mut v, &mut v_next);
-            if step % 3 == 0 {
+            if step.is_multiple_of(3) {
                 let mut i = 0usize;
                 while i < size {
                     let fx = i as f32 / sim_w as f32;
@@ -2256,10 +2257,10 @@ fn render_flow_filaments(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f
                 ny.round() as i32,
                 sim_w as usize,
                 sim_h as usize,
-                0.9 + if step % 3 == 0 { 0.2 } else { 0.0 },
+                0.9 + if step.is_multiple_of(3) { 0.2 } else { 0.0 },
                 &mut density,
             );
-            if step % 10 == 0 {
+            if step.is_multiple_of(10) {
                 let glow_x = ((x + (fx - 0.5) * 7.0).round() as i32).clamp(0, sim_w as i32 - 1);
                 let glow_y = ((y + (fy - 0.5) * 7.0).round() as i32).clamp(0, sim_h as i32 - 1);
                 draw_point(
@@ -2355,7 +2356,7 @@ fn render_orbital_atlas(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f3
                 );
             }
 
-            if i % 4 == 0 {
+            if i.is_multiple_of(4) {
                 draw_point(
                     ix as i32,
                     iy as i32,
@@ -2481,7 +2482,7 @@ fn render_crystal_growth(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f
             attempts += 1;
         }
 
-        if i % 2 == 0 {
+        if i.is_multiple_of(2) {
             let sx = 1.0 - (attempts as f32 / ((walkers * 3) as f32)).min(0.8);
             let noise = noise_field(sim_w, sim_h, rng, 2);
             let mut p = 0usize;
@@ -2521,7 +2522,7 @@ fn render_vortex_convection(width: u32, height: u32, rng: &mut XorShift32) -> Ve
         i += 1;
     }
 
-    let strands = (((sim_w * sim_h) as u32) / 56).max(1_600);
+    let strands = ((sim_w * sim_h) / 56).max(1_600);
     let steps = 220 + (rng.next_u32() % 220);
     let base_seed = rng.next_u32();
     let noise_seed = rng.next_u32();
@@ -2574,7 +2575,7 @@ fn render_vortex_convection(width: u32, height: u32, rng: &mut XorShift32) -> Ve
                 &mut density,
             );
 
-            if step % 14 == 0 {
+            if step.is_multiple_of(14) {
                 let px = (nx + ((n3 - 0.5) * 2.6)).clamp(0.0, sim_w as f32 - 1.0) as i32;
                 let py = (ny - ((n3 - 0.5) * 2.6)).clamp(0.0, sim_h as f32 - 1.0) as i32;
                 draw_point(
@@ -2961,7 +2962,7 @@ fn render_de_jong_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Ve
             let px = ux.round() as i32;
             let py = uy.round() as i32;
 
-            let jitter = value_noise(ux * 0.11, uy * 0.15, seed ^ (i as u32)) * 0.36;
+            let jitter = value_noise(ux * 0.11, uy * 0.15, seed ^ i) * 0.36;
             draw_line(
                 previous_x.round() as i32,
                 previous_y.round() as i32,
@@ -2972,7 +2973,7 @@ fn render_de_jong_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Ve
                 0.5 + jitter,
                 &mut density,
             );
-            if i % 3 == 0 {
+            if i.is_multiple_of(3) {
                 draw_point(
                     px,
                     py,
@@ -3066,7 +3067,7 @@ fn render_recursive_ribbon(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                 &mut out,
             );
 
-            if step % 2 == 0 {
+            if step.is_multiple_of(2) {
                 draw_point(
                     px.round() as i32,
                     py.round() as i32,
@@ -3190,7 +3191,7 @@ fn render_magnetic_fieldlines(width: u32, height: u32, rng: &mut XorShift32) -> 
                 0.48 + (noise.abs() * 0.45),
                 &mut density,
             );
-            if step % 4 == 0 {
+            if step.is_multiple_of(4) {
                 draw_point(
                     nx as i32,
                     ny as i32,
@@ -3253,9 +3254,9 @@ fn render_lorenz_attractor(width: u32, height: u32, rng: &mut XorShift32) -> Vec
         let dx = sigma * (y - x);
         let dy = x * (rho - z) - y;
         let dz = x * y - beta * z;
-        x = x + dx * dt;
-        y = y + dy * dt;
-        z = z + dz * dt;
+        x += dx * dt;
+        y += dy * dt;
+        z += dz * dt;
 
         if !x.is_finite() || !y.is_finite() || !z.is_finite() {
             x = 0.1 + (value_noise(i as f32, z, seed) - 0.5) * 0.3;
@@ -3416,7 +3417,7 @@ fn render_recursive_starburst(width: u32, height: u32, rng: &mut XorShift32) -> 
                 strength * 0.82,
                 &mut density,
             );
-            if segment % 2 == 0 {
+            if segment.is_multiple_of(2) {
                 draw_point(
                     nx.round() as i32,
                     ny.round() as i32,
@@ -3445,7 +3446,7 @@ fn render_recursive_starburst(width: u32, height: u32, rng: &mut XorShift32) -> 
                     });
                     c += 1;
                 }
-            } else if segment % 4 == 0 && branch_remaining > 0 && rng.next_f32() < 0.35 {
+            } else if segment.is_multiple_of(4) && branch_remaining > 0 && rng.next_f32() < 0.35 {
                 let child_angle = angle + (rng.next_f32() * 0.6 - 0.3) + std::f32::consts::PI * 0.5;
                 stack.push(StarburstBranch {
                     x: nx,
@@ -3650,7 +3651,7 @@ fn render_clifford_attractor(width: u32, height: u32, rng: &mut XorShift32) -> V
                 strength,
                 &mut density,
             );
-            if i % 2 == 0 {
+            if i.is_multiple_of(2) {
                 draw_point(
                     ox,
                     oy,
@@ -3960,7 +3961,7 @@ fn render_bifurcation_tree(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                 strength,
                 &mut out,
             );
-            if step % 3 == 0 {
+            if step.is_multiple_of(3) {
                 draw_point(
                     ex,
                     ey,
@@ -3972,7 +3973,7 @@ fn render_bifurcation_tree(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                 );
             }
 
-            if step > 1 && branch.depth > 1 && step % 4 == 0 {
+            if step > 1 && branch.depth > 1 && step.is_multiple_of(4) {
                 let child_angle = angle + (rng.next_f32() * 1.5 - 0.75);
                 stack.push(BifurcationBranch {
                     x: nx,
@@ -4066,7 +4067,7 @@ fn render_depth_relief(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
             let gradient = ((right - left).abs() + (down - up).abs()) * 0.5;
             let ridge = (field[idx] - (left + right + up + down) * 0.25).abs();
             let mut value = field[idx] * 0.72 + (1.0 - gradient * 1.6).clamp(0.0, 1.0) * 0.22;
-            value = value + ridge * 0.35;
+            value += ridge * 0.35;
             out[idx] = clamp01(value);
         }
     }
@@ -4146,7 +4147,7 @@ fn render_attractor_tunnel(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                     strength,
                     &mut density,
                 );
-                if i % 4 == 0 {
+                if i.is_multiple_of(4) {
                     draw_point(
                         px.round() as i32,
                         py.round() as i32,
@@ -4361,7 +4362,7 @@ fn render_lissajous_orbits(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                 local_strength,
                 &mut density,
             );
-            if t % 8 == 0 {
+            if t.is_multiple_of(8) {
                 draw_point(
                     px.round() as i32,
                     py.round() as i32,
@@ -4372,7 +4373,7 @@ fn render_lissajous_orbits(width: u32, height: u32, rng: &mut XorShift32) -> Vec
                     &mut density,
                 );
             }
-            if t % 120 == 0 && rng.next_f32() < 0.7 {
+            if t.is_multiple_of(120) && rng.next_f32() < 0.7 {
                 let branch_freq_x = 2.0 + rng.next_f32() * 8.0;
                 let branch_freq_y = 2.0 + rng.next_f32() * 8.0;
                 let branch_steps = 90 + (rng.next_u32() % 180);
@@ -4491,7 +4492,7 @@ fn render_gravitic_web(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
                 clamp01(strength),
                 &mut density,
             );
-            if step % 4 == 0 {
+            if step.is_multiple_of(4) {
                 draw_point(
                     nx.round() as i32,
                     ny.round() as i32,
@@ -4502,7 +4503,7 @@ fn render_gravitic_web(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
                     &mut density,
                 );
             }
-            if step % 18 == 0 && step % 2 == 0 {
+            if step.is_multiple_of(18) && step.is_multiple_of(2) {
                 let nx2 = (nx + value_noise(x[j], y[j], rng.next_u32()) - 0.5) % (sim_w as f32);
                 let ny2 = (ny + value_noise(y[j], x[j], rng.next_u32()) - 0.5) % (sim_h as f32);
                 let link = ((j + 7) % count) as f32 / (count as f32).max(1.0);
@@ -4661,8 +4662,8 @@ struct Metaball {
 }
 
 fn render_metaball_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
-    let sim_w = (width / 3).max(180).min(512);
-    let sim_h = (height / 3).max(180).min(512);
+    let sim_w = (width / 3).clamp(180, 512);
+    let sim_h = (height / 3).clamp(180, 512);
     let seed = rng.next_u32();
     let count = 22 + (seed % 34) as usize;
     let base_scale = sim_w.min(sim_h) as f32;
@@ -4674,7 +4675,7 @@ fn render_metaball_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f
         balls.push(Metaball {
             x: rng.next_f32() * (sim_w as f32 - 1.0),
             y: rng.next_f32() * (sim_h as f32 - 1.0),
-            radius: radius,
+            radius,
             strength: 0.45 + rng.next_f32() * 1.25,
         });
         i += 1;
@@ -4725,8 +4726,8 @@ struct BraidSeed {
 }
 
 fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
-    let sim_w = (width / 3).max(180).min(520);
-    let sim_h = (height / 3).max(180).min(520);
+    let sim_w = (width / 3).clamp(180, 520);
+    let sim_h = (height / 3).clamp(180, 520);
     let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
     let mut active = Vec::with_capacity((8 + (rng.next_u32() % 12)) as usize);
     let count = 10 + (rng.next_u32() % 14);
@@ -4786,7 +4787,7 @@ fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> 
                 strength,
                 &mut out,
             );
-            if step % 9 == 0 {
+            if step.is_multiple_of(9) {
                 draw_point(
                     nx.round() as i32,
                     ny.round() as i32,
@@ -4800,7 +4801,8 @@ fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> 
 
             if step > 22
                 && thread.depth > 1
-                && (step % 17 == 0 || value_noise(nx * 0.02, ny * 0.018, thread.seed ^ step) > 0.87)
+                && (step.is_multiple_of(17)
+                    || value_noise(nx * 0.02, ny * 0.018, thread.seed ^ step) > 0.87)
             {
                 let branch_angle = angle
                     + (value_noise(nx * 0.009, ny * 0.008, thread.seed ^ step ^ 0xBEEF) - 0.5)
@@ -4840,8 +4842,8 @@ fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> 
 }
 
 fn render_phase_field(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
-    let sim_w = (width / 2).max(150).min(520);
-    let sim_h = (height / 2).max(150).min(520);
+    let sim_w = (width / 2).clamp(150, 520);
+    let sim_h = (height / 2).clamp(150, 520);
     let seed = rng.next_u32();
     let mut field = noise_field(sim_w, sim_h, rng, if fast { 2 } else { 3 });
     let mut next = vec![0.0f32; (sim_w * sim_h) as usize];
@@ -4890,8 +4892,8 @@ fn render_phase_field(width: u32, height: u32, rng: &mut XorShift32, fast: bool)
 }
 
 fn render_lenia(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
-    let sim_w = (width / 3).max(140).min(520);
-    let sim_h = (height / 3).max(140).min(520);
+    let sim_w = (width / 3).clamp(140, 520);
+    let sim_h = (height / 3).clamp(140, 520);
     let mut current = vec![0.0f32; (sim_w * sim_h) as usize];
     let mut next = vec![0.0f32; (sim_w * sim_h) as usize];
     let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0x2b2b_0001);
@@ -4954,8 +4956,8 @@ fn render_lenia(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Ve
 }
 
 fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
-    let sim_w = (width / 2).max(140).min(520);
-    let sim_h = (height / 2).max(140).min(520);
+    let sim_w = (width / 2).clamp(140, 520);
+    let sim_h = (height / 2).clamp(140, 520);
     let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
     let particles = if fast { 900 } else { 1500 };
     let steps = if fast { 66 } else { 130 };
@@ -4994,7 +4996,7 @@ fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: b
                 0.86,
                 &mut density,
             );
-            if i % 3 == 0 {
+            if i.is_multiple_of(3) {
                 draw_line(
                     (ix as f32 - u) as i32,
                     (iy as f32 - v) as i32,
@@ -5020,8 +5022,8 @@ fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: b
 }
 
 fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
-    let sim_w = (width / 2).max(130).min(500);
-    let sim_h = (height / 2).max(130).min(500);
+    let sim_w = (width / 2).clamp(130, 500);
+    let sim_h = (height / 2).clamp(130, 500);
     let mut u = vec![1.0f32; (sim_w * sim_h) as usize];
     let mut v = vec![0.0f32; (sim_w * sim_h) as usize];
     let mut next_u = vec![0.0f32; (sim_w * sim_h) as usize];
@@ -5149,8 +5151,8 @@ fn render_attractor_voronoi_hybrid(
     rng: &mut XorShift32,
     fast: bool,
 ) -> Vec<f32> {
-    let sim_w = (width / 3).max(160).min(540);
-    let sim_h = (height / 3).max(160).min(540);
+    let sim_w = (width / 3).clamp(160, 540);
+    let sim_h = (height / 3).clamp(160, 540);
     let point_count = 24 + if fast { 0 } else { 10 };
     let mut points: Vec<(f32, f32)> = Vec::with_capacity(point_count);
     let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0x6d65_7461);
@@ -5223,8 +5225,8 @@ fn render_recursive_noise_terrain(
     rng: &mut XorShift32,
     fast: bool,
 ) -> Vec<f32> {
-    let mut sim_w = (width / 4).max(128).min(500);
-    let mut sim_h = (height / 4).max(128).min(500);
+    let mut sim_w = (width / 4).clamp(128, 500);
+    let mut sim_h = (height / 4).clamp(128, 500);
     let seed = rng.next_u32();
     let mut field = noise_field(sim_w, sim_h, rng, if fast { 2 } else { 3 });
     let levels = if fast { 3 } else { 5 };
@@ -5270,8 +5272,8 @@ fn render_recursive_noise_terrain(
 }
 
 fn render_bifurcation_grid(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
-    let sim_w = (width / 3).max(160).min(540);
-    let sim_h = (height / 3).max(160).min(540);
+    let sim_w = (width / 3).clamp(160, 540);
+    let sim_h = (height / 3).clamp(160, 540);
     let seed = rng.next_u32();
     let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
 

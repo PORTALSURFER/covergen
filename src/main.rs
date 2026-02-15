@@ -23,6 +23,7 @@ mod analysis;
 mod blending;
 mod config;
 mod gpu_render;
+mod render_workspace;
 mod strategies;
 
 use crate::analysis::{LumaStats, collect_luma_metrics, needs_complexity_fix};
@@ -32,6 +33,7 @@ use crate::config::{
     resolve_fast_profile, resolve_fast_resolution, resolve_render_resolution,
 };
 use crate::gpu_render::GpuLayerRenderer;
+use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
     RenderStrategy, pick_render_strategy_near_family_with_preferences,
     pick_render_strategy_with_preferences, render_cpu_strategy, strategy_profile,
@@ -1207,7 +1209,7 @@ enum ArtStyle {
     Nova,
     Vortex,
     Dragon,
-    IFS,
+    Ifs,
     Moire,
     Knot,
     RadialWave,
@@ -1229,7 +1231,7 @@ impl ArtStyle {
             8 => Self::Nova,
             9 => Self::Vortex,
             10 => Self::Dragon,
-            11 => Self::IFS,
+            11 => Self::Ifs,
             12 => Self::Moire,
             13 => Self::Knot,
             14 => Self::RadialWave,
@@ -1251,7 +1253,7 @@ impl ArtStyle {
             Self::Nova => 8,
             Self::Vortex => 9,
             Self::Dragon => 10,
-            Self::IFS => 11,
+            Self::Ifs => 11,
             Self::Moire => 12,
             Self::Knot => 13,
             Self::RadialWave => 14,
@@ -1273,7 +1275,7 @@ impl ArtStyle {
             Self::Nova => "nova",
             Self::Vortex => "vortex",
             Self::Dragon => "dragon",
-            Self::IFS => "ifs",
+            Self::Ifs => "ifs",
             Self::Moire => "moire",
             Self::Knot => "knot",
             Self::RadialWave => "radial-wave",
@@ -1643,10 +1645,8 @@ fn pick_art_style(rng: &mut XorShift32) -> ArtStyle {
 fn modulate_art_style(base: ArtStyle, rng: &mut XorShift32, fast: bool) -> ArtStyle {
     let roll = rng.next_f32();
     let stride = 1 + (rng.next_u32() % (ArtStyle::total() - 1));
-    if fast && base.is_tiling_like() {
-        if rng.next_f32() < 0.80 {
-            return ArtStyle::next_non_tiling_from(rng);
-        }
+    if fast && base.is_tiling_like() && rng.next_f32() < 0.80 {
+        return ArtStyle::next_non_tiling_from(rng);
     }
 
     if fast {
@@ -1702,7 +1702,7 @@ fn pick_layer_count(rng: &mut XorShift32, user_count: Option<u32>, fast: bool) -
 }
 
 fn pick_shader_layer_count(base_layer_count: u32, rng: &mut XorShift32, fast: bool) -> u32 {
-    let base = base_layer_count.max(1).min(14) as f32;
+    let base = (base_layer_count.clamp(1, 14)) as f32;
     let spread = if fast { 0.25 } else { 0.45 };
     let factor = (1.0 - spread) + (rng.next_f32() * (2.0 * spread));
     (base * factor).clamp(1.0, 14.0).round() as u32
@@ -1714,7 +1714,7 @@ fn modulate_shader_layer_count(
     fast: bool,
     structural: bool,
 ) -> u32 {
-    let mut base = base_layer_count.max(1).min(14) as f32;
+    let mut base = base_layer_count.clamp(1, 14) as f32;
     let spread = if structural {
         0.12
     } else if fast {
@@ -1745,7 +1745,7 @@ fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
     }
 
     let jitter_range = jitter.min(base - 1);
-    let shift = (rng.next_u32() % (jitter_range * 2 + 1) as u32) as i32 - jitter_range as i32;
+    let shift = (rng.next_u32() % (jitter_range * 2 + 1)) as i32 - jitter_range as i32;
     ((base as i32 + shift).clamp(1, 16)) as u32
 }
 
@@ -1988,7 +1988,7 @@ fn tune_filter_for_speed(cfg: BlurConfig, fast: bool) -> BlurConfig {
 
     BlurConfig {
         mode: cfg.mode,
-        max_radius: ((cfg.max_radius / 2).max(1)).min(4),
+        max_radius: (cfg.max_radius / 2).clamp(1, 4),
         axis_x: cfg.axis_x.signum(),
         axis_y: cfg.axis_y.signum(),
         softness: cfg.softness.min(2),
@@ -2000,7 +2000,7 @@ fn pick_gradient_from_rng(rng: &mut XorShift32) -> GradientConfig {
     let gamma = 0.45 + (rng.next_u32() % 160) as f32 * 0.01;
     let contrast = 0.6 + (rng.next_u32() % 240) as f32 * 0.01;
     let pivot = 0.25 + (rng.next_u32() % 70) as f32 * 0.01;
-    let invert = (rng.next_u32() % 2) == 0;
+    let invert = rng.next_u32().is_multiple_of(2);
     let frequency = 0.5 + (rng.next_u32() % 250) as f32 * 0.02;
     let phase = (rng.next_u32() % 360) as f32 * 0.0174533;
     let bands = (rng.next_u32() % 6) + 1;
@@ -2097,18 +2097,22 @@ fn encode_gray(dst: &mut [u8], luma: &[f32]) {
     }
 }
 
-fn downsample_luma(
+fn downsample_luma<'a>(
     source: &[f32],
     source_width: u32,
     source_height: u32,
     target_width: u32,
     target_height: u32,
-) -> Result<Vec<f32>, Box<dyn Error>> {
+    output: &'a mut Vec<f32>,
+) -> Result<&'a [f32], Box<dyn Error>> {
+    let target_len = (target_width as usize) * (target_height as usize);
+    if output.len() != target_len {
+        output.resize(target_len, 0.0f32);
+    }
+
     if source.is_empty() {
-        return Ok(vec![
-            0.0;
-            (target_width as usize) * (target_height as usize)
-        ]);
+        output.fill(0.0);
+        return Ok(&output[..target_len]);
     }
 
     if source.len() != (source_width as usize) * (source_height as usize) {
@@ -2116,7 +2120,8 @@ fn downsample_luma(
     }
 
     if source_width == target_width && source_height == target_height {
-        return Ok(source.to_vec());
+        output[..source.len()].copy_from_slice(source);
+        return Ok(&output[..source.len()]);
     }
 
     let source_bytes = source
@@ -2134,12 +2139,16 @@ fn downsample_luma(
         image::imageops::FilterType::Lanczos3,
     );
 
-    let mut target = vec![0.0f32; (target_width as usize) * (target_height as usize)];
-    for (out, value) in target.iter_mut().zip(resized.into_raw().into_iter()) {
+    let resized_values = resized.into_raw();
+    if resized_values.len() != target_len {
+        return Err("downsample output size mismatch".into());
+    }
+
+    for (out, value) in output.iter_mut().zip(resized_values.into_iter()) {
         *out = (value as f32) / 255.0;
     }
 
-    Ok(target)
+    Ok(&output[..target_len])
 }
 
 fn stretch_to_percentile(
@@ -2162,7 +2171,7 @@ fn stretch_to_percentile(
     if sample_limit == src.len() {
         scratch.copy_from_slice(src);
     } else {
-        let step = (src.len() as f32 / sample_limit as f32) as f32;
+        let step = src.len() as f32 / sample_limit as f32;
         for (idx, sample_target) in scratch[..sample_limit].iter_mut().enumerate() {
             let source_idx = (idx as f32 * step).floor() as usize;
             *sample_target = src[source_idx.min(src.len() - 1)];
@@ -2280,7 +2289,7 @@ fn blend_layer_stack(dst: &mut [f32], layer: &[f32], strength: f32, mode: LayerB
 }
 
 fn apply_contrast(src: &mut [f32], strength: f32) {
-    let clamped = strength.max(1.0).min(3.0);
+    let clamped = strength.clamp(1.0, 3.0);
     let midpoint = 0.5;
     for value in src.iter_mut() {
         *value = clamp01(((*value - midpoint) * clamped) + midpoint);
@@ -2408,9 +2417,7 @@ fn apply_bilateral_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], c
         let x = (idx % width_usize) as i32;
         let center = sample_luma(src, width_i32, height_i32, x, y);
         let local_blur = (1.0 - center).powi(2);
-        let radius = (1 + ((radius_limit * (0.2 + 0.8 * local_blur)).round() as i32))
-            .max(1)
-            .min(2);
+        let radius = (1 + ((radius_limit * (0.2 + 0.8 * local_blur)).round() as i32)).clamp(1, 2);
 
         let mut num = 0.0;
         let mut den = 0.0;
@@ -2439,10 +2446,10 @@ fn apply_bilateral_blur(width: u32, height: u32, src: &[f32], dst: &mut [f32], c
 
 fn apply_dynamic_filter(width: u32, height: u32, luma: &[f32], dst: &mut [f32], cfg: &BlurConfig) {
     match cfg.mode {
-        FilterMode::Motion => apply_motion_blur(width, height, luma, dst, &cfg),
-        FilterMode::Gaussian => apply_gaussian_blur(width, height, luma, dst, &cfg),
-        FilterMode::Median => apply_median_blur(width, height, luma, dst, &cfg),
-        FilterMode::Bilateral => apply_bilateral_blur(width, height, luma, dst, &cfg),
+        FilterMode::Motion => apply_motion_blur(width, height, luma, dst, cfg),
+        FilterMode::Gaussian => apply_gaussian_blur(width, height, luma, dst, cfg),
+        FilterMode::Median => apply_median_blur(width, height, luma, dst, cfg),
+        FilterMode::Bilateral => apply_bilateral_blur(width, height, luma, dst, cfg),
     }
 }
 
@@ -2704,18 +2711,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     let pixel_count = (render_width as usize) * (render_height as usize);
     let final_pixel_count = (config.width as usize) * (config.height as usize);
-    let mut filtered = vec![0.0f32; pixel_count];
-    let mut detail = vec![0.0f32; pixel_count];
-    let mut blend_secondary = vec![0.0f32; pixel_count];
-    let mut mix_mask = vec![0.0f32; pixel_count];
-    let mut layered = vec![0.0f32; pixel_count];
-    let mut final_pixels = vec![0u8; final_pixel_count];
-    let mut final_luma = vec![0.0f32; final_pixel_count];
+    let mut workspace = RenderWorkspace::new(pixel_count, final_pixel_count);
 
     let mut image_rng = XorShift32::new(config.seed);
-    let mut luma = vec![0.0f32; pixel_count];
-    let mut background = vec![0.0f32; pixel_count];
-    let mut percentile = vec![0.0f32; pixel_count];
     let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
@@ -2782,11 +2780,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_art_mix = image_rng.next_f32();
         let mut base_strategy =
             pick_render_strategy_with_preferences(&mut image_rng, fast, can_use_gpu);
-        if can_use_gpu && fast && render_width >= 1536 {
-            if let RenderStrategy::Cpu(_) = base_strategy {
-                base_strategy =
-                    RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
-            }
+        if can_use_gpu
+            && fast
+            && render_width >= 1536
+            && let RenderStrategy::Cpu(_) = base_strategy
+        {
+            base_strategy = RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
         }
         let base_strategy_name = base_strategy.label();
         let base_profile = strategy_profile(base_strategy);
@@ -2799,11 +2798,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             render_width,
             render_height,
             base_seed ^ (i + 0x0BADC0DEu32),
-            &mut background,
+            &mut workspace.background,
         );
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
         let mut pre_filter_stats = LumaStats::default();
-        layered.fill(0.0);
+        workspace.reset_layered();
 
         for layer_index in 0..layer_count {
             spinner_state.set_layer((layer_index + 1) as usize);
@@ -2889,9 +2888,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 ),
             };
 
-            render_strategy_layer(layer_strategy, &params, &mut luma)?;
+            render_strategy_layer(layer_strategy, &params, &mut workspace.luma)?;
             if layer_index == 0 {
-                pre_filter_stats = collect_luma_metrics(&luma, render_width, render_height).stats;
+                pre_filter_stats =
+                    collect_luma_metrics(&workspace.luma, render_width, render_height).stats;
             }
 
             let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), fast);
@@ -2951,22 +2951,27 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     secondary_params.art_style_mix =
                         modulate_style_mix(params.art_style_mix, &mut image_rng, fast);
                 }
-                render_strategy_layer(secondary_strategy, &secondary_params, &mut blend_secondary)?;
+                render_strategy_layer(
+                    secondary_strategy,
+                    &secondary_params,
+                    &mut workspace.blend_secondary,
+                )?;
                 let mask_kind = blending::pick_layer_mask_kind(&mut image_rng, structural_profile);
-                let mix = blending::build_layer_mask(
-                    &luma,
-                    render_width,
-                    render_height,
-                    secondary_seed,
-                    mask_kind,
-                    &mut image_rng,
+                let mut mask_request = blending::LayerMaskBuildRequest {
+                    primary: &workspace.luma,
+                    width: render_width,
+                    height: render_height,
+                    source_seed: secondary_seed,
+                    kind: mask_kind,
+                    out: &mut workspace.mix_mask,
+                    blur_work: &mut workspace.mask_workspace,
                     fast,
-                );
-                mix_mask.copy_from_slice(&mix);
+                };
+                blending::build_layer_mask(&mut mask_request, &mut image_rng);
                 blending::blend_with_mask(
-                    &mut luma,
-                    &blend_secondary,
-                    &mix_mask,
+                    &mut workspace.luma,
+                    &workspace.blend_secondary,
+                    &workspace.mix_mask,
                     image_rng.next_f32() < 0.2,
                 );
                 layer_mix_desc = format!(
@@ -2978,21 +2983,27 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
 
             if apply_filter {
-                apply_dynamic_filter(render_width, render_height, &luma, &mut filtered, &filter);
+                apply_dynamic_filter(
+                    render_width,
+                    render_height,
+                    &workspace.luma,
+                    &mut workspace.filtered,
+                    &filter,
+                );
                 let low_stretch = if fast { 0.03 } else { 0.04 };
                 let high_stretch = if fast { 0.97 } else { 0.96 };
                 stretch_to_percentile(
-                    &mut filtered,
-                    &mut percentile,
+                    &mut workspace.filtered,
+                    &mut workspace.percentile,
                     low_stretch,
                     high_stretch,
                     fast,
                 );
             } else {
-                filtered.copy_from_slice(&luma);
+                workspace.filtered.copy_from_slice(&workspace.luma);
                 stretch_to_percentile(
-                    &mut filtered,
-                    &mut percentile,
+                    &mut workspace.filtered,
+                    &mut workspace.percentile,
                     if fast { 0.02 } else { 0.03 },
                     if fast { 0.98 } else { 0.97 },
                     fast,
@@ -3001,7 +3012,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
             if apply_filter && layer_force_detail && image_rng.next_f32() < 0.5 {
                 apply_detail_waves(
-                    &mut filtered,
+                    &mut workspace.filtered,
                     render_width,
                     render_height,
                     layer_seed ^ 0x4D4E_4446,
@@ -3010,18 +3021,18 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 apply_sharpen(
                     render_width,
                     render_height,
-                    &filtered,
-                    &mut detail,
+                    &workspace.filtered,
+                    &mut workspace.detail,
                     if fast { 0.32 } else { 0.58 },
                 );
-                std::mem::swap(&mut filtered, &mut detail);
+                std::mem::swap(&mut workspace.filtered, &mut workspace.detail);
             }
 
             if apply_gradient {
-                apply_gradient_map(&mut filtered, gradient);
+                apply_gradient_map(&mut workspace.filtered, gradient);
                 stretch_to_percentile(
-                    &mut filtered,
-                    &mut percentile,
+                    &mut workspace.filtered,
+                    &mut workspace.percentile,
                     if fast { 0.01 } else { 0.02 },
                     if fast { 0.99 } else { 0.98 },
                     fast,
@@ -3030,7 +3041,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             if !apply_filter && !apply_gradient {
                 if structural_profile {
                     apply_detail_waves(
-                        &mut filtered,
+                        &mut workspace.filtered,
                         render_width,
                         render_height,
                         layer_seed ^ 0x2f7f_8d3d,
@@ -3038,7 +3049,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     );
                 } else if image_rng.next_f32() < 0.35 {
                     apply_detail_waves(
-                        &mut filtered,
+                        &mut workspace.filtered,
                         render_width,
                         render_height,
                         layer_seed ^ 0x9d7e_4f2a,
@@ -3049,17 +3060,19 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 apply_sharpen(
                     render_width,
                     render_height,
-                    &filtered,
-                    &mut detail,
+                    &workspace.filtered,
+                    &mut workspace.detail,
                     if structural_profile {
                         if fast { 0.72 } else { 1.12 }
+                    } else if fast {
+                        0.45
                     } else {
-                        if fast { 0.45 } else { 0.75 }
+                        0.75
                     },
                 );
-                std::mem::swap(&mut filtered, &mut detail);
+                std::mem::swap(&mut workspace.filtered, &mut workspace.detail);
                 apply_posterize_buffer(
-                    &mut filtered,
+                    &mut workspace.filtered,
                     2 + (image_rng.next_u32() % if structural_profile { 7 } else { 5 }),
                 );
             }
@@ -3068,12 +3081,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             } else {
                 layer_contrast * 0.75
             };
-            apply_contrast(&mut filtered, layer_contrast.max(1.0));
-            let layer_metrics = collect_luma_metrics(&filtered, render_width, render_height);
+            apply_contrast(&mut workspace.filtered, layer_contrast.max(1.0));
+            let layer_metrics =
+                collect_luma_metrics(&workspace.filtered, render_width, render_height);
             if needs_complexity_fix(&layer_metrics.stats, layer_metrics.edge_energy) {
                 complexity_fixed = true;
                 apply_detail_waves(
-                    &mut filtered,
+                    &mut workspace.filtered,
                     render_width,
                     render_height,
                     layer_seed ^ 0x4445_6d63,
@@ -3082,19 +3096,27 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 apply_sharpen(
                     render_width,
                     render_height,
-                    &filtered,
-                    &mut detail,
+                    &workspace.filtered,
+                    &mut workspace.detail,
                     if fast { 0.55 } else { 0.9 },
                 );
-                std::mem::swap(&mut filtered, &mut detail);
-                apply_posterize_buffer(&mut filtered, 2 + (image_rng.next_u32() % 6));
-                apply_contrast(&mut filtered, 1.25 + (image_rng.next_f32() * 0.45));
+                std::mem::swap(&mut workspace.filtered, &mut workspace.detail);
+                apply_posterize_buffer(&mut workspace.filtered, 2 + (image_rng.next_u32() % 6));
+                apply_contrast(
+                    &mut workspace.filtered,
+                    1.25 + (image_rng.next_f32() * 0.45),
+                );
             }
 
             if layer_index == 0 {
-                layered.copy_from_slice(&filtered);
+                workspace.layered.copy_from_slice(&workspace.filtered);
             } else {
-                blend_layer_stack(&mut layered, &filtered, opacity, overlay);
+                blend_layer_stack(
+                    &mut workspace.layered,
+                    &workspace.filtered,
+                    opacity,
+                    overlay,
+                );
             }
 
             let layer_strategy_name = match layer_strategy {
@@ -3126,23 +3148,28 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        blend_background(&mut layered, &background, background_strength);
+        blend_background(
+            &mut workspace.layered,
+            &workspace.background,
+            background_strength,
+        );
         let final_contrast = if fast { 1.45 } else { 1.8 };
-        apply_contrast(&mut layered, final_contrast);
+        apply_contrast(&mut workspace.layered, final_contrast);
         stretch_to_percentile(
-            &mut layered,
-            &mut percentile,
-            if fast { 0.01 } else { 0.01 },
-            if fast { 0.99 } else { 0.99 },
+            &mut workspace.layered,
+            &mut workspace.percentile,
+            0.01,
+            0.99,
             fast,
         );
 
-        let mut final_metrics = collect_luma_metrics(&layered, render_width, render_height);
+        let mut final_metrics =
+            collect_luma_metrics(&workspace.layered, render_width, render_height);
         let mut final_complexity_fixed = false;
         if needs_complexity_fix(&final_metrics.stats, final_metrics.edge_energy) {
             final_complexity_fixed = true;
             apply_detail_waves(
-                &mut layered,
+                &mut workspace.layered,
                 render_width,
                 render_height,
                 base_seed ^ (i + 0x445f_6e65),
@@ -3151,52 +3178,57 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             apply_sharpen(
                 render_width,
                 render_height,
-                &layered,
-                &mut detail,
+                &workspace.layered,
+                &mut workspace.detail,
                 if fast { 0.45 } else { 0.75 },
             );
-            std::mem::swap(&mut layered, &mut detail);
-            apply_posterize_buffer(&mut layered, if fast { 4 } else { 5 });
-            apply_contrast(&mut layered, if fast { 1.2 } else { 1.4 });
-            final_metrics = collect_luma_metrics(&layered, render_width, render_height);
+            std::mem::swap(&mut workspace.layered, &mut workspace.detail);
+            apply_posterize_buffer(&mut workspace.layered, if fast { 4 } else { 5 });
+            apply_contrast(&mut workspace.layered, if fast { 1.2 } else { 1.4 });
+            final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
         }
         if final_metrics.stats.std < 0.09
             || (final_metrics.stats.max - final_metrics.stats.min) < 0.23
         {
             inject_noise(
-                &mut layered,
+                &mut workspace.layered,
                 base_seed ^ (i + 1),
                 if fast { 0.04 } else { 0.06 },
             );
             stretch_to_percentile(
-                &mut layered,
-                &mut percentile,
-                if fast { 0.01 } else { 0.01 },
-                if fast { 0.99 } else { 0.99 },
+                &mut workspace.layered,
+                &mut workspace.percentile,
+                0.01,
+                0.99,
                 fast,
             );
-            final_metrics = collect_luma_metrics(&layered, render_width, render_height);
+            final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
         }
 
         let output_luma = if resolved_antialias == 1
             && render_width == config.width
             && render_height == config.height
         {
-            &layered
+            &workspace.layered
         } else {
-            final_luma = downsample_luma(
-                &layered,
+            downsample_luma(
+                &workspace.layered,
                 render_width,
                 render_height,
                 config.width,
                 config.height,
+                &mut workspace.final_luma,
             )?;
-            final_luma.as_slice()
+            workspace.final_luma.as_slice()
         };
-        encode_gray(&mut final_pixels, output_luma);
+        encode_gray(&mut workspace.final_pixels, output_luma);
         let final_output = resolve_output_path(&config.output);
-        let (final_width, final_height, final_bytes) =
-            save_png_under_10mb(&final_output, config.width, config.height, &final_pixels)?;
+        let (final_width, final_height, final_bytes) = save_png_under_10mb(
+            &final_output,
+            config.width,
+            config.height,
+            &workspace.final_pixels,
+        )?;
         let scale = format!(
             "{:.2}",
             if final_width == config.width {
