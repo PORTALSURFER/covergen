@@ -5,8 +5,9 @@ use crate::strategies::{
     pick_render_strategy_with_preferences, value_noise,
 };
 use crate::{
-    ArtStyle, XorShift32, apply_detail_waves, apply_dynamic_filter, clamp01, pick_filter_from_rng,
-    sample_luma, tune_filter_for_speed,
+    image_ops::{apply_detail_waves, apply_dynamic_filter, clamp01, sample_luma},
+    model::{ArtStyle, XorShift32},
+    randomization::{pick_filter_from_rng, tune_filter_for_speed},
 };
 
 /// Different edge, noise, and procedural mask profiles used for blending.

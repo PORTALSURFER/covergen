@@ -4,7 +4,8 @@
 //! adds a secondary family of CPU generators to diversify outputs with non-fractal
 //! algorithms and to reduce over-convergence toward one visual style.
 
-use crate::XorShift32;
+use crate::model::ArtStyle;
+use crate::model::XorShift32;
 use std::f32::consts::TAU;
 
 /// CPU generator strategies that can replace GPU-based render layers.
@@ -418,7 +419,7 @@ impl RenderStrategy {
     /// Human-readable strategy name.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Gpu(style) => crate::ArtStyle::from_u32(style).label(),
+            Self::Gpu(style) => ArtStyle::from_u32(style).label(),
             Self::Cpu(kind) => kind.label(),
         }
     }
@@ -469,10 +470,10 @@ pub fn pick_render_strategy_with_preferences(
     let gpu_chance = if fast { 0.9 } else { 0.35 };
 
     if prefer_gpu && strategy_roll < gpu_chance {
-        let mut style = crate::ArtStyle::from_u32(rng.next_u32());
+        let mut style = ArtStyle::from_u32(rng.next_u32());
         let extra_diversify = if fast { 0.65 } else { 0.55 };
         if style.is_tiling_like() || rng.next_f32() < extra_diversify {
-            style = crate::ArtStyle::next_non_tiling_from(rng);
+            style = ArtStyle::next_non_tiling_from(rng);
         }
         return RenderStrategy::Gpu(style.as_u32());
     }

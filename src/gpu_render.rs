@@ -2,6 +2,8 @@ use std::error::Error;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
+use crate::image_ops::decode_luma;
+use crate::model::Params;
 use bytemuck::Zeroable;
 use wgpu::{self, util::DeviceExt};
 
@@ -58,7 +60,7 @@ impl GpuLayerRenderer {
             mapped_at_creation: false,
         });
 
-        let zero = crate::Params::zeroed();
+        let zero = Params::zeroed();
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniforms"),
             contents: bytemuck::bytes_of(&zero),
@@ -144,7 +146,7 @@ impl GpuLayerRenderer {
     /// Render one layer into a grayscale float buffer.
     pub(crate) fn render_layer(
         &mut self,
-        params: &crate::Params,
+        params: &Params,
         out: &mut [f32],
     ) -> Result<(), Box<dyn Error>> {
         let expected_pixels = (params.width as usize)
@@ -207,7 +209,7 @@ impl GpuLayerRenderer {
 
         {
             let raw = slice.get_mapped_range();
-            crate::decode_luma(&raw, out);
+            decode_luma(&raw, out);
         }
         self.staging_buffer.unmap();
         Ok(())
