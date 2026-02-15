@@ -111,6 +111,22 @@ fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
     }
 
     if (style == 3u) {
+        return fold_symmetry_mirror_x(px, py, symmetry);
+    }
+
+    if (style == 4u) {
+        return fold_symmetry_mirror_y(px, py, symmetry);
+    }
+
+    if (style == 5u) {
+        return fold_symmetry_mirror_diagonal(px, py, symmetry);
+    }
+
+    if (style == 6u) {
+        return fold_symmetry_mirror_cross(px, py, symmetry);
+    }
+
+    if (style == 7u) {
         return fold_symmetry_grid(px, py, symmetry, repeats, params.tile_phase);
     }
 
@@ -157,6 +173,45 @@ fn fold_symmetry_mirror(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     }
 
     return vec2<f32>(sx * 1.0, sy * 1.0);
+}
+
+fn fold_symmetry_mirror_x(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    if (symmetry <= 1u) {
+        return vec2<f32>(px, py);
+    }
+    if (symmetry > 3u) {
+        return vec2<f32>(abs(px), abs(py));
+    }
+
+    return vec2<f32>(abs(px), py);
+}
+
+fn fold_symmetry_mirror_y(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    if (symmetry <= 1u) {
+        return vec2<f32>(px, py);
+    }
+    if (symmetry > 3u) {
+        return vec2<f32>(abs(px), abs(py));
+    }
+
+    return vec2<f32>(px, abs(py));
+}
+
+fn fold_symmetry_mirror_diagonal(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    let c = 0.70710678;
+    let s = 0.70710678;
+    let rotated_x = (px * c) + (py * s);
+    let rotated_y = (-px * s) + (py * c);
+    let folded = fold_symmetry_mirror(rotated_x, rotated_y, symmetry);
+    let unrotated_x = (folded.x * c) - (folded.y * s);
+    let unrotated_y = (folded.x * s) + (folded.y * c);
+    vec2<f32>(unrotated_x, unrotated_y);
+}
+
+fn fold_symmetry_mirror_cross(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
+    let first = fold_symmetry_mirror(abs(px), abs(py), max(symmetry, 2u));
+    let second = fold_symmetry_mirror(first.x, first.y, max(symmetry, 2u));
+    vec2<f32>(abs(second.x), abs(second.y))
 }
 
 fn fold_symmetry_grid(
@@ -1421,6 +1476,10 @@ enum SymmetryStyle {
     None,
     Radial,
     Mirror,
+    MirrorX,
+    MirrorY,
+    MirrorDiagonal,
+    MirrorCross,
     Grid,
 }
 
@@ -1487,10 +1546,14 @@ fn start_spinner(state: Arc<SpinnerState>) -> (Arc<AtomicBool>, thread::JoinHand
 
 impl SymmetryStyle {
     fn from_u32(value: u32) -> Self {
-        match value % 4 {
+        match value % 8 {
             0 => Self::None,
             1 => Self::Radial,
             2 => Self::Mirror,
+            3 => Self::MirrorX,
+            4 => Self::MirrorY,
+            5 => Self::MirrorDiagonal,
+            6 => Self::MirrorCross,
             _ => Self::Grid,
         }
     }
@@ -1500,7 +1563,11 @@ impl SymmetryStyle {
             Self::None => 0,
             Self::Radial => 1,
             Self::Mirror => 2,
-            Self::Grid => 3,
+            Self::MirrorX => 3,
+            Self::MirrorY => 4,
+            Self::MirrorDiagonal => 5,
+            Self::MirrorCross => 6,
+            Self::Grid => 7,
         }
     }
 
@@ -1509,6 +1576,10 @@ impl SymmetryStyle {
             Self::None => "none",
             Self::Radial => "radial",
             Self::Mirror => "mirror",
+            Self::MirrorX => "mirror-x",
+            Self::MirrorY => "mirror-y",
+            Self::MirrorDiagonal => "mirror-diagonal",
+            Self::MirrorCross => "mirror-cross",
             Self::Grid => "grid",
         }
     }
@@ -2085,21 +2156,37 @@ fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
         SymmetryStyle::Grid.as_u32()
     } else if roll < 0.52 {
         SymmetryStyle::Radial.as_u32()
-    } else if roll < 0.88 {
+    } else if roll < 0.80 {
         SymmetryStyle::None.as_u32()
-    } else {
+    } else if roll < 0.88 {
         SymmetryStyle::Mirror.as_u32()
+    } else if roll < 0.93 {
+        SymmetryStyle::MirrorX.as_u32()
+    } else if roll < 0.97 {
+        SymmetryStyle::MirrorY.as_u32()
+    } else if roll < 0.99 {
+        SymmetryStyle::MirrorDiagonal.as_u32()
+    } else {
+        SymmetryStyle::MirrorCross.as_u32()
     }
 }
 
 fn pick_non_grid_symmetry_style(rng: &mut XorShift32) -> SymmetryStyle {
     let roll = rng.next_f32();
-    if roll < 0.28 {
+    if roll < 0.20 {
         SymmetryStyle::None
-    } else if roll < 0.66 {
+    } else if roll < 0.52 {
         SymmetryStyle::Radial
-    } else {
+    } else if roll < 0.72 {
         SymmetryStyle::Mirror
+    } else if roll < 0.82 {
+        SymmetryStyle::MirrorX
+    } else if roll < 0.92 {
+        SymmetryStyle::MirrorY
+    } else if roll < 0.96 {
+        SymmetryStyle::MirrorDiagonal
+    } else {
+        SymmetryStyle::MirrorCross
     }
 }
 
