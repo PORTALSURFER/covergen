@@ -25,7 +25,8 @@ use wgpu::util::DeviceExt;
 mod strategies;
 
 use crate::strategies::{
-    RenderStrategy, pick_render_strategy, render_cpu_strategy, strategy_profile,
+    RenderStrategy, pick_render_strategy, pick_render_strategy_near_family, render_cpu_strategy,
+    strategy_profile,
 };
 
 const SHADER: &str = r#"
@@ -99,11 +100,15 @@ fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
     var repeats = f32(symmetry) * 0.55 * clamp(params.tile_scale, 0.25, 1.8);
     repeats = repeats + sin((params.tile_phase * 6.283185307179586) * 0.22);
     repeats = clamp(repeats, 1.2, 3.5);
-    if (style == 1u) {
-        return fold_symmetry_mirror(px, py, symmetry);
+    if (style == 0u) {
+        return vec2<f32>(px, py);
     }
 
     if (style == 2u) {
+        return fold_symmetry_mirror(px, py, symmetry);
+    }
+
+    if (style == 3u) {
         return fold_symmetry_grid(px, py, symmetry, repeats, params.tile_phase);
     }
 
@@ -1416,6 +1421,7 @@ struct GradientConfig {
 
 #[derive(Clone, Copy, PartialEq)]
 enum SymmetryStyle {
+    None,
     Radial,
     Mirror,
     Grid,
@@ -1484,23 +1490,26 @@ fn start_spinner(state: Arc<SpinnerState>) -> (Arc<AtomicBool>, thread::JoinHand
 
 impl SymmetryStyle {
     fn from_u32(value: u32) -> Self {
-        match value % 3 {
-            0 => Self::Radial,
-            1 => Self::Mirror,
+        match value % 4 {
+            0 => Self::None,
+            1 => Self::Radial,
+            2 => Self::Mirror,
             _ => Self::Grid,
         }
     }
 
     fn as_u32(self) -> u32 {
         match self {
-            Self::Radial => 0,
-            Self::Mirror => 1,
-            Self::Grid => 2,
+            Self::None => 0,
+            Self::Radial => 1,
+            Self::Mirror => 2,
+            Self::Grid => 3,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::None => "none",
             Self::Radial => "radial",
             Self::Mirror => "mirror",
             Self::Grid => "grid",
@@ -1752,11 +1761,11 @@ fn random_seed() -> u32 {
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
-    if rng.next_f32() < 0.24 {
+    if rng.next_f32() < 0.34 {
         return 1;
     }
 
-    if rng.next_f32() < 0.58 {
+    if rng.next_f32() < 0.56 {
         return 2 + (rng.next_u32() % 8);
     }
 
@@ -1942,7 +1951,7 @@ fn modulate_symmetry(base: u32, rng: &mut XorShift32, fast: bool) -> u32 {
 }
 
 fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool, allow_grid: bool) -> u32 {
-    let keep_base = if fast { 0.30 } else { 0.35 };
+    let keep_base = if fast { 0.24 } else { 0.30 };
     let roll = rng.next_f32();
     let mut style = if roll < keep_base {
         SymmetryStyle::from_u32(base)
@@ -2045,7 +2054,8 @@ fn bias_layer_strategy(
 ) -> RenderStrategy {
     let switch_prob = if fast { 0.06 } else { 0.04 };
     if rng.next_f32() < switch_prob {
-        pick_render_strategy(rng, fast)
+        let family_bias = if fast { 0.9 } else { 0.86 };
+        pick_render_strategy_near_family(rng, fast, current, family_bias)
     } else {
         current
     }
@@ -2067,17 +2077,22 @@ fn layer_opacity(rng: &mut XorShift32) -> f32 {
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
     let roll = rng.next_f32();
-    if roll < 0.0005 {
+    if roll < 0.02 {
         SymmetryStyle::Grid.as_u32()
-    } else if roll < 0.56 {
+    } else if roll < 0.52 {
         SymmetryStyle::Radial.as_u32()
+    } else if roll < 0.88 {
+        SymmetryStyle::None.as_u32()
     } else {
         SymmetryStyle::Mirror.as_u32()
     }
 }
 
 fn pick_non_grid_symmetry_style(rng: &mut XorShift32) -> SymmetryStyle {
-    if rng.next_f32() < 0.52 {
+    let roll = rng.next_f32();
+    if roll < 0.28 {
+        SymmetryStyle::None
+    } else if roll < 0.66 {
         SymmetryStyle::Radial
     } else {
         SymmetryStyle::Mirror
@@ -2707,7 +2722,7 @@ fn local_edge_energy(src: &[f32], width: u32, height: u32) -> f32 {
 
 fn needs_complexity_fix(stats: LumaStats, edge_energy: f32) -> bool {
     let span = stats.max - stats.min;
-    stats.std < 0.14 || span < 0.30 || edge_energy < 0.07
+    stats.std < 0.16 || span < 0.34 || edge_energy < 0.09
 }
 
 fn resolve_output_path(output: &str) -> PathBuf {
@@ -3279,6 +3294,24 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 );
             }
 
+            if apply_filter && layer_force_detail && image_rng.next_f32() < 0.5 {
+                apply_detail_waves(
+                    &mut filtered,
+                    render_width,
+                    render_height,
+                    layer_seed ^ 0x4D4E_4446,
+                    if fast { 0.03 } else { 0.05 },
+                );
+                apply_sharpen(
+                    render_width,
+                    render_height,
+                    &filtered,
+                    &mut detail,
+                    if fast { 0.32 } else { 0.58 },
+                );
+                std::mem::swap(&mut filtered, &mut detail);
+            }
+
             if apply_gradient {
                 apply_gradient_map(&mut filtered, gradient);
                 stretch_to_percentile(
@@ -3419,7 +3452,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             apply_contrast(&mut layered, if fast { 1.2 } else { 1.4 });
             final_stats = luma_stats(&layered);
         }
-        if final_stats.std < 0.06 || (final_stats.max - final_stats.min) < 0.18 {
+        if final_stats.std < 0.09 || (final_stats.max - final_stats.min) < 0.23 {
             inject_noise(
                 &mut layered,
                 base_seed ^ (i + 1),

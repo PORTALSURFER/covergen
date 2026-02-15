@@ -108,12 +108,47 @@ pub enum CpuStrategy {
     AttractorTunnel,
     /// Nested orbital rings with branching filament paths.
     OrbitalLabyrinth,
+    /// Smooth phase-domain morphologies from low-frequency harmonic noise.
+    PhaseField,
+    /// Lenia-like growing cellular structures at low resolution.
+    Lenia,
+    /// Particle traces from curl-noise vector field integration.
+    CurlNoiseFlow,
+    /// Reaction lattice simulation with altered feed/kill behavior.
+    ReactionLattice,
+    /// Harmonic interference over warped coordinate noise.
+    HarmonicInterference,
+    /// Attractor path traces modulated by Voronoi style ridges.
+    AttractorVoronoiHybrid,
+    /// Recursive noise terrain with warped ridges.
+    RecursiveNoiseTerrain,
+    /// Bifurcation map sampled across 2D phase space.
+    BifurcationGrid,
+}
+
+/// Coarse grouping used to keep layer families coherent across an image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrategyFamily {
+    /// Fractal or orbit-driven iterative maps.
+    Fractal,
+    /// Particle flow and field advection systems.
+    Flow,
+    /// Diffusion and lattice reaction systems.
+    Diffusion,
+    /// Cellular and rule-evolving simulations.
+    Cellular,
+    /// Geometric/recursive combinatorial drawing systems.
+    Geometry,
+    /// Noise and phase based harmonic textures.
+    Harmonic,
+    /// Tiling-like recursive or periodic generators.
+    Tiling,
 }
 
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        50
+        57
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -168,7 +203,14 @@ impl CpuStrategy {
             46 => Self::DepthRelief,
             47 => Self::AttractorTunnel,
             48 => Self::OrbitalLabyrinth,
-            _ => Self::OrbitalLabyrinth,
+            49 => Self::PhaseField,
+            50 => Self::Lenia,
+            51 => Self::CurlNoiseFlow,
+            52 => Self::ReactionLattice,
+            53 => Self::HarmonicInterference,
+            54 => Self::AttractorVoronoiHybrid,
+            55 => Self::RecursiveNoiseTerrain,
+            _ => Self::BifurcationGrid,
         }
     }
 
@@ -224,6 +266,75 @@ impl CpuStrategy {
             Self::DepthRelief => "depth-relief",
             Self::AttractorTunnel => "attractor-tunnel",
             Self::OrbitalLabyrinth => "orbital-labyrinth",
+            Self::PhaseField => "phase-field",
+            Self::Lenia => "lenia",
+            Self::CurlNoiseFlow => "curl-noise-flow",
+            Self::ReactionLattice => "reaction-lattice",
+            Self::HarmonicInterference => "harmonic-interference",
+            Self::AttractorVoronoiHybrid => "attractor-voronoi-hybrid",
+            Self::RecursiveNoiseTerrain => "recursive-noise-terrain",
+            Self::BifurcationGrid => "bifurcation-grid",
+        }
+    }
+
+    /// Returns a broad family used to bias strategy continuity per image.
+    pub fn family(self) -> StrategyFamily {
+        match self {
+            Self::ReactionDiffusion
+            | Self::TuringCascade
+            | Self::CrystalGrowth
+            | Self::ReactionLattice => StrategyFamily::Diffusion,
+            Self::LSystem
+            | Self::CannyEdge
+            | Self::EdgeSobel
+            | Self::EdgeLaplacian
+            | Self::Voronoi
+            | Self::Delaunay
+            | Self::Maze
+            | Self::PoissonMesh
+            | Self::BarnsleyFern
+            | Self::SierpinskiCarpet => StrategyFamily::Geometry,
+            Self::CellularAutomata | Self::Lenia => StrategyFamily::Cellular,
+            Self::ParticleFlow
+            | Self::FlowFilaments
+            | Self::OrbitalAtlas
+            | Self::VortexConvection
+            | Self::ErosionChannels
+            | Self::StochasticIFS
+            | Self::MagneticFieldlines
+            | Self::GraviticWeb
+            | Self::BraidFlow
+            | Self::RecursiveFold
+            | Self::AttractorHybrid
+            | Self::TurbulentFlow
+            | Self::CurlNoiseFlow
+            | Self::LissajousOrbits => StrategyFamily::Flow,
+            Self::MandelbrotField
+            | Self::DeJongAttractor
+            | Self::LogisticChaos
+            | Self::LorenzAttractor
+            | Self::JuliaSet
+            | Self::DepthRelief
+            | Self::AttractorTunnel
+            | Self::OrbitalLabyrinth
+            | Self::BifurcationTree
+            | Self::InterferenceWaves
+            | Self::BifurcationGrid
+            | Self::RecursiveRibbon
+            | Self::RecursiveStarburst
+            | Self::AttractorVoronoiHybrid
+            | Self::CliffordAttractor
+            | Self::IteratedFractal
+            | Self::StrangeAttractor => StrategyFamily::Fractal,
+            Self::RecursiveTiling | Self::KochSnowflake => StrategyFamily::Tiling,
+            Self::RadialWave
+            | Self::PlasmaField
+            | Self::PerlinRidge
+            | Self::PhaseField
+            | Self::RecursiveNoiseTerrain
+            | Self::HarmonicInterference
+            | Self::MetaballField => StrategyFamily::Harmonic,
+            _ => StrategyFamily::Geometry,
         }
     }
 
@@ -281,6 +392,14 @@ impl CpuStrategy {
             Self::DepthRelief,
             Self::AttractorTunnel,
             Self::OrbitalLabyrinth,
+            Self::PhaseField,
+            Self::Lenia,
+            Self::CurlNoiseFlow,
+            Self::ReactionLattice,
+            Self::HarmonicInterference,
+            Self::AttractorVoronoiHybrid,
+            Self::RecursiveNoiseTerrain,
+            Self::BifurcationGrid,
         ];
         non_tiling[(value as usize) % non_tiling.len()]
     }
@@ -302,6 +421,23 @@ impl RenderStrategy {
             Self::Gpu(style) => crate::ArtStyle::from_u32(style).label(),
             Self::Cpu(kind) => kind.label(),
         }
+    }
+
+    /// Approximate family used for same-style continuity.
+    pub fn family(self) -> StrategyFamily {
+        match self {
+            Self::Gpu(style) => gpu_style_family(style),
+            Self::Cpu(kind) => kind.family(),
+        }
+    }
+}
+
+fn gpu_style_family(style: u32) -> StrategyFamily {
+    match style % 17 {
+        0 | 1 | 2 | 3 | 4 | 5 | 7 | 8 | 10 | 16 => StrategyFamily::Fractal,
+        11 => StrategyFamily::Flow,
+        12 | 13 | 14 | 15 => StrategyFamily::Harmonic,
+        _ => StrategyFamily::Geometry,
     }
 }
 
@@ -337,6 +473,33 @@ pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy 
     }
 
     RenderStrategy::Cpu(strategy)
+}
+
+/// Pick a render strategy with a bias toward the same family as `base`.
+pub fn pick_render_strategy_near_family(
+    rng: &mut XorShift32,
+    fast: bool,
+    base: RenderStrategy,
+    family_bias: f32,
+) -> RenderStrategy {
+    if family_bias <= 0.0 {
+        return pick_render_strategy(rng, fast);
+    }
+
+    if rng.next_f32() < family_bias {
+        let family = base.family();
+        let attempts = if fast { 12 } else { 22 };
+        let mut i = 0;
+        while i < attempts {
+            let candidate = pick_render_strategy(rng, fast);
+            if candidate.family() == family {
+                return candidate;
+            }
+            i += 1;
+        }
+    }
+
+    pick_render_strategy(rng, fast)
 }
 
 /// Returns post-processing guidance for a strategy.
@@ -431,6 +594,21 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
                 gradient_bias: 0.20,
                 force_detail: true,
             },
+            CpuStrategy::PhaseField
+            | CpuStrategy::Lenia
+            | CpuStrategy::ReactionLattice
+            | CpuStrategy::RecursiveNoiseTerrain
+            | CpuStrategy::BifurcationGrid
+            | CpuStrategy::HarmonicInterference => StrategyProfile {
+                filter_bias: 0.34,
+                gradient_bias: 0.26,
+                force_detail: true,
+            },
+            CpuStrategy::CurlNoiseFlow | CpuStrategy::AttractorVoronoiHybrid => StrategyProfile {
+                filter_bias: 0.28,
+                gradient_bias: 0.16,
+                force_detail: true,
+            },
             CpuStrategy::CannyEdge => StrategyProfile {
                 filter_bias: 0.42,
                 gradient_bias: 0.26,
@@ -499,6 +677,18 @@ pub fn render_cpu_strategy(
         CpuStrategy::DepthRelief => render_depth_relief(width, height, &mut rng),
         CpuStrategy::AttractorTunnel => render_attractor_tunnel(width, height, &mut rng),
         CpuStrategy::OrbitalLabyrinth => render_orbital_labyrinth(width, height, &mut rng),
+        CpuStrategy::PhaseField => render_phase_field(width, height, &mut rng, fast),
+        CpuStrategy::Lenia => render_lenia(width, height, &mut rng, fast),
+        CpuStrategy::CurlNoiseFlow => render_curl_noise_flow(width, height, &mut rng, fast),
+        CpuStrategy::ReactionLattice => render_reaction_lattice(width, height, &mut rng, fast),
+        CpuStrategy::HarmonicInterference => render_harmonic_interference(width, height, &mut rng),
+        CpuStrategy::AttractorVoronoiHybrid => {
+            render_attractor_voronoi_hybrid(width, height, &mut rng, fast)
+        }
+        CpuStrategy::RecursiveNoiseTerrain => {
+            render_recursive_noise_terrain(width, height, &mut rng, fast)
+        }
+        CpuStrategy::BifurcationGrid => render_bifurcation_grid(width, height, &mut rng),
     }
 }
 
@@ -4625,6 +4815,506 @@ fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> 
     resized
 }
 
+fn render_phase_field(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim_w = (width / 2).max(150).min(520);
+    let sim_h = (height / 2).max(150).min(520);
+    let seed = rng.next_u32();
+    let mut field = noise_field(sim_w, sim_h, rng, if fast { 2 } else { 3 });
+    let mut next = vec![0.0f32; (sim_w * sim_h) as usize];
+    let iterations = if fast { 6 } else { 12 };
+    let dt = 0.28 + (seed % 11) as f32 * 0.02;
+    let w = sim_w as i32;
+    let h = sim_h as i32;
+
+    let mut step = 0u32;
+    while step < iterations {
+        let mut y = 1i32;
+        while y < h - 1 {
+            let mut x = 1i32;
+            while x < w - 1 {
+                let idx = (y as usize) * w as usize + x as usize;
+                let c = field[idx];
+                let phase = c * TAU;
+                let n0 = field[(y as usize - 1) * w as usize + x as usize];
+                let n1 = field[(y as usize + 1) * w as usize + x as usize];
+                let n2 = field[y as usize * w as usize + (x as usize - 1)];
+                let n3 = field[y as usize * w as usize + (x as usize + 1)];
+                let laplace = (n0 + n1 + n2 + n3) * 0.25 - c;
+                let push = value_noise(
+                    x as f32 * 0.013,
+                    y as f32 * 0.011,
+                    seed.wrapping_add(step.wrapping_mul(0x9e37_79b9)),
+                );
+                let wave = (phase.sin() + (phase * 1.7).cos()) * 0.15;
+                let coupler = (push - 0.5) * 0.3;
+                next[idx] = clamp01(c + (laplace * 0.18 + wave * 0.25 + coupler) * dt);
+                x += 1;
+            }
+            y += 1;
+        }
+        std::mem::swap(&mut field, &mut next);
+        step += 1;
+    }
+
+    let mut out = resize_bilinear(&field, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        let warp = value_noise(*value * 10.0, *value * 7.0, seed ^ 0xA1CE) - 0.5;
+        *value = clamp01(*value * 0.8 + warp * 0.08);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_lenia(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim_w = (width / 3).max(140).min(520);
+    let sim_h = (height / 3).max(140).min(520);
+    let mut current = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut next = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0x2b2b_0001);
+    let mut i = 0usize;
+    while i < current.len() {
+        current[i] = if seed_rng.next_f32() < 0.12 { 1.0 } else { 0.0 };
+        i += 1;
+    }
+
+    let kernel = [0.05f32, 0.2f32, 0.4f32, 0.2f32, 0.05f32];
+    let iterations = if fast { 14 } else { 22 };
+    let radius = 2i32;
+    let growth_center = 0.35 + (seed_rng.next_f32() * 0.12);
+    let width_i = sim_w as i32;
+    let height_i = sim_h as i32;
+
+    let mut step = 0u32;
+    while step < iterations {
+        let mut y = radius;
+        while y < height_i - radius {
+            let mut x = radius;
+            while x < width_i - radius {
+                let mut n = 0.0f32;
+                let mut ky = 0i32;
+                while ky <= radius * 2 {
+                    let mut kx = 0i32;
+                    while kx <= radius * 2 {
+                        let idx = ((y + ky - radius) as usize) * sim_w as usize
+                            + (x + kx - radius) as usize;
+                        let weight = kernel[(kx as usize).min(4)] * kernel[(ky as usize).min(4)];
+                        n += current[idx] * weight;
+                        kx += 1;
+                    }
+                    ky += 1;
+                }
+
+                let diff = n - growth_center;
+                let sigma = 0.06 + (seed_rng.next_f32() * 0.04);
+                let growth = ((-(diff * diff) / (2.0 * sigma * sigma)).exp() - 0.5) * 0.55;
+                let idx = y as usize * sim_w as usize + x as usize;
+                next[idx] = clamp01(
+                    current[idx]
+                        + growth
+                            * (0.45 + value_noise(x as f32, y as f32, seed_rng.next_u32()) * 0.28),
+                );
+                x += 1;
+            }
+            y += 1;
+        }
+        std::mem::swap(&mut current, &mut next);
+        step += 1;
+    }
+
+    let mut out = resize_bilinear(&current, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.9) + value_noise(*value * 5.0, *value * 8.0, step) * 0.1);
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim_w = (width / 2).max(140).min(520);
+    let sim_h = (height / 2).max(140).min(520);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let particles = if fast { 900 } else { 1500 };
+    let steps = if fast { 66 } else { 130 };
+    let scale = 0.0042 + rng.next_f32() * 0.006;
+    let seed = rng.next_u32();
+
+    let mut p = 0u32;
+    while p < particles {
+        let mut x = rng.next_f32() * (sim_w as f32 - 1.0);
+        let mut y = rng.next_f32() * (sim_h as f32 - 1.0);
+        let mut i = 0u32;
+        while i < steps {
+            let base = value_noise(x * scale, y * scale, seed ^ p);
+            let _nx = value_noise(x * scale + 0.17, y * scale, seed ^ (p + 0xF3F3)) - 0.5;
+            let _ny = value_noise(x * scale, y * scale + 0.17, seed ^ (p + 0xA1A1)) - 0.5;
+            let dxy = 0.08;
+            let vx = value_noise((x + dxy) * scale, y * scale, seed ^ p)
+                - value_noise((x - dxy) * scale, y * scale, seed ^ p);
+            let vy = value_noise(x * scale, (y + dxy) * scale, seed ^ (p + 1))
+                - value_noise(x * scale, (y - dxy) * scale, seed ^ (p + 1));
+            let u = -vy * (1.2 + (base * 2.0));
+            let v = vx * (1.2 + (base * 2.0));
+            let len = (u * u + v * v).sqrt().max(1e-3);
+            let speed = 1.1 + (0.7 * rng.next_f32());
+            x = (x + u / len * speed + sim_w as f32).rem_euclid(sim_w as f32 - 1.0);
+            y = (y + v / len * speed + sim_h as f32).rem_euclid(sim_h as f32 - 1.0);
+
+            let ix = x.round() as usize;
+            let iy = y.round() as usize;
+            draw_point(
+                ix as i32,
+                iy as i32,
+                sim_w as usize,
+                sim_h as usize,
+                1,
+                0.86,
+                &mut density,
+            );
+            if i % 3 == 0 {
+                draw_line(
+                    (ix as f32 - u) as i32,
+                    (iy as f32 - v) as i32,
+                    ix as i32,
+                    iy as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    0.35,
+                    &mut density,
+                );
+            }
+            i += 1;
+        }
+        p += 1;
+    }
+
+    let mut out = resize_nearest(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01((*value).powf(0.82));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let sim_w = (width / 2).max(130).min(500);
+    let sim_h = (height / 2).max(130).min(500);
+    let mut u = vec![1.0f32; (sim_w * sim_h) as usize];
+    let mut v = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut next_u = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut next_v = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0xC0DE_F00D);
+
+    let mut i = 0usize;
+    while i < v.len() {
+        if seed_rng.next_f32() < 0.03 {
+            v[i] = 0.9;
+            u[i] = 0.1;
+        }
+        i += 1;
+    }
+
+    let iterations = if fast { 420 } else { 760 };
+    let du = 0.14;
+    let dv = 0.08;
+    let dt = 1.0f32;
+    let feed = 0.018 + seed_rng.next_f32() * 0.038;
+    let kill = 0.046 + seed_rng.next_f32() * 0.038;
+    let w = sim_w as usize;
+    let h = sim_h as usize;
+
+    let mut step = 0usize;
+    while step < iterations {
+        let mut y = 1usize;
+        while y < h - 1 {
+            let mut x = 1usize;
+            while x < w - 1 {
+                let idx = y * w + x;
+                let u0 = u[idx];
+                let v0 = v[idx];
+                let lap_u = u[idx - 1] + u[idx + 1] + u[idx - w] + u[idx + w] - 4.0 * u0;
+                let lap_v = v[idx - 1] + v[idx + 1] + v[idx - w] + v[idx + w] - 4.0 * v0;
+                let uvv = u0 * v0 * v0;
+                let uvv2 = 0.5 + 0.4 * value_noise(x as f32, y as f32, seed_rng.next_u32());
+                next_u[idx] =
+                    (u0 + (du * lap_u - uvv + (feed * uvv2) * (1.0 - u0)) * dt).clamp(0.0, 1.0);
+                next_v[idx] =
+                    (v0 + (dv * lap_v + uvv - (kill + feed) * v0) * dt * uvv2).clamp(0.0, 1.0);
+                x += 1;
+            }
+            y += 1;
+        }
+        std::mem::swap(&mut u, &mut next_u);
+        std::mem::swap(&mut v, &mut next_v);
+        step += 1;
+    }
+
+    let mut out = v;
+    for value in out.iter_mut() {
+        *value = clamp01(
+            *value * (1.0 + value_noise(*value * 5.0, *value * 7.0, seed_rng.next_u32()) * 0.3),
+        );
+    }
+    normalize(&mut out);
+    resize_bilinear(&out, sim_w, sim_h, width, height)
+}
+
+fn render_harmonic_interference(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let width_f = width.max(1) as f32;
+    let height_f = height.max(1) as f32;
+    let seed = rng.next_u32();
+    let layers = 4 + (seed % 5) as i32;
+    let mut y = 0u32;
+    while y < height {
+        let mut x = 0u32;
+        while x < width {
+            let u = x as f32 / width_f;
+            let v = y as f32 / height_f;
+            let mut value = 0.0f32;
+            let mut i = 0i32;
+            while i < layers {
+                let angle = (seed % 37) as f32 * 0.13 + i as f32 * 0.9;
+                let freq = 1.3 + i as f32 * 0.66;
+                let drift = value_noise(
+                    (u * freq * 1.5) + angle,
+                    v * freq * 1.2,
+                    seed ^ (i as u32 * 11),
+                );
+                let wave = ((u * freq * 6.2 + angle).sin() * (v * freq * 4.1 + angle * 0.7).cos()
+                    + drift * 0.8)
+                    * 0.5;
+                value += wave / (1.0 + i as f32 * 0.35);
+                i += 1;
+            }
+            out[(y * width + x) as usize] = (value * 0.22 + 0.5) % 1.0;
+            x += 1;
+        }
+        y += 1;
+    }
+    let mut warped = vec![0.0f32; (width * height) as usize];
+    let width_half = width as f32 / 2.0;
+    let height_half = height as f32 / 2.0;
+    let mut y2 = 0u32;
+    while y2 < height {
+        let mut x2 = 0u32;
+        while x2 < width {
+            let u = (x2 as f32 - width_half) / width_f.max(1.0);
+            let v = (y2 as f32 - height_half) / height_f.max(1.0);
+            let w_scale = 0.02 + value_noise(u * 7.0, v * 6.0, seed ^ 0xF00D) * 0.02;
+            let xw = (x2 as f32 + u * w_scale * width_f)
+                .clamp(0.0, (width - 1) as f32)
+                .round() as usize;
+            let yw = (y2 as f32 + v * w_scale * height_f)
+                .clamp(0.0, (height - 1) as f32)
+                .round() as usize;
+            warped[(y2 * width + x2) as usize] = out[yw * width as usize + xw];
+            x2 += 1;
+        }
+        y2 += 1;
+    }
+    for v in warped.iter_mut() {
+        *v = (*v * 1.08).fract();
+    }
+    normalize(&mut warped);
+    warped
+}
+
+fn render_attractor_voronoi_hybrid(
+    width: u32,
+    height: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+) -> Vec<f32> {
+    let sim_w = (width / 3).max(160).min(540);
+    let sim_h = (height / 3).max(160).min(540);
+    let point_count = 24 + if fast { 0 } else { 10 };
+    let mut points: Vec<(f32, f32)> = Vec::with_capacity(point_count);
+    let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0x6d65_7461);
+    let mut x = 0.5f32 + (seed_rng.next_f32() - 0.5) * 0.25;
+    let mut y = 0.5f32 + (seed_rng.next_f32() - 0.5) * 0.25;
+    let params = [
+        seed_rng.next_f32() * 2.0,
+        seed_rng.next_f32() * 2.0,
+        seed_rng.next_f32() * 2.0 + 1.0,
+        seed_rng.next_f32() * 2.0 + 0.5,
+    ];
+
+    let mut i = 0u32;
+    while i < point_count as u32 {
+        let idx = (i as usize) % params.len();
+        let nx = params[idx] * 0.02 * (i as f32 * 0.001);
+        let ny = params[(idx + 1) % params.len()] * 0.02 * (i as f32 * 0.001);
+        let dx = (params[idx] - 1.0) * (x + nx);
+        let dy = (params[(idx + 1) % params.len()] - 1.0) * (y + ny);
+        x = dx.cos().fract().abs() * 0.7 + x * 0.15 + 0.15;
+        y = dy.sin().fract().abs() * 0.7 + y * 0.15 + 0.15;
+        points.push((x.clamp(0.02, 0.98), y.clamp(0.02, 0.98)));
+        if seed_rng.next_f32() < 0.15 {
+            points.push((rng.next_f32(), rng.next_f32()));
+        }
+        i += 1;
+    }
+
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut y_i = 0u32;
+    while y_i < sim_h {
+        let mut x_i = 0u32;
+        while x_i < sim_w {
+            let u = x_i as f32 / sim_w.max(1) as f32;
+            let v = y_i as f32 / sim_h.max(1) as f32;
+            let mut first = f32::INFINITY;
+            let mut second = f32::INFINITY;
+            let mut j = 0usize;
+            while j < points.len() {
+                let dx = u - points[j].0;
+                let dy = v - points[j].1;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d < first {
+                    second = first;
+                    first = d;
+                } else if d < second {
+                    second = d;
+                }
+                j += 1;
+            }
+            let gap = (second - first).abs();
+            let orbit = value_noise(
+                u * 6.1 + (first * 20.0),
+                v * 5.9 + (second * 17.0),
+                seed_rng.next_u32(),
+            );
+            let w = if fast { 0.88 } else { 1.0 };
+            out[(y_i * sim_w + x_i) as usize] = clamp01((gap * w + orbit * 0.18).sin().abs());
+            x_i += 1;
+        }
+        y_i += 1;
+    }
+    normalize(&mut out);
+    resize_bilinear(&out, sim_w, sim_h, width, height)
+}
+
+fn render_recursive_noise_terrain(
+    width: u32,
+    height: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+) -> Vec<f32> {
+    let mut sim_w = (width / 4).max(128).min(500);
+    let mut sim_h = (height / 4).max(128).min(500);
+    let seed = rng.next_u32();
+    let mut field = noise_field(sim_w, sim_h, rng, if fast { 2 } else { 3 });
+    let levels = if fast { 3 } else { 5 };
+    let mut level = 0u32;
+    while level < levels {
+        let mut next = vec![0.0f32; (sim_w * sim_h) as usize];
+        let freq = 1.7 + level as f32 * 1.4;
+        let amp = 1.0 / (level as f32 + 1.0);
+        let mut y = 0u32;
+        while y < sim_h {
+            let mut x = 0u32;
+            while x < sim_w {
+                let u = x as f32 / sim_w.max(1) as f32;
+                let v = y as f32 / sim_h.max(1) as f32;
+                let warp_x = (value_noise(u * freq, v * freq, seed ^ level) - 0.5) * 0.35;
+                let warp_y =
+                    (value_noise(u * freq + 1.2, v * freq + 2.3, seed ^ (level + 1)) - 0.5) * 0.35;
+                let sample_u =
+                    ((u + warp_x).clamp(0.0, 1.0) * (sim_w.max(1) as f32 - 1.0)) as usize;
+                let sample_v =
+                    ((v + warp_y).clamp(0.0, 1.0) * (sim_h.max(1) as f32 - 1.0)) as usize;
+                let idx = y as usize * sim_w as usize + x as usize;
+                let sample_idx = sample_v * sim_w as usize + sample_u;
+                let edge = ((field[sample_idx] - 0.5) * 2.0).abs();
+                next[idx] = clamp01(
+                    field[idx] * 0.55
+                        + edge * amp
+                        + value_noise(u * freq, v * freq, seed ^ (level << 7)) * 0.15,
+                );
+                x += 1;
+            }
+            y += 1;
+        }
+        std::mem::swap(&mut field, &mut next);
+        level += 1;
+        if sim_w > 340 && sim_h > 340 {
+            sim_w -= 34;
+            sim_h -= 34;
+        }
+    }
+    normalize(&mut field);
+    resize_bilinear(&field, sim_w, sim_h, width, height)
+}
+
+fn render_bifurcation_grid(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 3).max(160).min(540);
+    let sim_h = (height / 3).max(160).min(540);
+    let seed = rng.next_u32();
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+
+    let a = 3.6 + (rng.next_f32() * 0.45);
+    let b = 2.8 + (rng.next_f32() * 0.5);
+    let c = 0.15 + rng.next_f32() * 0.35;
+    let d = 0.85 + rng.next_f32() * 0.25;
+    let iters = 120u32;
+    for gy in 0..sim_h {
+        let row = sim_w as usize * gy as usize;
+        for gx in 0..sim_w {
+            let rxa = (gx as f32) / sim_w.max(1) as f32;
+            let rya = (gy as f32) / sim_h.max(1) as f32;
+            let mut i = 0u32;
+            let mut acc = 0.0f32;
+            let mut sx = rxa * 0.82 + 0.09 + (seed as f32 * 1e-6);
+            let mut sy = rya * 0.79 + 0.11 + (seed as f32 * 2e-6);
+            while i < iters {
+                let nx = a * sx * (1.0 - sx) + c * sy * sy.sin();
+                let ny = b * sy * (1.0 - sy) + d * sx * sx.cos();
+                sx = nx.fract();
+                sy = ny.fract();
+                let distance = (sx - rxa).abs() + (sy - rya).abs();
+                acc += distance.exp();
+                i += 1;
+            }
+            out[row + gx as usize] = (acc / iters as f32).clamp(0.0, 1.0);
+        }
+    }
+
+    for value in out.iter_mut() {
+        let m = value_noise(*value * 14.0, *value * 11.0, seed);
+        *value = clamp01(*value * 0.6 + m * 0.25);
+    }
+    let mut smoothed = out;
+    let mut k = 0u32;
+    while k < 2 {
+        let mut y = 1u32;
+        let mut next = smoothed.clone();
+        while y + 1 < sim_h {
+            let mut x = 1u32;
+            while x + 1 < sim_w {
+                let idx = y as usize * sim_w as usize + x as usize;
+                let mut sum = 0.0f32;
+                let mut dy = -1i32;
+                while dy <= 1 {
+                    let mut dx = -1i32;
+                    while dx <= 1 {
+                        let sx = (x as i32 + dx) as usize;
+                        let sy = (y as i32 + dy) as usize;
+                        sum += smoothed[sy * sim_w as usize + sx];
+                        dx += 1;
+                    }
+                    dy += 1;
+                }
+                next[idx] = sum / 9.0;
+                x += 1;
+            }
+            y += 1;
+        }
+        smoothed = next;
+        k += 1;
+    }
+    normalize(&mut smoothed);
+    resize_nearest(&smoothed, sim_w, sim_h, width, height)
+}
+
 fn segment_wave(step: u32) -> f32 {
     let phase = step as f32 * 0.4;
     let s = phase.sin() * 0.5 + 0.5;
@@ -4699,6 +5389,14 @@ mod tests {
             CpuStrategy::DepthRelief,
             CpuStrategy::AttractorTunnel,
             CpuStrategy::OrbitalLabyrinth,
+            CpuStrategy::PhaseField,
+            CpuStrategy::Lenia,
+            CpuStrategy::CurlNoiseFlow,
+            CpuStrategy::ReactionLattice,
+            CpuStrategy::HarmonicInterference,
+            CpuStrategy::AttractorVoronoiHybrid,
+            CpuStrategy::RecursiveNoiseTerrain,
+            CpuStrategy::BifurcationGrid,
         ];
         for strategy in all.drain(..) {
             let img = render_cpu_strategy(strategy, 256, 256, 42, false);
