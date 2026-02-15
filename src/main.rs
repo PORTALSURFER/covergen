@@ -6,12 +6,11 @@ use std::sync::{
     mpsc::channel,
 };
 use std::{
-    env,
     error::Error,
     fs,
     path::{Path, PathBuf},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -22,10 +21,17 @@ use image::{
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
+mod analysis;
 mod blending;
+mod config;
 mod strategies;
 
+use crate::analysis::{LumaStats, collect_luma_metrics, needs_complexity_fix};
 use crate::blending::strategy_name;
+use crate::config::{
+    Config, MAX_OUTPUT_BYTES, MIN_IMAGE_DIMENSION, clamp_iteration_count, clamp_layer_count,
+    resolve_fast_profile, resolve_fast_resolution, resolve_render_resolution,
+};
 use crate::strategies::{
     RenderStrategy, pick_render_strategy_near_family_with_preferences,
     pick_render_strategy_with_preferences, render_cpu_strategy, strategy_profile,
@@ -1156,108 +1162,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 "#;
 
-const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
-const MIN_IMAGE_DIMENSION: u32 = 64;
-const MAX_RENDER_PIXELS: u64 = 16_777_216;
-
-#[derive(Clone, Copy)]
-struct FastProfile {
-    iteration_cap: u32,
-    layer_cap: u32,
-    render_side_cap: u32,
-}
-
-impl FastProfile {
-    const fn unlimited() -> Self {
-        Self {
-            iteration_cap: u32::MAX,
-            layer_cap: u32::MAX,
-            render_side_cap: u32::MAX,
-        }
-    }
-}
-
-fn resolve_fast_profile(render_width: u32, image_count: u32, fast_enabled: bool) -> FastProfile {
-    if !fast_enabled {
-        return FastProfile::unlimited();
-    }
-
-    if render_width >= 2048 {
-        if image_count >= 40 {
-            return FastProfile {
-                iteration_cap: 56,
-                layer_cap: 1,
-                render_side_cap: 1400,
-            };
-        }
-
-        if image_count >= 20 {
-            return FastProfile {
-                iteration_cap: 180,
-                layer_cap: 2,
-                render_side_cap: 1400,
-            };
-        }
-        if image_count >= 10 {
-            return FastProfile {
-                iteration_cap: 120,
-                layer_cap: 2,
-                render_side_cap: 1500,
-            };
-        }
-        return FastProfile {
-            iteration_cap: 280,
-            layer_cap: 3,
-            render_side_cap: 1800,
-        };
-    }
-
-    if render_width >= 1536 {
-        if image_count >= 10 {
-            return FastProfile {
-                iteration_cap: 140,
-                layer_cap: 3,
-                render_side_cap: 1700,
-            };
-        }
-        return FastProfile {
-            iteration_cap: 340,
-            layer_cap: 4,
-            render_side_cap: 1900,
-        };
-    }
-
-    FastProfile::unlimited()
-}
-
-fn resolve_fast_resolution(
-    width: u32,
-    height: u32,
-    requested_antialias: u32,
-    profile: FastProfile,
-) -> (u32, u32, u32, bool) {
-    if profile.render_side_cap == u32::MAX {
-        return (width, height, requested_antialias, false);
-    }
-
-    let requested_side_cap = profile.render_side_cap.max(1);
-    let mut render_width = width;
-    let mut render_height = height;
-
-    if render_width > requested_side_cap {
-        render_width = requested_side_cap;
-    }
-    if render_height > requested_side_cap {
-        render_height = requested_side_cap;
-    }
-
-    if render_width == width && render_height == height {
-        return (width, height, requested_antialias, false);
-    }
-
-    (render_width, render_height, 1, true)
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
@@ -1631,21 +1535,6 @@ impl LayerBlendMode {
     }
 }
 
-struct Config {
-    width: u32,
-    height: u32,
-    symmetry: u32,
-    iterations: u32,
-    seed: u32,
-    fill_scale: f32,
-    fractal_zoom: f32,
-    fast: bool,
-    layers: Option<u32>,
-    count: u32,
-    output: String,
-    antialias: u32,
-}
-
 struct XorShift32 {
     state: u32,
 }
@@ -1668,164 +1557,6 @@ impl XorShift32 {
     fn next_f32(&mut self) -> f32 {
         (self.next_u32() as f32) / (u32::MAX as f32)
     }
-}
-
-impl Config {
-    fn from_env() -> Result<Self, Box<dyn Error>> {
-        let mut args = env::args().skip(1);
-        let mut cfg = Config {
-            width: 1024,
-            height: 1024,
-            symmetry: 4,
-            iterations: 320,
-            seed: random_seed(),
-            fill_scale: 1.35,
-            fractal_zoom: 0.72,
-            fast: false,
-            layers: None,
-            count: 1,
-            output: "fractal.png".to_string(),
-            antialias: 1,
-        };
-
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "--size" => {
-                    let value = args.next().ok_or("missing size value, pass --size <u32>")?;
-                    let size = value.parse::<u32>()?;
-                    cfg.width = size;
-                    cfg.height = size;
-                }
-                "--symmetry" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing symmetry value, pass --symmetry <1-8>")?;
-                    cfg.symmetry = value.parse()?;
-                }
-                "--iterations" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing iterations value, pass --iterations <u32>")?;
-                    cfg.iterations = value.parse()?;
-                }
-                "--seed" => {
-                    let value = args.next().ok_or("missing seed value, pass --seed <u32>")?;
-                    cfg.seed = value.parse()?;
-                }
-                "--fill" => {
-                    let value = args.next().ok_or("missing fill value, pass --fill <f32>")?;
-                    cfg.fill_scale = value.parse()?;
-                }
-                "--zoom" => {
-                    let value = args.next().ok_or("missing zoom value, pass --zoom <f32>")?;
-                    cfg.fractal_zoom = value.parse()?;
-                }
-                "--fast" => {
-                    cfg.fast = true;
-                }
-                "--layers" => {
-                    cfg.layers = Some(
-                        args.next()
-                            .ok_or("missing layers value, pass --layers <u32>")?
-                            .parse()?,
-                    );
-                }
-                "--count" | "-n" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing count value, pass --count <u32>")?;
-                    cfg.count = value.parse()?;
-                }
-                "--output" | "-o" => {
-                    cfg.output = args
-                        .next()
-                        .ok_or("missing output file name, pass --output <path>")?
-                        .to_string();
-                }
-                "--antialias" | "--aa" => {
-                    cfg.antialias = args
-                        .next()
-                        .ok_or("missing antialias value, pass --antialias <1|2|3|4>")?
-                        .parse()?;
-                }
-                _ => return Err(format!("unknown argument: {arg}").into()),
-            }
-        }
-
-        if cfg.width == 0 || cfg.height == 0 {
-            return Err("width and height must be greater than zero".into());
-        }
-        if cfg.symmetry == 0 {
-            return Err("symmetry must be at least 1".into());
-        }
-        if cfg.iterations == 0 {
-            return Err("iterations must be at least 1".into());
-        }
-        if cfg.fill_scale <= 0.0 {
-            return Err("fill scale must be greater than 0".into());
-        }
-        if cfg.fractal_zoom <= 0.0 {
-            return Err("zoom must be greater than 0".into());
-        }
-        if let Some(0) = cfg.layers {
-            return Err("layers must be greater than 0".into());
-        }
-        if cfg.count == 0 {
-            return Err("count must be at least 1".into());
-        }
-        if cfg.antialias == 0 {
-            return Err("antialias must be at least 1".into());
-        }
-
-        Ok(cfg)
-    }
-}
-
-fn resolve_render_resolution(
-    width: u32,
-    height: u32,
-    requested_supersample: u32,
-) -> (u32, u32, u32) {
-    let mut supersample = requested_supersample.max(1);
-    while supersample > 1 {
-        let Some(render_width) = width.checked_mul(supersample) else {
-            supersample -= 1;
-            continue;
-        };
-        let Some(render_height) = height.checked_mul(supersample) else {
-            supersample -= 1;
-            continue;
-        };
-
-        let render_pixels = u64::from(render_width) * u64::from(render_height);
-        if render_pixels <= MAX_RENDER_PIXELS {
-            return (render_width, render_height, supersample);
-        }
-
-        supersample -= 1;
-    }
-
-    (width, height, 1)
-}
-
-fn clamp_iteration_count(iterations: u32, cap: u32) -> u32 {
-    iterations.min(cap)
-}
-
-fn clamp_layer_count(layer_count: u32, cap: u32) -> u32 {
-    layer_count.min(cap)
-}
-
-fn random_seed() -> u32 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|time| time.as_nanos() as u64)
-        .unwrap_or(0);
-    let mut seed = now as u32 ^ (now >> 32) as u32;
-    seed ^= seed << 13;
-    seed ^= seed >> 17;
-    seed ^= seed << 5;
-    seed
 }
 
 fn randomize_symmetry(base: u32, rng: &mut XorShift32) -> u32 {
@@ -2411,48 +2142,6 @@ fn downsample_luma(
     Ok(target)
 }
 
-#[derive(Clone, Copy)]
-struct LumaStats {
-    min: f32,
-    max: f32,
-    mean: f32,
-    std: f32,
-}
-
-fn luma_stats(luma: &[f32]) -> LumaStats {
-    let mut min: f32 = 1.0;
-    let mut max: f32 = 0.0;
-    let mut sum = 0.0;
-    for &value in luma {
-        min = min.min(value);
-        max = max.max(value);
-        sum += value;
-    }
-    let mean = if luma.is_empty() {
-        0.0
-    } else {
-        sum / (luma.len() as f32)
-    };
-
-    let mut variance = 0.0;
-    for &value in luma {
-        let delta = value - mean;
-        variance += delta * delta;
-    }
-    let std = if luma.is_empty() {
-        0.0
-    } else {
-        (variance / (luma.len() as f32)).sqrt()
-    };
-
-    LumaStats {
-        min,
-        max,
-        mean,
-        std,
-    }
-}
-
 fn stretch_to_percentile(src: &mut [f32], scratch: &mut [f32], low_pct: f32, high_pct: f32) {
     if src.is_empty() {
         return;
@@ -2786,34 +2475,6 @@ fn apply_detail_waves(src: &mut [f32], width: u32, height: u32, seed: u32, stren
         let mix = 0.5 + 0.5 * (u.sin() * 0.55 + v.cos() * 0.45 + ((u + v + phase_c).sin() * 0.35));
         *value = clamp01((*value * (1.0 - strength)) + (mix * strength));
     }
-}
-
-fn local_edge_energy(src: &[f32], width: u32, height: u32) -> f32 {
-    if src.is_empty() || width == 0 || height == 0 {
-        return 0.0;
-    }
-
-    let width_i32 = width as i32;
-    let height_i32 = height as i32;
-    let mut accumulation = 0.0;
-    let mut samples = 0u64;
-
-    for y in 0..height as i32 {
-        for x in 0..width as i32 {
-            let value = sample_luma(src, width_i32, height_i32, x, y);
-            let right = sample_luma(src, width_i32, height_i32, x + 1, y);
-            let down = sample_luma(src, width_i32, height_i32, x, y + 1);
-            accumulation += (right - value).abs() + (down - value).abs();
-            samples += 2;
-        }
-    }
-
-    (accumulation / (samples as f32)).clamp(0.0, 1.0)
-}
-
-fn needs_complexity_fix(stats: LumaStats, edge_energy: f32) -> bool {
-    let span = stats.max - stats.min;
-    stats.std < 0.16 || span < 0.34 || edge_energy < 0.09
 }
 
 fn resolve_output_path(output: &str) -> PathBuf {
@@ -3271,12 +2932,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             &mut background,
         );
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
-        let mut pre_filter_stats = LumaStats {
-            min: 1.0,
-            max: 0.0,
-            mean: 0.0,
-            std: 0.0,
-        };
+        let mut pre_filter_stats = LumaStats::default();
         layered.fill(0.0);
 
         for layer_index in 0..layer_count {
@@ -3365,7 +3021,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
             render_strategy_layer(layer_strategy, &params, &mut luma)?;
             if layer_index == 0 {
-                pre_filter_stats = luma_stats(&luma);
+                pre_filter_stats = collect_luma_metrics(&luma, render_width, render_height).stats;
             }
 
             let filter = tune_filter_for_speed(pick_filter_from_rng(&mut image_rng), fast);
@@ -3535,9 +3191,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 layer_contrast * 0.75
             };
             apply_contrast(&mut filtered, layer_contrast.max(1.0));
-            let layer_stats = luma_stats(&filtered);
-            let layer_edge_energy = local_edge_energy(&filtered, render_width, render_height);
-            if needs_complexity_fix(layer_stats, layer_edge_energy) {
+            let layer_metrics = collect_luma_metrics(&filtered, render_width, render_height);
+            if needs_complexity_fix(&layer_metrics.stats, layer_metrics.edge_energy) {
                 complexity_fixed = true;
                 apply_detail_waves(
                     &mut filtered,
@@ -3603,10 +3258,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             if fast { 0.99 } else { 0.99 },
         );
 
-        let mut final_stats = luma_stats(&layered);
+        let mut final_metrics = collect_luma_metrics(&layered, render_width, render_height);
         let mut final_complexity_fixed = false;
-        let final_edge_energy = local_edge_energy(&layered, render_width, render_height);
-        if needs_complexity_fix(final_stats, final_edge_energy) {
+        if needs_complexity_fix(&final_metrics.stats, final_metrics.edge_energy) {
             final_complexity_fixed = true;
             apply_detail_waves(
                 &mut layered,
@@ -3625,9 +3279,11 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             std::mem::swap(&mut layered, &mut detail);
             apply_posterize_buffer(&mut layered, if fast { 4 } else { 5 });
             apply_contrast(&mut layered, if fast { 1.2 } else { 1.4 });
-            final_stats = luma_stats(&layered);
+            final_metrics = collect_luma_metrics(&layered, render_width, render_height);
         }
-        if final_stats.std < 0.09 || (final_stats.max - final_stats.min) < 0.23 {
+        if final_metrics.stats.std < 0.09
+            || (final_metrics.stats.max - final_metrics.stats.min) < 0.23
+        {
             inject_noise(
                 &mut layered,
                 base_seed ^ (i + 1),
@@ -3639,7 +3295,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if fast { 0.01 } else { 0.01 },
                 if fast { 0.99 } else { 0.99 },
             );
-            final_stats = luma_stats(&layered);
+            final_metrics = collect_luma_metrics(&layered, render_width, render_height);
         }
 
         let output_luma = if resolved_antialias == 1
@@ -3700,9 +3356,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             pre_filter_stats.min,
             pre_filter_stats.max,
             pre_filter_stats.mean,
-            final_stats.min,
-            final_stats.max,
-            final_stats.mean
+            final_metrics.stats.min,
+            final_metrics.stats.max,
+            final_metrics.stats.mean
         );
     }
     spinner_running.store(false, Ordering::Release);
