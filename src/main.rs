@@ -1,15 +1,10 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::io::{self, Cursor, Write};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use std::sync::{Arc, atomic::Ordering};
 use std::{
     error::Error,
     fs,
     path::{Path, PathBuf},
-    thread,
-    time::Duration,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -23,6 +18,7 @@ mod analysis;
 mod blending;
 mod config;
 mod gpu_render;
+mod progress;
 mod render_workspace;
 mod strategies;
 
@@ -33,6 +29,7 @@ use crate::config::{
     resolve_fast_profile, resolve_fast_resolution, resolve_render_resolution,
 };
 use crate::gpu_render::GpuLayerRenderer;
+use crate::progress::{SpinnerState, start_spinner};
 use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
     RenderStrategy, pick_render_strategy_near_family_with_preferences,
@@ -1387,67 +1384,6 @@ enum SymmetryStyle {
     MirrorDiagonal,
     MirrorCross,
     Grid,
-}
-
-#[derive(Default)]
-struct SpinnerState {
-    total_images: usize,
-    current_image: AtomicUsize,
-    current_layer: AtomicUsize,
-    total_layers: AtomicUsize,
-}
-
-impl SpinnerState {
-    fn new(total_images: usize) -> Self {
-        Self {
-            total_images,
-            ..Self::default()
-        }
-    }
-
-    fn set_image(&self, image_index: usize, layer_total: usize) {
-        self.current_image.store(image_index, Ordering::Relaxed);
-        self.total_layers.store(layer_total, Ordering::Relaxed);
-        self.current_layer.store(0, Ordering::Relaxed);
-    }
-
-    fn set_layer(&self, layer_index: usize) {
-        self.current_layer.store(layer_index, Ordering::Relaxed);
-    }
-}
-
-fn start_spinner(state: Arc<SpinnerState>) -> (Arc<AtomicBool>, thread::JoinHandle<()>) {
-    let running = Arc::new(AtomicBool::new(true));
-    let thread_state = state.clone();
-    let running_thread = running.clone();
-    let frames = ["|", "/", "-", "\\"];
-
-    let handle = thread::spawn(move || {
-        let mut tick = 0usize;
-        while running_thread.load(Ordering::Acquire) {
-            let image = thread_state.current_image.load(Ordering::Relaxed);
-            let layer = thread_state.current_layer.load(Ordering::Relaxed);
-            let total_layers = thread_state.total_layers.load(Ordering::Relaxed);
-            let layer_text = if total_layers == 0 {
-                "starting".to_string()
-            } else {
-                format!("layer {}/{}", layer, total_layers)
-            };
-            let _ = write!(
-                io::stderr(),
-                "\r{} image {}/{} {}",
-                frames[tick % frames.len()],
-                image,
-                thread_state.total_images,
-                layer_text,
-            );
-            let _ = io::stdout().flush();
-            tick = tick.wrapping_add(1);
-            thread::sleep(Duration::from_millis(90));
-        }
-    });
-
-    (running, handle)
 }
 
 impl SymmetryStyle {
