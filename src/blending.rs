@@ -1,7 +1,8 @@
 //! Strategy-mixing helpers used by `main` when combining layer renderers.
 
 use crate::strategies::{
-    RenderStrategy, normalize, pick_render_strategy, pick_render_strategy_near_family, value_noise,
+    RenderStrategy, normalize, pick_render_strategy_near_family_with_preferences,
+    pick_render_strategy_with_preferences, value_noise,
 };
 use crate::{
     ArtStyle, XorShift32, apply_detail_waves, apply_dynamic_filter, clamp01, pick_filter_from_rng,
@@ -65,21 +66,22 @@ pub fn pick_blended_strategy(
     base: RenderStrategy,
     rng: &mut XorShift32,
     fast: bool,
+    prefer_gpu: bool,
 ) -> RenderStrategy {
     let bias = if rng.next_f32() < 0.72 { 0.74 } else { 0.0 };
     let mut candidate = if bias > 0.0 {
-        pick_render_strategy_near_family(rng, fast, base, bias)
+        pick_render_strategy_near_family_with_preferences(rng, fast, base, bias, prefer_gpu)
     } else {
-        pick_render_strategy(rng, fast)
+        pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
     };
 
     if strategy_equivalent(candidate, base) {
         let mut retries = 0u32;
         while strategy_equivalent(candidate, base) && retries < 6 {
             candidate = if bias > 0.0 && rng.next_f32() < 0.80 {
-                pick_render_strategy_near_family(rng, fast, base, bias)
+                pick_render_strategy_near_family_with_preferences(rng, fast, base, bias, prefer_gpu)
             } else {
-                pick_render_strategy(rng, fast)
+                pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
             };
             retries += 1;
         }

@@ -27,8 +27,8 @@ mod strategies;
 
 use crate::blending::strategy_name;
 use crate::strategies::{
-    RenderStrategy, pick_render_strategy, pick_render_strategy_near_family, render_cpu_strategy,
-    strategy_profile,
+    RenderStrategy, pick_render_strategy_near_family_with_preferences,
+    pick_render_strategy_with_preferences, render_cpu_strategy, strategy_profile,
 };
 
 const SHADER: &str = r#"
@@ -1200,12 +1200,7 @@ fn resolve_fast_resolution(
         return (width, height, requested_antialias, false);
     }
 
-    (
-        render_width,
-        render_height,
-        requested_antialias.min(1).max(1),
-        true,
-    )
+    (render_width, render_height, 1, true)
 }
 
 #[repr(C)]
@@ -1810,7 +1805,7 @@ fn randomize_center_offset(rng: &mut XorShift32, fast: bool) -> (f32, f32) {
 
     let max_shift = if fast { 0.24 } else { 0.44 };
     let radius = max_shift * rng.next_f32().sqrt();
-    let angle = rng.next_f32() * 6.283185307179586;
+    let angle = rng.next_f32() * std::f32::consts::TAU;
     (radius * angle.cos(), radius * angle.sin())
 }
 
@@ -2053,11 +2048,18 @@ fn bias_layer_strategy(
     current: RenderStrategy,
     rng: &mut XorShift32,
     fast: bool,
+    prefer_gpu: bool,
 ) -> RenderStrategy {
     let switch_prob = if fast { 0.06 } else { 0.04 };
     if rng.next_f32() < switch_prob {
         let family_bias = if fast { 0.9 } else { 0.86 };
-        pick_render_strategy_near_family(rng, fast, current, family_bias)
+        pick_render_strategy_near_family_with_preferences(
+            rng,
+            fast,
+            current,
+            family_bias,
+            prefer_gpu,
+        )
     } else {
         current
     }
@@ -2888,7 +2890,18 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await
         .ok_or("no compatible GPU adapter found")?;
     let adapter_info = adapter.get_info();
-    eprintln!("Using adapter: {}", adapter_info.name);
+    let can_use_gpu = !matches!(adapter_info.device_type, wgpu::DeviceType::Cpu);
+    if can_use_gpu {
+        eprintln!(
+            "Using adapter: {} ({:?})",
+            adapter_info.name, adapter_info.device_type
+        );
+    } else {
+        eprintln!(
+            "Using adapter: {} ({:?}) - GPU-accelerated strategies unavailable",
+            adapter_info.name, adapter_info.device_type
+        );
+    }
 
     let (device, queue) = adapter
         .request_device(
@@ -3149,8 +3162,9 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
         let base_art_mix = image_rng.next_f32();
-        let mut base_strategy = pick_render_strategy(&mut image_rng, fast);
-        if fast && render_width >= 1536 {
+        let mut base_strategy =
+            pick_render_strategy_with_preferences(&mut image_rng, fast, can_use_gpu);
+        if can_use_gpu && fast && render_width >= 1536 {
             if let RenderStrategy::Cpu(_) = base_strategy {
                 base_strategy =
                     RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
@@ -3182,7 +3196,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             spinner_state.set_layer((layer_index + 1) as usize);
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
             if layer_index > 0 {
-                active_strategy = bias_layer_strategy(active_strategy, &mut image_rng, fast);
+                active_strategy =
+                    bias_layer_strategy(active_strategy, &mut image_rng, fast, can_use_gpu);
             }
             let layer_strategy = if layer_index == 0 {
                 base_strategy
@@ -3299,8 +3314,12 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 strategy_profile.filter_bias.max(0.5),
             );
             if apply_strategy_mix {
-                let secondary_strategy =
-                    blending::pick_blended_strategy(layer_strategy, &mut image_rng, fast);
+                let secondary_strategy = blending::pick_blended_strategy(
+                    layer_strategy,
+                    &mut image_rng,
+                    fast,
+                    can_use_gpu,
+                );
                 let secondary_seed = layer_seed ^ 0x91A5_FD3Bu32;
                 let mut secondary_params = params;
                 secondary_params.seed = secondary_seed;

@@ -453,11 +453,22 @@ pub struct StrategyProfile {
 }
 
 /// Returns a render strategy for the next layer.
+#[allow(dead_code)]
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
+    pick_render_strategy_with_preferences(rng, fast, true)
+}
+
+/// Returns a render strategy for the next layer with an explicit preference
+/// for GPU or CPU compute.
+pub fn pick_render_strategy_with_preferences(
+    rng: &mut XorShift32,
+    fast: bool,
+    prefer_gpu: bool,
+) -> RenderStrategy {
     let strategy_roll = rng.next_f32();
     let gpu_chance = if fast { 0.9 } else { 0.35 };
 
-    if strategy_roll < gpu_chance {
+    if prefer_gpu && strategy_roll < gpu_chance {
         let mut style = crate::ArtStyle::from_u32(rng.next_u32());
         let extra_diversify = if fast { 0.65 } else { 0.55 };
         if style.is_tiling_like() || rng.next_f32() < extra_diversify {
@@ -476,14 +487,27 @@ pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy 
 }
 
 /// Pick a render strategy with a bias toward the same family as `base`.
+#[allow(dead_code)]
 pub fn pick_render_strategy_near_family(
     rng: &mut XorShift32,
     fast: bool,
     base: RenderStrategy,
     family_bias: f32,
 ) -> RenderStrategy {
+    pick_render_strategy_near_family_with_preferences(rng, fast, base, family_bias, true)
+}
+
+/// Pick a render strategy with a bias toward the same family as `base` and an
+/// explicit preference for GPU or CPU strategy selection.
+pub fn pick_render_strategy_near_family_with_preferences(
+    rng: &mut XorShift32,
+    fast: bool,
+    base: RenderStrategy,
+    family_bias: f32,
+    prefer_gpu: bool,
+) -> RenderStrategy {
     if family_bias <= 0.0 {
-        return pick_render_strategy(rng, fast);
+        return pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
     }
 
     if rng.next_f32() < family_bias {
@@ -491,7 +515,7 @@ pub fn pick_render_strategy_near_family(
         let attempts = if fast { 12 } else { 22 };
         let mut i = 0;
         while i < attempts {
-            let candidate = pick_render_strategy(rng, fast);
+            let candidate = pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
             if candidate.family() == family {
                 return candidate;
             }
@@ -499,7 +523,7 @@ pub fn pick_render_strategy_near_family(
         }
     }
 
-    pick_render_strategy(rng, fast)
+    pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
 }
 
 /// Returns post-processing guidance for a strategy.
