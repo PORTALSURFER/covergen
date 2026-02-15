@@ -97,7 +97,7 @@ fn apply_domain_warp(px: f32, py: f32) -> vec2<f32> {
 fn fold_for_symmetry(px: f32, py: f32, symmetry: u32, style: u32) -> vec2<f32> {
     var repeats = f32(symmetry) * 0.55 * clamp(params.tile_scale, 0.25, 1.8);
     repeats = repeats + sin((params.tile_phase * 6.283185307179586) * 0.22);
-    repeats = clamp(repeats, 1.2, 4.8);
+    repeats = clamp(repeats, 1.2, 3.5);
     if (style == 1u) {
         return fold_symmetry_mirror(px, py, symmetry);
     }
@@ -1784,7 +1784,7 @@ fn modulate_symmetry_style(base: u32, rng: &mut XorShift32, fast: bool, allow_gr
     };
 
     if allow_grid {
-        if style == SymmetryStyle::Grid && rng.next_f32() > 0.22 {
+        if style == SymmetryStyle::Grid && rng.next_f32() > 0.08 {
             return pick_non_grid_symmetry_style(rng).as_u32();
         }
     } else if style == SymmetryStyle::Grid {
@@ -1804,7 +1804,7 @@ fn should_apply_grid_across_layers(
         return false;
     }
 
-    let base_chance = if fast { 0.03 } else { 0.05 };
+    let base_chance = if fast { 0.005 } else { 0.01 };
     let layer_scale = ((layer_count as f32) / 8.0).clamp(0.45, 1.0);
     rng.next_f32() < (base_chance * layer_scale)
 }
@@ -1895,7 +1895,7 @@ fn layer_opacity(rng: &mut XorShift32) -> f32 {
 
 fn pick_symmetry_style(rng: &mut XorShift32) -> u32 {
     let roll = rng.next_f32();
-    if roll < 0.01 {
+    if roll < 0.002 {
         SymmetryStyle::Grid.as_u32()
     } else if roll < 0.58 {
         SymmetryStyle::Radial.as_u32()
@@ -2875,7 +2875,10 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_symmetry = randomize_symmetry(config.symmetry, &mut image_rng);
         let base_iterations = randomize_iterations(config.iterations, &mut image_rng);
         let base_fill_scale = randomize_fill_scale(config.fill_scale, &mut image_rng);
-        let base_symmetry_style = pick_symmetry_style(&mut image_rng);
+        let mut base_symmetry_style = pick_symmetry_style(&mut image_rng);
+        if image_rng.next_f32() > (if config.fast { 0.02 } else { 0.03 }) {
+            base_symmetry_style = pick_non_grid_symmetry_style(&mut image_rng).as_u32();
+        }
         let base_zoom = randomize_zoom(config.fractal_zoom, &mut image_rng);
         let base_bend_strength = pick_bend_strength(&mut image_rng);
         let base_warp_strength = pick_warp_strength(&mut image_rng);

@@ -205,6 +205,59 @@ impl CpuStrategy {
             Self::OrbitalLabyrinth => "orbital-labyrinth",
         }
     }
+
+    fn is_tiling(self) -> bool {
+        matches!(
+            self,
+            Self::Maze | Self::RecursiveTiling | Self::SierpinskiCarpet | Self::KochSnowflake
+        )
+    }
+
+    fn from_non_tiling_u32(value: u32) -> Self {
+        let non_tiling = [
+            Self::EdgeSobel,
+            Self::EdgeLaplacian,
+            Self::ReactionDiffusion,
+            Self::LSystem,
+            Self::ProceduralNoise,
+            Self::CellularAutomata,
+            Self::ParticleFlow,
+            Self::Voronoi,
+            Self::Delaunay,
+            Self::IteratedFractal,
+            Self::StrangeAttractor,
+            Self::RadialWave,
+            Self::RecursiveFold,
+            Self::AttractorHybrid,
+            Self::CannyEdge,
+            Self::PerlinRidge,
+            Self::PlasmaField,
+            Self::BarnsleyFern,
+            Self::TurbulentFlow,
+            Self::MandelbrotField,
+            Self::TuringCascade,
+            Self::FlowFilaments,
+            Self::OrbitalAtlas,
+            Self::CrystalGrowth,
+            Self::VortexConvection,
+            Self::ErosionChannels,
+            Self::StochasticIFS,
+            Self::DeJongAttractor,
+            Self::RecursiveRibbon,
+            Self::MagneticFieldlines,
+            Self::LorenzAttractor,
+            Self::RecursiveStarburst,
+            Self::LogisticChaos,
+            Self::InterferenceWaves,
+            Self::CliffordAttractor,
+            Self::JuliaSet,
+            Self::BifurcationTree,
+            Self::DepthRelief,
+            Self::AttractorTunnel,
+            Self::OrbitalLabyrinth,
+        ];
+        non_tiling[(value as usize) % non_tiling.len()]
+    }
 }
 
 /// Rendering path selected for a layer.
@@ -246,7 +299,13 @@ pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy 
         return RenderStrategy::Gpu(crate::ArtStyle::from_u32(rng.next_u32()).as_u32());
     }
 
-    RenderStrategy::Cpu(CpuStrategy::from_u32(rng.next_u32()))
+    let mut strategy = CpuStrategy::from_u32(rng.next_u32());
+    let keep_tiling = if fast { 0.18 } else { 0.12 };
+    if strategy.is_tiling() && rng.next_f32() > keep_tiling {
+        strategy = CpuStrategy::from_non_tiling_u32(rng.next_u32());
+    }
+
+    RenderStrategy::Cpu(strategy)
 }
 
 /// Returns post-processing guidance for a strategy.
