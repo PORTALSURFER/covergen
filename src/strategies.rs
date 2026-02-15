@@ -8,7 +8,7 @@ use crate::XorShift32;
 use std::f32::consts::TAU;
 
 /// CPU generator strategies that can replace GPU-based render layers.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CpuStrategy {
     /// Sobel edge detector rendered from layered noise.
     EdgeSobel,
@@ -713,7 +713,7 @@ fn hash01(value: u32, seed: u32) -> f32 {
     (mix_hash(value, value.rotate_left(13), seed) as f32) / (u32::MAX as f32)
 }
 
-fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
+pub fn value_noise(x: f32, y: f32, seed: u32) -> f32 {
     let xf = x.floor();
     let yf = y.floor();
     let xq = xf.rem_euclid(8192.0);
@@ -767,7 +767,7 @@ fn noise_field(width: u32, height: u32, rng: &mut XorShift32, octaves: u32) -> V
     out
 }
 
-fn normalize(src: &mut [f32]) {
+pub fn normalize(src: &mut [f32]) {
     if src.is_empty() {
         return;
     }
