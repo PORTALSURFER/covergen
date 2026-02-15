@@ -293,14 +293,19 @@ pub struct StrategyProfile {
 /// Returns a render strategy for the next layer.
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
     let strategy_roll = rng.next_f32();
-    let gpu_chance = if fast { 0.33 } else { 0.35 };
+    let gpu_chance = if fast { 0.9 } else { 0.35 };
 
     if strategy_roll < gpu_chance {
-        return RenderStrategy::Gpu(crate::ArtStyle::from_u32(rng.next_u32()).as_u32());
+        let mut style = crate::ArtStyle::from_u32(rng.next_u32());
+        let extra_diversify = if fast { 0.65 } else { 0.55 };
+        if style.is_tiling_like() || rng.next_f32() < extra_diversify {
+            style = crate::ArtStyle::next_non_tiling_from(rng);
+        }
+        return RenderStrategy::Gpu(style.as_u32());
     }
 
     let mut strategy = CpuStrategy::from_u32(rng.next_u32());
-    let keep_tiling = if fast { 0.18 } else { 0.12 };
+    let keep_tiling = if fast { 0.06 } else { 0.03 };
     if strategy.is_tiling() && rng.next_f32() > keep_tiling {
         strategy = CpuStrategy::from_non_tiling_u32(rng.next_u32());
     }
