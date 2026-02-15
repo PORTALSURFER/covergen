@@ -80,10 +80,20 @@ pub enum CpuStrategy {
     LorenzAttractor,
     /// Recursive starburst growth with branching trajectories.
     RecursiveStarburst,
+    /// Multi-frequency Lissajous trajectories with branching harmonic drift.
+    LissajousOrbits,
     /// Chaotic logistic-map evolution in 2D projected to the canvas.
     LogisticChaos,
     /// Interference-like wave superposition on a noisy phase field.
     InterferenceWaves,
+    /// Gravitational mesh field with interacting particles and drifting trajectories.
+    GraviticWeb,
+    /// Poisson-sampled nodes joined with adaptive near-neighbor edge drawing.
+    PoissonMesh,
+    /// Blended meta-ball field driven by moving attractor seeds.
+    MetaballField,
+    /// Recursive braided flow with noise-modulated curvature.
+    BraidFlow,
     /// Clifford attractor family projected in 2D with folding nonlinearities.
     CliffordAttractor,
     /// Julia set escape-time rendering with randomized complex parameter.
@@ -103,7 +113,7 @@ pub enum CpuStrategy {
 impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
-        44
+        50
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -146,12 +156,18 @@ impl CpuStrategy {
             34 => Self::RecursiveStarburst,
             35 => Self::LogisticChaos,
             36 => Self::InterferenceWaves,
-            37 => Self::CliffordAttractor,
-            38 => Self::JuliaSet,
-            39 => Self::KochSnowflake,
-            40 => Self::BifurcationTree,
-            41 => Self::DepthRelief,
-            42 => Self::AttractorTunnel,
+            37 => Self::LissajousOrbits,
+            38 => Self::GraviticWeb,
+            39 => Self::PoissonMesh,
+            40 => Self::MetaballField,
+            41 => Self::BraidFlow,
+            42 => Self::CliffordAttractor,
+            43 => Self::JuliaSet,
+            44 => Self::KochSnowflake,
+            45 => Self::BifurcationTree,
+            46 => Self::DepthRelief,
+            47 => Self::AttractorTunnel,
+            48 => Self::OrbitalLabyrinth,
             _ => Self::OrbitalLabyrinth,
         }
     }
@@ -194,8 +210,13 @@ impl CpuStrategy {
             Self::StochasticIFS => "stochastic-ifs",
             Self::LorenzAttractor => "lorenz-attractor",
             Self::RecursiveStarburst => "recursive-starburst",
+            Self::LissajousOrbits => "lissajous-orbits",
             Self::LogisticChaos => "logistic-chaos",
             Self::InterferenceWaves => "interference-waves",
+            Self::GraviticWeb => "gravitic-web",
+            Self::PoissonMesh => "poisson-mesh",
+            Self::MetaballField => "metaball-field",
+            Self::BraidFlow => "braid-flow",
             Self::CliffordAttractor => "clifford-attractor",
             Self::JuliaSet => "julia-set",
             Self::KochSnowflake => "koch-snowflake",
@@ -249,6 +270,11 @@ impl CpuStrategy {
             Self::RecursiveStarburst,
             Self::LogisticChaos,
             Self::InterferenceWaves,
+            Self::LissajousOrbits,
+            Self::GraviticWeb,
+            Self::PoissonMesh,
+            Self::MetaballField,
+            Self::BraidFlow,
             Self::CliffordAttractor,
             Self::JuliaSet,
             Self::BifurcationTree,
@@ -332,6 +358,14 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
                 gradient_bias: 0.24,
                 force_detail: true,
             },
+            CpuStrategy::LissajousOrbits
+            | CpuStrategy::GraviticWeb
+            | CpuStrategy::PoissonMesh
+            | CpuStrategy::MetaballField => StrategyProfile {
+                filter_bias: 0.17,
+                gradient_bias: 0.19,
+                force_detail: true,
+            },
             CpuStrategy::Voronoi
             | CpuStrategy::Delaunay
             | CpuStrategy::EdgeSobel
@@ -359,7 +393,8 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
             | CpuStrategy::TurbulentFlow
             | CpuStrategy::MandelbrotField
             | CpuStrategy::TuringCascade
-            | CpuStrategy::FlowFilaments => StrategyProfile {
+            | CpuStrategy::FlowFilaments
+            | CpuStrategy::BraidFlow => StrategyProfile {
                 filter_bias: 0.18,
                 gradient_bias: 0.24,
                 force_detail: true,
@@ -447,6 +482,11 @@ pub fn render_cpu_strategy(
         CpuStrategy::StochasticIFS => render_stochastic_ifs(width, height, &mut rng),
         CpuStrategy::LorenzAttractor => render_lorenz_attractor(width, height, &mut rng),
         CpuStrategy::RecursiveStarburst => render_recursive_starburst(width, height, &mut rng),
+        CpuStrategy::LissajousOrbits => render_lissajous_orbits(width, height, &mut rng),
+        CpuStrategy::GraviticWeb => render_gravitic_web(width, height, &mut rng),
+        CpuStrategy::PoissonMesh => render_poisson_mesh(width, height, &mut rng),
+        CpuStrategy::MetaballField => render_metaball_field(width, height, &mut rng),
+        CpuStrategy::BraidFlow => render_braid_flow(width, height, &mut rng),
         CpuStrategy::LogisticChaos => render_logistic_chaos(width, height, &mut rng),
         CpuStrategy::DeJongAttractor => render_de_jong_attractor(width, height, &mut rng),
         CpuStrategy::RecursiveRibbon => render_recursive_ribbon(width, height, &mut rng),
@@ -4050,6 +4090,541 @@ fn render_orbital_labyrinth(width: u32, height: u32, rng: &mut XorShift32) -> Ve
     resized
 }
 
+fn render_lissajous_orbits(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(200);
+    let sim_h = (height / 2).max(200);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let orbits = 4 + (rng.next_u32() % 8);
+    let mut orbit = 0u32;
+    let seed = rng.next_u32();
+
+    while orbit < orbits {
+        let center_x = sim_w as f32 * (0.18 + rng.next_f32() * 0.64);
+        let center_y = sim_h as f32 * (0.18 + rng.next_f32() * 0.64);
+        let scale_x = sim_w as f32 * (0.10 + rng.next_f32() * 0.40);
+        let scale_y = sim_h as f32 * (0.10 + rng.next_f32() * 0.40);
+        let freq_x = 2.0 + rng.next_f32() * 11.0;
+        let freq_y = 2.0 + rng.next_f32() * 11.0;
+        let phase = rng.next_f32() * TAU;
+        let modulation = (rng.next_f32() - 0.5) * 0.45;
+        let turns = 900 + (rng.next_u32() % 1_400);
+        let strength = 0.22 + rng.next_f32() * 0.46;
+        let mut prev_x = center_x;
+        let mut prev_y = center_y;
+        let mut t = 0u32;
+
+        while t < turns {
+            let tt = t as f32 / turns as f32;
+            let ring = (tt * TAU * (1.8 + rng.next_f32() * 1.4)).fract() * 0.5 + 0.5;
+            let amp = 0.28 + 1.1 * tt;
+            let cx = value_noise(phase, tt * 4.3, seed ^ t) - 0.5;
+            let cy = value_noise(tt * 3.7, phase, seed ^ (t + 11)) - 0.5;
+            let nx = center_x
+                + (freq_x * tt * TAU + phase + modulation * ring).cos()
+                    * scale_x
+                    * amp
+                    * (0.55 + cx * 0.3)
+                + cx * scale_x * 0.08;
+            let ny = center_y
+                + (freq_y * tt * TAU + phase * 0.77 + cx).sin()
+                    * scale_y
+                    * amp
+                    * (0.55 + cy * 0.28)
+                + cy * scale_y * 0.09;
+            let x = nx.clamp(0.0, sim_w as f32 - 1.0);
+            let y = ny.clamp(0.0, sim_h as f32 - 1.0);
+            let wave = value_noise(nx * 0.01, ny * 0.01, seed ^ (t + orbit)) * 1.8 - 0.9;
+            let px = (x + wave * 0.9 * amp).clamp(0.0, sim_w as f32 - 1.0);
+            let py = (y - wave * 0.9 * amp).clamp(0.0, sim_h as f32 - 1.0);
+            let local_strength = strength * (0.5 + tt * 0.5 + wave.abs() * 0.2);
+            draw_line(
+                prev_x.round() as i32,
+                prev_y.round() as i32,
+                px.round() as i32,
+                py.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                local_strength,
+                &mut density,
+            );
+            if t % 8 == 0 {
+                draw_point(
+                    px.round() as i32,
+                    py.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    local_strength * 0.75,
+                    &mut density,
+                );
+            }
+            if t % 120 == 0 && rng.next_f32() < 0.7 {
+                let branch_freq_x = 2.0 + rng.next_f32() * 8.0;
+                let branch_freq_y = 2.0 + rng.next_f32() * 8.0;
+                let branch_steps = 90 + (rng.next_u32() % 180);
+                let mut inner_t = 0u32;
+                let base_x = px;
+                let base_y = py;
+                while inner_t < branch_steps {
+                    let tt = inner_t as f32 / branch_steps as f32;
+                    let bx = base_x
+                        + (branch_freq_x * tt * TAU).sin() * amp * scale_x * 0.08
+                        + value_noise(branch_freq_x, tt * 3.0, seed ^ t ^ (inner_t << 2))
+                            * scale_x
+                            * 0.04;
+                    let by = base_y
+                        + (branch_freq_y * tt * TAU).cos() * amp * scale_y * 0.08
+                        + value_noise(tt * 2.3, branch_freq_y, seed ^ (t + 1 + inner_t))
+                            * scale_y
+                            * 0.04;
+                    draw_point(
+                        bx.round() as i32,
+                        by.round() as i32,
+                        sim_w as usize,
+                        sim_h as usize,
+                        0,
+                        local_strength * 0.42,
+                        &mut density,
+                    );
+                    inner_t += 1;
+                }
+            }
+            prev_x = px;
+            prev_y = py;
+            t += 1;
+        }
+
+        orbit += 1;
+    }
+
+    normalize(&mut density);
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.82));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_gravitic_web(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let count = 48 + (rng.next_u32() % 36) as usize;
+    let steps = 220 + (rng.next_u32() % 320);
+    let mut x = vec![0.0f32; count];
+    let mut y = vec![0.0f32; count];
+    let mut vx = vec![0.0f32; count];
+    let mut vy = vec![0.0f32; count];
+    let mut mass = vec![0.0f32; count];
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut i = 0usize;
+
+    while i < count {
+        x[i] = rng.next_f32() * (sim_w as f32 - 1.0);
+        y[i] = rng.next_f32() * (sim_h as f32 - 1.0);
+        vx[i] = (rng.next_f32() - 0.5) * 0.3;
+        vy[i] = (rng.next_f32() - 0.5) * 0.3;
+        mass[i] = 0.55 + rng.next_f32() * 1.5;
+        i += 1;
+    }
+
+    let center_x = sim_w as f32 * 0.5;
+    let center_y = sim_h as f32 * 0.5;
+    let world_scale = sim_w.max(sim_h) as f32;
+    let softness = 0.000_8 * world_scale * world_scale;
+    let gravity = 0.014 + rng.next_f32() * 0.018;
+    let damping = 0.93 + rng.next_f32() * 0.03;
+    let mut step = 0u32;
+
+    while step < steps {
+        let mut j = 0usize;
+        while j < count {
+            let mut fx = 0.0f32;
+            let mut fy = 0.0f32;
+            let mut k = 0usize;
+            while k < count {
+                if j != k {
+                    let dx = x[k] - x[j];
+                    let dy = y[k] - y[j];
+                    let dist2 = dx * dx + dy * dy + softness;
+                    let inv = mass[k] / (dist2.sqrt() * dist2).max(1e-6);
+                    fx += dx * inv;
+                    fy += dy * inv;
+                }
+                k += 1;
+            }
+
+            let cx = (center_x - x[j]) * 0.000_05;
+            let cy = (center_y - y[j]) * 0.000_05;
+            let fx = (fx + cx) * gravity * mass[j];
+            let fy = (fy + cy) * gravity * mass[j];
+            vx[j] = (vx[j] + fx).clamp(-2.0, 2.0) * damping;
+            vy[j] = (vy[j] + fy).clamp(-2.0, 2.0) * damping;
+
+            let nx = (x[j] + vx[j]).rem_euclid(sim_w as f32 - 1.0);
+            let ny = (y[j] + vy[j]).rem_euclid(sim_h as f32 - 1.0);
+            let strength = 0.3
+                + (mass[j] * 0.11)
+                + (0.25
+                    * value_noise(x[j] * 0.01, y[j] * 0.01, rng.next_u32() ^ (step + j as u32)));
+            draw_line(
+                x[j].round() as i32,
+                y[j].round() as i32,
+                nx.round() as i32,
+                ny.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                clamp01(strength),
+                &mut density,
+            );
+            if step % 4 == 0 {
+                draw_point(
+                    nx.round() as i32,
+                    ny.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength * 0.55,
+                    &mut density,
+                );
+            }
+            if step % 18 == 0 && step % 2 == 0 {
+                let nx2 = (nx + value_noise(x[j], y[j], rng.next_u32()) - 0.5) % (sim_w as f32);
+                let ny2 = (ny + value_noise(y[j], x[j], rng.next_u32()) - 0.5) % (sim_h as f32);
+                let link = ((j + 7) % count) as f32 / (count as f32).max(1.0);
+                let blend = 1.0 - (link + (step as f32 / steps as f32)).abs();
+                draw_line(
+                    nx.round() as i32,
+                    ny.round() as i32,
+                    nx2 as i32,
+                    ny2 as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    clamp01(blend * 0.34),
+                    &mut density,
+                );
+            }
+
+            x[j] = nx;
+            y[j] = ny;
+            j += 1;
+        }
+        step += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        *value = clamp01(value.powf(0.9));
+    }
+    normalize(&mut out);
+    out
+}
+
+fn render_poisson_mesh(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 2).max(180);
+    let sim_h = (height / 2).max(180);
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut points = Vec::<(f32, f32)>::new();
+    let target = 220 + (rng.next_u32() % 260) as usize;
+    let min_dist = (sim_w.min(sim_h) as f32) * (0.02 + rng.next_f32() * 0.018);
+    let min_dist2 = min_dist * min_dist;
+    let mut attempts = 0usize;
+
+    while points.len() < target && attempts < target * 90 {
+        let px = rng.next_f32() * (sim_w as f32 - 1.0);
+        let py = rng.next_f32() * (sim_h as f32 - 1.0);
+        let mut accepted = true;
+        for &(qx, qy) in points.iter() {
+            let dx = px - qx;
+            let dy = py - qy;
+            if dx * dx + dy * dy < min_dist2 {
+                accepted = false;
+                break;
+            }
+        }
+        if accepted {
+            points.push((px, py));
+        }
+        attempts += 1;
+    }
+
+    if points.len() < 16 {
+        let fallback = 16usize;
+        points.extend((0..fallback).map(|_| {
+            let px = rng.next_f32() * (sim_w as f32 - 1.0);
+            let py = rng.next_f32() * (sim_h as f32 - 1.0);
+            (px, py)
+        }));
+    }
+
+    let mut idx = 0usize;
+    while idx < points.len() {
+        let (sx, sy) = points[idx];
+        draw_point(
+            sx.round() as i32,
+            sy.round() as i32,
+            sim_w as usize,
+            sim_h as usize,
+            0,
+            0.95,
+            &mut density,
+        );
+        let mut nearest = Vec::<(f32, usize)>::with_capacity(points.len().saturating_sub(1));
+        let mut j = 0usize;
+        while j < points.len() {
+            if j != idx {
+                let dx = sx - points[j].0;
+                let dy = sy - points[j].1;
+                nearest.push((dx * dx + dy * dy, j));
+            }
+            j += 1;
+        }
+        nearest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let max_links = 4.min(nearest.len());
+        let mut l = 0usize;
+        while l < max_links {
+            let (_, ni) = nearest[l];
+            let (tx, ty) = points[ni];
+            let wave = value_noise(sx * 0.012, sy * 0.012, ni as u32 ^ (idx as u32)) * 0.5 + 0.5;
+            draw_line(
+                sx.round() as i32,
+                sy.round() as i32,
+                tx.round() as i32,
+                ty.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                0.36 + wave * 0.34,
+                &mut density,
+            );
+            if l == 0 || (l + 1 == max_links && rng.next_f32() < 0.35) {
+                let mid_x = ((sx + tx) * 0.5).round() as i32;
+                let mid_y = ((sy + ty) * 0.5).round() as i32;
+                draw_point(
+                    mid_x,
+                    mid_y,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    0.55 + wave * 0.25,
+                    &mut density,
+                );
+            }
+            l += 1;
+        }
+        idx += 1;
+    }
+
+    let grain = noise_field(sim_w, sim_h, rng, 2);
+    let mut i = 0usize;
+    while i < density.len() {
+        density[i] = clamp01(
+            density[i] * 0.94
+                + grain[i] * 0.06
+                + value_noise(
+                    (i % sim_w as usize) as f32 * 0.01,
+                    (i / sim_w as usize) as f32 * 0.01,
+                    0xDEAD,
+                ) * 0.05,
+        );
+        i += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        let wave = value_noise(*value * 10.0, *value * 12.0, 0xBEEF) * 0.17;
+        *value = clamp01(value.powf(0.84) + wave - 0.06);
+    }
+    normalize(&mut out);
+    out
+}
+
+#[derive(Clone, Copy)]
+struct Metaball {
+    x: f32,
+    y: f32,
+    radius: f32,
+    strength: f32,
+}
+
+fn render_metaball_field(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 3).max(180).min(512);
+    let sim_h = (height / 3).max(180).min(512);
+    let seed = rng.next_u32();
+    let count = 22 + (seed % 34) as usize;
+    let base_scale = sim_w.min(sim_h) as f32;
+    let mut balls = Vec::with_capacity(count);
+
+    let mut i = 0usize;
+    while i < count {
+        let radius = base_scale * (0.008 + rng.next_f32() * 0.022);
+        balls.push(Metaball {
+            x: rng.next_f32() * (sim_w as f32 - 1.0),
+            y: rng.next_f32() * (sim_h as f32 - 1.0),
+            radius: radius,
+            strength: 0.45 + rng.next_f32() * 1.25,
+        });
+        i += 1;
+    }
+
+    let mut density = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut y = 0u32;
+    while y < sim_h {
+        let mut x = 0u32;
+        while x < sim_w {
+            let wx = x as f32 + (value_noise(x as f32 * 0.012, y as f32 * 0.011, seed) - 0.5) * 6.0;
+            let wy = y as f32
+                + (value_noise(y as f32 * 0.009, x as f32 * 0.010, seed ^ 0xAA) - 0.5) * 6.0;
+            let mut field = 0.0f32;
+            for ball in balls.iter() {
+                let dx = wx - ball.x;
+                let dy = wy - ball.y;
+                let dist2 = dx * dx + dy * dy;
+                let denom = dist2 + ball.radius * ball.radius;
+                field += (ball.strength * ball.radius * ball.radius) / denom;
+            }
+            let motion = value_noise(wx * 0.004, wy * 0.005, seed ^ (x * 17)) - 0.5;
+            let idx = (y * sim_w + x) as usize;
+            density[idx] = (field * (0.7 + motion)).clamp(0.0, 1.0);
+            x += 1;
+        }
+        y += 1;
+    }
+
+    let mut out = resize_bilinear(&density, sim_w, sim_h, width, height);
+    for value in out.iter_mut() {
+        let v = *value * 0.95;
+        *value = clamp01(v.powf(0.8) + value_noise(*value * 12.0, *value * 10.0, seed) * 0.18);
+    }
+    normalize(&mut out);
+    out
+}
+
+#[derive(Clone, Copy)]
+struct BraidSeed {
+    x: f32,
+    y: f32,
+    angle: f32,
+    velocity: f32,
+    remaining: u32,
+    depth: u32,
+    seed: u32,
+}
+
+fn render_braid_flow(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
+    let sim_w = (width / 3).max(180).min(520);
+    let sim_h = (height / 3).max(180).min(520);
+    let mut out = vec![0.0f32; (sim_w * sim_h) as usize];
+    let mut active = Vec::with_capacity((8 + (rng.next_u32() % 12)) as usize);
+    let count = 10 + (rng.next_u32() % 14);
+
+    let mut i = 0u32;
+    while i < count {
+        active.push(BraidSeed {
+            x: rng.next_f32() * (sim_w as f32 - 1.0),
+            y: rng.next_f32() * (sim_h as f32 - 1.0),
+            angle: rng.next_f32() * TAU,
+            velocity: 0.55 + rng.next_f32() * 1.45,
+            remaining: 170 + (rng.next_u32() % 250),
+            depth: 2 + (rng.next_u32() % 3),
+            seed: rng.next_u32(),
+        });
+        i += 1;
+    }
+
+    while let Some(thread) = active.pop() {
+        if thread.remaining < 2 || thread.depth == 0 {
+            continue;
+        }
+
+        let mut x = thread.x;
+        let mut y = thread.y;
+        let mut angle = thread.angle;
+        let mut step = 0u32;
+        let width_scale = sim_w as f32;
+        let height_scale = sim_h as f32;
+        while step < thread.remaining {
+            let noise = value_noise(
+                x * 0.009 + thread.seed as f32 * 0.001,
+                y * 0.011 + (thread.seed >> 3) as f32 * 0.001,
+                thread.seed ^ step,
+            );
+            let curl = noise - 0.5;
+            angle += curl * 1.85
+                - (value_noise(thread.seed as f32 * 0.01, x * 0.007, thread.seed ^ 0x1234) - 0.5)
+                    * 0.95;
+
+            let mut speed =
+                thread.velocity * (0.72 + 0.8 * (1.0 - (step as f32 / thread.remaining as f32)));
+            speed = speed.clamp(0.18, 2.8);
+
+            let nx = (x + angle.cos() * speed).rem_euclid(width_scale - 1.0);
+            let ny = (y + angle.sin() * speed).rem_euclid(height_scale - 1.0);
+
+            let t = (1.0 - (step as f32 / thread.remaining as f32)).powf(0.7);
+            let strength = (0.38 + 0.12 * thread.depth as f32 + 0.28 * t).clamp(0.3, 1.0);
+            draw_line(
+                x.round() as i32,
+                y.round() as i32,
+                nx.round() as i32,
+                ny.round() as i32,
+                sim_w as usize,
+                sim_h as usize,
+                strength,
+                &mut out,
+            );
+            if step % 9 == 0 {
+                draw_point(
+                    nx.round() as i32,
+                    ny.round() as i32,
+                    sim_w as usize,
+                    sim_h as usize,
+                    1,
+                    strength * 0.75,
+                    &mut out,
+                );
+            }
+
+            if step > 22
+                && thread.depth > 1
+                && (step % 17 == 0 || value_noise(nx * 0.02, ny * 0.018, thread.seed ^ step) > 0.87)
+            {
+                let branch_angle = angle
+                    + (value_noise(nx * 0.009, ny * 0.008, thread.seed ^ step ^ 0xBEEF) - 0.5)
+                        * 1.9;
+                let branch_velocity =
+                    speed * (0.45 + 0.35 * value_noise(nx * 0.013, ny * 0.012, step));
+                active.push(BraidSeed {
+                    x: nx,
+                    y: ny,
+                    angle: branch_angle,
+                    velocity: branch_velocity,
+                    remaining: (thread.remaining - step) / 2 + 40,
+                    depth: thread.depth - 1,
+                    seed: thread.seed ^ (step << 3) ^ 0x4A55,
+                });
+            }
+
+            x = nx;
+            y = ny;
+            step += 1;
+        }
+    }
+
+    let grain = noise_field(sim_w, sim_h, rng, 2);
+    let mut i = 0usize;
+    while i < out.len() {
+        out[i] = clamp01(out[i] * 0.92 + grain[i] * 0.08);
+        i += 1;
+    }
+    normalize(&mut out);
+    let mut resized = resize_bilinear(&out, sim_w, sim_h, width, height);
+    for value in resized.iter_mut() {
+        *value = clamp01(value.powf(0.84));
+    }
+    normalize(&mut resized);
+    resized
+}
+
 fn segment_wave(step: u32) -> f32 {
     let phase = step as f32 * 0.4;
     let s = phase.sin() * 0.5 + 0.5;
@@ -4111,6 +4686,11 @@ mod tests {
             CpuStrategy::LorenzAttractor,
             CpuStrategy::RecursiveStarburst,
             CpuStrategy::LogisticChaos,
+            CpuStrategy::LissajousOrbits,
+            CpuStrategy::GraviticWeb,
+            CpuStrategy::PoissonMesh,
+            CpuStrategy::MetaballField,
+            CpuStrategy::BraidFlow,
             CpuStrategy::InterferenceWaves,
             CpuStrategy::CliffordAttractor,
             CpuStrategy::JuliaSet,
