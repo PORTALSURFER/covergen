@@ -3,7 +3,6 @@ use std::io::{self, Cursor, Write};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc::channel,
 };
 use std::{
     error::Error,
@@ -19,11 +18,11 @@ use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
 };
 use rayon::prelude::*;
-use wgpu::util::DeviceExt;
 
 mod analysis;
 mod blending;
 mod config;
+mod gpu_render;
 mod strategies;
 
 use crate::analysis::{LumaStats, collect_luma_metrics, needs_complexity_fix};
@@ -32,6 +31,7 @@ use crate::config::{
     Config, MAX_OUTPUT_BYTES, MIN_IMAGE_DIMENSION, clamp_iteration_count, clamp_layer_count,
     resolve_fast_profile, resolve_fast_resolution, resolve_render_resolution,
 };
+use crate::gpu_render::GpuLayerRenderer;
 use crate::strategies::{
     RenderStrategy, pick_render_strategy_near_family_with_preferences,
     pick_render_strategy_with_preferences, render_cpu_strategy, strategy_profile,
@@ -2142,21 +2142,41 @@ fn downsample_luma(
     Ok(target)
 }
 
-fn stretch_to_percentile(src: &mut [f32], scratch: &mut [f32], low_pct: f32, high_pct: f32) {
+fn stretch_to_percentile(
+    src: &mut [f32],
+    scratch: &mut [f32],
+    low_pct: f32,
+    high_pct: f32,
+    fast_mode: bool,
+) {
     if src.is_empty() {
         return;
     }
 
     debug_assert_eq!(src.len(), scratch.len());
 
-    scratch.copy_from_slice(src);
-    let len_minus_1 = src.len() - 1;
+    let sample_limit = if fast_mode { 8_192usize } else { src.len() }
+        .min(src.len())
+        .max(2);
+
+    if sample_limit == src.len() {
+        scratch.copy_from_slice(src);
+    } else {
+        let step = (src.len() as f32 / sample_limit as f32) as f32;
+        for (idx, sample_target) in scratch[..sample_limit].iter_mut().enumerate() {
+            let source_idx = (idx as f32 * step).floor() as usize;
+            *sample_target = src[source_idx.min(src.len() - 1)];
+        }
+    }
+
+    let sample = &mut scratch[..sample_limit];
+    let len_minus_1 = sample_limit - 1;
     let low = (len_minus_1 as f32 * low_pct.clamp(0.0, 1.0)).round() as usize;
     let high = (len_minus_1 as f32 * high_pct.clamp(0.0, 1.0)).round() as usize;
-    scratch.select_nth_unstable_by(low, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
-    let in_min = scratch[low];
-    scratch.select_nth_unstable_by(high, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
-    let in_max = scratch[high];
+    sample.select_nth_unstable_by(low, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
+    let in_min = sample[low];
+    sample.select_nth_unstable_by(high, |a, b| a.partial_cmp(b).unwrap_or(CmpOrdering::Equal));
+    let in_max = sample[high];
     let span = in_max - in_min;
 
     if span <= f32::EPSILON {
@@ -2623,11 +2643,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn Error>> {
-    let shader = wgpu::ShaderModuleDescriptor {
-        label: Some("fractal shader"),
-        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-    };
-
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -2651,18 +2666,6 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-            },
-            None,
-        )
-        .await?;
-
-    let shader_module = device.create_shader_module(shader);
     let (render_width, render_height, resolved_antialias) =
         resolve_render_resolution(config.width, config.height, config.antialias);
     let fast = config.fast || render_width >= 1536;
@@ -2697,30 +2700,8 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    let mut params = Params {
-        width: render_width,
-        height: render_height,
-        symmetry: config.symmetry,
-        symmetry_style: 0,
-        iterations: config.iterations,
-        seed: config.seed,
-        fill_scale: config.fill_scale,
-        fractal_zoom: config.fractal_zoom,
-        art_style: ArtStyle::Hybrid.as_u32(),
-        art_style_secondary: ArtStyle::Field.as_u32(),
-        art_style_mix: 0.0,
-        bend_strength: 0.0,
-        warp_strength: 0.0,
-        warp_frequency: 1.0,
-        tile_scale: 1.0,
-        tile_phase: 0.0,
-        center_x: 0.0,
-        center_y: 0.0,
-        layer_count: 1,
-    };
+    let mut gpu = GpuLayerRenderer::new(&adapter, SHADER, render_width, render_height).await?;
 
-    let output_size =
-        (render_width as usize * render_height as usize * std::mem::size_of::<u32>()) as u64;
     let pixel_count = (render_width as usize) * (render_height as usize);
     let final_pixel_count = (config.width as usize) * (config.height as usize);
     let mut filtered = vec![0.0f32; pixel_count];
@@ -2731,78 +2712,6 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut final_pixels = vec![0u8; final_pixel_count];
     let mut final_luma = vec![0.0f32; final_pixel_count];
 
-    let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("output storage"),
-        size: output_size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("uniforms"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    });
-    let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("staging"),
-        size: output_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("bind group layout"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
-    });
-
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("bind group"),
-        layout: &bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: out_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: uniform_buffer.as_entire_binding(),
-            },
-        ],
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("pipeline layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("compute pipeline"),
-        layout: Some(&pipeline_layout),
-        module: &shader_module,
-        entry_point: "main",
-        compilation_options: wgpu::PipelineCompilationOptions::default(),
-    });
     let mut image_rng = XorShift32::new(config.seed);
     let mut luma = vec![0.0f32; pixel_count];
     let mut background = vec![0.0f32; pixel_count];
@@ -2811,54 +2720,15 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
 
-    let render_layer = |layer_params: &Params, out: &mut [f32]| -> Result<(), Box<dyn Error>> {
-        debug_assert_eq!(
-            out.len(),
-            (layer_params.width as usize) * (layer_params.height as usize)
-        );
-        queue.write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(layer_params));
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("command encoder"),
-        });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("compute pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            let work_x = (layer_params.width + 15) / 16;
-            let work_y = (layer_params.height + 15) / 16;
-            pass.dispatch_workgroups(work_x, work_y, 1);
-        }
-        encoder.copy_buffer_to_buffer(&out_buffer, 0, &staging_buffer, 0, output_size);
-        queue.submit(Some(encoder.finish()));
-
-        let slice = staging_buffer.slice(..);
-        let (sender, receiver) = channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            sender.send(result).expect("map callback dropped");
-        });
-        device.poll(wgpu::Maintain::Wait);
-        match receiver.recv()? {
-            Ok(()) => {}
-            Err(err) => return Err(format!("buffer map failed: {err:?}").into()),
-        }
-
-        {
-            let raw = slice.get_mapped_range();
-            decode_luma(&raw, out);
-        }
-        staging_buffer.unmap();
-        Ok(())
-    };
-
-    let render_strategy_layer = |strategy: RenderStrategy,
-                                 strategy_params: &Params,
-                                 out: &mut [f32]|
+    let mut render_strategy_layer = |strategy: RenderStrategy,
+                                     strategy_params: &Params,
+                                     out: &mut [f32]|
      -> Result<(), Box<dyn Error>> {
         match strategy {
-            RenderStrategy::Gpu(_) => render_layer(strategy_params, out),
+            RenderStrategy::Gpu(_) => {
+                gpu.render_layer(strategy_params, out)?;
+                Ok(())
+            }
             RenderStrategy::Cpu(cpu_strategy) => {
                 let generated = render_cpu_strategy(
                     cpu_strategy,
@@ -2984,7 +2854,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 );
             }
 
-            params = Params {
+            let params = Params {
                 width: render_width,
                 height: render_height,
                 symmetry: modulate_symmetry(base_symmetry, &mut image_rng, fast),
@@ -3111,7 +2981,13 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 apply_dynamic_filter(render_width, render_height, &luma, &mut filtered, &filter);
                 let low_stretch = if fast { 0.03 } else { 0.04 };
                 let high_stretch = if fast { 0.97 } else { 0.96 };
-                stretch_to_percentile(&mut filtered, &mut percentile, low_stretch, high_stretch);
+                stretch_to_percentile(
+                    &mut filtered,
+                    &mut percentile,
+                    low_stretch,
+                    high_stretch,
+                    fast,
+                );
             } else {
                 filtered.copy_from_slice(&luma);
                 stretch_to_percentile(
@@ -3119,6 +2995,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     &mut percentile,
                     if fast { 0.02 } else { 0.03 },
                     if fast { 0.98 } else { 0.97 },
+                    fast,
                 );
             }
 
@@ -3147,6 +3024,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     &mut percentile,
                     if fast { 0.01 } else { 0.02 },
                     if fast { 0.99 } else { 0.98 },
+                    fast,
                 );
             }
             if !apply_filter && !apply_gradient {
@@ -3256,6 +3134,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             &mut percentile,
             if fast { 0.01 } else { 0.01 },
             if fast { 0.99 } else { 0.99 },
+            fast,
         );
 
         let mut final_metrics = collect_luma_metrics(&layered, render_width, render_height);
@@ -3294,6 +3173,7 @@ async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 &mut percentile,
                 if fast { 0.01 } else { 0.01 },
                 if fast { 0.99 } else { 0.99 },
+                fast,
             );
             final_metrics = collect_luma_metrics(&layered, render_width, render_height);
         }
