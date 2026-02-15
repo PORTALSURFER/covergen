@@ -205,13 +205,13 @@ fn fold_symmetry_mirror_diagonal(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     let folded = fold_symmetry_mirror(rotated_x, rotated_y, symmetry);
     let unrotated_x = (folded.x * c) - (folded.y * s);
     let unrotated_y = (folded.x * s) + (folded.y * c);
-    vec2<f32>(unrotated_x, unrotated_y);
+    return vec2<f32>(unrotated_x, unrotated_y);
 }
 
 fn fold_symmetry_mirror_cross(px: f32, py: f32, symmetry: u32) -> vec2<f32> {
     let first = fold_symmetry_mirror(abs(px), abs(py), max(symmetry, 2u));
     let second = fold_symmetry_mirror(first.x, first.y, max(symmetry, 2u));
-    vec2<f32>(abs(second.x), abs(second.y))
+    return vec2<f32>(abs(second.x), abs(second.y));
 }
 
 fn fold_symmetry_grid(
