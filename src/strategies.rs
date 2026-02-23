@@ -602,12 +602,90 @@ pub struct StrategyProfile {
 /// update workspace output buffers in place without allocating a new output
 /// `Vec<f32>` each call.
 #[derive(Debug, Default)]
-pub struct StrategyScratch {
+struct ReactionScratch {
     reaction_u: Vec<f32>,
     reaction_v: Vec<f32>,
     reaction_next_u: Vec<f32>,
     reaction_next_v: Vec<f32>,
     reaction_noise: Vec<f32>,
+}
+
+/// Reusable scratch buffers for CPU strategy rendering.
+///
+/// This keeps strategy-local state grouped by family (for example reaction
+/// simulations) so renderers can reuse allocations across layers and images.
+#[derive(Debug, Default)]
+pub struct StrategyScratch {
+    reaction: ReactionScratch,
+}
+
+/// Mutable context shared by strategy renderers implementing `render_into`.
+struct StrategyRenderContext<'a> {
+    strategy: CpuStrategy,
+    width: u32,
+    height: u32,
+    fast: bool,
+    rng: &'a mut XorShift32,
+    out: &'a mut [f32],
+    scratch: &'a mut StrategyScratch,
+}
+
+/// Render contract for CPU strategies writing directly into an output buffer.
+trait StrategyRenderInto {
+    fn render_into(context: &mut StrategyRenderContext<'_>);
+}
+
+struct ReactionDiffusionRenderer;
+
+impl StrategyRenderInto for ReactionDiffusionRenderer {
+    fn render_into(context: &mut StrategyRenderContext<'_>) {
+        render_reaction_diffusion_into(
+            context.width,
+            context.height,
+            context.rng,
+            context.fast,
+            context.out,
+            &mut context.scratch.reaction,
+        );
+    }
+}
+
+struct ReactionLatticeRenderer;
+
+impl StrategyRenderInto for ReactionLatticeRenderer {
+    fn render_into(context: &mut StrategyRenderContext<'_>) {
+        render_reaction_lattice_into(
+            context.width,
+            context.height,
+            context.rng,
+            context.fast,
+            context.out,
+            &mut context.scratch.reaction,
+        );
+    }
+}
+
+struct LegacyAllocRenderer;
+
+impl StrategyRenderInto for LegacyAllocRenderer {
+    fn render_into(context: &mut StrategyRenderContext<'_>) {
+        let generated = render_cpu_strategy_alloc(
+            context.strategy,
+            context.width,
+            context.height,
+            context.rng,
+            context.fast,
+        );
+        context.out.copy_from_slice(&generated);
+    }
+}
+
+fn render_cpu_strategy_with_trait(context: &mut StrategyRenderContext<'_>) {
+    match context.strategy {
+        CpuStrategy::ReactionDiffusion => ReactionDiffusionRenderer::render_into(context),
+        CpuStrategy::ReactionLattice => ReactionLatticeRenderer::render_into(context),
+        _ => LegacyAllocRenderer::render_into(context),
+    }
 }
 
 fn ensure_len_with_fill(buffer: &mut Vec<f32>, len: usize, fill: f32) {
@@ -1027,19 +1105,16 @@ pub fn render_cpu_strategy_into(
     } else {
         strategy
     };
-    match strategy {
-        CpuStrategy::ReactionDiffusion => {
-            render_reaction_diffusion_into(width, height, &mut rng, budget_fast, out, scratch)
-        }
-        CpuStrategy::ReactionLattice => {
-            render_reaction_lattice_into(width, height, &mut rng, budget_fast, out, scratch)
-        }
-        _ => {
-            let generated =
-                render_cpu_strategy_alloc(strategy, width, height, &mut rng, budget_fast);
-            out.copy_from_slice(&generated);
-        }
-    }
+    let mut context = StrategyRenderContext {
+        strategy,
+        width,
+        height,
+        fast: budget_fast,
+        rng: &mut rng,
+        out,
+        scratch,
+    };
+    render_cpu_strategy_with_trait(&mut context);
 }
 
 fn render_cpu_strategy_alloc(
@@ -1909,7 +1984,7 @@ fn render_reaction_diffusion(
 ) -> Vec<f32> {
     let mut out = vec![0.0f32; (width * height) as usize];
     let mut scratch = StrategyScratch::default();
-    render_reaction_diffusion_into(width, height, rng, fast, &mut out, &mut scratch);
+    render_reaction_diffusion_into(width, height, rng, fast, &mut out, &mut scratch.reaction);
     out
 }
 
@@ -1919,7 +1994,7 @@ fn render_reaction_diffusion_into(
     rng: &mut XorShift32,
     fast: bool,
     out: &mut [f32],
-    scratch: &mut StrategyScratch,
+    scratch: &mut ReactionScratch,
 ) {
     debug_assert_eq!(out.len(), (width * height) as usize);
     let sim_w = (width / 2).max(128);
@@ -5615,7 +5690,7 @@ fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: b
 fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
     let mut out = vec![0.0f32; (width * height) as usize];
     let mut scratch = StrategyScratch::default();
-    render_reaction_lattice_into(width, height, rng, fast, &mut out, &mut scratch);
+    render_reaction_lattice_into(width, height, rng, fast, &mut out, &mut scratch.reaction);
     out
 }
 
@@ -5625,7 +5700,7 @@ fn render_reaction_lattice_into(
     rng: &mut XorShift32,
     fast: bool,
     out: &mut [f32],
-    scratch: &mut StrategyScratch,
+    scratch: &mut ReactionScratch,
 ) {
     debug_assert_eq!(out.len(), (width * height) as usize);
     let sim_w = (width / 2).clamp(130, 500);
