@@ -1,7 +1,7 @@
 # Active TODO (Ordered)
 
-1. Execute tiered baseline capture on target hardware hosts and commit locked threshold files in `docs/v2/benchmarks/*.thresholds.ini`.
-2. Expand V2 visual regression corpus (preset coverage + additional sampled animation frames) and lock snapshot updates to explicit review.
-3. Complete remaining GPU post-process parity work so V2 output path is consistently GPU-first.
-4. Prepare V2-default switch patch with explicit V1 legacy fallback and release-note migration guidance.
-5. Execute cutover decision checklist in `docs/v2/migration.md` and decide V1 deprecation window.
+1. Capture and commit locked benchmark thresholds for target hardware tiers in `docs/v2/benchmarks/*.thresholds.ini` (desktop + laptop classes).
+2. Run tier-specific threshold validation in CI or scheduled jobs once per tier file is landed.
+3. Expand visual regression fixtures for larger output sizes and additional graph-native preset families.
+4. Monitor V2-default gate stability through the V1 deprecation window and track any accepted visual/perf exceptions.
+5. Prepare and review the V1 removal patch plan for post-window execution (after 2026-05-24).

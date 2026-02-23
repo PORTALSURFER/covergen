@@ -2,61 +2,39 @@
 
 ## Current Contract
 
-- `covergen` runs V1 (`src/engine.rs`) as the legacy compatibility path.
-- `covergen v2 ...` runs the V2 graph runtime (`src/v2/*`).
-- V1 is intentionally retained short-term while V2 rollout gates are validated.
+- `covergen` runs V2 (`src/v2/*`) by default.
+- `covergen v2 ...` runs V2 explicitly.
+- `covergen v1` runs the legacy V1 compatibility path (`src/engine.rs`).
 
-## Migration Phases
+## Cutover + Deprecation Window
 
-### Phase 0: Parallel Stabilization (current)
+- Default-path cutover to V2 is active as of **February 23, 2026**.
+- V1 deprecation window is active from **February 23, 2026** through **May 24, 2026**.
+- During this window, V1 remains supported only through explicit `covergen v1`.
 
-- Keep V1 as default path.
-- Expand and stabilize V2 graph/runtime features.
-- Collect benchmark and visual regression evidence for cutover.
+## Cutover Checklist Status
 
-### Phase 1: Cutover Decision
+1. CLI contract
+   - Complete: explicit `covergen v1` mode exists.
+   - Complete: default path routes to V2 (`src/main.rs`).
+2. CI performance gate
+   - Complete: benchmark threshold workflow exists in `.github/workflows/perf-gates.yml`.
+   - Complete: CI software threshold baseline is locked at `.github/bench/ci_software.thresholds.ini`.
+3. CI visual regression gate
+   - Complete: fixed-seed still + sampled animation snapshot tests run in `.github/workflows/perf-gates.yml`.
+4. Documentation + handoff
+   - Complete: README mode contract and deprecation dates updated.
+   - Complete: migration notes, active TODO, and memory state aligned.
 
-Trigger a cutover decision only when all gates below are met in CI/local release runs:
+## Remaining Migration Work
 
-1. Performance gate:
-   - Benchmark report + metrics snapshot generated via `cargo run -- bench --tier <tier>`.
-   - Tier thresholds are locked from baseline with `--lock-thresholds`.
-   - Tier validation passes with `--thresholds`.
-   - V2 still render p95 latency is at or below agreed target for primary preset/profile set.
-   - V2 animation throughput and p95 frame-time satisfy reels target profile.
-2. Determinism/visual gate:
-   - V2 fixed-seed still snapshot tests pass.
-   - V2 sampled animation-frame snapshot tests pass.
-3. Coverage gate:
-   - Preset library uses graph-native node topology (branch/merge), not only layer stacks.
-   - Critical node operators (source/mask/blend/tone/warp) exercised by tests.
-4. Operational gate:
-   - Benchmark + regression workflows are documented and repeatable from a clean checkout.
+- Capture and lock threshold files for target non-CI hardware tiers in `docs/v2/benchmarks/*.thresholds.ini`.
+- Monitor benchmark + snapshot gate stability through the full deprecation window.
+- Decide V1 removal after deprecation window closes and stability criteria remain green.
 
-### Phase 2: Default Switch (after decision)
+## Evidence Artifacts
 
-- Make V2 the default command path.
-- Keep V1 reachable via explicit legacy invocation for one deprecation window.
-- Monitor benchmark deltas and regression failures across at least one release cycle.
-
-### Phase 3: V1 Deprecation
-
-- Announce V1 deprecation window end.
-- Remove V1 default-path wiring after V2 coverage and quality remain stable through the window.
-- Keep migration notes and historical benchmark/regression artifacts for traceability.
-
-## Decision Artifacts
-
-Before approving cutover, capture and review:
-
-- `target/bench/benchmark_report.md` from representative hosts.
-- `target/bench/benchmark_metrics.ini` from representative hosts.
-- Locked threshold files per tier in `docs/v2/benchmarks/*.thresholds.ini`.
-- Snapshot test pass results for V2 still + animation sampled frames.
-- Any known visual differences and accepted exceptions (if any).
-
-## Current State Summary
-
-- V2 now has graph-native presets, runtime telemetry, and benchmark reporting.
-- V2 deterministic visual regression tests exist for fixed-seed stills and sampled animation frames.
-- V1 remains available as a compatibility path until cutover gates are explicitly signed off.
+- CI gate workflow: `.github/workflows/perf-gates.yml`
+- CI software thresholds: `.github/bench/ci_software.thresholds.ini`
+- Runtime benchmark report output: `target/bench_ci_software/benchmark_report.md`
+- Runtime benchmark metrics output: `target/bench_ci_software/benchmark_metrics.ini`

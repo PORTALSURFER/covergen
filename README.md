@@ -4,10 +4,12 @@ GPU-driven procedural cover generation.
 
 ## Modes
 
-- `covergen` runs the legacy V1 pipeline (`src/engine.rs`) during migration.
-- `covergen v2 ...` runs the node-graph V2 runtime (`src/v2/*`).
+- `covergen` runs the V2 node-graph runtime (`src/v2/*`) by default.
+- `covergen v2 ...` runs V2 explicitly.
+- `covergen v1` runs the legacy V1 pipeline (`src/engine.rs`).
+- `covergen bench ...` runs benchmark + telemetry workflows.
 
-V1 remains available short-term as a compatibility path. Cutover/deprecation gates are documented in `docs/v2/migration.md`.
+V1 deprecation window is active from **February 23, 2026** through **May 24, 2026**. Cutover and deprecation gates are documented in `docs/v2/migration.md`.
 
 ## V2 Quick Start
 

@@ -27,5 +27,6 @@ cargo run -- bench \
 - Runtime report: `target/bench/<tier-name>/benchmark_report.md`
 - Machine-readable metrics: `target/bench/<tier-name>/benchmark_metrics.ini`
 - Locked thresholds: `docs/v2/benchmarks/<tier-name>.thresholds.ini`
+- CI software-gate thresholds: `.github/bench/ci_software.thresholds.ini`
 
 Threshold files are generated directly from measured baselines and include p50/p95 latency, frame time, and throughput bounds.

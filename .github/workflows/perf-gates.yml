@@ -1,0 +1,67 @@
+name: Performance Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  visual-regression:
+    name: V2 Visual Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run V2 still snapshot regression
+        run: cargo test v2_still_fixed_seed_snapshots_match
+
+      - name: Run V2 animation snapshot regression
+        run: cargo test v2_animation_fixed_seed_sampled_frames_match
+
+  benchmark-thresholds:
+    name: Benchmark Threshold Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmark threshold validation
+        run: >
+          cargo run --quiet -- bench
+          --tier ci_software
+          --samples 3
+          --animation-samples 1
+          --size 128
+          --seconds 1
+          --fps 4
+          --output-dir target/bench_ci_software
+          --thresholds .github/bench/ci_software.thresholds.ini
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-ci-software
+          path: |
+            target/bench_ci_software/benchmark_report.md
+            target/bench_ci_software/benchmark_metrics.ini
