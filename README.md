@@ -13,6 +13,12 @@ GPU-driven procedural cover generation.
 cargo run -- v2 --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
 ```
 
+Instagram Reels animation (30 seconds, vertical 1080x1920, gentle modulation):
+
+```bash
+cargo run -- v2 --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
+```
+
 Useful V2 flags:
 
 - `--size <u32>` or `--width/--height`
@@ -23,6 +29,9 @@ Useful V2 flags:
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
+- `--animate --seconds <u32> --fps <u32>`
+- `--reels` (forces 1080x1920 and enables animation)
+- `--keep-frames` (preserve temporary PNG frames after MP4 encode)
 
 ## V2 Design Docs
 

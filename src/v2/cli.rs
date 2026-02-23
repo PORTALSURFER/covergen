@@ -19,6 +19,16 @@ impl V2Profile {
     }
 }
 
+/// Animation settings for V2 clip generation.
+#[derive(Debug, Clone)]
+pub struct AnimationConfig {
+    pub enabled: bool,
+    pub seconds: u32,
+    pub fps: u32,
+    pub keep_frames: bool,
+    pub reels: bool,
+}
+
 /// Parsed V2 command-line configuration.
 #[derive(Debug, Clone)]
 pub struct V2Config {
@@ -31,6 +41,7 @@ pub struct V2Config {
     pub antialias: u32,
     pub preset: String,
     pub profile: V2Profile,
+    pub animation: AnimationConfig,
 }
 
 impl V2Config {
@@ -46,6 +57,13 @@ impl V2Config {
             antialias: 1,
             preset: "hybrid-stack".to_string(),
             profile: V2Profile::Quality,
+            animation: AnimationConfig {
+                enabled: false,
+                seconds: 30,
+                fps: 30,
+                keep_frames: false,
+                reels: false,
+            },
         };
 
         let mut iter = args.into_iter();
@@ -91,6 +109,23 @@ impl V2Config {
                     let value = iter.next().ok_or("missing value for --profile")?;
                     cfg.profile = V2Profile::parse(&value)?;
                 }
+                "--animate" => {
+                    cfg.animation.enabled = true;
+                }
+                "--seconds" => {
+                    let value = iter.next().ok_or("missing value for --seconds")?;
+                    cfg.animation.seconds = value.parse()?;
+                }
+                "--fps" => {
+                    let value = iter.next().ok_or("missing value for --fps")?;
+                    cfg.animation.fps = value.parse()?;
+                }
+                "--keep-frames" => {
+                    cfg.animation.keep_frames = true;
+                }
+                "--reels" => {
+                    cfg.animation.reels = true;
+                }
                 _ => return Err(format!("unknown v2 argument: {arg}").into()),
             }
         }
@@ -107,7 +142,48 @@ impl V2Config {
         if cfg.antialias == 0 || cfg.antialias > 4 {
             return Err("v2 antialias must be in range 1..=4".into());
         }
+        if cfg.animation.seconds == 0 {
+            return Err("v2 animation duration must be at least 1 second".into());
+        }
+        if cfg.animation.fps == 0 || cfg.animation.fps > 120 {
+            return Err("v2 fps must be in range 1..=120".into());
+        }
+
+        if cfg.animation.reels {
+            cfg.width = 1080;
+            cfg.height = 1920;
+            cfg.animation.enabled = true;
+        }
+
+        if cfg.animation.enabled && !cfg.output.to_ascii_lowercase().ends_with(".mp4") {
+            cfg.output.push_str(".mp4");
+        }
 
         Ok(cfg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::V2Config;
+
+    #[test]
+    fn reels_mode_enables_animation_and_dimensions() {
+        let cfg =
+            V2Config::parse(vec!["--reels".to_string()]).expect("reels configuration should parse");
+        assert_eq!(cfg.width, 1080);
+        assert_eq!(cfg.height, 1920);
+        assert!(cfg.animation.enabled);
+    }
+
+    #[test]
+    fn animate_output_defaults_to_mp4_extension() {
+        let cfg = V2Config::parse(vec![
+            "--animate".to_string(),
+            "--output".to_string(),
+            "clip".to_string(),
+        ])
+        .expect("animation configuration should parse");
+        assert!(cfg.output.ends_with(".mp4"));
     }
 }

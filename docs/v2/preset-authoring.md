@@ -33,3 +33,5 @@ Current presets:
 - Keep node params clamped to shader-safe ranges.
 - Vary blend mode/opacity gradually across layer depth.
 - Use profile (`quality`/`performance`) to scale iterations and complexity.
+- For animation-friendly presets, avoid abrupt discrete parameter jumps;
+  prefer ranges that remain visually stable under slow modulation.

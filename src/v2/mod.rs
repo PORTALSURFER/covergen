@@ -4,6 +4,7 @@
 //! rendering. Graphs are generated in code, compiled into an execution plan,
 //! and executed via retained GPU buffers with one image-end readback.
 
+pub mod animation;
 pub mod cli;
 pub mod compiler;
 pub mod graph;

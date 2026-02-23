@@ -24,6 +24,14 @@
 5. Read back once to host memory.
 6. Final normalization/downsample/PNG encode.
 
+Animation path:
+
+1. Compile once per clip.
+2. For each frame, modulate layer params with deterministic low-frequency
+   functions.
+3. Execute retained GPU graph and read back once per frame.
+4. Encode PNG sequence and assemble MP4 with ffmpeg.
+
 ## Current Runtime Limits
 
 - Current executor supports linear or near-linear graphs where each `GenerateLayer`
