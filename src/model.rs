@@ -296,7 +296,7 @@ impl SymmetryStyle {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum LayerBlendMode {
     Normal,
     Add,
