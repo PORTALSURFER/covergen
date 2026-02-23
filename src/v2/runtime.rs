@@ -5,12 +5,14 @@
 
 use std::error::Error;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{
     apply_contrast, downsample_luma, encode_gray, encode_png_bytes, resolve_output_path,
     save_png_under_10mb, stretch_to_percentile,
 };
+use crate::telemetry;
 use image::codecs::png::CompressionType;
 
 use super::animation::{
@@ -37,6 +39,7 @@ pub async fn execute_compiled(
     config: &V2Config,
     compiled: &CompiledGraph,
 ) -> Result<(), Box<dyn Error>> {
+    telemetry::snapshot_memory("v2.run.start");
     let needs_gpu = graph_uses_gpu_generation(compiled);
     let mut renderer = if needs_gpu {
         Some(create_renderer(config, compiled).await?)
@@ -58,11 +61,14 @@ pub async fn execute_compiled(
     }
 
     for image_index in 0..config.count {
+        let image_start = Instant::now();
+        telemetry::snapshot_memory(format!("v2.image.{image_index}.start"));
         let image_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
             .wrapping_add(image_index.wrapping_mul(0x9E37_79B9));
 
+        let render_start = Instant::now();
         render_graph_luma(
             compiled,
             renderer.as_mut(),
@@ -70,8 +76,12 @@ pub async fn execute_compiled(
             image_seed_offset,
             None,
         )?;
+        telemetry::record_timing("v2.image.render", render_start.elapsed());
+        let finalize_start = Instant::now();
         finalize_luma_for_output(config, compiled, renderer.as_mut(), &mut buffers)?;
+        telemetry::record_timing("v2.image.finalize", finalize_start.elapsed());
 
+        let output_start = Instant::now();
         let indexed_output = indexed_output(&config.output, image_index, config.count);
         let output_path = resolve_output_path(&indexed_output.to_string_lossy());
         let (w, h, bytes) = save_png_under_10mb(
@@ -80,6 +90,9 @@ pub async fn execute_compiled(
             config.height,
             &buffers.output_gray,
         )?;
+        telemetry::record_timing("v2.image.output", output_start.elapsed());
+        telemetry::record_timing("v2.image.total", image_start.elapsed());
+        telemetry::snapshot_memory(format!("v2.image.{image_index}.end"));
 
         println!(
             "[v2] generated {} | graph {}x{} -> output {}x{} | nodes {} | {:.2}MB",
@@ -92,6 +105,7 @@ pub async fn execute_compiled(
             bytes as f64 / (1024.0 * 1024.0)
         );
     }
+    telemetry::snapshot_memory("v2.run.end");
 
     Ok(())
 }
@@ -104,6 +118,8 @@ fn execute_animation(
 ) -> Result<(), Box<dyn Error>> {
     let frames = total_frames(&config.animation);
     for clip_index in 0..config.count {
+        let clip_start = Instant::now();
+        telemetry::snapshot_memory(format!("v2.animation.clip.{clip_index}.start"));
         let frame_dir = if config.animation.keep_frames {
             Some(create_frame_dir(&config.output, clip_index)?)
         } else {
@@ -126,6 +142,7 @@ fn execute_animation(
             .wrapping_add(clip_index.wrapping_mul(0x6A09_E667));
 
         for frame_index in 0..frames {
+            let frame_start = Instant::now();
             let frame_seed_offset =
                 clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9));
             let graph_time = GraphTimeInput::from_frame(frame_index, frames);
@@ -152,6 +169,9 @@ fn execute_animation(
             } else {
                 return Err("animation encoder path is not configured".into());
             }
+            let frame_elapsed = frame_start.elapsed();
+            telemetry::record_timing("v2.animation.frame.total", frame_elapsed);
+            telemetry::record_frame("v2.animation.frame.total", frame_elapsed);
         }
 
         if let Some(encoder) = stream_encoder {
@@ -173,6 +193,8 @@ fn execute_animation(
             frames,
             clip_path.display()
         );
+        telemetry::record_timing("v2.animation.clip.total", clip_start.elapsed());
+        telemetry::snapshot_memory(format!("v2.animation.clip.{clip_index}.end"));
     }
     Ok(())
 }
@@ -196,6 +218,7 @@ fn finalize_luma_for_output(
 
     if compiled.can_use_retained_layer_path {
         let renderer = renderer.ok_or("retained finalization requires GPU renderer")?;
+        let retained_finalize_start = Instant::now();
         renderer.collect_retained_output_gray(
             &mut buffers.output_gray,
             final_contrast,
@@ -203,6 +226,10 @@ fn finalize_luma_for_output(
             0.99,
             fast_mode,
         )?;
+        telemetry::record_timing(
+            "v2.gpu.node.finalize_retained_output",
+            retained_finalize_start.elapsed(),
+        );
         return Ok(());
     }
 

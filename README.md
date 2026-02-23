@@ -33,6 +33,18 @@ Useful V2 flags:
 - `--reels` (forces 1080x1920 and enables animation)
 - `--keep-frames` (preserve temporary PNG frames after MP4 encode)
 
+## Benchmark Suite
+
+Run V1 vs V2 benchmark + telemetry report:
+
+```bash
+cargo run -- bench
+```
+
+Report output:
+
+- `target/bench/benchmark_report.md`
+
 ## V2 Design Docs
 
 - `docs/v2/architecture.md`

@@ -5,9 +5,11 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{apply_contrast, blend_layer_stack, stretch_to_percentile};
+use crate::telemetry;
 
 use super::compiler::{
     CompiledGraph, CompiledNodeStep, CompiledOp, CompiledResourcePlan, CompiledValueKind,
@@ -49,22 +51,29 @@ fn evaluate_retained_layer_graph(
     renderer.begin_retained_image()?;
 
     for step in &compiled.steps {
+        let node_start = Instant::now();
         match step.op {
             CompiledOp::GenerateLayer(layer) => {
                 let effective = modulation.map_or(layer, |time| layer.with_time(time));
                 let params = effective.to_params(compiled.width, compiled.height, seed_offset);
+                let gpu_start = Instant::now();
                 renderer.submit_retained_layer(
                     &params,
                     effective.opacity,
                     effective.blend_mode.as_u32(),
                     effective.contrast,
                 )?;
+                telemetry::record_timing(
+                    "v2.gpu.node.generate_layer.retained",
+                    gpu_start.elapsed(),
+                );
             }
             CompiledOp::Output => {}
             _ => {
                 return Err("non-layer node found in retained-layer execution path".into());
             }
         }
+        telemetry::record_timing(op_scope(step.op), node_start.elapsed());
     }
 
     Ok(())
@@ -83,6 +92,7 @@ fn evaluate_mixed_graph(
     let mut output_written = false;
 
     for (step_index, step) in compiled.steps.iter().enumerate() {
+        let node_start = Instant::now();
         match step.op {
             CompiledOp::GenerateLayer(layer) => {
                 let effective = modulation.map_or(layer, |time| layer.with_time(time));
@@ -181,6 +191,7 @@ fn evaluate_mixed_graph(
                 output_written = true;
             }
         }
+        telemetry::record_timing(op_scope(step.op), node_start.elapsed());
 
         release_step_values(step_index, compiled, &mut values, &mut arena)?;
     }
@@ -204,7 +215,9 @@ fn execute_generate_layer(
 ) -> Result<(), Box<dyn Error>> {
     let renderer = renderer.ok_or("generate-layer node requires GPU renderer")?;
     let params = layer.to_params(compiled.width, compiled.height, seed_offset);
+    let gpu_start = Instant::now();
     renderer.render_layer(&params, &mut buffers.layer_scratch)?;
+    telemetry::record_timing("v2.gpu.node.generate_layer", gpu_start.elapsed());
     apply_contrast(&mut buffers.layer_scratch, layer.contrast);
 
     let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
@@ -224,6 +237,18 @@ fn execute_generate_layer(
 
     values.insert(step.node_id, RuntimeValue::Luma(out));
     Ok(())
+}
+
+fn op_scope(op: CompiledOp) -> &'static str {
+    match op {
+        CompiledOp::GenerateLayer(_) => "v2.node.generate_layer",
+        CompiledOp::SourceNoise(_) => "v2.node.source_noise",
+        CompiledOp::Mask(_) => "v2.node.mask",
+        CompiledOp::Blend(_) => "v2.node.blend",
+        CompiledOp::ToneMap(_) => "v2.node.tonemap",
+        CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
+        CompiledOp::Output => "v2.node.output",
+    }
 }
 
 fn release_step_values(

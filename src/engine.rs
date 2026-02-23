@@ -24,6 +24,7 @@ use crate::strategies::{
     RenderStrategy, StrategyScratch, fit_strategy_to_budget, pick_render_strategy_with_preferences,
     record_strategy_runtime, render_cpu_strategy_into, render_strategy_cost, strategy_profile,
 };
+use crate::telemetry;
 
 /// WGSL compute shader source used by the GPU renderer.
 const SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl"));
@@ -99,15 +100,21 @@ fn render_strategy_layer(
     gpu: &mut Option<GpuLayerRenderer>,
     strategy_scratch: &mut StrategyScratch,
 ) -> Result<(), Box<dyn Error>> {
+    let strategy_label = strategy.label();
     match strategy {
         RenderStrategy::Gpu(_) => {
+            let start = Instant::now();
             let renderer = gpu
                 .as_mut()
                 .ok_or("gpu renderer unavailable; initialize before gpu layer render")?;
             renderer.render_layer(strategy_params, out)?;
+            let elapsed = start.elapsed();
+            telemetry::record_timing("v1.gpu.node.generate_layer", elapsed);
+            telemetry::record_timing(format!("v1.strategy.{strategy_label}"), elapsed);
             Ok(())
         }
         RenderStrategy::Cpu(cpu_strategy) => {
+            let start = Instant::now();
             render_cpu_strategy_into(
                 cpu_strategy,
                 render_width,
@@ -118,6 +125,7 @@ fn render_strategy_layer(
                 out,
                 strategy_scratch,
             );
+            telemetry::record_timing(format!("v1.strategy.{strategy_label}"), start.elapsed());
             Ok(())
         }
     }
@@ -233,11 +241,13 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             "[perf] retained GPU postprocess enabled (single image-end readback path active)",
         );
     }
+    telemetry::snapshot_memory("v1.run.start");
 
     for i in 0..config.count {
         let image_start = Instant::now();
         let image_setup_start = Instant::now();
         let mut layers_total_ms = 0.0f64;
+        telemetry::snapshot_memory(format!("v1.image.{i}.start"));
         spinner_state.set_image((i + 1) as usize, 0);
         let mut image_seed = image_rng.next_u32();
         if image_seed == 0 {
@@ -457,6 +467,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     layer_contrast.max(1.0),
                 )?;
                 let retained_elapsed = retained_start.elapsed();
+                telemetry::record_timing("v1.gpu.node.generate_layer.retained", retained_elapsed);
                 record_strategy_runtime(layer_strategy, retained_elapsed);
                 let layer_ms = retained_elapsed.as_secs_f64() * 1000.0;
                 strategy_budget = strategy_budget.saturating_sub(layer_cost);
@@ -821,6 +832,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let layer_post_ms = layer_post_start.elapsed().as_secs_f64() * 1000.0;
             let layer_total_ms = layer_start.elapsed().as_secs_f64() * 1000.0;
             layers_total_ms += layer_total_ms;
+            telemetry::record_timing_ms("v1.layer.total", layer_total_ms);
             if perf_timing_enabled {
                 log_progress_message(&format!(
                     "[perf] image {}/{} layer {}/{} | render {:.2}ms | mix {:.2}ms | post {:.2}ms | total {:.2}ms",
@@ -988,6 +1000,13 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             final_metrics.stats.mean
         );
         let output_stage_ms = output_stage_start.elapsed().as_secs_f64() * 1000.0;
+        let image_total_ms = image_start.elapsed().as_secs_f64() * 1000.0;
+        telemetry::record_timing_ms("v1.image.setup", image_setup_ms);
+        telemetry::record_timing_ms("v1.image.layers", layers_total_ms);
+        telemetry::record_timing_ms("v1.image.finalize", image_finalize_ms);
+        telemetry::record_timing_ms("v1.image.output", output_stage_ms);
+        telemetry::record_timing_ms("v1.image.total", image_total_ms);
+        telemetry::snapshot_memory(format!("v1.image.{i}.end"));
         if perf_timing_enabled {
             log_progress_message(&format!(
                 "[perf] image {}/{} summary | setup {:.2}ms | layers {:.2}ms | finalize {:.2}ms | output {:.2}ms | total {:.2}ms",
@@ -997,10 +1016,11 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 layers_total_ms,
                 image_finalize_ms,
                 output_stage_ms,
-                image_start.elapsed().as_secs_f64() * 1000.0
+                image_total_ms
             ));
         }
     }
+    telemetry::snapshot_memory("v1.run.end");
     spinner_running.store(false, Ordering::Release);
     let _ = write!(io::stderr(), "\r{:<120}\r", "");
     let _ = io::stderr().flush();
