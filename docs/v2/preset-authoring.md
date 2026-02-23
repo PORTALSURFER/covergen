@@ -6,7 +6,7 @@ Presets are Rust functions that construct graphs with `GraphBuilder`.
 
 Entry point:
 
-- `src/v2/presets.rs::build_preset_graph`
+- `src/v2/presets/mod.rs::build_preset_graph`
 
 Current presets:
 
@@ -26,8 +26,8 @@ Current presets:
 
 ## Adding a Preset
 
-1. Add a new builder function in `src/v2/presets.rs`.
-2. Register it in `build_preset_graph` match.
+1. Add a new builder function in `src/v2/presets/families.rs`.
+2. Register it in `src/v2/presets/mod.rs::build_preset_graph`.
 3. Keep generation deterministic for fixed seed.
 4. Keep graph validation-compatible (acyclic and typed).
 
