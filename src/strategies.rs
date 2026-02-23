@@ -885,10 +885,10 @@ fn render_cpu_strategy_alloc(
     }
 }
 
-/// Render a CPU strategy for a layer and return a normalized gray buffer.
+/// Render a CPU strategy for a layer into a caller-provided output slice.
 ///
-/// This is a convenience wrapper that allocates an output image and delegates
-/// to `render_cpu_strategy_into`.
+/// This is the allocation-free API for callers that already own per-layer
+/// buffers. The `scratch` workspace should be reused across calls.
 #[allow(dead_code)]
 pub fn render_cpu_strategy(
     strategy: CpuStrategy,
@@ -897,9 +897,9 @@ pub fn render_cpu_strategy(
     seed: u32,
     fast: bool,
     complexity_budget: u32,
-) -> Vec<f32> {
-    let mut out = vec![0.0f32; (width * height) as usize];
-    let mut scratch = StrategyScratch::default();
+    out: &mut [f32],
+    scratch: &mut StrategyScratch,
+) {
     render_cpu_strategy_into(
         strategy,
         width,
@@ -907,10 +907,9 @@ pub fn render_cpu_strategy(
         seed,
         fast,
         complexity_budget,
-        &mut out,
-        &mut scratch,
+        out,
+        scratch,
     );
-    out
 }
 
 fn clamp01(value: f32) -> f32 {
@@ -5825,8 +5824,10 @@ mod tests {
             CpuStrategy::RecursiveNoiseTerrain,
             CpuStrategy::BifurcationGrid,
         ];
+        let mut img = vec![0.0f32; 256 * 256];
+        let mut scratch = StrategyScratch::default();
         for strategy in all.drain(..) {
-            let img = render_cpu_strategy(strategy, 256, 256, 42, false, 512);
+            render_cpu_strategy(strategy, 256, 256, 42, false, 512, &mut img, &mut scratch);
             assert_eq!(img.len(), 256 * 256);
             assert!(img.iter().all(|value| value.is_finite()));
             let min = img.iter().cloned().fold(1.0f32, f32::min);
