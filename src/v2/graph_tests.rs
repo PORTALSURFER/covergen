@@ -1,5 +1,6 @@
 use super::*;
 use crate::model::LayerBlendMode;
+use crate::v2::node::GenerateLayerTemporal;
 
 fn sample_layer() -> GenerateLayerNode {
     GenerateLayerNode {
@@ -23,6 +24,7 @@ fn sample_layer() -> GenerateLayerNode {
         blend_mode: LayerBlendMode::Normal,
         opacity: 1.0,
         contrast: 1.2,
+        temporal: GenerateLayerTemporal::default(),
     }
 }
 

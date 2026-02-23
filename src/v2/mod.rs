@@ -11,6 +11,7 @@ pub mod graph;
 pub mod node;
 pub mod presets;
 pub mod runtime;
+pub mod temporal;
 mod runtime_eval;
 mod runtime_ops;
 

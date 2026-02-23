@@ -1,7 +1,9 @@
 use super::*;
 use crate::model::LayerBlendMode;
 use crate::v2::graph::GraphBuilder;
-use crate::v2::node::{BlendNode, GenerateLayerNode, MaskNode};
+use crate::v2::node::{
+    BlendNode, BlendTemporal, GenerateLayerNode, GenerateLayerTemporal, MaskNode, MaskTemporal,
+};
 
 fn sample_layer() -> GenerateLayerNode {
     GenerateLayerNode {
@@ -25,6 +27,7 @@ fn sample_layer() -> GenerateLayerNode {
         blend_mode: LayerBlendMode::Normal,
         opacity: 1.0,
         contrast: 1.1,
+        temporal: GenerateLayerTemporal::default(),
     }
 }
 
@@ -68,6 +71,7 @@ fn merged_graph_disables_retained_path() {
     let blend = builder.add_blend(BlendNode {
         mode: LayerBlendMode::Overlay,
         opacity: 0.8,
+        temporal: BlendTemporal::default(),
     });
     let out = builder.add_output();
     builder.connect_luma_input(a, blend, 0);
@@ -87,6 +91,7 @@ fn compiles_mask_node_graph() {
         threshold: 0.5,
         softness: 0.1,
         invert: false,
+        temporal: MaskTemporal::default(),
     });
     let out = builder.add_output();
     builder.connect_luma(src, mask);
@@ -106,6 +111,7 @@ fn resource_plan_reuses_alias_slots_for_non_overlapping_luma_values() {
     let blend = builder.add_blend(BlendNode {
         mode: LayerBlendMode::Screen,
         opacity: 0.7,
+        temporal: BlendTemporal::default(),
     });
     let out = builder.add_output();
 

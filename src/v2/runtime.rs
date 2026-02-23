@@ -19,7 +19,8 @@ use super::animation::{
 };
 use super::cli::{V2Config, V2Profile};
 use super::compiler::{CompiledGraph, CompiledOp};
-use super::runtime_eval::{FrameModulation, render_graph_luma};
+use super::node::GraphTimeInput;
+use super::runtime_eval::render_graph_luma;
 
 /// Reusable image buffers for V2 execution.
 pub(crate) struct RuntimeBuffers {
@@ -127,16 +128,14 @@ fn execute_animation(
         for frame_index in 0..frames {
             let frame_seed_offset =
                 clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9));
+            let graph_time = GraphTimeInput::from_frame(frame_index, frames);
 
             render_graph_luma(
                 compiled,
                 renderer.as_deref_mut(),
                 buffers,
                 frame_seed_offset,
-                Some(FrameModulation {
-                    frame_index,
-                    total_frames: frames,
-                }),
+                Some(graph_time),
             )?;
             finalize_luma_for_output(config, compiled, renderer.as_deref_mut(), buffers)?;
             if let Some(encoder) = stream_encoder.as_mut() {

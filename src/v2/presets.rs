@@ -4,7 +4,11 @@ use crate::model::{ArtStyle, LayerBlendMode, SymmetryStyle, XorShift32};
 
 use super::cli::{V2Config, V2Profile};
 use super::graph::{GenerateLayerNode, GpuGraph, GraphBuildError, GraphBuilder};
-use super::node::{BlendNode, MaskNode, PortType, SourceNoiseNode, ToneMapNode, WarpTransformNode};
+use super::node::{
+    BlendNode, BlendTemporal, GenerateLayerTemporal, MaskNode, MaskTemporal, PortType,
+    SourceNoiseNode, SourceNoiseTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal,
+    WarpTransformNode, WarpTransformTemporal,
+};
 
 /// Build a deterministic graph from the selected V2 preset and CLI config.
 pub fn build_preset_graph(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
@@ -92,6 +96,11 @@ fn build_node_weave(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
         strength: 0.55 + rng.next_f32() * 0.65,
         frequency: 0.8 + rng.next_f32() * 3.8,
         phase: rng.next_f32(),
+        temporal: WarpTransformTemporal {
+            strength_mul: Some(curve(0.18, 1.0, rng.next_f32())),
+            frequency_mul: Some(curve(0.16, 0.7, rng.next_f32())),
+            phase_add: Some(curve(0.25, 1.3, rng.next_f32())),
+        },
     });
     builder.connect_luma(layer_a, warp);
 
@@ -99,6 +108,11 @@ fn build_node_weave(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
         contrast: 1.1 + rng.next_f32() * 0.5,
         low_pct: 0.01 + rng.next_f32() * 0.03,
         high_pct: 0.96 + rng.next_f32() * 0.03,
+        temporal: ToneMapTemporal {
+            contrast_mul: Some(curve(0.12, 0.9, rng.next_f32())),
+            low_pct_add: Some(curve(0.01, 0.8, rng.next_f32())),
+            high_pct_add: Some(curve(0.01, 1.1, rng.next_f32())),
+        },
     });
     builder.connect_luma(layer_b, tone);
 
@@ -108,17 +122,28 @@ fn build_node_weave(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
         octaves: 3 + (rng.next_u32() % 3),
         amplitude: 0.7 + rng.next_f32() * 0.45,
         output_port: PortType::LumaTexture,
+        temporal: SourceNoiseTemporal {
+            scale_mul: Some(curve(0.25, 0.55, rng.next_f32())),
+            amplitude_mul: Some(curve(0.14, 1.2, rng.next_f32())),
+        },
     });
     let mask = builder.add_mask(MaskNode {
         threshold: 0.42 + rng.next_f32() * 0.2,
         softness: 0.06 + rng.next_f32() * 0.2,
         invert: rng.next_f32() < 0.35,
+        temporal: MaskTemporal {
+            threshold_add: Some(curve(0.05, 0.85, rng.next_f32())),
+            softness_mul: Some(curve(0.20, 0.65, rng.next_f32())),
+        },
     });
     builder.connect_luma(noise, mask);
 
     let blend = builder.add_blend(BlendNode {
         mode: LayerBlendMode::Overlay,
         opacity: 0.45 + rng.next_f32() * 0.45,
+        temporal: BlendTemporal {
+            opacity_mul: Some(curve(0.25, 0.6, rng.next_f32())),
+        },
     });
     builder.connect_luma_input(warp, blend, 0);
     builder.connect_luma_input(tone, blend, 1);
@@ -188,5 +213,22 @@ fn generate_layer_node(
         } else {
             1.15 + rng.next_f32() * 0.55
         },
+        temporal: GenerateLayerTemporal {
+            iterations_scale: Some(curve(0.12, 1.0 + rng.next_f32() * 0.35, rng.next_f32())),
+            fill_scale_mul: Some(curve(0.08, 0.6 + rng.next_f32() * 0.3, rng.next_f32())),
+            fractal_zoom_mul: Some(curve(0.08, 0.8 + rng.next_f32() * 0.4, rng.next_f32())),
+            art_style_mix_add: Some(curve(0.10, 0.7 + rng.next_f32() * 0.5, rng.next_f32())),
+            warp_strength_mul: Some(curve(0.14, 0.9 + rng.next_f32() * 0.5, rng.next_f32())),
+            warp_frequency_add: Some(curve(0.35, 0.75 + rng.next_f32() * 0.45, rng.next_f32())),
+            tile_phase_add: Some(curve(0.08, 1.1 + rng.next_f32() * 0.3, rng.next_f32())),
+            center_x_add: Some(curve(0.05, 0.65 + rng.next_f32() * 0.35, rng.next_f32())),
+            center_y_add: Some(curve(0.05, 0.65 + rng.next_f32() * 0.35, rng.next_f32())),
+            opacity_mul: Some(curve(0.12, 0.9 + rng.next_f32() * 0.4, rng.next_f32())),
+            contrast_mul: Some(curve(0.10, 0.85 + rng.next_f32() * 0.35, rng.next_f32())),
+        },
     }
+}
+
+fn curve(amplitude: f32, frequency: f32, phase: f32) -> TemporalCurve {
+    TemporalCurve::sine(amplitude, frequency, phase, 0.0)
 }

@@ -1,6 +1,12 @@
-//! Node and port definitions for the V2 graph IR.
+//! Node, port, and temporal-control definitions for the V2 graph IR.
 
+use super::temporal::{apply_add, apply_mul, sample};
 use crate::model::{LayerBlendMode, Params};
+
+pub use super::temporal::{
+    BlendTemporal, GenerateLayerTemporal, GraphTimeInput, MaskTemporal, SourceNoiseTemporal,
+    TemporalCurve, ToneMapTemporal, WarpTransformTemporal,
+};
 
 /// Port categories supported by the V2 graph IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +40,7 @@ pub struct GenerateLayerNode {
     pub blend_mode: LayerBlendMode,
     pub opacity: f32,
     pub contrast: f32,
+    pub temporal: GenerateLayerTemporal,
 }
 
 impl GenerateLayerNode {
@@ -61,6 +68,60 @@ impl GenerateLayerNode {
             layer_count: self.shader_layer_count,
         }
     }
+
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        let iterations_scale = 1.0 + sample(self.temporal.iterations_scale, time);
+        let iterations = ((self.iterations as f32 * iterations_scale)
+            .round()
+            .clamp(32.0, 2400.0)) as u32;
+
+        Self {
+            iterations,
+            fill_scale: apply_mul(
+                self.fill_scale,
+                self.temporal.fill_scale_mul,
+                time,
+                0.4,
+                3.0,
+            ),
+            fractal_zoom: apply_mul(
+                self.fractal_zoom,
+                self.temporal.fractal_zoom_mul,
+                time,
+                0.2,
+                2.6,
+            ),
+            art_style_mix: apply_add(
+                self.art_style_mix,
+                self.temporal.art_style_mix_add,
+                time,
+                0.0,
+                1.0,
+            ),
+            warp_strength: apply_mul(
+                self.warp_strength,
+                self.temporal.warp_strength_mul,
+                time,
+                0.0,
+                2.2,
+            ),
+            warp_frequency: apply_add(
+                self.warp_frequency,
+                self.temporal.warp_frequency_add,
+                time,
+                0.1,
+                8.0,
+            ),
+            tile_phase: (self.tile_phase + sample(self.temporal.tile_phase_add, time))
+                .rem_euclid(1.0),
+            center_x: apply_add(self.center_x, self.temporal.center_x_add, time, -0.6, 0.6),
+            center_y: apply_add(self.center_y, self.temporal.center_y_add, time, -0.6, 0.6),
+            opacity: apply_mul(self.opacity, self.temporal.opacity_mul, time, 0.0, 1.0),
+            contrast: apply_mul(self.contrast, self.temporal.contrast_mul, time, 1.0, 3.0),
+            ..self
+        }
+    }
 }
 
 /// Procedural source-node generating reusable noise maps.
@@ -71,6 +132,18 @@ pub struct SourceNoiseNode {
     pub octaves: u32,
     pub amplitude: f32,
     pub output_port: PortType,
+    pub temporal: SourceNoiseTemporal,
+}
+
+impl SourceNoiseNode {
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        Self {
+            scale: apply_mul(self.scale, self.temporal.scale_mul, time, 0.05, 32.0),
+            amplitude: apply_mul(self.amplitude, self.temporal.amplitude_mul, time, 0.0, 2.0),
+            ..self
+        }
+    }
 }
 
 /// Mask extraction node converting luma into a soft threshold mask.
@@ -79,6 +152,18 @@ pub struct MaskNode {
     pub threshold: f32,
     pub softness: f32,
     pub invert: bool,
+    pub temporal: MaskTemporal,
+}
+
+impl MaskNode {
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        Self {
+            threshold: apply_add(self.threshold, self.temporal.threshold_add, time, 0.0, 1.0),
+            softness: apply_mul(self.softness, self.temporal.softness_mul, time, 0.0, 1.0),
+            ..self
+        }
+    }
 }
 
 /// Explicit blend/composite node with optional mask input.
@@ -86,6 +171,17 @@ pub struct MaskNode {
 pub struct BlendNode {
     pub mode: LayerBlendMode,
     pub opacity: f32,
+    pub temporal: BlendTemporal,
+}
+
+impl BlendNode {
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        Self {
+            opacity: apply_mul(self.opacity, self.temporal.opacity_mul, time, 0.0, 1.0),
+            ..self
+        }
+    }
 }
 
 /// Tone-map node for post contrast/stretch style adjustments.
@@ -94,6 +190,27 @@ pub struct ToneMapNode {
     pub contrast: f32,
     pub low_pct: f32,
     pub high_pct: f32,
+    pub temporal: ToneMapTemporal,
+}
+
+impl ToneMapNode {
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        let low = apply_add(self.low_pct, self.temporal.low_pct_add, time, 0.0, 0.9);
+        let high = apply_add(
+            self.high_pct,
+            self.temporal.high_pct_add,
+            time,
+            low + 0.01,
+            1.0,
+        );
+        Self {
+            contrast: apply_mul(self.contrast, self.temporal.contrast_mul, time, 1.0, 3.0),
+            low_pct: low,
+            high_pct: high,
+            ..self
+        }
+    }
 }
 
 /// Warp/transform node for lightweight geometric modulation.
@@ -102,6 +219,25 @@ pub struct WarpTransformNode {
     pub strength: f32,
     pub frequency: f32,
     pub phase: f32,
+    pub temporal: WarpTransformTemporal,
+}
+
+impl WarpTransformNode {
+    /// Apply graph-time modulation curves and return an evaluated per-frame node.
+    pub fn with_time(self, time: GraphTimeInput) -> Self {
+        Self {
+            strength: apply_mul(self.strength, self.temporal.strength_mul, time, 0.0, 2.4),
+            frequency: apply_mul(
+                self.frequency,
+                self.temporal.frequency_mul,
+                time,
+                0.05,
+                12.0,
+            ),
+            phase: self.phase + sample(self.temporal.phase_add, time),
+            ..self
+        }
+    }
 }
 
 /// Graph node kinds supported by V2.
