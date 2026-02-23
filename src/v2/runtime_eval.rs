@@ -37,10 +37,10 @@ pub(crate) fn render_graph_luma(
     seed_offset: u32,
     modulation: Option<FrameModulation>,
 ) -> Result<(), Box<dyn Error>> {
-    if compiled.has_non_layer_nodes {
-        evaluate_mixed_graph(compiled, renderer, buffers, seed_offset, modulation)
-    } else {
+    if compiled.can_use_retained_layer_path {
         evaluate_retained_layer_graph(compiled, renderer, buffers, seed_offset, modulation)
+    } else {
+        evaluate_mixed_graph(compiled, renderer, buffers, seed_offset, modulation)
     }
 }
 

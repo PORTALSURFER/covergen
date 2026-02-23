@@ -1,6 +1,6 @@
 //! Graph compiler for the V2 GPU node runtime.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
 use super::node::{
@@ -37,6 +37,8 @@ pub struct CompiledGraph {
     pub steps: Vec<CompiledNodeStep>,
     pub output_node: NodeId,
     pub has_non_layer_nodes: bool,
+    /// True when graph is a strict linear layer chain that can use retained GPU stacking.
+    pub can_use_retained_layer_path: bool,
 }
 
 /// Compile and validate execution constraints for runtime evaluation.
@@ -123,6 +125,9 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
     let output_node =
         output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
 
+    let can_use_retained_layer_path =
+        detect_linear_layer_path(&steps, &incoming, output_node, has_non_layer_nodes)?;
+
     Ok(CompiledGraph {
         width: graph.width,
         height: graph.height,
@@ -130,7 +135,75 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         steps,
         output_node,
         has_non_layer_nodes,
+        can_use_retained_layer_path,
     })
+}
+
+fn detect_linear_layer_path(
+    steps: &[CompiledNodeStep],
+    incoming: &HashMap<NodeId, Vec<(u8, NodeId)>>,
+    output_node: NodeId,
+    has_non_layer_nodes: bool,
+) -> Result<bool, GraphBuildError> {
+    if has_non_layer_nodes {
+        return Ok(false);
+    }
+
+    let mut reachable = HashSet::with_capacity(steps.len());
+    let mut queue = VecDeque::from([output_node]);
+    while let Some(current) = queue.pop_front() {
+        if !reachable.insert(current) {
+            continue;
+        }
+        let parents = incoming.get(&current).ok_or_else(|| {
+            GraphBuildError::new("missing incoming table entry during path analysis")
+        })?;
+        for (_, source) in parents {
+            queue.push_back(*source);
+        }
+    }
+
+    // If graph contains disconnected nodes, keep topology-aware execution.
+    if reachable.len() != steps.len() {
+        return Ok(false);
+    }
+
+    let mut outgoing_reachable: HashMap<NodeId, usize> = HashMap::with_capacity(steps.len());
+    for step in steps {
+        outgoing_reachable.insert(step.node_id, 0);
+    }
+    for step in steps {
+        for input in &step.inputs {
+            if let Some(count) = outgoing_reachable.get_mut(input) {
+                *count += 1;
+            }
+        }
+    }
+
+    let mut roots = 0usize;
+    for step in steps {
+        match step.op {
+            CompiledOp::GenerateLayer(_) => {
+                if step.inputs.len() > 1 {
+                    return Ok(false);
+                }
+                if step.inputs.is_empty() {
+                    roots += 1;
+                }
+                if outgoing_reachable.get(&step.node_id).copied().unwrap_or(0) != 1 {
+                    return Ok(false);
+                }
+            }
+            CompiledOp::Output => {
+                if step.node_id != output_node || step.inputs.len() != 1 {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+
+    Ok(roots == 1)
 }
 
 fn topological_order(
@@ -191,7 +264,7 @@ mod tests {
     use super::*;
     use crate::model::LayerBlendMode;
     use crate::v2::graph::GraphBuilder;
-    use crate::v2::node::{GenerateLayerNode, MaskNode};
+    use crate::v2::node::{BlendNode, GenerateLayerNode, MaskNode};
 
     fn sample_layer() -> GenerateLayerNode {
         GenerateLayerNode {
@@ -230,7 +303,43 @@ mod tests {
         let compiled = compile_graph(&graph).expect("graph should compile");
         assert_eq!(compiled.steps.len(), 3);
         assert!(!compiled.has_non_layer_nodes);
+        assert!(compiled.can_use_retained_layer_path);
         assert_eq!(compiled.output_node, out);
+    }
+
+    #[test]
+    fn branching_layer_graph_disables_retained_path() {
+        let mut builder = GraphBuilder::new(512, 512, 123);
+        let a = builder.add_generate_layer(sample_layer());
+        let b = builder.add_generate_layer(sample_layer());
+        let c = builder.add_generate_layer(sample_layer());
+        let out = builder.add_output();
+        builder.connect_luma(a, b);
+        builder.connect_luma(a, c);
+        builder.connect_luma(b, out);
+        let graph = builder.build().expect("graph should build");
+        let compiled = compile_graph(&graph).expect("graph should compile");
+        assert!(!compiled.has_non_layer_nodes);
+        assert!(!compiled.can_use_retained_layer_path);
+    }
+
+    #[test]
+    fn merged_graph_disables_retained_path() {
+        let mut builder = GraphBuilder::new(512, 512, 123);
+        let a = builder.add_generate_layer(sample_layer());
+        let b = builder.add_generate_layer(sample_layer());
+        let blend = builder.add_blend(BlendNode {
+            mode: LayerBlendMode::Overlay,
+            opacity: 0.8,
+        });
+        let out = builder.add_output();
+        builder.connect_luma_input(a, blend, 0);
+        builder.connect_luma_input(b, blend, 1);
+        builder.connect_luma(blend, out);
+        let graph = builder.build().expect("graph should build");
+        let compiled = compile_graph(&graph).expect("graph should compile");
+        assert!(compiled.has_non_layer_nodes);
+        assert!(!compiled.can_use_retained_layer_path);
     }
 
     #[test]
