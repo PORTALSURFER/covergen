@@ -4,8 +4,9 @@
 //! assembly for vertical social-video outputs.
 
 use std::error::Error;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::cli::AnimationConfig;
@@ -124,15 +125,7 @@ pub fn encode_frames_to_mp4(
     fps: u32,
     output_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let check = Command::new("ffmpeg")
-        .arg("-version")
-        .output()
-        .map_err(|err| {
-            format!("ffmpeg not found in PATH ({err}); install ffmpeg to encode V2 animations")
-        })?;
-    if !check.status.success() {
-        return Err("ffmpeg is unavailable; cannot encode animation".into());
-    }
+    ensure_ffmpeg_available()?;
 
     let status = Command::new("ffmpeg")
         .arg("-y")
@@ -161,6 +154,113 @@ pub fn encode_frames_to_mp4(
         .into());
     }
 
+    Ok(())
+}
+
+/// Streaming raw grayscale frame encoder backed by an ffmpeg subprocess.
+pub struct RawVideoEncoder {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    expected_frame_bytes: usize,
+}
+
+impl RawVideoEncoder {
+    /// Spawn ffmpeg and configure stdin for raw grayscale frame streaming.
+    pub fn spawn(
+        width: u32,
+        height: u32,
+        fps: u32,
+        output_path: &Path,
+    ) -> Result<Self, Box<dyn Error>> {
+        ensure_ffmpeg_available()?;
+        let expected_frame_bytes = (width as usize)
+            .checked_mul(height as usize)
+            .ok_or("invalid frame dimensions for streaming encoder")?;
+
+        let mut child = Command::new("ffmpeg")
+            .arg("-y")
+            .arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-f")
+            .arg("rawvideo")
+            .arg("-pix_fmt")
+            .arg("gray")
+            .arg("-s:v")
+            .arg(format!("{}x{}", width, height))
+            .arg("-r")
+            .arg(fps.to_string())
+            .arg("-i")
+            .arg("pipe:0")
+            .arg("-an")
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-movflags")
+            .arg("+faststart")
+            .arg(output_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|err| format!("failed to start ffmpeg rawvideo encoder: {err}"))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("failed to open ffmpeg stdin for rawvideo stream")?;
+
+        Ok(Self {
+            child,
+            stdin: Some(stdin),
+            expected_frame_bytes,
+        })
+    }
+
+    /// Push one grayscale frame into ffmpeg stdin.
+    pub fn write_gray_frame(&mut self, frame_gray: &[u8]) -> Result<(), Box<dyn Error>> {
+        if frame_gray.len() != self.expected_frame_bytes {
+            return Err(format!(
+                "invalid frame byte count: expected {}, got {}",
+                self.expected_frame_bytes,
+                frame_gray.len()
+            )
+            .into());
+        }
+
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or("ffmpeg stdin is not available for frame streaming")?;
+        stdin.write_all(frame_gray)?;
+        Ok(())
+    }
+
+    /// Finalize stream and wait for ffmpeg to finish encoding.
+    pub fn finish(mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(mut stdin) = self.stdin.take() {
+            stdin.flush()?;
+        }
+        let output = self.child.wait_with_output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("ffmpeg failed while streaming rawvideo: {stderr}").into());
+        }
+        Ok(())
+    }
+}
+
+fn ensure_ffmpeg_available() -> Result<(), Box<dyn Error>> {
+    let check = Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .map_err(|err| {
+            format!("ffmpeg not found in PATH ({err}); install ffmpeg to encode V2 animations")
+        })?;
+    if !check.status.success() {
+        return Err("ffmpeg is unavailable; cannot encode animation".into());
+    }
     Ok(())
 }
 

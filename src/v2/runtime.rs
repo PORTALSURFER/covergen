@@ -14,7 +14,8 @@ use crate::image_ops::{
 use image::codecs::png::CompressionType;
 
 use super::animation::{
-    clip_output_path, create_frame_dir, encode_frames_to_mp4, frame_filename, total_frames,
+    RawVideoEncoder, clip_output_path, create_frame_dir, encode_frames_to_mp4, frame_filename,
+    total_frames,
 };
 use super::cli::{V2Config, V2Profile};
 use super::compiler::{CompiledGraph, CompiledOp};
@@ -102,7 +103,22 @@ fn execute_animation(
 ) -> Result<(), Box<dyn Error>> {
     let frames = total_frames(&config.animation);
     for clip_index in 0..config.count {
-        let frame_dir = create_frame_dir(&config.output, clip_index)?;
+        let frame_dir = if config.animation.keep_frames {
+            Some(create_frame_dir(&config.output, clip_index)?)
+        } else {
+            None
+        };
+        let clip_path = clip_output_path(&config.output, clip_index, config.count);
+        let mut stream_encoder = if frame_dir.is_none() {
+            Some(RawVideoEncoder::spawn(
+                config.width,
+                config.height,
+                config.animation.fps,
+                &clip_path,
+            )?)
+        } else {
+            None
+        };
         let clip_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
@@ -123,21 +139,31 @@ fn execute_animation(
                 }),
             )?;
             finalize_luma_for_output(config, compiled, renderer.as_deref_mut(), buffers)?;
-
-            let encoded = encode_png_bytes(
-                config.width,
-                config.height,
-                &buffers.output_gray,
-                CompressionType::Fast,
-            )?;
-            let frame_path = frame_dir.join(frame_filename(frame_index));
-            std::fs::write(frame_path, encoded)?;
+            if let Some(encoder) = stream_encoder.as_mut() {
+                encoder.write_gray_frame(&buffers.output_gray)?;
+            } else if let Some(dir) = frame_dir.as_ref() {
+                let encoded = encode_png_bytes(
+                    config.width,
+                    config.height,
+                    &buffers.output_gray,
+                    CompressionType::Fast,
+                )?;
+                let frame_path = dir.join(frame_filename(frame_index));
+                std::fs::write(frame_path, encoded)?;
+            } else {
+                return Err("animation encoder path is not configured".into());
+            }
         }
 
-        let clip_path = clip_output_path(&config.output, clip_index, config.count);
-        encode_frames_to_mp4(&frame_dir, config.animation.fps, &clip_path)?;
-        if !config.animation.keep_frames {
-            std::fs::remove_dir_all(&frame_dir)?;
+        if let Some(encoder) = stream_encoder {
+            encoder.finish()?;
+        } else if let Some(dir) = frame_dir.as_ref() {
+            encode_frames_to_mp4(dir, config.animation.fps, &clip_path)?;
+            if !config.animation.keep_frames {
+                std::fs::remove_dir_all(dir)?;
+            }
+        } else {
+            return Err("animation finalize path is not configured".into());
         }
 
         println!(
