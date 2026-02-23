@@ -6,66 +6,118 @@
 
 use std::error::Error;
 
-use crate::model::LayerBlendMode;
-
-use super::cli::{AnimationConfig, V2Config, V2Profile};
-use super::compiler::{CompiledGraph, compile_graph};
-use super::graph::GraphBuilder;
-use super::node::{
-    BlendNode, BlendTemporal, GraphTimeInput, MaskNode, MaskTemporal, PortType, SourceNoiseNode,
-    SourceNoiseTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal, WarpTransformNode,
-    WarpTransformTemporal,
-};
-use super::runtime::{RuntimeBuffers, finalize_luma_for_output_for_test};
+use super::cli::V2Profile;
+use super::node::GraphTimeInput;
+use super::runtime::finalize_luma_for_output_for_test;
 use super::runtime_eval::render_graph_luma;
 
-#[derive(Clone, Copy)]
+#[path = "visual_regression_fixtures.rs"]
+mod fixtures;
+
+#[derive(Clone, Copy, Debug)]
 struct StillSnapshotCase {
     name: &'static str,
     seed: u32,
+    width: u32,
+    height: u32,
+    profile: V2Profile,
+    graph: fixtures::SnapshotGraphKind,
     expected_hash: u64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct AnimationSnapshotCase {
     name: &'static str,
     seed: u32,
+    width: u32,
+    height: u32,
+    profile: V2Profile,
+    graph: fixtures::SnapshotGraphKind,
     frame_total: u32,
-    frame_indices: [u32; 4],
-    expected_hashes: [u64; 4],
+    frame_indices: &'static [u32],
+    expected_hashes: &'static [u64],
 }
 
 const STILL_SNAPSHOTS: &[StillSnapshotCase] = &[
     StillSnapshotCase {
-        name: "cpu-weave-still-a",
+        name: "cpu-weave-still-192",
         seed: 0x1357_9BDF,
+        width: 192,
+        height: 192,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::Weave,
         expected_hash: 0x7bce_fca6_cc4c_b01c,
     },
     StillSnapshotCase {
-        name: "cpu-weave-still-b",
+        name: "cpu-mask-atlas-still-256",
         seed: 0x2468_ACE0,
-        expected_hash: 0x383b_4f68_7fdf_d848,
+        width: 256,
+        height: 256,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::MaskAtlas,
+        expected_hash: 0xc63a_e044_7cc6_abc9,
+    },
+    StillSnapshotCase {
+        name: "cpu-warp-grid-still-384",
+        seed: 0xDEAD_BEEF,
+        width: 384,
+        height: 384,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::WarpGrid,
+        expected_hash: 0x9248_7525_3c39_8c01,
     },
 ];
 
-const ANIMATION_SNAPSHOT: AnimationSnapshotCase = AnimationSnapshotCase {
-    name: "cpu-weave-animation",
-    seed: 0xA5A5_1F1F,
-    frame_total: 24,
-    frame_indices: [0, 7, 15, 23],
-    expected_hashes: [
-        0x2f36_25f6_910c_ab69,
-        0xba57_f0a0_cb28_3d37,
-        0xecc8_bf45_2f2d_7ff0,
-        0x45b2_c056_4c21_ff71,
-    ],
-};
+const ANIMATION_WEAVE_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 31];
+const ANIMATION_MASK_ATLAS_INDICES: &[u32] = &[0, 5, 10, 15, 20, 25, 29];
+
+const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
+    AnimationSnapshotCase {
+        name: "cpu-weave-animation-32f",
+        seed: 0xA5A5_1F1F,
+        width: 192,
+        height: 192,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::Weave,
+        frame_total: 32,
+        frame_indices: ANIMATION_WEAVE_INDICES,
+        expected_hashes: &[
+            0xbaee_262c_d44f_b7ab,
+            0x764d_05aa_427f_49bc,
+            0xe086_f6dd_ac4e_37a6,
+            0xadff_e066_f125_81f3,
+            0x13b5_df2c_fdae_5d84,
+            0x15ea_0900_555d_71e3,
+            0x3562_d9c3_e732_75e3,
+            0x77a2_16ea_8806_196f,
+        ],
+    },
+    AnimationSnapshotCase {
+        name: "cpu-mask-atlas-animation-30f",
+        seed: 0x55AA_7788,
+        width: 256,
+        height: 256,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::MaskAtlas,
+        frame_total: 30,
+        frame_indices: ANIMATION_MASK_ATLAS_INDICES,
+        expected_hashes: &[
+            0x9c2e_d240_0666_0216,
+            0x3f35_a0d5_e5df_4ada,
+            0xef78_319d_7e12_442d,
+            0xc372_c6d7_a772_bf93,
+            0xa33e_aa03_9cbd_2a67,
+            0x120d_adcc_07ec_19c8,
+            0xada7_5900_384d_8617,
+        ],
+    },
+];
 
 #[test]
 fn v2_still_fixed_seed_snapshots_match() {
     for case in STILL_SNAPSHOTS {
         let actual_hash = render_still_hash(*case)
-            .unwrap_or_else(|err| panic!("failed to render still snapshot '{}': {err}", case.name));
+            .unwrap_or_else(|err| panic!("snapshot '{}': {err}", case.name));
         assert_eq!(
             actual_hash, case.expected_hash,
             "snapshot '{}' drifted: expected {:#018x}, got {:#018x}",
@@ -76,31 +128,48 @@ fn v2_still_fixed_seed_snapshots_match() {
 
 #[test]
 fn v2_animation_fixed_seed_sampled_frames_match() {
-    let actual_hashes = render_animation_hashes(ANIMATION_SNAPSHOT).unwrap_or_else(|err| {
-        panic!(
-            "failed to render animation snapshot '{}': {err}",
-            ANIMATION_SNAPSHOT.name
-        )
-    });
-
-    for (index, actual_hash) in actual_hashes.into_iter().enumerate() {
-        let expected_hash = ANIMATION_SNAPSHOT.expected_hashes[index];
+    for case in ANIMATION_SNAPSHOTS {
+        let actual_hashes = render_animation_hashes(*case)
+            .unwrap_or_else(|err| panic!("animation snapshot '{}': {err}", case.name));
         assert_eq!(
-            actual_hash,
-            expected_hash,
-            "animation snapshot '{}' frame {} drifted: expected {:#018x}, got {:#018x}",
-            ANIMATION_SNAPSHOT.name,
-            ANIMATION_SNAPSHOT.frame_indices[index],
-            expected_hash,
-            actual_hash
+            actual_hashes.len(),
+            case.expected_hashes.len(),
+            "animation snapshot '{}' has mismatched expected hash count",
+            case.name
         );
+        for (index, actual_hash) in actual_hashes.into_iter().enumerate() {
+            let expected_hash = case.expected_hashes[index];
+            assert_eq!(
+                actual_hash, expected_hash,
+                "animation snapshot '{}' frame {} drifted: expected {:#018x}, got {:#018x}",
+                case.name, case.frame_indices[index], expected_hash, actual_hash
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual snapshot refresh helper; run with --ignored --nocapture"]
+fn dump_visual_snapshot_hashes() {
+    for case in STILL_SNAPSHOTS {
+        let hash = render_still_hash(*case).expect("still snapshot hash");
+        eprintln!("still {:<28} => {:#018x}", case.name, hash);
+    }
+
+    for case in ANIMATION_SNAPSHOTS {
+        let hashes = render_animation_hashes(*case).expect("animation snapshot hashes");
+        eprintln!("animation {:<24}", case.name);
+        for (idx, hash) in hashes.into_iter().enumerate() {
+            eprintln!("  frame {:>3} => {:#018x}", case.frame_indices[idx], hash);
+        }
     }
 }
 
 fn render_still_hash(case: StillSnapshotCase) -> Result<u64, Box<dyn Error>> {
-    let config = base_config(case.seed);
-    let compiled = build_cpu_only_compiled(case.seed, config.width, config.height)?;
-    let mut buffers = runtime_buffers(&config, &compiled)?;
+    let config = fixtures::snapshot_config(case.seed, case.width, case.height, case.profile);
+    let compiled =
+        fixtures::build_cpu_only_compiled(case.seed, config.width, config.height, case.graph)?;
+    let mut buffers = fixtures::runtime_buffers(&config, &compiled)?;
 
     render_graph_luma(
         &compiled,
@@ -110,16 +179,17 @@ fn render_still_hash(case: StillSnapshotCase) -> Result<u64, Box<dyn Error>> {
         None,
     )?;
     finalize_luma_for_output_for_test(&config, &compiled, None, &mut buffers)?;
-    Ok(fnv1a64(&buffers.output_gray))
+    Ok(fixtures::fnv1a64(&buffers.output_gray))
 }
 
-fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<[u64; 4], Box<dyn Error>> {
-    let config = base_config(case.seed);
-    let compiled = build_cpu_only_compiled(case.seed, config.width, config.height)?;
-    let mut buffers = runtime_buffers(&config, &compiled)?;
-    let mut hashes = [0u64; 4];
+fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<Vec<u64>, Box<dyn Error>> {
+    let config = fixtures::snapshot_config(case.seed, case.width, case.height, case.profile);
+    let compiled =
+        fixtures::build_cpu_only_compiled(case.seed, config.width, config.height, case.graph)?;
+    let mut buffers = fixtures::runtime_buffers(&config, &compiled)?;
+    let mut hashes = Vec::with_capacity(case.frame_indices.len());
 
-    for (slot, frame_index) in case.frame_indices.into_iter().enumerate() {
+    for &frame_index in case.frame_indices {
         if frame_index >= case.frame_total {
             return Err(format!(
                 "invalid frame index {} for total frame count {}",
@@ -136,153 +206,8 @@ fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<[u64; 4], Box<
 
         render_graph_luma(&compiled, None, &mut buffers, seed_offset, Some(graph_time))?;
         finalize_luma_for_output_for_test(&config, &compiled, None, &mut buffers)?;
-        hashes[slot] = fnv1a64(&buffers.output_gray);
+        hashes.push(fixtures::fnv1a64(&buffers.output_gray));
     }
 
     Ok(hashes)
-}
-
-fn build_cpu_only_compiled(
-    seed: u32,
-    width: u32,
-    height: u32,
-) -> Result<CompiledGraph, Box<dyn Error>> {
-    let mut builder = GraphBuilder::new(width, height, seed ^ 0xC0DE_FEED);
-
-    let noise_a = builder.add_source_noise(SourceNoiseNode {
-        seed: seed ^ 0x1001,
-        scale: 3.2,
-        octaves: 4,
-        amplitude: 1.0,
-        output_port: PortType::LumaTexture,
-        temporal: SourceNoiseTemporal {
-            scale_mul: Some(TemporalCurve::sine(0.12, 0.8, 0.0, 0.0)),
-            amplitude_mul: Some(TemporalCurve::sine(0.10, 1.1, 0.25, 0.0)),
-        },
-    });
-    let noise_b = builder.add_source_noise(SourceNoiseNode {
-        seed: seed ^ 0x2002,
-        scale: 6.0,
-        octaves: 3,
-        amplitude: 0.85,
-        output_port: PortType::LumaTexture,
-        temporal: SourceNoiseTemporal {
-            scale_mul: Some(TemporalCurve::sine(0.09, 0.7, 0.5, 0.0)),
-            amplitude_mul: Some(TemporalCurve::sine(0.11, 1.0, 0.0, 0.0)),
-        },
-    });
-    let noise_c = builder.add_source_noise(SourceNoiseNode {
-        seed: seed ^ 0x3003,
-        scale: 4.7,
-        octaves: 5,
-        amplitude: 0.95,
-        output_port: PortType::LumaTexture,
-        temporal: SourceNoiseTemporal {
-            scale_mul: Some(TemporalCurve::sine(0.10, 1.2, 0.75, 0.0)),
-            amplitude_mul: Some(TemporalCurve::sine(0.08, 0.9, 0.4, 0.0)),
-        },
-    });
-
-    let mask = builder.add_mask(MaskNode {
-        threshold: 0.48,
-        softness: 0.17,
-        invert: false,
-        temporal: MaskTemporal {
-            threshold_add: Some(TemporalCurve::sine(0.06, 0.85, 0.0, 0.0)),
-            softness_mul: Some(TemporalCurve::sine(0.14, 1.05, 0.2, 0.0)),
-        },
-    });
-    builder.connect_luma(noise_a, mask);
-
-    let warp = builder.add_warp_transform(WarpTransformNode {
-        strength: 0.95,
-        frequency: 1.8,
-        phase: 0.2,
-        temporal: WarpTransformTemporal {
-            strength_mul: Some(TemporalCurve::sine(0.15, 0.7, 0.3, 0.0)),
-            frequency_mul: Some(TemporalCurve::sine(0.12, 0.9, 0.1, 0.0)),
-            phase_add: Some(TemporalCurve::sine(0.25, 1.0, 0.0, 0.0)),
-        },
-    });
-    builder.connect_luma(noise_b, warp);
-
-    let tone = builder.add_tonemap(ToneMapNode {
-        contrast: 1.35,
-        low_pct: 0.02,
-        high_pct: 0.98,
-        temporal: ToneMapTemporal {
-            contrast_mul: Some(TemporalCurve::sine(0.09, 0.8, 0.0, 0.0)),
-            low_pct_add: Some(TemporalCurve::sine(0.01, 0.6, 0.25, 0.0)),
-            high_pct_add: Some(TemporalCurve::sine(0.01, 1.0, 0.6, 0.0)),
-        },
-    });
-    builder.connect_luma(noise_c, tone);
-
-    let blend = builder.add_blend(BlendNode {
-        mode: LayerBlendMode::Overlay,
-        opacity: 0.72,
-        temporal: BlendTemporal {
-            opacity_mul: Some(TemporalCurve::sine(0.2, 0.75, 0.0, 0.0)),
-        },
-    });
-    builder.connect_luma_input(warp, blend, 0);
-    builder.connect_luma_input(tone, blend, 1);
-    builder.connect_mask_input(mask, blend, 2);
-
-    let output = builder.add_output();
-    builder.connect_luma(blend, output);
-
-    let graph = builder.build()?;
-    compile_graph(&graph).map_err(Into::into)
-}
-
-fn runtime_buffers(
-    config: &V2Config,
-    compiled: &CompiledGraph,
-) -> Result<RuntimeBuffers, Box<dyn Error>> {
-    Ok(RuntimeBuffers {
-        layered: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        percentile: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        layer_scratch: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        final_luma: vec![0.0f32; pixel_count(config.width, config.height)?],
-        downsample_scratch: Vec::new(),
-        output_gray: vec![0u8; pixel_count(config.width, config.height)?],
-    })
-}
-
-fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {
-    width
-        .checked_mul(height)
-        .map(|count| count as usize)
-        .ok_or("invalid test dimensions".into())
-}
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-fn base_config(seed: u32) -> V2Config {
-    V2Config {
-        width: 192,
-        height: 192,
-        seed,
-        count: 1,
-        output: "snapshot.png".to_string(),
-        layers: 4,
-        antialias: 1,
-        preset: "hybrid-stack".to_string(),
-        profile: V2Profile::Performance,
-        animation: AnimationConfig {
-            enabled: false,
-            seconds: 2,
-            fps: 12,
-            keep_frames: false,
-            reels: false,
-        },
-    }
 }
