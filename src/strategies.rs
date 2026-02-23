@@ -6,6 +6,7 @@
 
 use crate::model::ArtStyle;
 use crate::model::XorShift32;
+use rayon::prelude::*;
 use std::f32::consts::TAU;
 
 /// CPU generator strategies that can replace GPU-based render layers.
@@ -1484,22 +1485,25 @@ fn render_reaction_diffusion(
 
     let mut step = 0usize;
     while step < iterations {
-        let mut y = 1usize;
-        while y < h - 1 {
-            let mut x = 1usize;
-            while x < w - 1 {
-                let idx = y * w + x;
-                let u0 = u[idx];
-                let v0 = v[idx];
-                let lap_u = u[idx - 1] + u[idx + 1] + u[idx - w] + u[idx + w] - 4.0 * u0;
-                let lap_v = v[idx - 1] + v[idx + 1] + v[idx - w] + v[idx + w] - 4.0 * v0;
-                let uvv = u0 * v0 * v0;
-                un[idx] = (u0 + (du * lap_u - uvv + f * (1.0 - u0)) * dt).clamp(0.0, 1.0);
-                vn[idx] = (v0 + (dv * lap_v + uvv - (f + k) * v0) * dt).clamp(0.0, 1.0);
-                x += 1;
-            }
-            y += 1;
-        }
+        un.par_chunks_mut(w)
+            .zip(vn.par_chunks_mut(w))
+            .enumerate()
+            .for_each(|(y, (row_u, row_v))| {
+                if y == 0 || y + 1 >= h {
+                    return;
+                }
+                let row = y * w;
+                for x in 1..w - 1 {
+                    let idx = row + x;
+                    let u0 = u[idx];
+                    let v0 = v[idx];
+                    let lap_u = u[idx - 1] + u[idx + 1] + u[idx - w] + u[idx + w] - 4.0 * u0;
+                    let lap_v = v[idx - 1] + v[idx + 1] + v[idx - w] + v[idx + w] - 4.0 * v0;
+                    let uvv = u0 * v0 * v0;
+                    row_u[x] = (u0 + (du * lap_u - uvv + f * (1.0 - u0)) * dt).clamp(0.0, 1.0);
+                    row_v[x] = (v0 + (dv * lap_v + uvv - (f + k) * v0) * dt).clamp(0.0, 1.0);
+                }
+            });
         std::mem::swap(&mut u, &mut un);
         std::mem::swap(&mut v, &mut vn);
         step += 1;
@@ -5178,39 +5182,55 @@ fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: 
     let kill = 0.046 + seed_rng.next_f32() * 0.038;
     let w = sim_w as usize;
     let h = sim_h as usize;
+    let lattice_seed = seed_rng.next_u32();
+    let mut lattice_noise = vec![0.0f32; w * h];
+    lattice_noise
+        .par_chunks_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let y_f = y as f32;
+            for (x, value) in row.iter_mut().enumerate() {
+                *value = 0.5 + 0.4 * value_noise(x as f32 * 0.73, y_f * 0.67, lattice_seed);
+            }
+        });
 
     let mut step = 0usize;
     while step < iterations {
-        let mut y = 1usize;
-        while y < h - 1 {
-            let mut x = 1usize;
-            while x < w - 1 {
-                let idx = y * w + x;
-                let u0 = u[idx];
-                let v0 = v[idx];
-                let lap_u = u[idx - 1] + u[idx + 1] + u[idx - w] + u[idx + w] - 4.0 * u0;
-                let lap_v = v[idx - 1] + v[idx + 1] + v[idx - w] + v[idx + w] - 4.0 * v0;
-                let uvv = u0 * v0 * v0;
-                let uvv2 = 0.5 + 0.4 * value_noise(x as f32, y as f32, seed_rng.next_u32());
-                next_u[idx] =
-                    (u0 + (du * lap_u - uvv + (feed * uvv2) * (1.0 - u0)) * dt).clamp(0.0, 1.0);
-                next_v[idx] =
-                    (v0 + (dv * lap_v + uvv - (kill + feed) * v0) * dt * uvv2).clamp(0.0, 1.0);
-                x += 1;
-            }
-            y += 1;
-        }
+        next_u
+            .par_chunks_mut(w)
+            .zip(next_v.par_chunks_mut(w))
+            .enumerate()
+            .for_each(|(y, (row_u, row_v))| {
+                if y == 0 || y + 1 >= h {
+                    return;
+                }
+                let row = y * w;
+                for x in 1..w - 1 {
+                    let idx = row + x;
+                    let u0 = u[idx];
+                    let v0 = v[idx];
+                    let lap_u = u[idx - 1] + u[idx + 1] + u[idx - w] + u[idx + w] - 4.0 * u0;
+                    let lap_v = v[idx - 1] + v[idx + 1] + v[idx - w] + v[idx + w] - 4.0 * v0;
+                    let uvv = u0 * v0 * v0;
+                    let uvv2 = lattice_noise[idx];
+                    row_u[x] =
+                        (u0 + (du * lap_u - uvv + (feed * uvv2) * (1.0 - u0)) * dt).clamp(0.0, 1.0);
+                    row_v[x] =
+                        (v0 + (dv * lap_v + uvv - (kill + feed) * v0) * dt * uvv2).clamp(0.0, 1.0);
+                }
+            });
         std::mem::swap(&mut u, &mut next_u);
         std::mem::swap(&mut v, &mut next_v);
         step += 1;
     }
 
+    let tone_seed = seed_rng.next_u32();
     let mut out = v;
-    for value in out.iter_mut() {
-        *value = clamp01(
-            *value * (1.0 + value_noise(*value * 5.0, *value * 7.0, seed_rng.next_u32()) * 0.3),
-        );
-    }
+    out.par_iter_mut().enumerate().for_each(|(idx, value)| {
+        let idx_f = idx as f32;
+        let noise = value_noise(*value * 5.0 + idx_f * 0.0007, *value * 7.0, tone_seed);
+        *value = clamp01(*value * (1.0 + noise * 0.3));
+    });
     normalize(&mut out);
     resize_bilinear(&out, sim_w, sim_h, width, height)
 }
@@ -5582,6 +5602,66 @@ mod tests {
                 assert!(cpu_strategy_cost(kind) <= 140);
             }
             RenderStrategy::Gpu(_) => panic!("expected cpu strategy when gpu is not preferred"),
+        }
+    }
+
+    #[test]
+    fn reaction_diffusion_is_deterministic_for_fixed_seed() {
+        let mut rng_a = XorShift32::new(1_337_331);
+        let mut rng_b = XorShift32::new(1_337_331);
+        let a = render_reaction_diffusion(192, 192, &mut rng_a, true);
+        let b = render_reaction_diffusion(192, 192, &mut rng_b, true);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn reaction_lattice_is_deterministic_for_fixed_seed() {
+        let mut rng_a = XorShift32::new(9_812_443);
+        let mut rng_b = XorShift32::new(9_812_443);
+        let a = render_reaction_lattice(192, 192, &mut rng_a, true);
+        let b = render_reaction_lattice(192, 192, &mut rng_b, true);
+        assert_eq!(a, b);
+    }
+
+    /// Manual benchmark for validating reaction-kernel latency and determinism.
+    #[test]
+    #[ignore = "manual perf probe; run with cargo test bench_reaction_kernels_fixed_seed -- --ignored --nocapture"]
+    fn bench_reaction_kernels_fixed_seed() {
+        use std::time::Instant;
+
+        fn mean_abs_diff(a: &[f32], b: &[f32]) -> f32 {
+            let len = a.len().min(b.len()).max(1);
+            let sum: f32 = a
+                .iter()
+                .zip(b.iter())
+                .map(|(left, right)| (left - right).abs())
+                .sum();
+            sum / len as f32
+        }
+
+        for size in [512u32, 1024u32] {
+            let mut rng_a = XorShift32::new(0xD1FF_1000 ^ size);
+            let start = Instant::now();
+            let diffusion_a = render_reaction_diffusion(size, size, &mut rng_a, true);
+            let diffusion_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let mut rng_b = XorShift32::new(0xD1FF_1000 ^ size);
+            let diffusion_b = render_reaction_diffusion(size, size, &mut rng_b, true);
+            let diffusion_diff = mean_abs_diff(&diffusion_a, &diffusion_b);
+
+            let mut rng_c = XorShift32::new(0x1A77_1000 ^ size);
+            let start = Instant::now();
+            let lattice_a = render_reaction_lattice(size, size, &mut rng_c, true);
+            let lattice_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let mut rng_d = XorShift32::new(0x1A77_1000 ^ size);
+            let lattice_b = render_reaction_lattice(size, size, &mut rng_d, true);
+            let lattice_diff = mean_abs_diff(&lattice_a, &lattice_b);
+
+            println!(
+                "size={} diffusion_ms={:.1} lattice_ms={:.1} diffusion_mad={:.8} lattice_mad={:.8}",
+                size, diffusion_ms, lattice_ms, diffusion_diff, lattice_diff
+            );
+            assert!(diffusion_diff <= 1.0e-7);
+            assert!(lattice_diff <= 1.0e-7);
         }
     }
 }
