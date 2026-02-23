@@ -4,14 +4,16 @@ use crate::model::{ArtStyle, LayerBlendMode, SymmetryStyle, XorShift32};
 
 use super::cli::{V2Config, V2Profile};
 use super::graph::{GenerateLayerNode, GpuGraph, GraphBuildError, GraphBuilder};
+use super::node::{BlendNode, MaskNode, PortType, SourceNoiseNode, ToneMapNode, WarpTransformNode};
 
 /// Build a deterministic graph from the selected V2 preset and CLI config.
 pub fn build_preset_graph(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
     match config.preset.as_str() {
         "hybrid-stack" => build_hybrid_stack(config),
         "field-weave" => build_field_weave(config),
+        "node-weave" => build_node_weave(config),
         other => Err(GraphBuildError::new(format!(
-            "unknown v2 preset '{other}', expected hybrid-stack|field-weave"
+            "unknown v2 preset '{other}', expected hybrid-stack|field-weave|node-weave"
         ))),
     }
 }
@@ -62,6 +64,68 @@ fn build_field_weave(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
         builder.connect_luma(last, output);
     }
 
+    builder.build()
+}
+
+fn build_node_weave(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
+    let render_width = config.width.saturating_mul(config.antialias);
+    let render_height = config.height.saturating_mul(config.antialias);
+    let mut builder = GraphBuilder::new(render_width, render_height, config.seed ^ 0xA511_2F03);
+    let mut rng = XorShift32::new(config.seed ^ 0xB76D_5E29);
+
+    let layer_a = builder.add_generate_layer(generate_layer_node(
+        0,
+        config.layers.max(2),
+        config.profile,
+        &mut rng,
+        true,
+    ));
+    let layer_b = builder.add_generate_layer(generate_layer_node(
+        1,
+        config.layers.max(2),
+        config.profile,
+        &mut rng,
+        false,
+    ));
+
+    let warp = builder.add_warp_transform(WarpTransformNode {
+        strength: 0.55 + rng.next_f32() * 0.65,
+        frequency: 0.8 + rng.next_f32() * 3.8,
+        phase: rng.next_f32(),
+    });
+    builder.connect_luma(layer_a, warp);
+
+    let tone = builder.add_tonemap(ToneMapNode {
+        contrast: 1.1 + rng.next_f32() * 0.5,
+        low_pct: 0.01 + rng.next_f32() * 0.03,
+        high_pct: 0.96 + rng.next_f32() * 0.03,
+    });
+    builder.connect_luma(layer_b, tone);
+
+    let noise = builder.add_source_noise(SourceNoiseNode {
+        seed: rng.next_u32(),
+        scale: 1.6 + rng.next_f32() * 6.0,
+        octaves: 3 + (rng.next_u32() % 3),
+        amplitude: 0.7 + rng.next_f32() * 0.45,
+        output_port: PortType::LumaTexture,
+    });
+    let mask = builder.add_mask(MaskNode {
+        threshold: 0.42 + rng.next_f32() * 0.2,
+        softness: 0.06 + rng.next_f32() * 0.2,
+        invert: rng.next_f32() < 0.35,
+    });
+    builder.connect_luma(noise, mask);
+
+    let blend = builder.add_blend(BlendNode {
+        mode: LayerBlendMode::Overlay,
+        opacity: 0.45 + rng.next_f32() * 0.45,
+    });
+    builder.connect_luma_input(warp, blend, 0);
+    builder.connect_luma_input(tone, blend, 1);
+    builder.connect_mask_input(mask, blend, 2);
+
+    let output = builder.add_output();
+    builder.connect_luma(blend, output);
     builder.build()
 }
 

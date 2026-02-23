@@ -58,5 +58,5 @@ fn rejects_output_without_input() {
     let err = builder
         .build()
         .expect_err("output without edge must be rejected");
-    assert!(err.to_string().contains("exactly one input"));
+    assert!(err.to_string().contains("requires 1..=1 inputs"));
 }

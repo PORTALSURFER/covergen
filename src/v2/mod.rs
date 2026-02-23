@@ -8,8 +8,11 @@ pub mod animation;
 pub mod cli;
 pub mod compiler;
 pub mod graph;
+pub mod node;
 pub mod presets;
 pub mod runtime;
+mod runtime_eval;
+mod runtime_ops;
 
 use std::error::Error;
 

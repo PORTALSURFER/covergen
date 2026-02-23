@@ -1,29 +1,45 @@
 //! Graph compiler for the V2 GPU node runtime.
-//!
-//! The compiler lowers validated graph IR into an ordered execution plan that
-//! the GPU runtime can execute without making additional structural decisions.
 
 use std::collections::{HashMap, VecDeque};
 
-use super::graph::{EdgeSpec, GenerateLayerNode, GpuGraph, GraphBuildError, NodeId, NodeKind};
+use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
+use super::node::{
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, SourceNoiseNode, ToneMapNode,
+    WarpTransformNode,
+};
 
-/// One scheduled render-layer step in a compiled graph.
+/// Executable node operation in compiled graph order.
 #[derive(Clone, Copy, Debug)]
-pub struct CompiledLayerStep {
-    pub layer: GenerateLayerNode,
+pub enum CompiledOp {
+    GenerateLayer(GenerateLayerNode),
+    SourceNoise(SourceNoiseNode),
+    Mask(MaskNode),
+    Blend(BlendNode),
+    ToneMap(ToneMapNode),
+    WarpTransform(WarpTransformNode),
+    Output,
 }
 
-/// Compiler output consumed by the V2 GPU runtime.
+/// One scheduled node in a compiled graph.
+#[derive(Clone, Debug)]
+pub struct CompiledNodeStep {
+    pub node_id: NodeId,
+    pub op: CompiledOp,
+    pub inputs: Vec<NodeId>,
+}
+
+/// Compiler output consumed by the V2 runtime.
 #[derive(Clone, Debug)]
 pub struct CompiledGraph {
     pub width: u32,
     pub height: u32,
     pub seed: u32,
-    pub steps: Vec<CompiledLayerStep>,
+    pub steps: Vec<CompiledNodeStep>,
     pub output_node: NodeId,
+    pub has_non_layer_nodes: bool,
 }
 
-/// Compile and validate execution constraints for the runtime.
+/// Compile and validate execution constraints for runtime evaluation.
 pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError> {
     let topo_order = topological_order(&graph.nodes, &graph.edges)?;
 
@@ -32,36 +48,53 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         node_map.insert(node.id, node.kind);
     }
 
-    let mut outgoing_counts: HashMap<NodeId, usize> = HashMap::with_capacity(graph.nodes.len());
+    let mut incoming: HashMap<NodeId, Vec<(u8, NodeId)>> =
+        HashMap::with_capacity(graph.nodes.len());
     for node in &graph.nodes {
-        outgoing_counts.insert(node.id, 0);
+        incoming.insert(node.id, Vec::new());
     }
-    let mut output_node = None;
-
     for edge in &graph.edges {
-        let count = outgoing_counts
-            .get_mut(&edge.from)
-            .ok_or_else(|| GraphBuildError::new("edge source missing during compilation"))?;
-        *count += 1;
+        incoming
+            .get_mut(&edge.to)
+            .ok_or_else(|| GraphBuildError::new("edge target missing during compilation"))?
+            .push((edge.to_input, edge.from));
     }
 
-    let mut steps = Vec::new();
-    for node_id in &topo_order {
+    let mut output_node = None;
+    let mut steps = Vec::with_capacity(graph.nodes.len());
+    let mut has_non_layer_nodes = false;
+
+    for node_id in topo_order {
         let kind = node_map
-            .get(node_id)
+            .get(&node_id)
             .copied()
             .ok_or_else(|| GraphBuildError::new("topology references missing node"))?;
 
-        match kind {
-            NodeKind::GenerateLayer(layer) => {
-                let out_degree = outgoing_counts.get(node_id).copied().unwrap_or(0);
-                if out_degree > 1 {
-                    return Err(GraphBuildError::new(format!(
-                        "node {:?} has {} outgoing edges; V2 runtime supports one downstream edge per layer",
-                        node_id, out_degree
-                    )));
-                }
-                steps.push(CompiledLayerStep { layer });
+        let mut inputs = incoming.get(&node_id).cloned().unwrap_or_default();
+        inputs.sort_by_key(|(slot, _)| *slot);
+        let inputs: Vec<NodeId> = inputs.into_iter().map(|(_, source)| source).collect();
+
+        let op = match kind {
+            NodeKind::GenerateLayer(spec) => CompiledOp::GenerateLayer(spec),
+            NodeKind::SourceNoise(spec) => {
+                has_non_layer_nodes = true;
+                CompiledOp::SourceNoise(spec)
+            }
+            NodeKind::Mask(spec) => {
+                has_non_layer_nodes = true;
+                CompiledOp::Mask(spec)
+            }
+            NodeKind::Blend(spec) => {
+                has_non_layer_nodes = true;
+                CompiledOp::Blend(spec)
+            }
+            NodeKind::ToneMap(spec) => {
+                has_non_layer_nodes = true;
+                CompiledOp::ToneMap(spec)
+            }
+            NodeKind::WarpTransform(spec) => {
+                has_non_layer_nodes = true;
+                CompiledOp::WarpTransform(spec)
             }
             NodeKind::Output => {
                 if output_node.is_some() {
@@ -69,20 +102,26 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
                         "multiple output nodes are not supported by current V2 runtime",
                     ));
                 }
-                output_node = Some(*node_id);
+                output_node = Some(node_id);
+                CompiledOp::Output
             }
-        }
+        };
+
+        steps.push(CompiledNodeStep {
+            node_id,
+            op,
+            inputs,
+        });
     }
 
     if steps.is_empty() {
         return Err(GraphBuildError::new(
-            "compiled graph contains no renderable layer nodes",
+            "compiled graph contains no executable nodes",
         ));
     }
 
-    let output_node = output_node.ok_or_else(|| {
-        GraphBuildError::new("compiled graph has no output node after topological pass")
-    })?;
+    let output_node =
+        output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
 
     Ok(CompiledGraph {
         width: graph.width,
@@ -90,11 +129,12 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         seed: graph.seed,
         steps,
         output_node,
+        has_non_layer_nodes,
     })
 }
 
 fn topological_order(
-    nodes: &[super::graph::NodeSpec],
+    nodes: &[NodeSpec],
     edges: &[EdgeSpec],
 ) -> Result<Vec<NodeId>, GraphBuildError> {
     let mut indegree = HashMap::with_capacity(nodes.len());
@@ -150,7 +190,8 @@ fn topological_order(
 mod tests {
     use super::*;
     use crate::model::LayerBlendMode;
-    use crate::v2::graph::{GenerateLayerNode, GraphBuilder};
+    use crate::v2::graph::GraphBuilder;
+    use crate::v2::node::{GenerateLayerNode, MaskNode};
 
     fn sample_layer() -> GenerateLayerNode {
         GenerateLayerNode {
@@ -187,7 +228,26 @@ mod tests {
         builder.connect_luma(b, out);
         let graph = builder.build().expect("graph should build");
         let compiled = compile_graph(&graph).expect("graph should compile");
-        assert_eq!(compiled.steps.len(), 2);
+        assert_eq!(compiled.steps.len(), 3);
+        assert!(!compiled.has_non_layer_nodes);
         assert_eq!(compiled.output_node, out);
+    }
+
+    #[test]
+    fn compiles_mask_node_graph() {
+        let mut builder = GraphBuilder::new(256, 256, 9);
+        let src = builder.add_generate_layer(sample_layer());
+        let mask = builder.add_mask(MaskNode {
+            threshold: 0.5,
+            softness: 0.1,
+            invert: false,
+        });
+        let out = builder.add_output();
+        builder.connect_luma(src, mask);
+        builder.connect_mask_input(mask, out, 0);
+        let err = builder
+            .build()
+            .expect_err("output cannot accept mask input");
+        assert!(err.to_string().contains("to-port mismatch"));
     }
 }

@@ -1,105 +1,17 @@
-//! Typed node-graph model for the V2 generated pipeline.
-//!
-//! The graph is authored programmatically and validated before compilation.
-//! It intentionally models a no-GUI workflow where presets generate node
-//! topology from deterministic seeds.
+//! Typed graph model and validator for the V2 generated pipeline.
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::model::{LayerBlendMode, Params};
+pub use super::node::{
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, PortType, SourceNoiseNode, ToneMapNode,
+    WarpTransformNode,
+};
 
 /// Stable node identifier used across builder, compiler, and runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub u32);
-
-/// Port categories supported by the V2 graph IR.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PortType {
-    /// Single-channel image data in normalized [0, 1] range.
-    LumaTexture,
-}
-
-/// GPU layer generation node parameters.
-///
-/// This mirrors the shader's uniform-space controls while keeping blend and
-/// per-layer post parameters colocated for graph execution.
-#[derive(Clone, Copy, Debug)]
-pub struct GenerateLayerNode {
-    pub symmetry: u32,
-    pub symmetry_style: u32,
-    pub iterations: u32,
-    pub seed: u32,
-    pub fill_scale: f32,
-    pub fractal_zoom: f32,
-    pub art_style: u32,
-    pub art_style_secondary: u32,
-    pub art_style_mix: f32,
-    pub bend_strength: f32,
-    pub warp_strength: f32,
-    pub warp_frequency: f32,
-    pub tile_scale: f32,
-    pub tile_phase: f32,
-    pub center_x: f32,
-    pub center_y: f32,
-    pub shader_layer_count: u32,
-    pub blend_mode: LayerBlendMode,
-    pub opacity: f32,
-    pub contrast: f32,
-}
-
-impl GenerateLayerNode {
-    /// Convert this node to shader uniform payload for a target render size.
-    pub fn to_params(self, width: u32, height: u32, seed_offset: u32) -> Params {
-        Params {
-            width,
-            height,
-            symmetry: self.symmetry,
-            symmetry_style: self.symmetry_style,
-            iterations: self.iterations,
-            seed: self.seed.wrapping_add(seed_offset),
-            fill_scale: self.fill_scale,
-            fractal_zoom: self.fractal_zoom,
-            art_style: self.art_style,
-            art_style_secondary: self.art_style_secondary,
-            art_style_mix: self.art_style_mix,
-            bend_strength: self.bend_strength,
-            warp_strength: self.warp_strength,
-            warp_frequency: self.warp_frequency,
-            tile_scale: self.tile_scale,
-            tile_phase: self.tile_phase,
-            center_x: self.center_x,
-            center_y: self.center_y,
-            layer_count: self.shader_layer_count,
-        }
-    }
-}
-
-/// Graph node kinds currently supported by V2.
-#[derive(Clone, Copy, Debug)]
-pub enum NodeKind {
-    /// Produce a luma layer using the fractal compute shader.
-    GenerateLayer(GenerateLayerNode),
-    /// Terminal node indicating which luma stream should be encoded.
-    Output,
-}
-
-impl NodeKind {
-    fn input_port(self) -> Option<PortType> {
-        match self {
-            Self::GenerateLayer(_) => Some(PortType::LumaTexture),
-            Self::Output => Some(PortType::LumaTexture),
-        }
-    }
-
-    fn output_port(self) -> Option<PortType> {
-        match self {
-            Self::GenerateLayer(_) => Some(PortType::LumaTexture),
-            Self::Output => None,
-        }
-    }
-}
 
 /// Immutable node descriptor in a validated graph.
 #[derive(Clone, Copy, Debug)]
@@ -115,6 +27,7 @@ pub struct EdgeSpec {
     pub to: NodeId,
     pub from_port: PortType,
     pub to_port: PortType,
+    pub to_input: u8,
 }
 
 /// Fully built and validated graph for compiler input.
@@ -178,18 +91,60 @@ impl GraphBuilder {
         self.add_node(NodeKind::GenerateLayer(params))
     }
 
+    /// Add a source-noise node.
+    pub fn add_source_noise(&mut self, spec: SourceNoiseNode) -> NodeId {
+        self.add_node(NodeKind::SourceNoise(spec))
+    }
+
+    /// Add a mask extraction node.
+    pub fn add_mask(&mut self, spec: MaskNode) -> NodeId {
+        self.add_node(NodeKind::Mask(spec))
+    }
+
+    /// Add an explicit blend node.
+    pub fn add_blend(&mut self, spec: BlendNode) -> NodeId {
+        self.add_node(NodeKind::Blend(spec))
+    }
+
+    /// Add a tone-map node.
+    pub fn add_tonemap(&mut self, spec: ToneMapNode) -> NodeId {
+        self.add_node(NodeKind::ToneMap(spec))
+    }
+
+    /// Add a warp/transform node.
+    pub fn add_warp_transform(&mut self, spec: WarpTransformNode) -> NodeId {
+        self.add_node(NodeKind::WarpTransform(spec))
+    }
+
     /// Add one output node.
     pub fn add_output(&mut self) -> NodeId {
         self.add_node(NodeKind::Output)
     }
 
-    /// Connect luma output of `from` to luma input of `to`.
+    /// Connect luma output of `from` to the first luma input of `to`.
     pub fn connect_luma(&mut self, from: NodeId, to: NodeId) {
+        self.connect_luma_input(from, to, 0);
+    }
+
+    /// Connect luma output of `from` to luma input `to_input` of `to`.
+    pub fn connect_luma_input(&mut self, from: NodeId, to: NodeId, to_input: u8) {
         self.edges.push(EdgeSpec {
             from,
             to,
             from_port: PortType::LumaTexture,
             to_port: PortType::LumaTexture,
+            to_input,
+        });
+    }
+
+    /// Connect mask output of `from` to mask input `to_input` of `to`.
+    pub fn connect_mask_input(&mut self, from: NodeId, to: NodeId, to_input: u8) {
+        self.edges.push(EdgeSpec {
+            from,
+            to,
+            from_port: PortType::MaskTexture,
+            to_port: PortType::MaskTexture,
+            to_input,
         });
     }
 
@@ -200,14 +155,13 @@ impl GraphBuilder {
                 "graph dimensions must be greater than zero",
             ));
         }
-
         if self.nodes.is_empty() {
             return Err(GraphBuildError::new("graph must contain at least one node"));
         }
 
         let mut node_map = HashMap::with_capacity(self.nodes.len());
         for node in &self.nodes {
-            if node_map.insert(node.id, *node).is_some() {
+            if node_map.insert(node.id, node.kind).is_some() {
                 return Err(GraphBuildError::new(format!(
                     "duplicate node id encountered: {:?}",
                     node.id
@@ -215,11 +169,10 @@ impl GraphBuilder {
             }
         }
 
-        let mut incoming_counts: HashMap<NodeId, usize> = HashMap::new();
         let mut output_count = 0usize;
-
+        let mut incoming: HashMap<NodeId, HashMap<u8, usize>> = HashMap::new();
         for node in &self.nodes {
-            incoming_counts.insert(node.id, 0);
+            incoming.insert(node.id, HashMap::new());
             if matches!(node.kind, NodeKind::Output) {
                 output_count += 1;
             }
@@ -232,58 +185,61 @@ impl GraphBuilder {
         }
 
         for edge in &self.edges {
-            let from = node_map.get(&edge.from).ok_or_else(|| {
+            let from_kind = node_map.get(&edge.from).copied().ok_or_else(|| {
                 GraphBuildError::new(format!("edge source node not found: {:?}", edge.from))
             })?;
-            let to = node_map.get(&edge.to).ok_or_else(|| {
+            let to_kind = node_map.get(&edge.to).copied().ok_or_else(|| {
                 GraphBuildError::new(format!("edge target node not found: {:?}", edge.to))
             })?;
 
-            let expected_from = from.kind.output_port().ok_or_else(|| {
-                GraphBuildError::new(format!("node {:?} does not expose output port", from.id))
+            let expected_from = from_kind.output_port().ok_or_else(|| {
+                GraphBuildError::new(format!(
+                    "node {:?} does not expose an output port",
+                    edge.from
+                ))
             })?;
             if expected_from != edge.from_port {
                 return Err(GraphBuildError::new(format!(
                     "edge from-port mismatch on {:?}: expected {:?}, got {:?}",
-                    from.id, expected_from, edge.from_port
+                    edge.from, expected_from, edge.from_port
                 )));
             }
 
-            let expected_to = to.kind.input_port().ok_or_else(|| {
-                GraphBuildError::new(format!("node {:?} does not accept input", to.id))
+            let expected_to = to_kind.input_port(edge.to_input).ok_or_else(|| {
+                GraphBuildError::new(format!(
+                    "node {:?} has no input slot {}",
+                    edge.to, edge.to_input
+                ))
             })?;
             if expected_to != edge.to_port {
                 return Err(GraphBuildError::new(format!(
-                    "edge to-port mismatch on {:?}: expected {:?}, got {:?}",
-                    to.id, expected_to, edge.to_port
+                    "edge to-port mismatch on {:?} slot {}: expected {:?}, got {:?}",
+                    edge.to, edge.to_input, expected_to, edge.to_port
                 )));
             }
 
-            let count = incoming_counts
+            let entry = incoming
                 .get_mut(&edge.to)
-                .ok_or_else(|| GraphBuildError::new("internal incoming edge table mismatch"))?;
-            *count += 1;
+                .ok_or_else(|| GraphBuildError::new("incoming edge table mismatch"))?;
+            let slot_count = entry.entry(edge.to_input).or_insert(0);
+            *slot_count += 1;
+            if *slot_count > 1 {
+                return Err(GraphBuildError::new(format!(
+                    "node {:?} input slot {} has multiple incoming edges",
+                    edge.to, edge.to_input
+                )));
+            }
         }
 
         for node in &self.nodes {
-            let incoming = incoming_counts.get(&node.id).copied().unwrap_or(0);
-            match node.kind {
-                NodeKind::GenerateLayer(_) => {
-                    if incoming > 1 {
-                        return Err(GraphBuildError::new(format!(
-                            "generate-layer node {:?} has {} inputs; at most one is supported",
-                            node.id, incoming
-                        )));
-                    }
-                }
-                NodeKind::Output => {
-                    if incoming != 1 {
-                        return Err(GraphBuildError::new(format!(
-                            "output node {:?} must have exactly one input (got {})",
-                            node.id, incoming
-                        )));
-                    }
-                }
+            let slot_counts = incoming.get(&node.id).cloned().unwrap_or_default();
+            let total_inputs: usize = slot_counts.values().sum();
+            let (min_inputs, max_inputs) = node.kind.input_range();
+            if total_inputs < min_inputs || total_inputs > max_inputs {
+                return Err(GraphBuildError::new(format!(
+                    "node {:?} requires {}..={} inputs, got {}",
+                    node.id, min_inputs, max_inputs, total_inputs
+                )));
             }
         }
 
@@ -320,10 +276,10 @@ fn validate_acyclic(nodes: &[NodeSpec], edges: &[EdgeSpec]) -> Result<(), GraphB
             .get_mut(&edge.to)
             .ok_or_else(|| GraphBuildError::new("edge references missing target node"))?;
         *degree += 1;
-        let next = adjacency
+        adjacency
             .get_mut(&edge.from)
-            .ok_or_else(|| GraphBuildError::new("edge references missing source node"))?;
-        next.push(edge.to);
+            .ok_or_else(|| GraphBuildError::new("edge references missing source node"))?
+            .push(edge.to);
     }
 
     let mut queue = VecDeque::new();
