@@ -27,6 +27,29 @@ use crate::strategies::{
 /// WGSL compute shader source used by the GPU renderer.
 const SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl"));
 
+/// Returns whether an adapter should be treated as software/CPU for performance safety.
+fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> bool {
+    if matches!(
+        device_type,
+        wgpu::DeviceType::Cpu | wgpu::DeviceType::VirtualGpu
+    ) {
+        return true;
+    }
+
+    let adapter_name = adapter_name.to_ascii_lowercase();
+    [
+        "swiftshader",
+        "llvmpipe",
+        "lavapipe",
+        "softpipe",
+        "software rasterizer",
+        "microsoft basic render driver",
+        "warp",
+    ]
+    .iter()
+    .any(|needle| adapter_name.contains(needle))
+}
+
 /// Build the GPU layer renderer on first use so CPU-only runs skip startup cost.
 async fn ensure_gpu_renderer(
     adapter: &wgpu::Adapter,
@@ -89,8 +112,8 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .await
         .ok_or("no compatible GPU adapter found")?;
     let adapter_info = adapter.get_info();
-    let can_use_gpu = !matches!(adapter_info.device_type, wgpu::DeviceType::Cpu);
-    let cpu_fallback_safe = !can_use_gpu;
+    let cpu_fallback_safe = is_software_adapter(adapter_info.device_type, &adapter_info.name);
+    let can_use_gpu = !cpu_fallback_safe;
     if can_use_gpu {
         eprintln!(
             "Using adapter: {} ({:?})",
@@ -98,7 +121,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         );
     } else {
         eprintln!(
-            "Using adapter: {} ({:?}) - GPU-accelerated strategies unavailable",
+            "Using adapter: {} ({:?}) - software/CPU adapter detected; GPU-accelerated strategies unavailable",
             adapter_info.name, adapter_info.device_type
         );
     }
@@ -789,4 +812,39 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let _ = write!(io::stderr(), "\r{:<120}\r", "");
     let _ = io::stderr().flush();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_software_adapter;
+
+    #[test]
+    fn classifies_cpu_and_virtual_as_software() {
+        assert!(is_software_adapter(wgpu::DeviceType::Cpu, "cpu"));
+        assert!(is_software_adapter(wgpu::DeviceType::VirtualGpu, "virtual"));
+    }
+
+    #[test]
+    fn classifies_known_software_driver_names() {
+        assert!(is_software_adapter(
+            wgpu::DeviceType::Other,
+            "llvmpipe (LLVM 16.0.6, 256 bits)"
+        ));
+        assert!(is_software_adapter(
+            wgpu::DeviceType::Other,
+            "Microsoft Basic Render Driver"
+        ));
+    }
+
+    #[test]
+    fn keeps_hardware_adapters_gpu_capable() {
+        assert!(!is_software_adapter(
+            wgpu::DeviceType::DiscreteGpu,
+            "NVIDIA GeForce RTX"
+        ));
+        assert!(!is_software_adapter(
+            wgpu::DeviceType::IntegratedGpu,
+            "Intel Iris Xe"
+        ));
+    }
 }
