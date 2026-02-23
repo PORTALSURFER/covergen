@@ -572,6 +572,7 @@ pub(crate) fn encode_png_bytes(
     width: u32,
     height: u32,
     data: &[u8],
+    compression: CompressionType,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
     if data.len() != width as usize * height as usize {
         return Err("invalid buffer size for grayscale image".into());
@@ -579,12 +580,30 @@ pub(crate) fn encode_png_bytes(
 
     let mut cursor = Cursor::new(Vec::new());
     {
-        let encoder =
-            PngEncoder::new_with_quality(&mut cursor, CompressionType::Best, FilterType::Adaptive);
+        let encoder = PngEncoder::new_with_quality(&mut cursor, compression, FilterType::Adaptive);
         encoder.write_image(data, width, height, image::ColorType::L8)?;
     }
 
     Ok(cursor.into_inner())
+}
+
+/// Resize a grayscale frame while preserving detail for final output.
+fn resize_gray_frame(
+    width: u32,
+    height: u32,
+    next_width: u32,
+    next_height: u32,
+    working: Vec<u8>,
+    error_context: &'static str,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let source = image::GrayImage::from_raw(width, height, working).ok_or(error_context)?;
+    let resized = image::imageops::resize(
+        &source,
+        next_width,
+        next_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+    Ok(resized.into_raw())
 }
 
 pub(crate) fn save_png_under_10mb(
@@ -593,11 +612,16 @@ pub(crate) fn save_png_under_10mb(
     mut height: u32,
     gray: &[u8],
 ) -> Result<(u32, u32, usize), Box<dyn Error>> {
-    let mut working = gray.to_vec();
-    let mut encoded = encode_png_bytes(width, height, &working)?;
+    if gray.len() != width as usize * height as usize {
+        return Err("invalid buffer size for grayscale image".into());
+    }
+
+    // Keep the original borrowed buffer until a resize is actually required.
+    let mut working_owned: Option<Vec<u8>> = None;
+    let mut encoded_fast = encode_png_bytes(width, height, gray, CompressionType::Fast)?;
     let mut shrink_passes = 0u32;
 
-    while encoded.len() > MAX_OUTPUT_BYTES
+    while encoded_fast.len() > MAX_OUTPUT_BYTES
         && width > MIN_IMAGE_DIMENSION
         && height > MIN_IMAGE_DIMENSION
     {
@@ -614,18 +638,26 @@ pub(crate) fn save_png_under_10mb(
             break;
         }
 
-        let source = image::GrayImage::from_raw(width, height, working)
-            .ok_or("invalid working image buffer during resize")?;
-        let resized = image::imageops::resize(
-            &source,
+        let source = working_owned.take().unwrap_or_else(|| gray.to_vec());
+        let resized = resize_gray_frame(
+            width,
+            height,
             next_width,
             next_height,
-            image::imageops::FilterType::Lanczos3,
+            source,
+            "invalid working image buffer during resize",
         );
         width = next_width;
         height = next_height;
-        working = resized.into_raw();
-        encoded = encode_png_bytes(width, height, &working)?;
+        working_owned = Some(resized?);
+        encoded_fast = encode_png_bytes(
+            width,
+            height,
+            working_owned
+                .as_deref()
+                .ok_or("missing working buffer after resize")?,
+            CompressionType::Fast,
+        )?;
         shrink_passes += 1;
 
         if shrink_passes > 48 {
@@ -633,12 +665,12 @@ pub(crate) fn save_png_under_10mb(
         }
     }
 
-    if encoded.len() > MAX_OUTPUT_BYTES {
-        while encoded.len() > MAX_OUTPUT_BYTES
+    if encoded_fast.len() > MAX_OUTPUT_BYTES {
+        while encoded_fast.len() > MAX_OUTPUT_BYTES
             && width > MIN_IMAGE_DIMENSION
             && height > MIN_IMAGE_DIMENSION
         {
-            let width_scale = (MAX_OUTPUT_BYTES as f32 / encoded.len() as f32).sqrt() * 0.95;
+            let width_scale = (MAX_OUTPUT_BYTES as f32 / encoded_fast.len() as f32).sqrt() * 0.95;
             let next_width = ((width as f32) * width_scale)
                 .floor()
                 .max(MIN_IMAGE_DIMENSION as f32) as u32;
@@ -652,23 +684,73 @@ pub(crate) fn save_png_under_10mb(
                 break;
             }
 
-            let source = image::GrayImage::from_raw(width, height, working)
-                .ok_or("invalid working image buffer during final resize")?;
-            let resized = image::imageops::resize(
-                &source,
+            let source = working_owned.take().unwrap_or_else(|| gray.to_vec());
+            let resized = resize_gray_frame(
+                width,
+                height,
                 target_width,
                 target_height,
-                image::imageops::FilterType::Lanczos3,
+                source,
+                "invalid working image buffer during final resize",
             );
             width = target_width;
             height = target_height;
-            working = resized.into_raw();
-            encoded = encode_png_bytes(width, height, &working)?;
+            working_owned = Some(resized?);
+            encoded_fast = encode_png_bytes(
+                width,
+                height,
+                working_owned
+                    .as_deref()
+                    .ok_or("missing working buffer after final resize")?,
+                CompressionType::Fast,
+            )?;
         }
     }
 
-    let final_size = encoded.len();
-    std::fs::write(output, encoded)?;
+    let working = working_owned.as_deref().unwrap_or(gray);
+    let mut encoded_final = encode_png_bytes(width, height, working, CompressionType::Best)?;
+
+    // Best compression should usually be smaller than fast compression, but if
+    // a codec edge case regresses size, run one extra shrink pass.
+    if encoded_final.len() > MAX_OUTPUT_BYTES
+        && width > MIN_IMAGE_DIMENSION
+        && height > MIN_IMAGE_DIMENSION
+    {
+        let width_scale = (MAX_OUTPUT_BYTES as f32 / encoded_final.len() as f32).sqrt() * 0.95;
+        let next_width = ((width as f32) * width_scale)
+            .floor()
+            .max(MIN_IMAGE_DIMENSION as f32) as u32;
+        let next_height = ((height as f32) * width_scale)
+            .floor()
+            .max(MIN_IMAGE_DIMENSION as f32) as u32;
+        let target_width = next_width.max(1).min(width);
+        let target_height = next_height.max(1).min(height);
+        if target_width != width || target_height != height {
+            let source = working_owned.take().unwrap_or_else(|| gray.to_vec());
+            let resized = resize_gray_frame(
+                width,
+                height,
+                target_width,
+                target_height,
+                source,
+                "invalid working image buffer during best-compression resize",
+            )?;
+            width = target_width;
+            height = target_height;
+            working_owned = Some(resized);
+            encoded_final = encode_png_bytes(
+                width,
+                height,
+                working_owned
+                    .as_deref()
+                    .ok_or("missing working buffer after best-compression resize")?,
+                CompressionType::Best,
+            )?;
+        }
+    }
+
+    let final_size = encoded_final.len();
+    std::fs::write(output, encoded_final)?;
     Ok((width, height, final_size))
 }
 
