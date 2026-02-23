@@ -4,9 +4,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
 use super::node::{
-    BlendNode, GenerateLayerNode, MaskNode, NodeKind, PortType, SourceNoiseNode, ToneMapNode,
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, SourceNoiseNode, ToneMapNode,
     WarpTransformNode,
 };
+use resource_plan::build_resource_plan;
+
+mod resource_plan;
 
 /// Executable node operation in compiled graph order.
 #[derive(Clone, Copy, Debug)]
@@ -46,15 +49,27 @@ pub struct CompiledValueLifetime {
 
 #[derive(Clone, Debug)]
 pub struct CompiledResourcePlan {
+    /// Host-side transient lifetimes used by current mixed CPU execution.
     pub lifetimes: HashMap<NodeId, CompiledValueLifetime>,
+    /// GPU-capable transient lifetimes used for buffer alias planning.
+    pub gpu_lifetimes: HashMap<NodeId, CompiledValueLifetime>,
+    /// Host-side release schedule keyed by producer last-use step.
     pub releases_by_step: Vec<Vec<NodeId>>,
+    /// GPU-side release schedule keyed by producer last-use step.
+    pub gpu_releases_by_step: Vec<Vec<NodeId>>,
     pub peak_luma_slots: usize,
     pub peak_mask_slots: usize,
+    pub gpu_peak_luma_slots: usize,
+    pub gpu_peak_mask_slots: usize,
 }
 
 impl CompiledResourcePlan {
     pub fn lifetime_for(&self, node_id: NodeId) -> Option<CompiledValueLifetime> {
         self.lifetimes.get(&node_id).copied()
+    }
+
+    pub fn gpu_lifetime_for(&self, node_id: NodeId) -> Option<CompiledValueLifetime> {
+        self.gpu_lifetimes.get(&node_id).copied()
     }
 }
 
@@ -166,114 +181,6 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         can_use_retained_layer_path,
         resource_plan,
     })
-}
-
-fn build_resource_plan(
-    steps: &[CompiledNodeStep],
-) -> Result<CompiledResourcePlan, GraphBuildError> {
-    let mut lifetimes = HashMap::with_capacity(steps.len());
-
-    for (step_index, step) in steps.iter().enumerate() {
-        if let Some(kind) = output_kind(step.op) {
-            lifetimes.insert(
-                step.node_id,
-                CompiledValueLifetime {
-                    kind,
-                    first_step: step_index,
-                    last_step: step_index,
-                    alias_slot: 0,
-                },
-            );
-        }
-    }
-
-    for (step_index, step) in steps.iter().enumerate() {
-        for input in &step.inputs {
-            let lifetime = lifetimes.get_mut(input).ok_or_else(|| {
-                GraphBuildError::new(format!(
-                    "resource lifetime analysis missing producer for node {:?}",
-                    input
-                ))
-            })?;
-            lifetime.last_step = lifetime.last_step.max(step_index);
-        }
-    }
-
-    let peak_luma_slots = assign_alias_slots(&mut lifetimes, CompiledValueKind::Luma);
-    let peak_mask_slots = assign_alias_slots(&mut lifetimes, CompiledValueKind::Mask);
-
-    let mut releases_by_step = vec![Vec::new(); steps.len()];
-    for (node_id, lifetime) in &lifetimes {
-        releases_by_step[lifetime.last_step].push(*node_id);
-    }
-    for releases in &mut releases_by_step {
-        releases.sort_by_key(|node_id| node_id.0);
-    }
-
-    Ok(CompiledResourcePlan {
-        lifetimes,
-        releases_by_step,
-        peak_luma_slots,
-        peak_mask_slots,
-    })
-}
-
-fn assign_alias_slots(
-    lifetimes: &mut HashMap<NodeId, CompiledValueLifetime>,
-    kind: CompiledValueKind,
-) -> usize {
-    let mut values: Vec<(usize, NodeId, usize)> = lifetimes
-        .iter()
-        .filter_map(|(node_id, lifetime)| {
-            (lifetime.kind == kind).then_some((lifetime.first_step, *node_id, lifetime.last_step))
-        })
-        .collect();
-    values.sort_by_key(|(first_step, node_id, _)| (*first_step, node_id.0));
-
-    let mut active: Vec<(usize, usize)> = Vec::new();
-    let mut free_slots = Vec::new();
-    let mut next_slot = 0usize;
-
-    for (first_step, node_id, last_step) in values {
-        let mut index = 0usize;
-        while index < active.len() {
-            if active[index].1 < first_step {
-                free_slots.push(active.swap_remove(index).0);
-            } else {
-                index += 1;
-            }
-        }
-
-        let alias_slot = if let Some(slot) = free_slots.pop() {
-            slot
-        } else {
-            let slot = next_slot;
-            next_slot += 1;
-            slot
-        };
-
-        if let Some(lifetime) = lifetimes.get_mut(&node_id) {
-            lifetime.alias_slot = alias_slot;
-        }
-        active.push((alias_slot, last_step));
-    }
-
-    next_slot
-}
-
-fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
-    match op {
-        CompiledOp::GenerateLayer(_)
-        | CompiledOp::Blend(_)
-        | CompiledOp::ToneMap(_)
-        | CompiledOp::WarpTransform(_) => Some(CompiledValueKind::Luma),
-        CompiledOp::SourceNoise(spec) => match spec.output_port {
-            PortType::LumaTexture => Some(CompiledValueKind::Luma),
-            PortType::MaskTexture => Some(CompiledValueKind::Mask),
-        },
-        CompiledOp::Mask(_) => Some(CompiledValueKind::Mask),
-        CompiledOp::Output => None,
-    }
 }
 
 fn detect_linear_layer_path(

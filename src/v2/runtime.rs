@@ -46,6 +46,14 @@ pub async fn execute_compiled(
     } else {
         None
     };
+    if let Some(renderer) = renderer.as_mut() {
+        let alias_start = Instant::now();
+        renderer.ensure_node_alias_buffers(
+            compiled.resource_plan.gpu_peak_luma_slots,
+            compiled.resource_plan.gpu_peak_mask_slots,
+        )?;
+        telemetry::record_timing("v2.gpu.alias_buffers.init", alias_start.elapsed());
+    }
 
     let mut buffers = RuntimeBuffers {
         layered: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],

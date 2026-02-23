@@ -161,4 +161,45 @@ fn resource_plan_reuses_alias_slots_for_non_overlapping_luma_values() {
         compiled.resource_plan.releases_by_step.len(),
         compiled.steps.len()
     );
+    assert_eq!(
+        compiled.resource_plan.gpu_releases_by_step.len(),
+        compiled.steps.len()
+    );
+    assert!(compiled.resource_plan.gpu_peak_luma_slots > 0);
+}
+
+#[test]
+fn gpu_resource_plan_tracks_lifetimes_for_all_renderable_nodes() {
+    let mut builder = GraphBuilder::new(320, 240, 42);
+    let a = builder.add_generate_layer(sample_layer());
+    let b = builder.add_generate_layer(sample_layer());
+    let blend = builder.add_blend(BlendNode {
+        mode: LayerBlendMode::Overlay,
+        opacity: 0.65,
+        temporal: BlendTemporal::default(),
+    });
+    let mask = builder.add_mask(MaskNode {
+        threshold: 0.52,
+        softness: 0.18,
+        invert: false,
+        temporal: MaskTemporal::default(),
+    });
+    let out = builder.add_output();
+
+    builder.connect_luma(a, mask);
+    builder.connect_luma_input(a, blend, 0);
+    builder.connect_luma_input(b, blend, 1);
+    builder.connect_mask_input(mask, blend, 2);
+    builder.connect_luma(blend, out);
+
+    let graph = builder.build().expect("graph should build");
+    let compiled = compile_graph(&graph).expect("graph should compile");
+
+    assert!(compiled.resource_plan.gpu_lifetime_for(a).is_some());
+    assert!(compiled.resource_plan.gpu_lifetime_for(b).is_some());
+    assert!(compiled.resource_plan.gpu_lifetime_for(blend).is_some());
+    assert!(compiled.resource_plan.gpu_lifetime_for(mask).is_some());
+    assert!(compiled.resource_plan.gpu_lifetime_for(out).is_none());
+    assert!(compiled.resource_plan.gpu_peak_luma_slots >= 1);
+    assert!(compiled.resource_plan.gpu_peak_mask_slots >= 1);
 }
