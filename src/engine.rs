@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::io::{self, Write};
 use std::sync::{Arc, atomic::Ordering};
+use std::time::Instant;
 
 use crate::analysis::{
     LumaStats, collect_luma_metrics, collect_luma_metrics_sampled, needs_complexity_fix,
@@ -16,7 +17,7 @@ use crate::config::{
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::*;
 use crate::model::{ArtStyle, Params, SymmetryStyle, XorShift32};
-use crate::progress::{SpinnerState, start_spinner};
+use crate::progress::{SpinnerState, log_progress_message, start_spinner};
 use crate::randomization::*;
 use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
@@ -48,6 +49,21 @@ fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> boo
     ]
     .iter()
     .any(|needle| adapter_name.contains(needle))
+}
+
+/// Parse an opt-in performance timing flag from a string value.
+fn parse_perf_timing_flag(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// Returns true when detailed performance timing logs are enabled.
+fn perf_timing_enabled_from_env() -> bool {
+    std::env::var("COVERGEN_PERF_TIMING")
+        .map(|value| parse_perf_timing_flag(&value))
+        .unwrap_or(false)
 }
 
 /// Build the GPU layer renderer on first use so CPU-only runs skip startup cost.
@@ -194,8 +210,15 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
+    let perf_timing_enabled = perf_timing_enabled_from_env();
+    if perf_timing_enabled {
+        log_progress_message("[perf] timing logs enabled (set COVERGEN_PERF_TIMING=0 to disable)");
+    }
 
     for i in 0..config.count {
+        let image_start = Instant::now();
+        let image_setup_start = Instant::now();
+        let mut layers_total_ms = 0.0f64;
         spinner_state.set_image((i + 1) as usize, 0);
         let mut image_seed = image_rng.next_u32();
         if image_seed == 0 {
@@ -272,8 +295,10 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
         let mut pre_filter_stats = LumaStats::default();
         workspace.reset_layered();
+        let image_setup_ms = image_setup_start.elapsed().as_secs_f64() * 1000.0;
 
         for layer_index in 0..layer_count {
+            let layer_start = Instant::now();
             spinner_state.set_layer((layer_index + 1) as usize);
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
             if layer_index > 0 {
@@ -366,6 +391,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
             let layer_cost = render_strategy_cost(layer_strategy);
             let layer_complexity_budget = params.iterations.min(strategy_budget.max(96));
+            let layer_render_start = Instant::now();
             if matches!(layer_strategy, RenderStrategy::Gpu(_)) {
                 ensure_gpu_renderer(&adapter, &mut gpu, render_width, render_height).await?;
             }
@@ -380,6 +406,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 &mut gpu,
                 &mut strategy_scratch,
             )?;
+            let layer_render_ms = layer_render_start.elapsed().as_secs_f64() * 1000.0;
             strategy_budget = strategy_budget.saturating_sub(layer_cost);
             if layer_index == 0 {
                 pre_filter_stats =
@@ -411,6 +438,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             };
             let mut complexity_fixed = false;
             let mut layer_mix_desc = String::new();
+            let mut layer_mix_ms = 0.0f64;
             let apply_strategy_mix = blending::should_mix_strategies(
                 layer_index,
                 &mut image_rng,
@@ -419,6 +447,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 strategy_profile.filter_bias.max(0.5),
             );
             if apply_strategy_mix {
+                let layer_mix_start = Instant::now();
                 let secondary_strategy = blending::pick_blended_strategy(
                     layer_strategy,
                     &mut image_rng,
@@ -497,6 +526,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     &workspace.mix_mask,
                     image_rng.next_f32() < 0.2,
                 );
+                layer_mix_ms = layer_mix_start.elapsed().as_secs_f64() * 1000.0;
                 layer_mix_desc = format!(
                     " mix:{}:{}({})",
                     strategy_name(layer_strategy),
@@ -504,6 +534,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     mask_kind.label()
                 );
             }
+            let layer_post_start = Instant::now();
 
             if apply_filter {
                 apply_dynamic_filter(
@@ -675,8 +706,25 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             if !layer_mix_desc.is_empty() {
                 layer_steps.push(format!("M{}", layer_mix_desc));
             }
+            let layer_post_ms = layer_post_start.elapsed().as_secs_f64() * 1000.0;
+            let layer_total_ms = layer_start.elapsed().as_secs_f64() * 1000.0;
+            layers_total_ms += layer_total_ms;
+            if perf_timing_enabled {
+                log_progress_message(&format!(
+                    "[perf] image {}/{} layer {}/{} | render {:.2}ms | mix {:.2}ms | post {:.2}ms | total {:.2}ms",
+                    i + 1,
+                    config.count,
+                    layer_index + 1,
+                    layer_count,
+                    layer_render_ms,
+                    layer_mix_ms,
+                    layer_post_ms,
+                    layer_total_ms
+                ));
+            }
         }
 
+        let image_finalize_start = Instant::now();
         blend_background(
             &mut workspace.layered,
             &workspace.background,
@@ -738,7 +786,9 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             );
         }
         let final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
+        let image_finalize_ms = image_finalize_start.elapsed().as_secs_f64() * 1000.0;
 
+        let output_stage_start = Instant::now();
         let output_luma = if resolved_antialias == 1
             && render_width == config.width
             && render_height == config.height
@@ -807,6 +857,19 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             final_metrics.stats.max,
             final_metrics.stats.mean
         );
+        let output_stage_ms = output_stage_start.elapsed().as_secs_f64() * 1000.0;
+        if perf_timing_enabled {
+            log_progress_message(&format!(
+                "[perf] image {}/{} summary | setup {:.2}ms | layers {:.2}ms | finalize {:.2}ms | output {:.2}ms | total {:.2}ms",
+                i + 1,
+                config.count,
+                image_setup_ms,
+                layers_total_ms,
+                image_finalize_ms,
+                output_stage_ms,
+                image_start.elapsed().as_secs_f64() * 1000.0
+            ));
+        }
     }
     spinner_running.store(false, Ordering::Release);
     let _ = write!(io::stderr(), "\r{:<120}\r", "");
@@ -816,7 +879,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_software_adapter;
+    use super::{is_software_adapter, parse_perf_timing_flag};
 
     #[test]
     fn classifies_cpu_and_virtual_as_software() {
@@ -846,5 +909,15 @@ mod tests {
             wgpu::DeviceType::IntegratedGpu,
             "Intel Iris Xe"
         ));
+    }
+
+    #[test]
+    fn parses_perf_timing_flag_values() {
+        assert!(parse_perf_timing_flag("1"));
+        assert!(parse_perf_timing_flag("true"));
+        assert!(parse_perf_timing_flag("YES"));
+        assert!(parse_perf_timing_flag("on"));
+        assert!(!parse_perf_timing_flag("0"));
+        assert!(!parse_perf_timing_flag("false"));
     }
 }

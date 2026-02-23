@@ -76,3 +76,10 @@ pub(crate) fn start_spinner(state: Arc<SpinnerState>) -> (Arc<AtomicBool>, threa
 
     (running, handle)
 }
+
+/// Print a progress-aligned status line to stderr without leaving spinner artifacts.
+pub(crate) fn log_progress_message(message: &str) {
+    let _ = write!(io::stderr(), "\r{:<120}\r", "");
+    let _ = writeln!(io::stderr(), "{message}");
+    let _ = io::stderr().flush();
+}
