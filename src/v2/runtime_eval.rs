@@ -10,13 +10,15 @@ use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{apply_contrast, blend_layer_stack, stretch_to_percentile};
 
 use super::animation::modulate_layer_for_frame;
-use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp};
+use super::compiler::{
+    CompiledGraph, CompiledNodeStep, CompiledOp, CompiledResourcePlan, CompiledValueKind,
+    CompiledValueLifetime,
+};
 use super::graph::NodeId;
 use super::node::PortType;
 use super::runtime::RuntimeBuffers;
 use super::runtime_ops::{blend_with_mask, build_mask, generate_source_noise, warp_luma};
 
-#[derive(Clone)]
 enum RuntimeValue {
     Luma(Vec<f32>),
     Mask(Vec<f32>),
@@ -88,9 +90,11 @@ fn evaluate_mixed_graph(
 ) -> Result<(), Box<dyn Error>> {
     let pixels = pixel_count(compiled.width, compiled.height)?;
     let mut values: HashMap<NodeId, RuntimeValue> = HashMap::with_capacity(compiled.steps.len());
+    let mut arena = AliasedResourceArena::new(&compiled.resource_plan, pixels);
     let mut layer_index = 0u32;
+    let mut output_written = false;
 
-    for step in &compiled.steps {
+    for (step_index, step) in compiled.steps.iter().enumerate() {
         match step.op {
             CompiledOp::GenerateLayer(layer) => {
                 let effective = apply_modulation(layer, modulation, layer_index);
@@ -102,11 +106,13 @@ fn evaluate_mixed_graph(
                     renderer.as_deref_mut(),
                     buffers,
                     &mut values,
+                    &mut arena,
                 )?;
                 layer_index = layer_index.wrapping_add(1);
             }
             CompiledOp::SourceNoise(spec) => {
-                let mut out = vec![0.0f32; pixels];
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
                 generate_source_noise(
                     compiled.width,
                     compiled.height,
@@ -126,25 +132,31 @@ fn evaluate_mixed_graph(
                 }
             }
             CompiledOp::Mask(spec) => {
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
                 let input = require_luma_input(&values, step, 0)?;
-                let mut out = vec![0.0f32; pixels];
                 build_mask(input, spec.threshold, spec.softness, spec.invert, &mut out);
                 values.insert(step.node_id, RuntimeValue::Mask(out));
             }
             CompiledOp::Blend(spec) => {
-                let base = require_luma_input(&values, step, 0)?.to_vec();
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut blended = arena.acquire_for(lifetime);
+                let base = require_luma_input(&values, step, 0)?;
+                blended.copy_from_slice(base);
                 let top = require_luma_input(&values, step, 1)?;
                 let mask = if step.inputs.len() > 2 {
                     Some(require_mask_input(&values, step, 2)?)
                 } else {
                     None
                 };
-                let mut blended = base;
                 blend_with_mask(&mut blended, top, spec.mode, spec.opacity, mask);
                 values.insert(step.node_id, RuntimeValue::Luma(blended));
             }
             CompiledOp::ToneMap(spec) => {
-                let mut out = require_luma_input(&values, step, 0)?.to_vec();
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
+                let input = require_luma_input(&values, step, 0)?;
+                out.copy_from_slice(input);
                 apply_contrast(&mut out, spec.contrast);
                 stretch_to_percentile(
                     &mut out,
@@ -156,31 +168,30 @@ fn evaluate_mixed_graph(
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
             CompiledOp::WarpTransform(spec) => {
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
                 let input = require_luma_input(&values, step, 0)?;
-                let mut out = vec![0.0f32; pixels];
                 warp_luma(input, compiled.width, compiled.height, spec, &mut out);
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
             CompiledOp::Output => {
-                let out = require_luma_input(&values, step, 0)?.to_vec();
-                values.insert(step.node_id, RuntimeValue::Luma(out));
+                let output = require_luma_input(&values, step, 0)?;
+                if output.len() != pixels {
+                    return Err("compiled output buffer size mismatch".into());
+                }
+                buffers.layered.copy_from_slice(output);
+                output_written = true;
             }
         }
+
+        release_step_values(step_index, compiled, &mut values, &mut arena)?;
     }
 
-    let output = values
-        .remove(&compiled.output_node)
-        .ok_or("compiled output node produced no value")?;
-    match output {
-        RuntimeValue::Luma(luma) => {
-            if luma.len() != pixels {
-                return Err("compiled output buffer size mismatch".into());
-            }
-            buffers.layered.copy_from_slice(&luma);
-            Ok(())
-        }
-        RuntimeValue::Mask(_) => Err("output node must resolve to luma data".into()),
+    if !output_written {
+        return Err("compiled output node produced no value".into());
     }
+
+    Ok(())
 }
 
 fn execute_generate_layer(
@@ -191,27 +202,61 @@ fn execute_generate_layer(
     renderer: Option<&mut GpuLayerRenderer>,
     buffers: &mut RuntimeBuffers,
     values: &mut HashMap<NodeId, RuntimeValue>,
+    arena: &mut AliasedResourceArena,
 ) -> Result<(), Box<dyn Error>> {
     let renderer = renderer.ok_or("generate-layer node requires GPU renderer")?;
     let params = layer.to_params(compiled.width, compiled.height, seed_offset);
     renderer.render_layer(&params, &mut buffers.layer_scratch)?;
     apply_contrast(&mut buffers.layer_scratch, layer.contrast);
 
-    let out = if step.inputs.is_empty() {
-        buffers.layer_scratch.clone()
+    let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+    let mut out = arena.acquire_for(lifetime);
+    if step.inputs.is_empty() {
+        out.copy_from_slice(&buffers.layer_scratch);
     } else {
-        let mut base = require_luma(values, step.inputs[0])?.to_vec();
+        let base = require_luma(values, step.inputs[0])?;
+        out.copy_from_slice(base);
         blend_layer_stack(
-            &mut base,
+            &mut out,
             &buffers.layer_scratch,
             layer.opacity,
             layer.blend_mode,
         );
-        base
-    };
+    }
 
     values.insert(step.node_id, RuntimeValue::Luma(out));
     Ok(())
+}
+
+fn release_step_values(
+    step_index: usize,
+    compiled: &CompiledGraph,
+    values: &mut HashMap<NodeId, RuntimeValue>,
+    arena: &mut AliasedResourceArena,
+) -> Result<(), Box<dyn Error>> {
+    let releases = compiled
+        .resource_plan
+        .releases_by_step
+        .get(step_index)
+        .ok_or("invalid release schedule index")?;
+
+    for node_id in releases {
+        let value = values
+            .remove(node_id)
+            .ok_or_else(|| format!("missing transient value for release node {:?}", node_id))?;
+        let lifetime = required_lifetime(&compiled.resource_plan, *node_id)?;
+        arena.recycle(lifetime, value)?;
+    }
+
+    Ok(())
+}
+
+fn required_lifetime(
+    plan: &CompiledResourcePlan,
+    node_id: NodeId,
+) -> Result<CompiledValueLifetime, Box<dyn Error>> {
+    plan.lifetime_for(node_id)
+        .ok_or_else(|| format!("missing resource lifetime for node {:?}", node_id).into())
 }
 
 fn require_luma_input<'a>(
@@ -286,4 +331,64 @@ fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {
         .checked_mul(height)
         .map(|count| count as usize)
         .ok_or("invalid pixel dimensions".into())
+}
+
+struct AliasedResourceArena {
+    pixel_count: usize,
+    luma_slots: Vec<Option<Vec<f32>>>,
+    mask_slots: Vec<Option<Vec<f32>>>,
+}
+
+impl AliasedResourceArena {
+    fn new(plan: &CompiledResourcePlan, pixel_count: usize) -> Self {
+        Self {
+            pixel_count,
+            luma_slots: (0..plan.peak_luma_slots)
+                .map(|_| Some(vec![0.0f32; pixel_count]))
+                .collect(),
+            mask_slots: (0..plan.peak_mask_slots)
+                .map(|_| Some(vec![0.0f32; pixel_count]))
+                .collect(),
+        }
+    }
+
+    fn acquire_for(&mut self, lifetime: CompiledValueLifetime) -> Vec<f32> {
+        let slots = match lifetime.kind {
+            CompiledValueKind::Luma => &mut self.luma_slots,
+            CompiledValueKind::Mask => &mut self.mask_slots,
+        };
+
+        slots
+            .get_mut(lifetime.alias_slot)
+            .and_then(Option::take)
+            .unwrap_or_else(|| vec![0.0f32; self.pixel_count])
+    }
+
+    fn recycle(
+        &mut self,
+        lifetime: CompiledValueLifetime,
+        value: RuntimeValue,
+    ) -> Result<(), Box<dyn Error>> {
+        let (kind, mut buffer) = match value {
+            RuntimeValue::Luma(buffer) => (CompiledValueKind::Luma, buffer),
+            RuntimeValue::Mask(buffer) => (CompiledValueKind::Mask, buffer),
+        };
+
+        if kind != lifetime.kind {
+            return Err("resource kind mismatch while recycling aliased buffer".into());
+        }
+        if buffer.len() != self.pixel_count {
+            buffer.resize(self.pixel_count, 0.0);
+        }
+
+        let slots = match lifetime.kind {
+            CompiledValueKind::Luma => &mut self.luma_slots,
+            CompiledValueKind::Mask => &mut self.mask_slots,
+        };
+        let slot = slots
+            .get_mut(lifetime.alias_slot)
+            .ok_or("alias slot index out of bounds")?;
+        *slot = Some(buffer);
+        Ok(())
+    }
 }
