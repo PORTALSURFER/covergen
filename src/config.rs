@@ -224,6 +224,76 @@ pub(crate) fn resolve_fast_profile(
     FastProfile::unlimited()
 }
 
+/// Tighten fast-profile caps when running on a CPU fallback adapter.
+///
+/// CPU fallback runs can exhibit very high tail latency when expensive CPU
+/// strategies are picked repeatedly. This helper applies stricter iteration and
+/// layer limits to keep latency predictable without changing the visual pipeline.
+pub(crate) fn apply_cpu_fallback_profile(
+    base: FastProfile,
+    render_width: u32,
+    image_count: u32,
+    enabled: bool,
+) -> FastProfile {
+    if !enabled {
+        return base;
+    }
+
+    let cpu_iteration_cap = if render_width >= 2048 {
+        140
+    } else if render_width >= 1536 {
+        170
+    } else {
+        230
+    };
+    let cpu_layer_cap = if image_count >= 12 { 3 } else { 4 };
+    let cpu_side_cap = if render_width >= 2048 {
+        1600
+    } else if render_width >= 1536 {
+        1700
+    } else {
+        u32::MAX
+    };
+
+    FastProfile {
+        iteration_cap: base.iteration_cap.min(cpu_iteration_cap),
+        layer_cap: base.layer_cap.min(cpu_layer_cap),
+        render_side_cap: base.render_side_cap.min(cpu_side_cap),
+    }
+}
+
+/// Estimate a per-image CPU strategy budget used to avoid expensive tail-latency picks.
+pub(crate) fn resolve_strategy_budget(
+    render_width: u32,
+    render_height: u32,
+    layer_count: u32,
+    iterations: u32,
+    fast: bool,
+    cpu_fallback_safe: bool,
+) -> u32 {
+    let pixel_scale = ((u64::from(render_width) * u64::from(render_height)) / 1_048_576) as u32;
+    let pixel_scale = pixel_scale.max(1);
+    let per_layer = if cpu_fallback_safe {
+        24
+    } else if fast {
+        90
+    } else {
+        140
+    };
+    let iter_factor = if cpu_fallback_safe {
+        14
+    } else if fast {
+        10
+    } else {
+        8
+    };
+    let iter_budget = (iterations / iter_factor).clamp(12, 120);
+    let layer_budget = layer_count.saturating_mul(per_layer);
+    layer_budget
+        .saturating_add(iter_budget)
+        .saturating_mul(pixel_scale.clamp(1, 4))
+}
+
 /// Resolve whether GPU/CPU buffers should be temporarily rendered at capped side length.
 pub(crate) fn resolve_fast_resolution(
     width: u32,
@@ -307,8 +377,8 @@ pub(crate) fn random_seed() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_iteration_count, clamp_layer_count, resolve_fast_profile, resolve_fast_resolution,
-        resolve_render_resolution,
+        apply_cpu_fallback_profile, clamp_iteration_count, clamp_layer_count, resolve_fast_profile,
+        resolve_fast_resolution, resolve_render_resolution, resolve_strategy_budget,
     };
 
     #[test]
@@ -343,5 +413,21 @@ mod tests {
     fn clamp_helpers_work_with_large_inputs() {
         assert_eq!(clamp_iteration_count(400, 128), 128);
         assert_eq!(clamp_layer_count(3, 1), 1);
+    }
+
+    #[test]
+    fn cpu_profile_tightens_limits_when_enabled() {
+        let base = resolve_fast_profile(2048, 1, false);
+        let cpu = apply_cpu_fallback_profile(base, 2048, 20, true);
+        assert!(cpu.iteration_cap < u32::MAX);
+        assert!(cpu.layer_cap < u32::MAX);
+        assert!(cpu.render_side_cap < u32::MAX);
+    }
+
+    #[test]
+    fn strategy_budget_scales_with_pixels_and_layers() {
+        let small = resolve_strategy_budget(512, 512, 2, 180, true, true);
+        let large = resolve_strategy_budget(2048, 2048, 6, 280, true, true);
+        assert!(large > small);
     }
 }

@@ -487,6 +487,116 @@ pub fn pick_render_strategy_with_preferences(
     RenderStrategy::Cpu(strategy)
 }
 
+/// Returns a coarse runtime cost estimate for a CPU strategy.
+pub fn cpu_strategy_cost(strategy: CpuStrategy) -> u32 {
+    let family_cost = match strategy.family() {
+        StrategyFamily::Fractal => 180,
+        StrategyFamily::Flow => 220,
+        StrategyFamily::Diffusion => 260,
+        StrategyFamily::Cellular => 170,
+        StrategyFamily::Geometry => 150,
+        StrategyFamily::Harmonic => 140,
+        StrategyFamily::Tiling => 165,
+    };
+    let extra = match strategy {
+        CpuStrategy::ReactionDiffusion
+        | CpuStrategy::ReactionLattice
+        | CpuStrategy::TuringCascade
+        | CpuStrategy::CrystalGrowth => 120,
+        CpuStrategy::StrangeAttractor
+        | CpuStrategy::AttractorHybrid
+        | CpuStrategy::LorenzAttractor
+        | CpuStrategy::AttractorTunnel
+        | CpuStrategy::GraviticWeb
+        | CpuStrategy::OrbitalAtlas => 90,
+        CpuStrategy::PerlinRidge
+        | CpuStrategy::ProceduralNoise
+        | CpuStrategy::InterferenceWaves
+        | CpuStrategy::HarmonicInterference
+        | CpuStrategy::PlasmaField => 0,
+        _ => 35,
+    };
+    family_cost + extra
+}
+
+/// Returns a coarse runtime cost estimate for any render strategy.
+pub fn render_strategy_cost(strategy: RenderStrategy) -> u32 {
+    match strategy {
+        RenderStrategy::Gpu(_) => 40,
+        RenderStrategy::Cpu(strategy) => cpu_strategy_cost(strategy),
+    }
+}
+
+fn pick_cpu_strategy_for_budget(rng: &mut XorShift32, budget: u32) -> CpuStrategy {
+    const CANDIDATES: [CpuStrategy; 12] = [
+        CpuStrategy::PerlinRidge,
+        CpuStrategy::ProceduralNoise,
+        CpuStrategy::InterferenceWaves,
+        CpuStrategy::HarmonicInterference,
+        CpuStrategy::PlasmaField,
+        CpuStrategy::RadialWave,
+        CpuStrategy::Maze,
+        CpuStrategy::BifurcationGrid,
+        CpuStrategy::Voronoi,
+        CpuStrategy::LSystem,
+        CpuStrategy::KochSnowflake,
+        CpuStrategy::RecursiveTiling,
+    ];
+    let threshold = budget.saturating_add(30);
+    let mut seen = 0u32;
+    let mut chosen = CpuStrategy::PerlinRidge;
+    for candidate in CANDIDATES {
+        if cpu_strategy_cost(candidate) <= threshold {
+            seen += 1;
+            if (rng.next_u32() % seen) == 0 {
+                chosen = candidate;
+            }
+        }
+    }
+    if seen == 0 {
+        CpuStrategy::PerlinRidge
+    } else {
+        chosen
+    }
+}
+
+/// Constrain a selected strategy to the remaining compute budget.
+///
+/// This keeps per-image tail latency bounded on CPU-heavy runs while preserving
+/// family continuity when possible.
+pub fn fit_strategy_to_budget(
+    rng: &mut XorShift32,
+    strategy: RenderStrategy,
+    budget_left: u32,
+    fast: bool,
+    prefer_gpu: bool,
+) -> RenderStrategy {
+    if render_strategy_cost(strategy) <= budget_left {
+        return strategy;
+    }
+
+    if prefer_gpu && rng.next_f32() < 0.35 {
+        let candidate = pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
+        if matches!(candidate, RenderStrategy::Gpu(_)) {
+            return candidate;
+        }
+    }
+
+    let attempts = if fast { 12 } else { 22 };
+    let mut i = 0u32;
+    while i < attempts {
+        let candidate = pick_render_strategy_near_family_with_preferences(
+            rng, fast, strategy, 0.92, prefer_gpu,
+        );
+        if render_strategy_cost(candidate) <= budget_left {
+            return candidate;
+        }
+        i += 1;
+    }
+
+    RenderStrategy::Cpu(pick_cpu_strategy_for_budget(rng, budget_left))
+}
+
 /// Pick a render strategy with a bias toward the same family as `base`.
 #[allow(dead_code)]
 pub fn pick_render_strategy_near_family(
@@ -650,30 +760,48 @@ pub fn render_cpu_strategy(
     height: u32,
     seed: u32,
     fast: bool,
+    complexity_budget: u32,
 ) -> Vec<f32> {
     let mut rng = XorShift32::new(seed ^ 0x9e37_79b9);
+    let complexity_budget = complexity_budget.max(64);
+    let budget_fast = fast || complexity_budget <= 220;
+    let strategy = if cpu_strategy_cost(strategy) > complexity_budget {
+        pick_cpu_strategy_for_budget(&mut rng, complexity_budget)
+    } else {
+        strategy
+    };
     match strategy {
         CpuStrategy::EdgeSobel => render_edge_field(width, height, &mut rng, true),
         CpuStrategy::EdgeLaplacian => render_edge_field(width, height, &mut rng, false),
         CpuStrategy::Maze => render_maze_field(width, height, &mut rng),
-        CpuStrategy::ReactionDiffusion => render_reaction_diffusion(width, height, &mut rng, fast),
+        CpuStrategy::ReactionDiffusion => {
+            render_reaction_diffusion(width, height, &mut rng, budget_fast)
+        }
         CpuStrategy::LSystem => render_lsystem(width, height, &mut rng),
         CpuStrategy::ProceduralNoise => render_noise_field(width, height, &mut rng),
-        CpuStrategy::CellularAutomata => render_cellular_automata(width, height, &mut rng, fast),
-        CpuStrategy::ParticleFlow => render_particle_flow(width, height, &mut rng, fast),
+        CpuStrategy::CellularAutomata => {
+            render_cellular_automata(width, height, &mut rng, budget_fast)
+        }
+        CpuStrategy::ParticleFlow => render_particle_flow(width, height, &mut rng, budget_fast),
         CpuStrategy::Voronoi => render_voronoi(width, height, &mut rng),
         CpuStrategy::Delaunay => render_delaunay(width, height, &mut rng),
-        CpuStrategy::IteratedFractal => render_iterated_fractal(width, height, &mut rng, fast),
-        CpuStrategy::StrangeAttractor => render_strange_attractor(width, height, &mut rng, fast),
+        CpuStrategy::IteratedFractal => {
+            render_iterated_fractal(width, height, &mut rng, budget_fast)
+        }
+        CpuStrategy::StrangeAttractor => {
+            render_strange_attractor(width, height, &mut rng, budget_fast)
+        }
         CpuStrategy::RadialWave => render_radial_wave(width, height, &mut rng),
-        CpuStrategy::RecursiveFold => render_recursive_fold(width, height, &mut rng, fast),
-        CpuStrategy::AttractorHybrid => render_attractor_hybrid(width, height, &mut rng, fast),
-        CpuStrategy::CannyEdge => render_canny_edge(width, height, &mut rng, fast),
+        CpuStrategy::RecursiveFold => render_recursive_fold(width, height, &mut rng, budget_fast),
+        CpuStrategy::AttractorHybrid => {
+            render_attractor_hybrid(width, height, &mut rng, budget_fast)
+        }
+        CpuStrategy::CannyEdge => render_canny_edge(width, height, &mut rng, budget_fast),
         CpuStrategy::PerlinRidge => render_perlin_ridge(width, height, &mut rng),
         CpuStrategy::PlasmaField => render_plasma_field(width, height, &mut rng),
         CpuStrategy::SierpinskiCarpet => render_sierpinski_carpet(width, height, &mut rng),
         CpuStrategy::BarnsleyFern => render_barnsley_fern(width, height, &mut rng),
-        CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, &mut rng, fast),
+        CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, &mut rng, budget_fast),
         CpuStrategy::MandelbrotField => render_mandelbrot_field(width, height, &mut rng),
         CpuStrategy::RecursiveTiling => render_recursive_tiling(width, height, &mut rng),
         CpuStrategy::TuringCascade => render_turing_cascade(width, height, &mut rng),
@@ -702,16 +830,18 @@ pub fn render_cpu_strategy(
         CpuStrategy::DepthRelief => render_depth_relief(width, height, &mut rng),
         CpuStrategy::AttractorTunnel => render_attractor_tunnel(width, height, &mut rng),
         CpuStrategy::OrbitalLabyrinth => render_orbital_labyrinth(width, height, &mut rng),
-        CpuStrategy::PhaseField => render_phase_field(width, height, &mut rng, fast),
-        CpuStrategy::Lenia => render_lenia(width, height, &mut rng, fast),
-        CpuStrategy::CurlNoiseFlow => render_curl_noise_flow(width, height, &mut rng, fast),
-        CpuStrategy::ReactionLattice => render_reaction_lattice(width, height, &mut rng, fast),
+        CpuStrategy::PhaseField => render_phase_field(width, height, &mut rng, budget_fast),
+        CpuStrategy::Lenia => render_lenia(width, height, &mut rng, budget_fast),
+        CpuStrategy::CurlNoiseFlow => render_curl_noise_flow(width, height, &mut rng, budget_fast),
+        CpuStrategy::ReactionLattice => {
+            render_reaction_lattice(width, height, &mut rng, budget_fast)
+        }
         CpuStrategy::HarmonicInterference => render_harmonic_interference(width, height, &mut rng),
         CpuStrategy::AttractorVoronoiHybrid => {
-            render_attractor_voronoi_hybrid(width, height, &mut rng, fast)
+            render_attractor_voronoi_hybrid(width, height, &mut rng, budget_fast)
         }
         CpuStrategy::RecursiveNoiseTerrain => {
-            render_recursive_noise_terrain(width, height, &mut rng, fast)
+            render_recursive_noise_terrain(width, height, &mut rng, budget_fast)
         }
         CpuStrategy::BifurcationGrid => render_bifurcation_grid(width, height, &mut rng),
     }
@@ -5426,12 +5556,32 @@ mod tests {
             CpuStrategy::BifurcationGrid,
         ];
         for strategy in all.drain(..) {
-            let img = render_cpu_strategy(strategy, 256, 256, 42, false);
+            let img = render_cpu_strategy(strategy, 256, 256, 42, false, 512);
             assert_eq!(img.len(), 256 * 256);
             assert!(img.iter().all(|value| value.is_finite()));
             let min = img.iter().cloned().fold(1.0f32, f32::min);
             let max = img.iter().cloned().fold(0.0f32, f32::max);
             assert!(max >= min);
+        }
+    }
+
+    #[test]
+    fn strategy_cost_reflects_heavy_kernels() {
+        let cheap = cpu_strategy_cost(CpuStrategy::PerlinRidge);
+        let heavy = cpu_strategy_cost(CpuStrategy::ReactionLattice);
+        assert!(heavy > cheap);
+    }
+
+    #[test]
+    fn budget_fit_returns_affordable_cpu_strategy() {
+        let mut rng = XorShift32::new(0xA1B2_C3D4);
+        let original = RenderStrategy::Cpu(CpuStrategy::ReactionLattice);
+        let fitted = fit_strategy_to_budget(&mut rng, original, 110, true, false);
+        match fitted {
+            RenderStrategy::Cpu(kind) => {
+                assert!(cpu_strategy_cost(kind) <= 140);
+            }
+            RenderStrategy::Gpu(_) => panic!("expected cpu strategy when gpu is not preferred"),
         }
     }
 }

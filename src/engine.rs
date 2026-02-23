@@ -7,8 +7,9 @@ use std::sync::{Arc, atomic::Ordering};
 use crate::analysis::{LumaStats, collect_luma_metrics, needs_complexity_fix};
 use crate::blending::{self, strategy_name};
 use crate::config::{
-    Config, clamp_iteration_count, clamp_layer_count, resolve_fast_profile,
-    resolve_fast_resolution, resolve_render_resolution,
+    Config, apply_cpu_fallback_profile, clamp_iteration_count, clamp_layer_count,
+    resolve_fast_profile, resolve_fast_resolution, resolve_render_resolution,
+    resolve_strategy_budget,
 };
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::*;
@@ -17,7 +18,8 @@ use crate::progress::{SpinnerState, start_spinner};
 use crate::randomization::*;
 use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
-    RenderStrategy, pick_render_strategy_with_preferences, render_cpu_strategy, strategy_profile,
+    RenderStrategy, fit_strategy_to_budget, pick_render_strategy_with_preferences,
+    render_cpu_strategy, render_strategy_cost, strategy_profile,
 };
 
 /// WGSL compute shader source used by the GPU renderer.
@@ -36,6 +38,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         .ok_or("no compatible GPU adapter found")?;
     let adapter_info = adapter.get_info();
     let can_use_gpu = !matches!(adapter_info.device_type, wgpu::DeviceType::Cpu);
+    let cpu_fallback_safe = !can_use_gpu;
     if can_use_gpu {
         eprintln!(
             "Using adapter: {} ({:?})",
@@ -50,13 +53,24 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     let (render_width, render_height, resolved_antialias) =
         resolve_render_resolution(config.width, config.height, config.antialias);
-    let fast = config.fast || render_width >= 1536;
-    if fast && !config.fast {
+    let fast_due_to_resolution = render_width >= 1536;
+    let fast = config.fast || fast_due_to_resolution || cpu_fallback_safe;
+    if fast_due_to_resolution && !config.fast {
         eprintln!(
             "High-resolution run ({render_width}x{render_height}) detected, enabling fast profile for responsiveness."
         );
     }
-    let fast_profile = resolve_fast_profile(render_width, config.count, fast);
+    if cpu_fallback_safe {
+        eprintln!(
+            "CPU fallback adapter detected, enabling CPU-safe profile to limit tail latency."
+        );
+    }
+    let fast_profile = apply_cpu_fallback_profile(
+        resolve_fast_profile(render_width, config.count, fast),
+        render_width,
+        config.count,
+        cpu_fallback_safe,
+    );
     let (render_width, render_height, resolved_antialias, render_scaled) = resolve_fast_resolution(
         render_width,
         render_height,
@@ -67,7 +81,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         && (fast_profile.iteration_cap != u32::MAX
             || fast_profile.layer_cap != u32::MAX
             || fast_profile.render_side_cap != u32::MAX)
-        && (config.count > 1 || render_width >= 2048)
+        && (config.count > 1 || render_width >= 2048 || cpu_fallback_safe)
     {
         eprintln!(
             "Fast profile caps: max iterations {}, max layers {}, render side {}{}.",
@@ -95,7 +109,8 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     let mut render_strategy_layer = |strategy: RenderStrategy,
                                      strategy_params: &Params,
-                                     out: &mut [f32]|
+                                     out: &mut [f32],
+                                     complexity_budget: u32|
      -> Result<(), Box<dyn Error>> {
         match strategy {
             RenderStrategy::Gpu(_) => {
@@ -109,6 +124,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     render_height,
                     strategy_params.seed,
                     fast,
+                    complexity_budget,
                 );
                 out.copy_from_slice(&generated);
                 Ok(())
@@ -162,6 +178,21 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         {
             base_strategy = RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
         }
+        let mut strategy_budget = resolve_strategy_budget(
+            render_width,
+            render_height,
+            layer_count,
+            base_iterations,
+            fast,
+            cpu_fallback_safe,
+        );
+        base_strategy = fit_strategy_to_budget(
+            &mut image_rng,
+            base_strategy,
+            strategy_budget,
+            fast,
+            can_use_gpu,
+        );
         let base_strategy_name = base_strategy.label();
         let base_profile = strategy_profile(base_strategy);
         let mut structural_profile =
@@ -185,6 +216,13 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             if layer_index > 0 {
                 active_strategy =
                     bias_layer_strategy(active_strategy, &mut image_rng, fast, can_use_gpu);
+                active_strategy = fit_strategy_to_budget(
+                    &mut image_rng,
+                    active_strategy,
+                    strategy_budget,
+                    fast,
+                    can_use_gpu,
+                );
             }
             let layer_strategy = if layer_index == 0 {
                 base_strategy
@@ -263,7 +301,15 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 ),
             };
 
-            render_strategy_layer(layer_strategy, &params, &mut workspace.luma)?;
+            let layer_cost = render_strategy_cost(layer_strategy);
+            let layer_complexity_budget = params.iterations.min(strategy_budget.max(96));
+            render_strategy_layer(
+                layer_strategy,
+                &params,
+                &mut workspace.luma,
+                layer_complexity_budget,
+            )?;
+            strategy_budget = strategy_budget.saturating_sub(layer_cost);
             if layer_index == 0 {
                 pre_filter_stats =
                     collect_luma_metrics(&workspace.luma, render_width, render_height).stats;
@@ -308,6 +354,13 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     fast,
                     can_use_gpu,
                 );
+                let secondary_strategy = fit_strategy_to_budget(
+                    &mut image_rng,
+                    secondary_strategy,
+                    strategy_budget,
+                    fast,
+                    can_use_gpu,
+                );
                 let secondary_seed = layer_seed ^ 0x91A5_FD3Bu32;
                 let mut secondary_params = params;
                 secondary_params.seed = secondary_seed;
@@ -326,11 +379,15 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     secondary_params.art_style_mix =
                         modulate_style_mix(params.art_style_mix, &mut image_rng, fast);
                 }
+                let secondary_cost = render_strategy_cost(secondary_strategy);
+                let secondary_budget = secondary_params.iterations.min(strategy_budget.max(96));
                 render_strategy_layer(
                     secondary_strategy,
                     &secondary_params,
                     &mut workspace.blend_secondary,
+                    secondary_budget,
                 )?;
+                strategy_budget = strategy_budget.saturating_sub(secondary_cost);
                 let mask_kind = blending::pick_layer_mask_kind(&mut image_rng, structural_profile);
                 let mut mask_request = blending::LayerMaskBuildRequest {
                     primary: &workspace.luma,
