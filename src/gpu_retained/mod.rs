@@ -324,4 +324,19 @@ impl RetainedGpuPost {
     pub(crate) fn expected_output_pixels(&self) -> usize {
         (self.output_width as usize) * (self.output_height as usize)
     }
+
+    /// Copy an external luma buffer into retained accumulation state.
+    pub(crate) fn encode_copy_from_luma(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Buffer,
+    ) {
+        encoder.copy_buffer_to_buffer(
+            source,
+            0,
+            &self.accum_buffer,
+            0,
+            (self.expected_pixels() * std::mem::size_of::<f32>()) as u64,
+        );
+    }
 }

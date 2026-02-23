@@ -12,6 +12,7 @@ pub mod node;
 pub mod presets;
 pub mod runtime;
 mod runtime_eval;
+mod runtime_gpu;
 mod runtime_ops;
 pub mod temporal;
 #[cfg(test)]

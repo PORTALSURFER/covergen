@@ -8,6 +8,10 @@ use crate::model::Params;
 use bytemuck::Zeroable;
 use wgpu::{self, util::DeviceExt};
 
+mod graph_exec;
+mod graph_ops;
+use graph_ops::GpuGraphOps;
+
 /// Default timeout used while waiting for mapped GPU buffers.
 const MAP_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -26,6 +30,8 @@ pub(crate) struct GpuLayerRenderer {
     output_size: u64,
     pending_readback: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
     retained: RetainedGpuPost,
+    graph_ops: GpuGraphOps,
+    node_layer_temp_buffer: wgpu::Buffer,
     node_alias_luma_buffers: Vec<wgpu::Buffer>,
     node_alias_mask_buffers: Vec<wgpu::Buffer>,
 }
@@ -148,6 +154,15 @@ impl GpuLayerRenderer {
             output_width,
             output_height,
         );
+        let graph_ops = GpuGraphOps::new(&device);
+        let node_layer_temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("v2 node layer temp"),
+            size: output_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         Ok(Self {
             device,
@@ -162,48 +177,11 @@ impl GpuLayerRenderer {
             output_size,
             pending_readback: None,
             retained,
+            graph_ops,
+            node_layer_temp_buffer,
             node_alias_luma_buffers: Vec::new(),
             node_alias_mask_buffers: Vec::new(),
         })
-    }
-
-    /// Ensure aliased node-output buffers are allocated once for the active graph.
-    pub(crate) fn ensure_node_alias_buffers(
-        &mut self,
-        luma_slots: usize,
-        mask_slots: usize,
-    ) -> Result<(), Box<dyn Error>> {
-        if self.node_alias_luma_buffers.len() != luma_slots {
-            self.node_alias_luma_buffers = (0..luma_slots)
-                .map(|slot| {
-                    self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some(&format!("v2 node alias luma {slot}")),
-                        size: self.output_size,
-                        usage: wgpu::BufferUsages::STORAGE
-                            | wgpu::BufferUsages::COPY_SRC
-                            | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    })
-                })
-                .collect();
-        }
-
-        if self.node_alias_mask_buffers.len() != mask_slots {
-            self.node_alias_mask_buffers = (0..mask_slots)
-                .map(|slot| {
-                    self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some(&format!("v2 node alias mask {slot}")),
-                        size: self.output_size,
-                        usage: wgpu::BufferUsages::STORAGE
-                            | wgpu::BufferUsages::COPY_SRC
-                            | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    })
-                })
-                .collect();
-        }
-
-        Ok(())
     }
 
     /// Reset retained accumulation buffers for the next image.

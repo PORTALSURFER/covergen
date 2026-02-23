@@ -1,7 +1,8 @@
 //! GPU executor for compiled V2 graphs.
 //!
 //! The runtime orchestrates per-image execution, output finalization, and
-//! animation frame encoding. Node evaluation logic lives in `runtime_eval`.
+//! animation frame encoding. Node evaluation logic lives in `runtime_eval`
+//! (CPU fallback/legacy path) and `runtime_gpu` (retained GPU path).
 
 use std::error::Error;
 use std::path::Path;
@@ -23,6 +24,7 @@ use super::cli::{V2Config, V2Profile};
 use super::compiler::{CompiledGraph, CompiledOp};
 use super::node::GraphTimeInput;
 use super::runtime_eval::render_graph_luma;
+use super::runtime_gpu::render_graph_luma_gpu;
 
 /// Reusable image buffers for V2 execution.
 pub(crate) struct RuntimeBuffers {
@@ -77,7 +79,7 @@ pub async fn execute_compiled(
             .wrapping_add(image_index.wrapping_mul(0x9E37_79B9));
 
         let render_start = Instant::now();
-        render_graph_luma(
+        render_graph_frame(
             compiled,
             renderer.as_mut(),
             &mut buffers,
@@ -155,7 +157,7 @@ fn execute_animation(
                 clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9));
             let graph_time = GraphTimeInput::from_frame(frame_index, frames);
 
-            render_graph_luma(
+            render_graph_frame(
                 compiled,
                 renderer.as_deref_mut(),
                 buffers,
@@ -224,7 +226,8 @@ fn finalize_luma_for_output(
     };
     let fast_mode = matches!(config.profile, V2Profile::Performance);
 
-    if compiled.can_use_retained_layer_path {
+    if renderer.is_some() && (compiled.can_use_retained_layer_path || compiled.has_non_layer_nodes)
+    {
         let renderer = renderer.ok_or("retained finalization requires GPU renderer")?;
         let retained_finalize_start = Instant::now();
         renderer.collect_retained_output_gray(
@@ -268,10 +271,25 @@ fn finalize_luma_for_output(
 }
 
 fn graph_uses_gpu_generation(compiled: &CompiledGraph) -> bool {
-    compiled
-        .steps
-        .iter()
-        .any(|step| matches!(step.op, CompiledOp::GenerateLayer(_)))
+    compiled.has_non_layer_nodes
+        || compiled
+            .steps
+            .iter()
+            .any(|step| matches!(step.op, CompiledOp::GenerateLayer(_)))
+}
+
+fn render_graph_frame(
+    compiled: &CompiledGraph,
+    renderer: Option<&mut GpuLayerRenderer>,
+    buffers: &mut RuntimeBuffers,
+    seed_offset: u32,
+    modulation: Option<GraphTimeInput>,
+) -> Result<(), Box<dyn Error>> {
+    if compiled.has_non_layer_nodes {
+        let renderer = renderer.ok_or("graph-native v2 execution requires a GPU renderer")?;
+        return render_graph_luma_gpu(compiled, renderer, seed_offset, modulation);
+    }
+    render_graph_luma(compiled, renderer, buffers, seed_offset, modulation)
 }
 
 async fn create_renderer(

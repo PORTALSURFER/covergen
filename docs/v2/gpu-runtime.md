@@ -2,14 +2,17 @@
 
 ## Execution Model
 
-The V2 runtime executes compiled layer steps using `GpuLayerRenderer` retained
-APIs:
+The V2 runtime executes graph-native presets through retained GPU buffers for
+all compiled node kinds:
 
-1. `begin_retained_image()`
-2. `submit_retained_layer(...)` for each compiled step
-3. `collect_retained_image(...)` once at image end
+1. `begin_retained_image()` clears retained accumulation state.
+2. Graph nodes (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`,
+   `WarpTransform`) run on aliased GPU output slots.
+3. `Output` copies the selected luma slot into retained accumulation.
+4. `collect_retained_output_gray(...)` runs GPU finalize passes and performs
+   one image-end readback.
 
-This avoids per-layer host readbacks.
+This avoids per-node host readbacks in graph-native execution.
 
 ## Animation Mode
 
