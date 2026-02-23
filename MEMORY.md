@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-23 14:16:11 UTC
+Last Updated: 2026-02-23 18:16:14 UTC
 
 ## Current Mission
 The team is stabilizing V2 as the future default rendering path: programmatic node-graph generation, GPU-retained execution, and animation support for reels.
@@ -13,6 +13,7 @@ The team is stabilizing V2 as the future default rendering path: programmatic no
   - GPU-retained runtime (`src/v2/runtime.rs`)
   - 30s reels animation mode with gentle parameter modulation (`src/v2/animation.rs`)
 - V2 docs exist under `docs/v2/`.
+- V1-to-V2 migration phases and cutover/deprecation gates are now explicitly documented in `docs/v2/migration.md`.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.
@@ -20,7 +21,7 @@ The immediate ordered queue is maintained in `docs/plans/active/todo.md`.
 ## Risks and Gaps (Current)
 - Runtime still treats graph execution as mostly linear in practice.
 - Several post-process operations still rely on host-side steps.
-- Benchmark and regression gates for V2 cutover are not fully established yet.
+- Benchmark baselines and expanded regression corpus still need to be collected across target hardware classes before default-path cutover.
 
 ## Working Assumptions
 - V2 is the long-term default target.

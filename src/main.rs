@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => {}
     }
 
+    eprintln!("[legacy] running V1 pipeline; use `covergen v2 ...` for the graph runtime");
     let config = Config::from_env()?;
     pollster::block_on(run(config))
 }
