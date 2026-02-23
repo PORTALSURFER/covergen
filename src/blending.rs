@@ -68,21 +68,36 @@ pub fn pick_blended_strategy(
     rng: &mut XorShift32,
     fast: bool,
     prefer_gpu: bool,
+    budget_left: u32,
 ) -> RenderStrategy {
     let bias = if rng.next_f32() < 0.72 { 0.74 } else { 0.0 };
     let mut candidate = if bias > 0.0 {
-        pick_render_strategy_near_family_with_preferences(rng, fast, base, bias, prefer_gpu)
+        pick_render_strategy_near_family_with_preferences(
+            rng,
+            fast,
+            base,
+            bias,
+            prefer_gpu,
+            budget_left,
+        )
     } else {
-        pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
+        pick_render_strategy_with_preferences(rng, fast, prefer_gpu, budget_left)
     };
 
     if strategy_equivalent(candidate, base) {
         let mut retries = 0u32;
         while strategy_equivalent(candidate, base) && retries < 6 {
             candidate = if bias > 0.0 && rng.next_f32() < 0.80 {
-                pick_render_strategy_near_family_with_preferences(rng, fast, base, bias, prefer_gpu)
+                pick_render_strategy_near_family_with_preferences(
+                    rng,
+                    fast,
+                    base,
+                    bias,
+                    prefer_gpu,
+                    budget_left,
+                )
             } else {
-                pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
+                pick_render_strategy_with_preferences(rng, fast, prefer_gpu, budget_left)
             };
             retries += 1;
         }

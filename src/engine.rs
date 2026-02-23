@@ -22,7 +22,7 @@ use crate::randomization::*;
 use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
     RenderStrategy, StrategyScratch, fit_strategy_to_budget, pick_render_strategy_with_preferences,
-    render_cpu_strategy_into, render_strategy_cost, strategy_profile,
+    record_strategy_runtime, render_cpu_strategy_into, render_strategy_cost, strategy_profile,
 };
 
 /// WGSL compute shader source used by the GPU renderer.
@@ -255,15 +255,6 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let base_art_style = pick_art_style(&mut image_rng);
         let base_art_style_secondary = pick_art_style_secondary(base_art_style, &mut image_rng);
         let base_art_mix = image_rng.next_f32();
-        let mut base_strategy =
-            pick_render_strategy_with_preferences(&mut image_rng, fast, can_use_gpu);
-        if can_use_gpu
-            && fast
-            && render_width >= 1536
-            && let RenderStrategy::Cpu(_) = base_strategy
-        {
-            base_strategy = RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
-        }
         let mut strategy_budget = resolve_strategy_budget(
             render_width,
             render_height,
@@ -272,6 +263,19 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             fast,
             cpu_fallback_safe,
         );
+        let mut base_strategy = pick_render_strategy_with_preferences(
+            &mut image_rng,
+            fast,
+            can_use_gpu,
+            strategy_budget,
+        );
+        if can_use_gpu
+            && fast
+            && render_width >= 1536
+            && let RenderStrategy::Cpu(_) = base_strategy
+        {
+            base_strategy = RenderStrategy::Gpu(ArtStyle::from_u32(image_rng.next_u32()).as_u32());
+        }
         base_strategy = fit_strategy_to_budget(
             &mut image_rng,
             base_strategy,
@@ -302,8 +306,13 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             spinner_state.set_layer((layer_index + 1) as usize);
             let layer_seed = base_seed.wrapping_add((layer_index + 1).wrapping_mul(0x9e3779b9));
             if layer_index > 0 {
-                active_strategy =
-                    bias_layer_strategy(active_strategy, &mut image_rng, fast, can_use_gpu);
+                active_strategy = bias_layer_strategy(
+                    active_strategy,
+                    &mut image_rng,
+                    fast,
+                    can_use_gpu,
+                    strategy_budget,
+                );
                 active_strategy = fit_strategy_to_budget(
                     &mut image_rng,
                     active_strategy,
@@ -406,7 +415,9 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 &mut gpu,
                 &mut strategy_scratch,
             )?;
-            let layer_render_ms = layer_render_start.elapsed().as_secs_f64() * 1000.0;
+            let layer_render_elapsed = layer_render_start.elapsed();
+            let layer_render_ms = layer_render_elapsed.as_secs_f64() * 1000.0;
+            record_strategy_runtime(layer_strategy, layer_render_elapsed);
             strategy_budget = strategy_budget.saturating_sub(layer_cost);
             if layer_index == 0 {
                 pre_filter_stats =
@@ -453,6 +464,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     &mut image_rng,
                     fast,
                     can_use_gpu,
+                    strategy_budget,
                 );
                 let secondary_strategy = fit_strategy_to_budget(
                     &mut image_rng,
@@ -482,13 +494,17 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 let secondary_cost = render_strategy_cost(secondary_strategy);
                 let secondary_budget = secondary_params.iterations.min(strategy_budget.max(96));
                 let secondary_is_gpu = matches!(secondary_strategy, RenderStrategy::Gpu(_));
+                let mut secondary_submit_elapsed = None;
                 if secondary_is_gpu {
+                    let secondary_submit_start = Instant::now();
                     ensure_gpu_renderer(&adapter, &mut gpu, render_width, render_height).await?;
                     let renderer = gpu
                         .as_mut()
                         .ok_or("gpu renderer unavailable for secondary layer submission")?;
                     renderer.submit_layer(&secondary_params)?;
+                    secondary_submit_elapsed = Some(secondary_submit_start.elapsed());
                 } else {
+                    let secondary_render_start = Instant::now();
                     render_strategy_layer(
                         secondary_strategy,
                         &secondary_params,
@@ -500,6 +516,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                         &mut gpu,
                         &mut strategy_scratch,
                     )?;
+                    record_strategy_runtime(secondary_strategy, secondary_render_start.elapsed());
                 }
                 strategy_budget = strategy_budget.saturating_sub(secondary_cost);
                 let mask_kind = blending::pick_layer_mask_kind(&mut image_rng, structural_profile);
@@ -515,10 +532,17 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 };
                 blending::build_layer_mask(&mut mask_request, &mut image_rng);
                 if secondary_is_gpu {
+                    let secondary_collect_start = Instant::now();
                     let renderer = gpu
                         .as_mut()
                         .ok_or("gpu renderer unavailable for secondary layer readback")?;
                     renderer.collect_layer(&mut workspace.blend_secondary)?;
+                    if let Some(submit_elapsed) = secondary_submit_elapsed {
+                        record_strategy_runtime(
+                            secondary_strategy,
+                            submit_elapsed + secondary_collect_start.elapsed(),
+                        );
+                    }
                 }
                 blending::blend_with_mask(
                     &mut workspace.luma,

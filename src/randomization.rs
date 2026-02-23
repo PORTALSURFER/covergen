@@ -310,6 +310,7 @@ pub(crate) fn bias_layer_strategy(
     rng: &mut XorShift32,
     fast: bool,
     prefer_gpu: bool,
+    budget_left: u32,
 ) -> RenderStrategy {
     let switch_prob = if fast { 0.06 } else { 0.04 };
     if rng.next_f32() < switch_prob {
@@ -320,6 +321,7 @@ pub(crate) fn bias_layer_strategy(
             current,
             family_bias,
             prefer_gpu,
+            budget_left,
         )
     } else {
         current

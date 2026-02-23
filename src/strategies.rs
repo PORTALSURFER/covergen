@@ -8,6 +8,76 @@ use crate::model::ArtStyle;
 use crate::model::XorShift32;
 use rayon::prelude::*;
 use std::f32::consts::TAU;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+/// Number of CPU strategy variants in `CpuStrategy`.
+const CPU_STRATEGY_COUNT: usize = 57;
+/// Number of GPU styles in `ArtStyle`.
+const GPU_STYLE_COUNT: usize = 17;
+/// Minimum samples required before runtime metrics influence cost.
+const RUNTIME_COST_MIN_SAMPLES: u32 = 3;
+/// Exponential smoothing factor applied to runtime observations.
+const RUNTIME_COST_EMA_ALPHA: f32 = 0.22;
+/// Converts measured milliseconds to scheduler cost units.
+const RUNTIME_COST_MS_TO_UNITS: f32 = 2.2;
+/// Baseline runtime cost units added to every sampled strategy.
+const RUNTIME_COST_BASE_UNITS: f32 = 80.0;
+/// Weight of static heuristic cost in the blended strategy score.
+const STATIC_COST_WEIGHT: f32 = 0.62;
+/// Weight of measured runtime cost in the blended strategy score.
+const RUNTIME_COST_WEIGHT: f32 = 0.38;
+
+/// Runtime cost model state updated from observed per-strategy render timings.
+#[derive(Debug)]
+struct StrategyRuntimeCostTable {
+    cpu_mean_ms: [f32; CPU_STRATEGY_COUNT],
+    cpu_samples: [u32; CPU_STRATEGY_COUNT],
+    gpu_mean_ms: [f32; GPU_STYLE_COUNT],
+    gpu_samples: [u32; GPU_STYLE_COUNT],
+}
+
+impl Default for StrategyRuntimeCostTable {
+    fn default() -> Self {
+        Self {
+            cpu_mean_ms: [0.0; CPU_STRATEGY_COUNT],
+            cpu_samples: [0; CPU_STRATEGY_COUNT],
+            gpu_mean_ms: [0.0; GPU_STYLE_COUNT],
+            gpu_samples: [0; GPU_STYLE_COUNT],
+        }
+    }
+}
+
+fn runtime_cost_table() -> &'static Mutex<StrategyRuntimeCostTable> {
+    static TABLE: OnceLock<Mutex<StrategyRuntimeCostTable>> = OnceLock::new();
+    TABLE.get_or_init(|| Mutex::new(StrategyRuntimeCostTable::default()))
+}
+
+fn lock_runtime_cost_table() -> std::sync::MutexGuard<'static, StrategyRuntimeCostTable> {
+    runtime_cost_table()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn smoothed_runtime_sample(mean_ms: f32, samples: u32, runtime_ms: f32) -> (f32, u32) {
+    let next_mean = if samples == 0 {
+        runtime_ms
+    } else {
+        mean_ms + ((runtime_ms - mean_ms) * RUNTIME_COST_EMA_ALPHA)
+    };
+    (next_mean, samples.saturating_add(1))
+}
+
+fn runtime_ms_to_cost(runtime_ms: f32) -> u32 {
+    (RUNTIME_COST_BASE_UNITS + (runtime_ms * RUNTIME_COST_MS_TO_UNITS))
+        .round()
+        .clamp(30.0, 1_200.0) as u32
+}
+
+fn blend_costs(static_cost: u32, runtime_cost: u32) -> u32 {
+    ((static_cost as f32 * STATIC_COST_WEIGHT) + (runtime_cost as f32 * RUNTIME_COST_WEIGHT))
+        .round() as u32
+}
 
 /// CPU generator strategies that can replace GPU-based render layers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +221,10 @@ impl CpuStrategy {
     /// Total number of CPU strategies available.
     fn count() -> u32 {
         57
+    }
+
+    fn cost_index(self) -> usize {
+        self as usize
     }
 
     /// Creates a strategy from an arbitrary value.
@@ -443,6 +517,74 @@ fn gpu_style_family(style: u32) -> StrategyFamily {
     }
 }
 
+fn gpu_style_cost_index(style: u32) -> usize {
+    (style % ArtStyle::total()) as usize
+}
+
+fn sampled_runtime_cost(strategy: RenderStrategy) -> Option<u32> {
+    let table = lock_runtime_cost_table();
+    match strategy {
+        RenderStrategy::Cpu(kind) => {
+            let index = kind.cost_index();
+            let samples = table.cpu_samples[index];
+            if samples < RUNTIME_COST_MIN_SAMPLES {
+                None
+            } else {
+                Some(runtime_ms_to_cost(table.cpu_mean_ms[index]))
+            }
+        }
+        RenderStrategy::Gpu(style) => {
+            let index = gpu_style_cost_index(style);
+            let samples = table.gpu_samples[index];
+            if samples < RUNTIME_COST_MIN_SAMPLES {
+                None
+            } else {
+                Some(runtime_ms_to_cost(table.gpu_mean_ms[index]))
+            }
+        }
+    }
+}
+
+/// Record one measured render duration for the selected strategy.
+///
+/// The scheduler uses these observations to blend static heuristic costs with
+/// runtime-aware costs when choosing future strategies under a compute budget.
+pub fn record_strategy_runtime(strategy: RenderStrategy, elapsed: Duration) {
+    let runtime_ms = elapsed.as_secs_f32() * 1000.0;
+    if !runtime_ms.is_finite() || runtime_ms <= 0.0 {
+        return;
+    }
+
+    let mut table = lock_runtime_cost_table();
+    match strategy {
+        RenderStrategy::Cpu(kind) => {
+            let index = kind.cost_index();
+            let (next_mean, next_samples) = smoothed_runtime_sample(
+                table.cpu_mean_ms[index],
+                table.cpu_samples[index],
+                runtime_ms,
+            );
+            table.cpu_mean_ms[index] = next_mean;
+            table.cpu_samples[index] = next_samples;
+        }
+        RenderStrategy::Gpu(style) => {
+            let index = gpu_style_cost_index(style);
+            let (next_mean, next_samples) = smoothed_runtime_sample(
+                table.gpu_mean_ms[index],
+                table.gpu_samples[index],
+                runtime_ms,
+            );
+            table.gpu_mean_ms[index] = next_mean;
+            table.gpu_samples[index] = next_samples;
+        }
+    }
+}
+
+#[cfg(test)]
+fn reset_strategy_runtime_costs_for_tests() {
+    *lock_runtime_cost_table() = StrategyRuntimeCostTable::default();
+}
+
 /// Strategy-specific tuning for downstream post-processing.
 #[derive(Clone, Copy, Debug)]
 pub struct StrategyProfile {
@@ -478,12 +620,28 @@ fn ensure_len_with_fill(buffer: &mut Vec<f32>, len: usize, fill: f32) {
 /// Returns a render strategy for the next layer.
 #[allow(dead_code)]
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
-    pick_render_strategy_with_preferences(rng, fast, true)
+    pick_render_strategy_with_preferences(rng, fast, true, u32::MAX)
 }
 
-/// Returns a render strategy for the next layer with an explicit preference
-/// for GPU or CPU compute.
-pub fn pick_render_strategy_with_preferences(
+fn pick_gpu_style_with_preferences(rng: &mut XorShift32, fast: bool) -> u32 {
+    let mut style = ArtStyle::from_u32(rng.next_u32());
+    let extra_diversify = if fast { 0.65 } else { 0.55 };
+    if style.is_tiling_like() || rng.next_f32() < extra_diversify {
+        style = ArtStyle::next_non_tiling_from(rng);
+    }
+    style.as_u32()
+}
+
+fn pick_cpu_style_with_preferences(rng: &mut XorShift32, fast: bool) -> CpuStrategy {
+    let mut strategy = CpuStrategy::from_u32(rng.next_u32());
+    let keep_tiling = if fast { 0.06 } else { 0.03 };
+    if strategy.is_tiling() && rng.next_f32() > keep_tiling {
+        strategy = CpuStrategy::from_non_tiling_u32(rng.next_u32());
+    }
+    strategy
+}
+
+fn sample_render_strategy_with_preferences(
     rng: &mut XorShift32,
     fast: bool,
     prefer_gpu: bool,
@@ -492,25 +650,53 @@ pub fn pick_render_strategy_with_preferences(
     let gpu_chance = if fast { 0.9 } else { 0.35 };
 
     if prefer_gpu && strategy_roll < gpu_chance {
-        let mut style = ArtStyle::from_u32(rng.next_u32());
-        let extra_diversify = if fast { 0.65 } else { 0.55 };
-        if style.is_tiling_like() || rng.next_f32() < extra_diversify {
-            style = ArtStyle::next_non_tiling_from(rng);
-        }
-        return RenderStrategy::Gpu(style.as_u32());
+        return RenderStrategy::Gpu(pick_gpu_style_with_preferences(rng, fast));
     }
 
-    let mut strategy = CpuStrategy::from_u32(rng.next_u32());
-    let keep_tiling = if fast { 0.06 } else { 0.03 };
-    if strategy.is_tiling() && rng.next_f32() > keep_tiling {
-        strategy = CpuStrategy::from_non_tiling_u32(rng.next_u32());
-    }
-
-    RenderStrategy::Cpu(strategy)
+    RenderStrategy::Cpu(pick_cpu_style_with_preferences(rng, fast))
 }
 
-/// Returns a coarse runtime cost estimate for a CPU strategy.
-pub fn cpu_strategy_cost(strategy: CpuStrategy) -> u32 {
+/// Returns a render strategy for the next layer with an explicit preference
+/// for GPU or CPU compute and a maximum scheduler budget.
+pub fn pick_render_strategy_with_preferences(
+    rng: &mut XorShift32,
+    fast: bool,
+    prefer_gpu: bool,
+    budget_left: u32,
+) -> RenderStrategy {
+    let attempts = if budget_left == u32::MAX {
+        1
+    } else if fast {
+        14
+    } else {
+        24
+    };
+
+    let mut sampled = sample_render_strategy_with_preferences(rng, fast, prefer_gpu);
+    if render_strategy_cost(sampled) <= budget_left {
+        return sampled;
+    }
+
+    let mut i = 1;
+    while i < attempts {
+        sampled = sample_render_strategy_with_preferences(rng, fast, prefer_gpu);
+        if render_strategy_cost(sampled) <= budget_left {
+            return sampled;
+        }
+        i += 1;
+    }
+
+    if prefer_gpu {
+        let gpu_candidate = RenderStrategy::Gpu(pick_gpu_style_with_preferences(rng, fast));
+        if render_strategy_cost(gpu_candidate) <= budget_left {
+            return gpu_candidate;
+        }
+    }
+
+    RenderStrategy::Cpu(pick_cpu_strategy_for_budget(rng, budget_left))
+}
+
+fn cpu_strategy_static_cost(strategy: CpuStrategy) -> u32 {
     let family_cost = match strategy.family() {
         StrategyFamily::Fractal => 180,
         StrategyFamily::Flow => 220,
@@ -541,10 +727,37 @@ pub fn cpu_strategy_cost(strategy: CpuStrategy) -> u32 {
     family_cost + extra
 }
 
+fn gpu_strategy_static_cost(style: u32) -> u32 {
+    let base = 40;
+    let family_extra = match gpu_style_family(style) {
+        StrategyFamily::Flow => 12,
+        StrategyFamily::Fractal => 8,
+        StrategyFamily::Harmonic => 6,
+        StrategyFamily::Geometry => 10,
+        StrategyFamily::Diffusion | StrategyFamily::Cellular | StrategyFamily::Tiling => 14,
+    };
+    base + family_extra
+}
+
+/// Returns a coarse runtime cost estimate for a CPU strategy.
+pub fn cpu_strategy_cost(strategy: CpuStrategy) -> u32 {
+    let static_cost = cpu_strategy_static_cost(strategy);
+    match sampled_runtime_cost(RenderStrategy::Cpu(strategy)) {
+        Some(runtime_cost) => blend_costs(static_cost, runtime_cost),
+        None => static_cost,
+    }
+}
+
 /// Returns a coarse runtime cost estimate for any render strategy.
 pub fn render_strategy_cost(strategy: RenderStrategy) -> u32 {
     match strategy {
-        RenderStrategy::Gpu(_) => 40,
+        RenderStrategy::Gpu(style) => {
+            let static_cost = gpu_strategy_static_cost(style);
+            match sampled_runtime_cost(strategy) {
+                Some(runtime_cost) => blend_costs(static_cost, runtime_cost),
+                None => static_cost,
+            }
+        }
         RenderStrategy::Cpu(strategy) => cpu_strategy_cost(strategy),
     }
 }
@@ -598,8 +811,10 @@ pub fn fit_strategy_to_budget(
     }
 
     if prefer_gpu && rng.next_f32() < 0.35 {
-        let candidate = pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
-        if matches!(candidate, RenderStrategy::Gpu(_)) {
+        let candidate = pick_render_strategy_with_preferences(rng, fast, prefer_gpu, budget_left);
+        if matches!(candidate, RenderStrategy::Gpu(_))
+            && render_strategy_cost(candidate) <= budget_left
+        {
             return candidate;
         }
     }
@@ -608,7 +823,12 @@ pub fn fit_strategy_to_budget(
     let mut i = 0u32;
     while i < attempts {
         let candidate = pick_render_strategy_near_family_with_preferences(
-            rng, fast, strategy, 0.92, prefer_gpu,
+            rng,
+            fast,
+            strategy,
+            0.92,
+            prefer_gpu,
+            budget_left,
         );
         if render_strategy_cost(candidate) <= budget_left {
             return candidate;
@@ -626,8 +846,16 @@ pub fn pick_render_strategy_near_family(
     fast: bool,
     base: RenderStrategy,
     family_bias: f32,
+    budget_left: u32,
 ) -> RenderStrategy {
-    pick_render_strategy_near_family_with_preferences(rng, fast, base, family_bias, true)
+    pick_render_strategy_near_family_with_preferences(
+        rng,
+        fast,
+        base,
+        family_bias,
+        true,
+        budget_left,
+    )
 }
 
 /// Pick a render strategy with a bias toward the same family as `base` and an
@@ -638,9 +866,10 @@ pub fn pick_render_strategy_near_family_with_preferences(
     base: RenderStrategy,
     family_bias: f32,
     prefer_gpu: bool,
+    budget_left: u32,
 ) -> RenderStrategy {
     if family_bias <= 0.0 {
-        return pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
+        return pick_render_strategy_with_preferences(rng, fast, prefer_gpu, budget_left);
     }
 
     if rng.next_f32() < family_bias {
@@ -648,15 +877,15 @@ pub fn pick_render_strategy_near_family_with_preferences(
         let attempts = if fast { 12 } else { 22 };
         let mut i = 0;
         while i < attempts {
-            let candidate = pick_render_strategy_with_preferences(rng, fast, prefer_gpu);
-            if candidate.family() == family {
+            let candidate = sample_render_strategy_with_preferences(rng, fast, prefer_gpu);
+            if candidate.family() == family && render_strategy_cost(candidate) <= budget_left {
                 return candidate;
             }
             i += 1;
         }
     }
 
-    pick_render_strategy_with_preferences(rng, fast, prefer_gpu)
+    pick_render_strategy_with_preferences(rng, fast, prefer_gpu, budget_left)
 }
 
 /// Returns post-processing guidance for a strategy.
@@ -5841,6 +6070,36 @@ mod tests {
         let cheap = cpu_strategy_cost(CpuStrategy::PerlinRidge);
         let heavy = cpu_strategy_cost(CpuStrategy::ReactionLattice);
         assert!(heavy > cheap);
+    }
+
+    #[test]
+    fn runtime_cost_model_activates_after_min_samples() {
+        reset_strategy_runtime_costs_for_tests();
+        let strategy = CpuStrategy::PerlinRidge;
+        let baseline = cpu_strategy_cost(strategy);
+        for _ in 0..(RUNTIME_COST_MIN_SAMPLES - 1) {
+            record_strategy_runtime(RenderStrategy::Cpu(strategy), Duration::from_millis(280));
+        }
+        assert_eq!(cpu_strategy_cost(strategy), baseline);
+
+        record_strategy_runtime(RenderStrategy::Cpu(strategy), Duration::from_millis(280));
+        assert!(cpu_strategy_cost(strategy) > baseline);
+    }
+
+    #[test]
+    fn budgeted_picker_keeps_cpu_choices_affordable() {
+        reset_strategy_runtime_costs_for_tests();
+        let budget = 110;
+        for seed in 1..96u32 {
+            let mut rng = XorShift32::new(seed);
+            let picked = pick_render_strategy_with_preferences(&mut rng, false, false, budget);
+            match picked {
+                RenderStrategy::Cpu(kind) => {
+                    assert!(cpu_strategy_cost(kind) <= budget + 30);
+                }
+                RenderStrategy::Gpu(_) => panic!("expected cpu strategy when gpu is not preferred"),
+            }
+        }
     }
 
     #[test]
