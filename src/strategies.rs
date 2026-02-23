@@ -1146,6 +1146,138 @@ fn draw_line(
     }
 }
 
+/// Uniform spatial bins for local-neighborhood point queries in mesh-like generators.
+#[derive(Debug)]
+struct MeshSpatialBins {
+    bins: Vec<Vec<usize>>,
+    cols: usize,
+    rows: usize,
+    cell_size: f32,
+}
+
+/// Build spatial bins for points over a bounded simulation domain.
+fn build_mesh_spatial_bins(
+    points: &[(f32, f32)],
+    width: u32,
+    height: u32,
+    cell_size: f32,
+) -> MeshSpatialBins {
+    let cell_size = cell_size.max(1.0);
+    let cols = ((width as f32 / cell_size).ceil() as usize).max(1);
+    let rows = ((height as f32 / cell_size).ceil() as usize).max(1);
+    let mut bins = vec![Vec::<usize>::new(); cols * rows];
+
+    for (idx, &(x, y)) in points.iter().enumerate() {
+        let cx = mesh_bin_coord(x, cell_size, cols);
+        let cy = mesh_bin_coord(y, cell_size, rows);
+        bins[cy * cols + cx].push(idx);
+    }
+
+    MeshSpatialBins {
+        bins,
+        cols,
+        rows,
+        cell_size,
+    }
+}
+
+/// Convert a point coordinate to a clamped bin index.
+fn mesh_bin_coord(value: f32, cell_size: f32, max_bins: usize) -> usize {
+    let max_index = max_bins.saturating_sub(1) as i32;
+    ((value / cell_size).floor() as i32).clamp(0, max_index) as usize
+}
+
+/// Insert one candidate into a sorted bounded nearest-neighbor set.
+fn push_nearest_candidate(
+    best: &mut Vec<(f32, usize)>,
+    max_neighbors: usize,
+    dist2: f32,
+    idx: usize,
+) {
+    if best.len() < max_neighbors {
+        best.push((dist2, idx));
+        let mut pos = best.len() - 1;
+        while pos > 0 && best[pos].0 < best[pos - 1].0 {
+            best.swap(pos, pos - 1);
+            pos -= 1;
+        }
+        return;
+    }
+
+    if dist2 >= best[max_neighbors - 1].0 {
+        return;
+    }
+
+    best[max_neighbors - 1] = (dist2, idx);
+    let mut pos = max_neighbors - 1;
+    while pos > 0 && best[pos].0 < best[pos - 1].0 {
+        best.swap(pos, pos - 1);
+        pos -= 1;
+    }
+}
+
+/// Collect nearest neighbors using expanding bin rings and bounded k-selection.
+fn collect_mesh_neighbors(
+    points: &[(f32, f32)],
+    bins: &MeshSpatialBins,
+    point_idx: usize,
+    max_neighbors: usize,
+    best: &mut Vec<(f32, usize)>,
+) {
+    best.clear();
+    if points.len() <= 1 || max_neighbors == 0 {
+        return;
+    }
+
+    let (sx, sy) = points[point_idx];
+    let center_x = mesh_bin_coord(sx, bins.cell_size, bins.cols) as i32;
+    let center_y = mesh_bin_coord(sy, bins.cell_size, bins.rows) as i32;
+    let max_radius = bins.cols.max(bins.rows) as i32;
+    let target_neighbors = max_neighbors.min(points.len().saturating_sub(1));
+    let mut radius = 0i32;
+
+    while radius <= max_radius {
+        let min_x = (center_x - radius).max(0);
+        let max_x = (center_x + radius).min(bins.cols as i32 - 1);
+        let min_y = (center_y - radius).max(0);
+        let max_y = (center_y + radius).min(bins.rows as i32 - 1);
+
+        let mut by = min_y;
+        while by <= max_y {
+            let mut bx = min_x;
+            while bx <= max_x {
+                if radius == 0 || bx == min_x || bx == max_x || by == min_y || by == max_y {
+                    let cell = (by as usize) * bins.cols + (bx as usize);
+                    for &other_idx in bins.bins[cell].iter() {
+                        if other_idx == point_idx {
+                            continue;
+                        }
+                        let dx = sx - points[other_idx].0;
+                        let dy = sy - points[other_idx].1;
+                        push_nearest_candidate(
+                            best,
+                            target_neighbors,
+                            dx * dx + dy * dy,
+                            other_idx,
+                        );
+                    }
+                }
+                bx += 1;
+            }
+            by += 1;
+        }
+
+        if best.len() >= target_neighbors {
+            // Points outside this ring are at least roughly one ring-width away.
+            let outside_min = (radius as f32 - 1.0).max(0.0) * bins.cell_size;
+            if best[target_neighbors - 1].0 <= outside_min * outside_min {
+                break;
+            }
+        }
+        radius += 1;
+    }
+}
+
 fn render_edge_field(width: u32, height: u32, rng: &mut XorShift32, sobel: bool) -> Vec<f32> {
     let base = noise_field(width, height, rng, 4);
     let mut out = vec![0.0f32; base.len()];
@@ -1965,35 +2097,29 @@ fn render_delaunay(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
     let sim_w = (width / 2).max(128);
     let sim_h = (height / 2).max(128);
     let point_count = 10 + (rng.next_u32() % 20) as usize;
-    let mut points: Vec<(i32, i32)> = Vec::with_capacity(point_count);
+    let mut points: Vec<(f32, f32)> = Vec::with_capacity(point_count);
     for _ in 0..point_count {
         points.push((
-            rng.next_u32() as i32 % sim_w as i32,
-            rng.next_u32() as i32 % sim_h as i32,
+            (rng.next_u32() % sim_w) as f32,
+            (rng.next_u32() % sim_h) as f32,
         ));
     }
+    let area = (sim_w as f32) * (sim_h as f32);
+    let average_spacing = (area / points.len().max(1) as f32).sqrt();
+    let bins = build_mesh_spatial_bins(&points, sim_w, sim_h, average_spacing.max(8.0));
+    let mut nearest = Vec::<(f32, usize)>::with_capacity(4);
     let mut out = vec![0.05f32; (sim_w * sim_h) as usize];
     let mut i = 0usize;
     while i < points.len() {
         let (x0, y0) = points[i];
-        let mut distances = Vec::with_capacity(points.len().saturating_sub(1));
-        let mut j = 0usize;
-        while j < points.len() {
-            if i != j {
-                let (x1, y1) = points[j];
-                let dx = (x0 - x1) as f32;
-                let dy = (y0 - y1) as f32;
-                distances.push((dx * dx + dy * dy, x1, y1));
-            }
-            j += 1;
-        }
-        distances.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        for &(_, sx, sy) in distances.iter().take(4) {
+        collect_mesh_neighbors(&points, &bins, i, 4, &mut nearest);
+        for &(_, neighbor_idx) in nearest.iter() {
+            let (sx, sy) = points[neighbor_idx];
             draw_line(
-                x0,
-                y0,
-                sx,
-                sy,
+                x0.round() as i32,
+                y0.round() as i32,
+                sx.round() as i32,
+                sy.round() as i32,
                 sim_w as usize,
                 sim_h as usize,
                 0.8,
@@ -4817,6 +4943,8 @@ fn render_poisson_mesh(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
         }));
     }
 
+    let bins = build_mesh_spatial_bins(&points, sim_w, sim_h, min_dist.max(4.0));
+    let mut nearest = Vec::<(f32, usize)>::with_capacity(4);
     let mut idx = 0usize;
     while idx < points.len() {
         let (sx, sy) = points[idx];
@@ -4829,17 +4957,7 @@ fn render_poisson_mesh(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32
             0.95,
             &mut density,
         );
-        let mut nearest = Vec::<(f32, usize)>::with_capacity(points.len().saturating_sub(1));
-        let mut j = 0usize;
-        while j < points.len() {
-            if j != idx {
-                let dx = sx - points[j].0;
-                let dy = sy - points[j].1;
-                nearest.push((dx * dx + dy * dy, j));
-            }
-            j += 1;
-        }
-        nearest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        collect_mesh_neighbors(&points, &bins, idx, 4, &mut nearest);
         let max_links = 4.min(nearest.len());
         let mut l = 0usize;
         while l < max_links {
