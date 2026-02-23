@@ -37,7 +37,7 @@ pub async fn execute_compiled(
 ) -> Result<(), Box<dyn Error>> {
     let needs_gpu = graph_uses_gpu_generation(compiled);
     let mut renderer = if needs_gpu {
-        Some(create_renderer(compiled).await?)
+        Some(create_renderer(config, compiled).await?)
     } else {
         None
     };
@@ -68,7 +68,7 @@ pub async fn execute_compiled(
             image_seed_offset,
             None,
         )?;
-        finalize_luma_for_output(config, compiled, &mut buffers)?;
+        finalize_luma_for_output(config, compiled, renderer.as_mut(), &mut buffers)?;
 
         let indexed_output = indexed_output(&config.output, image_index, config.count);
         let output_path = resolve_output_path(&indexed_output.to_string_lossy());
@@ -122,7 +122,7 @@ fn execute_animation(
                     total_frames: frames,
                 }),
             )?;
-            finalize_luma_for_output(config, compiled, buffers)?;
+            finalize_luma_for_output(config, compiled, renderer.as_deref_mut(), buffers)?;
 
             let encoded = encode_png_bytes(
                 config.width,
@@ -155,23 +155,39 @@ fn execute_animation(
 fn finalize_luma_for_output(
     config: &V2Config,
     compiled: &CompiledGraph,
+    renderer: Option<&mut GpuLayerRenderer>,
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
     let final_contrast = match config.profile {
         V2Profile::Quality => 1.45,
         V2Profile::Performance => 1.25,
     };
+    let low_pct = if matches!(config.profile, V2Profile::Performance) {
+        0.02
+    } else {
+        0.01
+    };
+    let fast_mode = matches!(config.profile, V2Profile::Performance);
+
+    if compiled.can_use_retained_layer_path {
+        let renderer = renderer.ok_or("retained finalization requires GPU renderer")?;
+        renderer.collect_retained_output_gray(
+            &mut buffers.output_gray,
+            final_contrast,
+            low_pct,
+            0.99,
+            fast_mode,
+        )?;
+        return Ok(());
+    }
+
     apply_contrast(&mut buffers.layered, final_contrast);
     stretch_to_percentile(
         &mut buffers.layered,
         &mut buffers.percentile,
-        if matches!(config.profile, V2Profile::Performance) {
-            0.02
-        } else {
-            0.01
-        },
+        low_pct,
         0.99,
-        matches!(config.profile, V2Profile::Performance),
+        fast_mode,
     );
 
     let output_luma = if compiled.width == config.width && compiled.height == config.height {
@@ -198,7 +214,10 @@ fn graph_uses_gpu_generation(compiled: &CompiledGraph) -> bool {
         .any(|step| matches!(step.op, CompiledOp::GenerateLayer(_)))
 }
 
-async fn create_renderer(compiled: &CompiledGraph) -> Result<GpuLayerRenderer, Box<dyn Error>> {
+async fn create_renderer(
+    config: &V2Config,
+    compiled: &CompiledGraph,
+) -> Result<GpuLayerRenderer, Box<dyn Error>> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -218,11 +237,13 @@ async fn create_renderer(compiled: &CompiledGraph) -> Result<GpuLayerRenderer, B
         .into());
     }
 
-    GpuLayerRenderer::new(
+    GpuLayerRenderer::new_with_output(
         &adapter,
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl")),
         compiled.width,
         compiled.height,
+        config.width,
+        config.height,
     )
     .await
 }

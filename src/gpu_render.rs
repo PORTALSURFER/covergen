@@ -36,6 +36,18 @@ impl GpuLayerRenderer {
         width: u32,
         height: u32,
     ) -> Result<Self, Box<dyn Error>> {
+        Self::new_with_output(adapter, shader_source, width, height, width, height).await
+    }
+
+    /// Build a compute renderer with an explicit output size for retained finalization.
+    pub(crate) async fn new_with_output(
+        adapter: &wgpu::Adapter,
+        shader_source: &str,
+        width: u32,
+        height: u32,
+        output_width: u32,
+        output_height: u32,
+    ) -> Result<Self, Box<dyn Error>> {
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("fractal shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
@@ -126,7 +138,14 @@ impl GpuLayerRenderer {
             entry_point: "main",
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         });
-        let retained = RetainedGpuPost::new(&device, &out_buffer, width, height);
+        let retained = RetainedGpuPost::new_with_output(
+            &device,
+            &out_buffer,
+            width,
+            height,
+            output_width,
+            output_height,
+        );
 
         Ok(Self {
             device,
@@ -151,6 +170,30 @@ impl GpuLayerRenderer {
         }
         self.retained.begin_image(&self.device, &self.queue);
         Ok(())
+    }
+
+    /// Read retained output after on-GPU finalization into grayscale output bytes.
+    pub(crate) fn collect_retained_output_gray(
+        &mut self,
+        out_gray: &mut [u8],
+        contrast: f32,
+        low_pct: f32,
+        high_pct: f32,
+        fast_mode: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.pending_readback.is_some() {
+            return Err("cannot collect retained output while layer readback is pending".into());
+        }
+        let receiver = self.retained.begin_final_readback(
+            &self.device,
+            &self.queue,
+            contrast,
+            low_pct,
+            high_pct,
+            fast_mode,
+        );
+        self.wait_for_map(receiver)?;
+        self.retained.finish_final_readback_gray(out_gray)
     }
 
     /// Submit one layer into retained GPU post-processing accumulation.

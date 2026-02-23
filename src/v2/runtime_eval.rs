@@ -49,7 +49,7 @@ pub(crate) fn render_graph_luma(
 fn evaluate_retained_layer_graph(
     compiled: &CompiledGraph,
     renderer: Option<&mut GpuLayerRenderer>,
-    buffers: &mut RuntimeBuffers,
+    _buffers: &mut RuntimeBuffers,
     seed_offset: u32,
     modulation: Option<FrameModulation>,
 ) -> Result<(), Box<dyn Error>> {
@@ -77,7 +77,6 @@ fn evaluate_retained_layer_graph(
         }
     }
 
-    renderer.collect_retained_image(&mut buffers.layered)?;
     Ok(())
 }
 
