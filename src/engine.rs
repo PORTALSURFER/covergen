@@ -4,7 +4,9 @@ use std::error::Error;
 use std::io::{self, Write};
 use std::sync::{Arc, atomic::Ordering};
 
-use crate::analysis::{LumaStats, collect_luma_metrics, needs_complexity_fix};
+use crate::analysis::{
+    LumaStats, collect_luma_metrics, collect_luma_metrics_sampled, needs_complexity_fix,
+};
 use crate::blending::{self, strategy_name};
 use crate::config::{
     Config, apply_cpu_fallback_profile, clamp_iteration_count, clamp_layer_count,
@@ -104,6 +106,18 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     let mut image_rng = XorShift32::new(config.seed);
     let mut strategy_scratch = StrategyScratch::default();
+    let complexity_metrics_sample_cap = if fast || cpu_fallback_safe {
+        Some(16_384usize)
+    } else {
+        None
+    };
+    let collect_complexity_metrics = |src: &[f32]| {
+        if let Some(sample_cap) = complexity_metrics_sample_cap {
+            collect_luma_metrics_sampled(src, render_width, render_height, sample_cap)
+        } else {
+            collect_luma_metrics(src, render_width, render_height)
+        }
+    };
     let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
@@ -472,6 +486,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     fast,
                 );
             }
+            let mut no_filter_posterize_bands = None;
             if !apply_filter && !apply_gradient {
                 if structural_profile {
                     apply_detail_waves(
@@ -505,19 +520,24 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     },
                 );
                 std::mem::swap(&mut workspace.filtered, &mut workspace.detail);
-                apply_posterize_buffer(
-                    &mut workspace.filtered,
-                    2 + (image_rng.next_u32() % if structural_profile { 7 } else { 5 }),
-                );
+                no_filter_posterize_bands =
+                    Some(2 + (image_rng.next_u32() % if structural_profile { 7 } else { 5 }));
             }
             let layer_contrast = if apply_filter || apply_gradient {
                 layer_contrast
             } else {
                 layer_contrast * 0.75
             };
-            apply_contrast(&mut workspace.filtered, layer_contrast.max(1.0));
-            let layer_metrics =
-                collect_luma_metrics(&workspace.filtered, render_width, render_height);
+            if let Some(bands) = no_filter_posterize_bands {
+                apply_posterize_and_contrast(
+                    &mut workspace.filtered,
+                    bands,
+                    layer_contrast.max(1.0),
+                );
+            } else {
+                apply_contrast(&mut workspace.filtered, layer_contrast.max(1.0));
+            }
+            let layer_metrics = collect_complexity_metrics(&workspace.filtered);
             if needs_complexity_fix(&layer_metrics.stats, layer_metrics.edge_energy) {
                 complexity_fixed = true;
                 apply_detail_waves(
@@ -535,9 +555,9 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     if fast { 0.55 } else { 0.9 },
                 );
                 std::mem::swap(&mut workspace.filtered, &mut workspace.detail);
-                apply_posterize_buffer(&mut workspace.filtered, 2 + (image_rng.next_u32() % 6));
-                apply_contrast(
+                apply_posterize_and_contrast(
                     &mut workspace.filtered,
+                    2 + (image_rng.next_u32() % 6),
                     1.25 + (image_rng.next_f32() * 0.45),
                 );
             }
@@ -597,10 +617,12 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             fast,
         );
 
-        let mut final_metrics =
-            collect_luma_metrics(&workspace.layered, render_width, render_height);
+        let mut final_decision_metrics = collect_complexity_metrics(&workspace.layered);
         let mut final_complexity_fixed = false;
-        if needs_complexity_fix(&final_metrics.stats, final_metrics.edge_energy) {
+        if needs_complexity_fix(
+            &final_decision_metrics.stats,
+            final_decision_metrics.edge_energy,
+        ) {
             final_complexity_fixed = true;
             apply_detail_waves(
                 &mut workspace.layered,
@@ -617,12 +639,15 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if fast { 0.45 } else { 0.75 },
             );
             std::mem::swap(&mut workspace.layered, &mut workspace.detail);
-            apply_posterize_buffer(&mut workspace.layered, if fast { 4 } else { 5 });
-            apply_contrast(&mut workspace.layered, if fast { 1.2 } else { 1.4 });
-            final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
+            apply_posterize_and_contrast(
+                &mut workspace.layered,
+                if fast { 4 } else { 5 },
+                if fast { 1.2 } else { 1.4 },
+            );
+            final_decision_metrics = collect_complexity_metrics(&workspace.layered);
         }
-        if final_metrics.stats.std < 0.09
-            || (final_metrics.stats.max - final_metrics.stats.min) < 0.23
+        if final_decision_metrics.stats.std < 0.09
+            || (final_decision_metrics.stats.max - final_decision_metrics.stats.min) < 0.23
         {
             inject_noise(
                 &mut workspace.layered,
@@ -636,8 +661,8 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 0.99,
                 fast,
             );
-            final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
         }
+        let final_metrics = collect_luma_metrics(&workspace.layered, render_width, render_height);
 
         let output_luma = if resolved_antialias == 1
             && render_width == config.width

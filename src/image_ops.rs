@@ -33,6 +33,16 @@ pub(crate) fn apply_posterize_buffer(src: &mut [f32], bands: u32) {
     }
 }
 
+/// Apply posterization and contrast in a single pass to reduce memory traffic.
+pub(crate) fn apply_posterize_and_contrast(src: &mut [f32], bands: u32, strength: f32) {
+    let contrast = strength.clamp(1.0, 3.0);
+    let midpoint = 0.5;
+    for value in src.iter_mut() {
+        let posterized = apply_posterize(*value, bands);
+        *value = clamp01(((posterized - midpoint) * contrast) + midpoint);
+    }
+}
+
 pub(crate) fn apply_gradient_map(src: &mut [f32], cfg: GradientConfig) {
     for value in src {
         let mut mapped = clamp01(*value);
@@ -660,4 +670,25 @@ pub(crate) fn save_png_under_10mb(
     let final_size = encoded.len();
     std::fs::write(output, encoded)?;
     Ok((width, height, final_size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_contrast, apply_posterize_and_contrast, apply_posterize_buffer};
+
+    #[test]
+    fn fused_posterize_and_contrast_matches_split_passes() {
+        let mut split = vec![0.05f32, 0.21, 0.37, 0.64, 0.81, 0.97];
+        let mut fused = split.clone();
+        let bands = 5;
+        let contrast = 1.38;
+
+        apply_posterize_buffer(&mut split, bands);
+        apply_contrast(&mut split, contrast);
+        apply_posterize_and_contrast(&mut fused, bands, contrast);
+
+        for (a, b) in split.iter().zip(fused.iter()) {
+            assert!((*a - *b).abs() < 1e-6);
+        }
+    }
 }
