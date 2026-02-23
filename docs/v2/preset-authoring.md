@@ -12,14 +12,17 @@ Current presets:
 
 - `hybrid-stack`
 - `field-weave`
+- `node-weave`
+- `mask-atlas`
+- `warp-grid`
 
 ## Pattern
 
 1. Create builder with target render size and seed.
-2. Generate N `GenerateLayerNode` values from deterministic RNG.
-3. Connect layers in sequence.
-4. Add `Output` and connect final layer to it.
-5. Return `builder.build()`.
+2. Generate base `GenerateLayerNode` sources from deterministic RNG.
+3. Add graph-native operator nodes (`SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`).
+4. Build a DAG with fan-in/fan-out branches (avoid pure linear stacks).
+5. Add `Output`, connect final luma stream, and return `builder.build()`.
 
 ## Adding a Preset
 

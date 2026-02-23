@@ -25,7 +25,7 @@ Useful V2 flags:
 - `--seed <u32>`
 - `--count <u32>`
 - `--layers <u32>`
-- `--preset <hybrid-stack|field-weave>`
+- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid>`
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
