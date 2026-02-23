@@ -27,6 +27,56 @@ use crate::strategies::{
 /// WGSL compute shader source used by the GPU renderer.
 const SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl"));
 
+/// Build the GPU layer renderer on first use so CPU-only runs skip startup cost.
+async fn ensure_gpu_renderer(
+    adapter: &wgpu::Adapter,
+    gpu: &mut Option<GpuLayerRenderer>,
+    width: u32,
+    height: u32,
+) -> Result<(), Box<dyn Error>> {
+    if gpu.is_none() {
+        eprintln!("Initializing GPU renderer ({width}x{height}) on first GPU strategy use.");
+        *gpu = Some(GpuLayerRenderer::new(adapter, SHADER, width, height).await?);
+    }
+    Ok(())
+}
+
+/// Render one strategy layer into `out`, dispatching to either GPU or CPU paths.
+fn render_strategy_layer(
+    strategy: RenderStrategy,
+    strategy_params: &Params,
+    out: &mut [f32],
+    complexity_budget: u32,
+    fast: bool,
+    render_width: u32,
+    render_height: u32,
+    gpu: &mut Option<GpuLayerRenderer>,
+    strategy_scratch: &mut StrategyScratch,
+) -> Result<(), Box<dyn Error>> {
+    match strategy {
+        RenderStrategy::Gpu(_) => {
+            let renderer = gpu
+                .as_mut()
+                .ok_or("gpu renderer unavailable; initialize before gpu layer render")?;
+            renderer.render_layer(strategy_params, out)?;
+            Ok(())
+        }
+        RenderStrategy::Cpu(cpu_strategy) => {
+            render_cpu_strategy_into(
+                cpu_strategy,
+                render_width,
+                render_height,
+                strategy_params.seed,
+                fast,
+                complexity_budget,
+                out,
+                strategy_scratch,
+            );
+            Ok(())
+        }
+    }
+}
+
 /// Execute the image generation pipeline for one parsed CLI configuration.
 pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
@@ -98,7 +148,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    let mut gpu = GpuLayerRenderer::new(&adapter, SHADER, render_width, render_height).await?;
+    let mut gpu: Option<GpuLayerRenderer> = None;
 
     let pixel_count = (render_width as usize) * (render_height as usize);
     let final_pixel_count = (config.width as usize) * (config.height as usize);
@@ -121,32 +171,6 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
-
-    let mut render_strategy_layer = |strategy: RenderStrategy,
-                                     strategy_params: &Params,
-                                     out: &mut [f32],
-                                     complexity_budget: u32|
-     -> Result<(), Box<dyn Error>> {
-        match strategy {
-            RenderStrategy::Gpu(_) => {
-                gpu.render_layer(strategy_params, out)?;
-                Ok(())
-            }
-            RenderStrategy::Cpu(cpu_strategy) => {
-                render_cpu_strategy_into(
-                    cpu_strategy,
-                    render_width,
-                    render_height,
-                    strategy_params.seed,
-                    fast,
-                    complexity_budget,
-                    out,
-                    &mut strategy_scratch,
-                );
-                Ok(())
-            }
-        }
-    };
 
     for i in 0..config.count {
         spinner_state.set_image((i + 1) as usize, 0);
@@ -319,11 +343,19 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
             let layer_cost = render_strategy_cost(layer_strategy);
             let layer_complexity_budget = params.iterations.min(strategy_budget.max(96));
+            if matches!(layer_strategy, RenderStrategy::Gpu(_)) {
+                ensure_gpu_renderer(&adapter, &mut gpu, render_width, render_height).await?;
+            }
             render_strategy_layer(
                 layer_strategy,
                 &params,
                 &mut workspace.luma,
                 layer_complexity_budget,
+                fast,
+                render_width,
+                render_height,
+                &mut gpu,
+                &mut strategy_scratch,
             )?;
             strategy_budget = strategy_budget.saturating_sub(layer_cost);
             if layer_index == 0 {
@@ -397,12 +429,26 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 }
                 let secondary_cost = render_strategy_cost(secondary_strategy);
                 let secondary_budget = secondary_params.iterations.min(strategy_budget.max(96));
-                render_strategy_layer(
-                    secondary_strategy,
-                    &secondary_params,
-                    &mut workspace.blend_secondary,
-                    secondary_budget,
-                )?;
+                let secondary_is_gpu = matches!(secondary_strategy, RenderStrategy::Gpu(_));
+                if secondary_is_gpu {
+                    ensure_gpu_renderer(&adapter, &mut gpu, render_width, render_height).await?;
+                    let renderer = gpu
+                        .as_mut()
+                        .ok_or("gpu renderer unavailable for secondary layer submission")?;
+                    renderer.submit_layer(&secondary_params)?;
+                } else {
+                    render_strategy_layer(
+                        secondary_strategy,
+                        &secondary_params,
+                        &mut workspace.blend_secondary,
+                        secondary_budget,
+                        fast,
+                        render_width,
+                        render_height,
+                        &mut gpu,
+                        &mut strategy_scratch,
+                    )?;
+                }
                 strategy_budget = strategy_budget.saturating_sub(secondary_cost);
                 let mask_kind = blending::pick_layer_mask_kind(&mut image_rng, structural_profile);
                 let mut mask_request = blending::LayerMaskBuildRequest {
@@ -416,6 +462,12 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     fast,
                 };
                 blending::build_layer_mask(&mut mask_request, &mut image_rng);
+                if secondary_is_gpu {
+                    let renderer = gpu
+                        .as_mut()
+                        .ok_or("gpu renderer unavailable for secondary layer readback")?;
+                    renderer.collect_layer(&mut workspace.blend_secondary)?;
+                }
                 blending::blend_with_mask(
                     &mut workspace.luma,
                     &workspace.blend_secondary,

@@ -1,6 +1,6 @@
 use std::error::Error;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use crate::image_ops::decode_luma;
 use crate::model::Params;
@@ -23,6 +23,7 @@ pub(crate) struct GpuLayerRenderer {
     width: u32,
     height: u32,
     output_size: u64,
+    pending_readback: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
 }
 
 impl GpuLayerRenderer {
@@ -140,23 +141,15 @@ impl GpuLayerRenderer {
             width,
             height,
             output_size,
+            pending_readback: None,
         })
     }
 
-    /// Render one layer into a grayscale float buffer.
-    pub(crate) fn render_layer(
-        &mut self,
-        params: &Params,
-        out: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
-        let expected_pixels = (params.width as usize)
-            .checked_mul(params.height as usize)
-            .ok_or("invalid layer dimensions")?;
-        if params.width != self.width || params.height != self.height {
-            return Err("gpu params must match renderer resolution".into());
-        }
-        if out.len() != expected_pixels {
-            return Err("output buffer length does not match render dimensions".into());
+    /// Submit one GPU layer render and stage it for asynchronous readback.
+    pub(crate) fn submit_layer(&mut self, params: &Params) -> Result<(), Box<dyn Error>> {
+        self.validate_params(params)?;
+        if self.pending_readback.is_some() {
+            return Err("gpu readback already pending; collect before submitting again".into());
         }
 
         self.queue
@@ -192,26 +185,71 @@ impl GpuLayerRenderer {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        self.pending_readback = Some(receiver);
+        Ok(())
+    }
 
-        match receiver.recv_timeout(MAP_TIMEOUT) {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                return Err(format!("buffer map failed: {err:?}").into());
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                return Err("timeout waiting for GPU buffer mapping".into());
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err("gpu map callback disconnected before completion".into());
-            }
-        };
+    /// Complete a previously submitted GPU layer render and decode into `out`.
+    pub(crate) fn collect_layer(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
+        let expected_pixels = self
+            .width
+            .checked_mul(self.height)
+            .ok_or("invalid renderer dimensions")? as usize;
+        if out.len() != expected_pixels {
+            return Err("output buffer length does not match render dimensions".into());
+        }
 
+        let receiver = self
+            .pending_readback
+            .take()
+            .ok_or("no gpu readback pending for collect")?;
+
+        let deadline = Instant::now() + MAP_TIMEOUT;
+        loop {
+            self.device.poll(wgpu::Maintain::Poll);
+            match receiver.try_recv() {
+                Ok(Ok(())) => break,
+                Ok(Err(err)) => {
+                    return Err(format!("buffer map failed: {err:?}").into());
+                }
+                Err(TryRecvError::Empty) => {
+                    if Instant::now() >= deadline {
+                        return Err("timeout waiting for GPU buffer mapping".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TryRecvError::Disconnected) => {
+                    return Err("gpu map callback disconnected before completion".into());
+                }
+            }
+        }
+
+        let slice = self.staging_buffer.slice(..);
         {
             let raw = slice.get_mapped_range();
             decode_luma(&raw, out);
         }
         self.staging_buffer.unmap();
+        Ok(())
+    }
+
+    /// Render one layer into a grayscale float buffer.
+    pub(crate) fn render_layer(
+        &mut self,
+        params: &Params,
+        out: &mut [f32],
+    ) -> Result<(), Box<dyn Error>> {
+        self.submit_layer(params)?;
+        self.collect_layer(out)
+    }
+
+    fn validate_params(&self, params: &Params) -> Result<(), Box<dyn Error>> {
+        let _expected_pixels = (params.width as usize)
+            .checked_mul(params.height as usize)
+            .ok_or("invalid layer dimensions")?;
+        if params.width != self.width || params.height != self.height {
+            return Err("gpu params must match renderer resolution".into());
+        }
         Ok(())
     }
 }
