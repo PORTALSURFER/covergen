@@ -14,6 +14,8 @@ pub mod runtime;
 mod runtime_eval;
 mod runtime_ops;
 pub mod temporal;
+#[cfg(test)]
+mod visual_regression;
 
 use std::error::Error;
 

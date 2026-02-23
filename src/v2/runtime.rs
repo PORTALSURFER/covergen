@@ -300,6 +300,16 @@ async fn create_renderer(
     .await
 }
 
+#[cfg(test)]
+pub(super) fn finalize_luma_for_output_for_test(
+    config: &V2Config,
+    compiled: &CompiledGraph,
+    renderer: Option<&mut GpuLayerRenderer>,
+    buffers: &mut RuntimeBuffers,
+) -> Result<(), Box<dyn Error>> {
+    finalize_luma_for_output(config, compiled, renderer, buffers)
+}
+
 fn indexed_output(base: &str, index: u32, total: u32) -> std::path::PathBuf {
     if total <= 1 {
         return Path::new(base).to_path_buf();
