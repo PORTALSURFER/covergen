@@ -2,8 +2,10 @@
 //!
 //! This module executes V1 and V2 workloads with telemetry capture enabled and
 //! writes a markdown report containing latency percentiles, GPU-node timings,
-//! memory usage, frame throughput, and animation timing.
+//! memory usage, frame throughput, animation timing, and tiered cutover
+//! threshold artifacts.
 
+mod baseline;
 mod report;
 mod stats;
 
@@ -20,12 +22,14 @@ use crate::v2::compiler::compile_graph;
 use crate::v2::presets::build_preset_graph;
 use crate::v2::runtime::execute_compiled;
 
+use baseline::{validate_thresholds, write_locked_thresholds, write_metrics_snapshot};
 use report::render_report;
 use stats::{summarize_node_timings, summarize_scenario};
 
 /// Parsed CLI options for `covergen bench`.
 #[derive(Clone, Debug)]
 pub(super) struct BenchConfig {
+    tier: String,
     samples: u32,
     animation_samples: u32,
     size: u32,
@@ -36,6 +40,8 @@ pub(super) struct BenchConfig {
     profile: V2Profile,
     animation_seconds: u32,
     animation_fps: u32,
+    thresholds_path: Option<PathBuf>,
+    lock_thresholds_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +56,7 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
     let config = parse_args(args)?;
     std::fs::create_dir_all(&config.out_dir)?;
     let mut skip_notes = Vec::new();
+    let mut cutover_notes = Vec::new();
 
     let mut v1_samples = Vec::with_capacity(config.samples as usize);
     let mut v2_still_samples = Vec::with_capacity(config.samples as usize);
@@ -99,19 +106,57 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
         summarize_scenario("V2 still", &v2_still_samples),
         summarize_scenario("V2 animation", &v2_animation_samples),
     ];
+    let metrics_path = config.out_dir.join("benchmark_metrics.ini");
+    write_metrics_snapshot(&metrics_path, &config.tier, &summaries)?;
+    cutover_notes.push(format!("metrics snapshot: {}", metrics_path.display()));
+
+    if let Some(path) = config.lock_thresholds_path.as_ref() {
+        write_locked_thresholds(path, &config.tier, &summaries)?;
+        cutover_notes.push(format!("locked thresholds written: {}", path.display()));
+    }
+
+    let mut threshold_failures = Vec::new();
+    if let Some(path) = config.thresholds_path.as_ref() {
+        let violations = validate_thresholds(path, &config.tier, &summaries)?;
+        if violations.is_empty() {
+            cutover_notes.push(format!("threshold validation passed: {}", path.display()));
+        } else {
+            cutover_notes.push(format!(
+                "threshold validation failed ({} violations): {}",
+                violations.len(),
+                path.display()
+            ));
+            threshold_failures = violations;
+        }
+    }
 
     let node_timing = summarize_node_timings(&v2_still_samples, &v2_animation_samples);
-    let report = render_report(&config, &summaries, &node_timing, &skip_notes);
+    let report = render_report(
+        &config,
+        &summaries,
+        &node_timing,
+        &skip_notes,
+        &cutover_notes,
+    );
 
     let report_path = config.out_dir.join("benchmark_report.md");
     std::fs::write(&report_path, report)?;
 
     println!("Benchmark report written to {}", report_path.display());
+    if !threshold_failures.is_empty() {
+        let details = threshold_failures
+            .into_iter()
+            .map(|line| format!("- {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(format!("cutover threshold validation failed:\n{details}").into());
+    }
     Ok(())
 }
 
 fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
     let mut cfg = BenchConfig {
+        tier: "unclassified".to_string(),
         samples: 8,
         animation_samples: 4,
         size: 1024,
@@ -122,6 +167,8 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
         profile: V2Profile::Performance,
         animation_seconds: 6,
         animation_fps: 24,
+        thresholds_path: None,
+        lock_thresholds_path: None,
     };
 
     let mut iter = args.into_iter();
@@ -145,6 +192,9 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
             "--output-dir" => {
                 cfg.out_dir = PathBuf::from(iter.next().ok_or("missing value for --output-dir")?);
             }
+            "--tier" => {
+                cfg.tier = iter.next().ok_or("missing value for --tier")?;
+            }
             "--keep-artifacts" => {
                 cfg.keep_artifacts = true;
             }
@@ -161,6 +211,16 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
             }
             "--fps" => {
                 cfg.animation_fps = iter.next().ok_or("missing value for --fps")?.parse()?;
+            }
+            "--thresholds" => {
+                cfg.thresholds_path = Some(PathBuf::from(
+                    iter.next().ok_or("missing value for --thresholds")?,
+                ));
+            }
+            "--lock-thresholds" => {
+                cfg.lock_thresholds_path = Some(PathBuf::from(
+                    iter.next().ok_or("missing value for --lock-thresholds")?,
+                ));
             }
             _ => return Err(format!("unknown bench argument: {arg}").into()),
         }
@@ -180,6 +240,9 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
     }
     if cfg.animation_fps == 0 {
         return Err("--fps must be at least 1".into());
+    }
+    if cfg.tier.trim().is_empty() {
+        return Err("--tier must not be empty".into());
     }
 
     Ok(cfg)

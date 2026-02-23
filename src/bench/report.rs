@@ -11,12 +11,14 @@ pub(super) fn render_report(
     summaries: &[ScenarioSummary],
     node_timing: &[NodeTimingSummary],
     skip_notes: &[String],
+    cutover_notes: &[String],
 ) -> String {
     let mut out = String::new();
     out.push_str("# covergen benchmark report\n\n");
     out.push_str("## configuration\n\n");
     out.push_str(&format!(
-        "- samples: {}\n- animation samples: {}\n- size: {}\n- v2 preset/profile: {}/{}\n- animation: {}s @ {}fps\n\n",
+        "- tier: {}\n- samples: {}\n- animation samples: {}\n- size: {}\n- v2 preset/profile: {}/{}\n- animation: {}s @ {}fps\n\n",
+        config.tier,
         config.samples,
         config.animation_samples,
         config.size,
@@ -67,7 +69,15 @@ pub(super) fn render_report(
     out.push_str(
         "- Frame throughput is measured as rendered frames divided by sample wall time.\n",
     );
-    out.push_str("- Animation render time is represented by the V2 animation scenario latency percentiles.\n");
+    out.push_str(
+        "- Animation render time is represented by the V2 animation scenario latency percentiles.\n",
+    );
+    if !cutover_notes.is_empty() {
+        out.push_str("- Cutover threshold status:\n");
+        for note in cutover_notes {
+            out.push_str(&format!("  - {note}\n"));
+        }
+    }
     if !skip_notes.is_empty() {
         out.push_str("- Skipped scenarios:\n");
         for note in skip_notes {

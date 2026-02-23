@@ -19,7 +19,9 @@
 Trigger a cutover decision only when all gates below are met in CI/local release runs:
 
 1. Performance gate:
-   - Benchmark report generated via `cargo run -- bench`.
+   - Benchmark report + metrics snapshot generated via `cargo run -- bench --tier <tier>`.
+   - Tier thresholds are locked from baseline with `--lock-thresholds`.
+   - Tier validation passes with `--thresholds`.
    - V2 still render p95 latency is at or below agreed target for primary preset/profile set.
    - V2 animation throughput and p95 frame-time satisfy reels target profile.
 2. Determinism/visual gate:
@@ -48,6 +50,8 @@ Trigger a cutover decision only when all gates below are met in CI/local release
 Before approving cutover, capture and review:
 
 - `target/bench/benchmark_report.md` from representative hosts.
+- `target/bench/benchmark_metrics.ini` from representative hosts.
+- Locked threshold files per tier in `docs/v2/benchmarks/*.thresholds.ini`.
 - Snapshot test pass results for V2 still + animation sampled frames.
 - Any known visual differences and accepted exceptions (if any).
 
