@@ -18,8 +18,8 @@ use crate::progress::{SpinnerState, start_spinner};
 use crate::randomization::*;
 use crate::render_workspace::RenderWorkspace;
 use crate::strategies::{
-    RenderStrategy, fit_strategy_to_budget, pick_render_strategy_with_preferences,
-    render_cpu_strategy, render_strategy_cost, strategy_profile,
+    RenderStrategy, StrategyScratch, fit_strategy_to_budget, pick_render_strategy_with_preferences,
+    render_cpu_strategy_into, render_strategy_cost, strategy_profile,
 };
 
 /// WGSL compute shader source used by the GPU renderer.
@@ -103,6 +103,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut workspace = RenderWorkspace::new(pixel_count, final_pixel_count);
 
     let mut image_rng = XorShift32::new(config.seed);
+    let mut strategy_scratch = StrategyScratch::default();
     let spinner_state = Arc::new(SpinnerState::new(config.count as usize));
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
@@ -118,15 +119,16 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 Ok(())
             }
             RenderStrategy::Cpu(cpu_strategy) => {
-                let generated = render_cpu_strategy(
+                render_cpu_strategy_into(
                     cpu_strategy,
                     render_width,
                     render_height,
                     strategy_params.seed,
                     fast,
                     complexity_budget,
+                    out,
+                    &mut strategy_scratch,
                 );
-                out.copy_from_slice(&generated);
                 Ok(())
             }
         }

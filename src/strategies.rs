@@ -454,6 +454,27 @@ pub struct StrategyProfile {
     pub force_detail: bool,
 }
 
+/// Reusable scratch buffers for CPU strategy rendering.
+///
+/// The render loop reuses these vectors across layers so hot strategies can
+/// update workspace output buffers in place without allocating a new output
+/// `Vec<f32>` each call.
+#[derive(Debug, Default)]
+pub struct StrategyScratch {
+    reaction_u: Vec<f32>,
+    reaction_v: Vec<f32>,
+    reaction_next_u: Vec<f32>,
+    reaction_next_v: Vec<f32>,
+    reaction_noise: Vec<f32>,
+}
+
+fn ensure_len_with_fill(buffer: &mut Vec<f32>, len: usize, fill: f32) {
+    if buffer.len() != len {
+        buffer.resize(len, fill);
+    }
+    buffer.fill(fill);
+}
+
 /// Returns a render strategy for the next layer.
 #[allow(dead_code)]
 pub fn pick_render_strategy(rng: &mut XorShift32, fast: bool) -> RenderStrategy {
@@ -754,15 +775,21 @@ pub fn strategy_profile(strategy: RenderStrategy) -> StrategyProfile {
     }
 }
 
-/// Render a CPU strategy for a layer and return a normalized gray buffer.
-pub fn render_cpu_strategy(
+/// Render a CPU strategy for a layer into a caller-provided output slice.
+///
+/// This API is intended for the main render loop and reuses `scratch` across
+/// layers to minimize allocation churn on hot strategies.
+pub fn render_cpu_strategy_into(
     strategy: CpuStrategy,
     width: u32,
     height: u32,
     seed: u32,
     fast: bool,
     complexity_budget: u32,
-) -> Vec<f32> {
+    out: &mut [f32],
+    scratch: &mut StrategyScratch,
+) {
+    debug_assert_eq!(out.len(), (width as usize) * (height as usize));
     let mut rng = XorShift32::new(seed ^ 0x9e37_79b9);
     let complexity_budget = complexity_budget.max(64);
     let budget_fast = fast || complexity_budget <= 220;
@@ -772,80 +799,118 @@ pub fn render_cpu_strategy(
         strategy
     };
     match strategy {
-        CpuStrategy::EdgeSobel => render_edge_field(width, height, &mut rng, true),
-        CpuStrategy::EdgeLaplacian => render_edge_field(width, height, &mut rng, false),
-        CpuStrategy::Maze => render_maze_field(width, height, &mut rng),
         CpuStrategy::ReactionDiffusion => {
-            render_reaction_diffusion(width, height, &mut rng, budget_fast)
+            render_reaction_diffusion_into(width, height, &mut rng, budget_fast, out, scratch)
         }
-        CpuStrategy::LSystem => render_lsystem(width, height, &mut rng),
-        CpuStrategy::ProceduralNoise => render_noise_field(width, height, &mut rng),
-        CpuStrategy::CellularAutomata => {
-            render_cellular_automata(width, height, &mut rng, budget_fast)
-        }
-        CpuStrategy::ParticleFlow => render_particle_flow(width, height, &mut rng, budget_fast),
-        CpuStrategy::Voronoi => render_voronoi(width, height, &mut rng),
-        CpuStrategy::Delaunay => render_delaunay(width, height, &mut rng),
-        CpuStrategy::IteratedFractal => {
-            render_iterated_fractal(width, height, &mut rng, budget_fast)
-        }
-        CpuStrategy::StrangeAttractor => {
-            render_strange_attractor(width, height, &mut rng, budget_fast)
-        }
-        CpuStrategy::RadialWave => render_radial_wave(width, height, &mut rng),
-        CpuStrategy::RecursiveFold => render_recursive_fold(width, height, &mut rng, budget_fast),
-        CpuStrategy::AttractorHybrid => {
-            render_attractor_hybrid(width, height, &mut rng, budget_fast)
-        }
-        CpuStrategy::CannyEdge => render_canny_edge(width, height, &mut rng, budget_fast),
-        CpuStrategy::PerlinRidge => render_perlin_ridge(width, height, &mut rng),
-        CpuStrategy::PlasmaField => render_plasma_field(width, height, &mut rng),
-        CpuStrategy::SierpinskiCarpet => render_sierpinski_carpet(width, height, &mut rng),
-        CpuStrategy::BarnsleyFern => render_barnsley_fern(width, height, &mut rng),
-        CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, &mut rng, budget_fast),
-        CpuStrategy::MandelbrotField => render_mandelbrot_field(width, height, &mut rng),
-        CpuStrategy::RecursiveTiling => render_recursive_tiling(width, height, &mut rng),
-        CpuStrategy::TuringCascade => render_turing_cascade(width, height, &mut rng),
-        CpuStrategy::FlowFilaments => render_flow_filaments(width, height, &mut rng),
-        CpuStrategy::OrbitalAtlas => render_orbital_atlas(width, height, &mut rng),
-        CpuStrategy::CrystalGrowth => render_crystal_growth(width, height, &mut rng),
-        CpuStrategy::VortexConvection => render_vortex_convection(width, height, &mut rng),
-        CpuStrategy::ErosionChannels => render_erosion_channels(width, height, &mut rng),
-        CpuStrategy::StochasticIFS => render_stochastic_ifs(width, height, &mut rng),
-        CpuStrategy::LorenzAttractor => render_lorenz_attractor(width, height, &mut rng),
-        CpuStrategy::RecursiveStarburst => render_recursive_starburst(width, height, &mut rng),
-        CpuStrategy::LissajousOrbits => render_lissajous_orbits(width, height, &mut rng),
-        CpuStrategy::GraviticWeb => render_gravitic_web(width, height, &mut rng),
-        CpuStrategy::PoissonMesh => render_poisson_mesh(width, height, &mut rng),
-        CpuStrategy::MetaballField => render_metaball_field(width, height, &mut rng),
-        CpuStrategy::BraidFlow => render_braid_flow(width, height, &mut rng),
-        CpuStrategy::LogisticChaos => render_logistic_chaos(width, height, &mut rng),
-        CpuStrategy::DeJongAttractor => render_de_jong_attractor(width, height, &mut rng),
-        CpuStrategy::RecursiveRibbon => render_recursive_ribbon(width, height, &mut rng),
-        CpuStrategy::MagneticFieldlines => render_magnetic_fieldlines(width, height, &mut rng),
-        CpuStrategy::InterferenceWaves => render_interference_waves(width, height, &mut rng),
-        CpuStrategy::CliffordAttractor => render_clifford_attractor(width, height, &mut rng),
-        CpuStrategy::JuliaSet => render_julia_set(width, height, &mut rng),
-        CpuStrategy::KochSnowflake => render_koch_snowflake(width, height, &mut rng),
-        CpuStrategy::BifurcationTree => render_bifurcation_tree(width, height, &mut rng),
-        CpuStrategy::DepthRelief => render_depth_relief(width, height, &mut rng),
-        CpuStrategy::AttractorTunnel => render_attractor_tunnel(width, height, &mut rng),
-        CpuStrategy::OrbitalLabyrinth => render_orbital_labyrinth(width, height, &mut rng),
-        CpuStrategy::PhaseField => render_phase_field(width, height, &mut rng, budget_fast),
-        CpuStrategy::Lenia => render_lenia(width, height, &mut rng, budget_fast),
-        CpuStrategy::CurlNoiseFlow => render_curl_noise_flow(width, height, &mut rng, budget_fast),
         CpuStrategy::ReactionLattice => {
-            render_reaction_lattice(width, height, &mut rng, budget_fast)
+            render_reaction_lattice_into(width, height, &mut rng, budget_fast, out, scratch)
         }
-        CpuStrategy::HarmonicInterference => render_harmonic_interference(width, height, &mut rng),
+        _ => {
+            let generated =
+                render_cpu_strategy_alloc(strategy, width, height, &mut rng, budget_fast);
+            out.copy_from_slice(&generated);
+        }
+    }
+}
+
+fn render_cpu_strategy_alloc(
+    strategy: CpuStrategy,
+    width: u32,
+    height: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+) -> Vec<f32> {
+    match strategy {
+        CpuStrategy::EdgeSobel => render_edge_field(width, height, rng, true),
+        CpuStrategy::EdgeLaplacian => render_edge_field(width, height, rng, false),
+        CpuStrategy::Maze => render_maze_field(width, height, rng),
+        CpuStrategy::ReactionDiffusion => render_reaction_diffusion(width, height, rng, fast),
+        CpuStrategy::LSystem => render_lsystem(width, height, rng),
+        CpuStrategy::ProceduralNoise => render_noise_field(width, height, rng),
+        CpuStrategy::CellularAutomata => render_cellular_automata(width, height, rng, fast),
+        CpuStrategy::ParticleFlow => render_particle_flow(width, height, rng, fast),
+        CpuStrategy::Voronoi => render_voronoi(width, height, rng),
+        CpuStrategy::Delaunay => render_delaunay(width, height, rng),
+        CpuStrategy::IteratedFractal => render_iterated_fractal(width, height, rng, fast),
+        CpuStrategy::StrangeAttractor => render_strange_attractor(width, height, rng, fast),
+        CpuStrategy::RadialWave => render_radial_wave(width, height, rng),
+        CpuStrategy::RecursiveFold => render_recursive_fold(width, height, rng, fast),
+        CpuStrategy::AttractorHybrid => render_attractor_hybrid(width, height, rng, fast),
+        CpuStrategy::CannyEdge => render_canny_edge(width, height, rng, fast),
+        CpuStrategy::PerlinRidge => render_perlin_ridge(width, height, rng),
+        CpuStrategy::PlasmaField => render_plasma_field(width, height, rng),
+        CpuStrategy::SierpinskiCarpet => render_sierpinski_carpet(width, height, rng),
+        CpuStrategy::BarnsleyFern => render_barnsley_fern(width, height, rng),
+        CpuStrategy::TurbulentFlow => render_turbulent_flow(width, height, rng, fast),
+        CpuStrategy::MandelbrotField => render_mandelbrot_field(width, height, rng),
+        CpuStrategy::RecursiveTiling => render_recursive_tiling(width, height, rng),
+        CpuStrategy::TuringCascade => render_turing_cascade(width, height, rng),
+        CpuStrategy::FlowFilaments => render_flow_filaments(width, height, rng),
+        CpuStrategy::OrbitalAtlas => render_orbital_atlas(width, height, rng),
+        CpuStrategy::CrystalGrowth => render_crystal_growth(width, height, rng),
+        CpuStrategy::VortexConvection => render_vortex_convection(width, height, rng),
+        CpuStrategy::ErosionChannels => render_erosion_channels(width, height, rng),
+        CpuStrategy::StochasticIFS => render_stochastic_ifs(width, height, rng),
+        CpuStrategy::LorenzAttractor => render_lorenz_attractor(width, height, rng),
+        CpuStrategy::RecursiveStarburst => render_recursive_starburst(width, height, rng),
+        CpuStrategy::LissajousOrbits => render_lissajous_orbits(width, height, rng),
+        CpuStrategy::GraviticWeb => render_gravitic_web(width, height, rng),
+        CpuStrategy::PoissonMesh => render_poisson_mesh(width, height, rng),
+        CpuStrategy::MetaballField => render_metaball_field(width, height, rng),
+        CpuStrategy::BraidFlow => render_braid_flow(width, height, rng),
+        CpuStrategy::LogisticChaos => render_logistic_chaos(width, height, rng),
+        CpuStrategy::DeJongAttractor => render_de_jong_attractor(width, height, rng),
+        CpuStrategy::RecursiveRibbon => render_recursive_ribbon(width, height, rng),
+        CpuStrategy::MagneticFieldlines => render_magnetic_fieldlines(width, height, rng),
+        CpuStrategy::InterferenceWaves => render_interference_waves(width, height, rng),
+        CpuStrategy::CliffordAttractor => render_clifford_attractor(width, height, rng),
+        CpuStrategy::JuliaSet => render_julia_set(width, height, rng),
+        CpuStrategy::KochSnowflake => render_koch_snowflake(width, height, rng),
+        CpuStrategy::BifurcationTree => render_bifurcation_tree(width, height, rng),
+        CpuStrategy::DepthRelief => render_depth_relief(width, height, rng),
+        CpuStrategy::AttractorTunnel => render_attractor_tunnel(width, height, rng),
+        CpuStrategy::OrbitalLabyrinth => render_orbital_labyrinth(width, height, rng),
+        CpuStrategy::PhaseField => render_phase_field(width, height, rng, fast),
+        CpuStrategy::Lenia => render_lenia(width, height, rng, fast),
+        CpuStrategy::CurlNoiseFlow => render_curl_noise_flow(width, height, rng, fast),
+        CpuStrategy::ReactionLattice => render_reaction_lattice(width, height, rng, fast),
+        CpuStrategy::HarmonicInterference => render_harmonic_interference(width, height, rng),
         CpuStrategy::AttractorVoronoiHybrid => {
-            render_attractor_voronoi_hybrid(width, height, &mut rng, budget_fast)
+            render_attractor_voronoi_hybrid(width, height, rng, fast)
         }
         CpuStrategy::RecursiveNoiseTerrain => {
-            render_recursive_noise_terrain(width, height, &mut rng, budget_fast)
+            render_recursive_noise_terrain(width, height, rng, fast)
         }
-        CpuStrategy::BifurcationGrid => render_bifurcation_grid(width, height, &mut rng),
+        CpuStrategy::BifurcationGrid => render_bifurcation_grid(width, height, rng),
     }
+}
+
+/// Render a CPU strategy for a layer and return a normalized gray buffer.
+///
+/// This is a convenience wrapper that allocates an output image and delegates
+/// to `render_cpu_strategy_into`.
+#[allow(dead_code)]
+pub fn render_cpu_strategy(
+    strategy: CpuStrategy,
+    width: u32,
+    height: u32,
+    seed: u32,
+    fast: bool,
+    complexity_budget: u32,
+) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let mut scratch = StrategyScratch::default();
+    render_cpu_strategy_into(
+        strategy,
+        width,
+        height,
+        seed,
+        fast,
+        complexity_budget,
+        &mut out,
+        &mut scratch,
+    );
+    out
 }
 
 fn clamp01(value: f32) -> f32 {
@@ -942,6 +1007,25 @@ pub fn normalize(src: &mut [f32]) {
 
 fn resize_nearest(src: &[f32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<f32> {
     let mut out = vec![0.0f32; (dst_w * dst_h) as usize];
+    resize_nearest_into(src, src_w, src_h, dst_w, dst_h, &mut out);
+    out
+}
+
+fn resize_bilinear(src: &[f32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<f32> {
+    let mut out = vec![0.0f32; (dst_w * dst_h) as usize];
+    resize_bilinear_into(src, src_w, src_h, dst_w, dst_h, &mut out);
+    out
+}
+
+fn resize_nearest_into(
+    src: &[f32],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+    out: &mut [f32],
+) {
+    debug_assert_eq!(out.len(), (dst_w * dst_h) as usize);
     let src_w = src_w.max(1) as f32;
     let src_h = src_h.max(1) as f32;
     for y in 0..dst_h {
@@ -955,11 +1039,17 @@ fn resize_nearest(src: &[f32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -
             out[(y * dst_w + x) as usize] = src[sy * src_w as usize + sx];
         }
     }
-    out
 }
 
-fn resize_bilinear(src: &[f32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<f32> {
-    let mut out = vec![0.0f32; (dst_w * dst_h) as usize];
+fn resize_bilinear_into(
+    src: &[f32],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+    out: &mut [f32],
+) {
+    debug_assert_eq!(out.len(), (dst_w * dst_h) as usize);
     let src_w = src_w.max(1) as f32;
     let src_h = src_h.max(1) as f32;
     let width = dst_w as usize;
@@ -984,7 +1074,6 @@ fn resize_bilinear(src: &[f32], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) 
             out[idx] = top * (1.0 - wy) + bot * wy;
         }
     }
-    out
 }
 
 fn sample_nearest(src: &[f32], width: u32, height: u32, x: i32, y: i32) -> f32 {
@@ -1458,13 +1547,35 @@ fn render_reaction_diffusion(
     rng: &mut XorShift32,
     fast: bool,
 ) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let mut scratch = StrategyScratch::default();
+    render_reaction_diffusion_into(width, height, rng, fast, &mut out, &mut scratch);
+    out
+}
+
+fn render_reaction_diffusion_into(
+    width: u32,
+    height: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+    out: &mut [f32],
+    scratch: &mut StrategyScratch,
+) {
+    debug_assert_eq!(out.len(), (width * height) as usize);
     let sim_w = (width / 2).max(128);
     let sim_h = (height / 2).max(128);
     let iterations: usize = if fast { 420 } else { 900 };
-    let mut u = vec![1.0f32; (sim_w * sim_h) as usize];
-    let mut v = vec![0.0f32; (sim_w * sim_h) as usize];
-    let mut un = vec![0.0f32; (sim_w * sim_h) as usize];
-    let mut vn = vec![0.0f32; (sim_w * sim_h) as usize];
+    let sim_len = (sim_w * sim_h) as usize;
+    ensure_len_with_fill(&mut scratch.reaction_u, sim_len, 1.0);
+    ensure_len_with_fill(&mut scratch.reaction_v, sim_len, 0.0);
+    ensure_len_with_fill(&mut scratch.reaction_next_u, sim_len, 0.0);
+    ensure_len_with_fill(&mut scratch.reaction_next_v, sim_len, 0.0);
+    let (mut u, mut v, mut un, mut vn) = (
+        &mut scratch.reaction_u,
+        &mut scratch.reaction_v,
+        &mut scratch.reaction_next_u,
+        &mut scratch.reaction_next_v,
+    );
 
     let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0x1234_5678);
     for v_cell in v.iter_mut() {
@@ -1509,9 +1620,8 @@ fn render_reaction_diffusion(
         step += 1;
     }
 
-    let mut out = v;
-    normalize(&mut out);
-    resize_nearest(&out, sim_w, sim_h, width, height)
+    normalize(v);
+    resize_nearest_into(v, sim_w, sim_h, width, height, out);
 }
 
 fn render_lsystem(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
@@ -5157,12 +5267,34 @@ fn render_curl_noise_flow(width: u32, height: u32, rng: &mut XorShift32, fast: b
 }
 
 fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: bool) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    let mut scratch = StrategyScratch::default();
+    render_reaction_lattice_into(width, height, rng, fast, &mut out, &mut scratch);
+    out
+}
+
+fn render_reaction_lattice_into(
+    width: u32,
+    height: u32,
+    rng: &mut XorShift32,
+    fast: bool,
+    out: &mut [f32],
+    scratch: &mut StrategyScratch,
+) {
+    debug_assert_eq!(out.len(), (width * height) as usize);
     let sim_w = (width / 2).clamp(130, 500);
     let sim_h = (height / 2).clamp(130, 500);
-    let mut u = vec![1.0f32; (sim_w * sim_h) as usize];
-    let mut v = vec![0.0f32; (sim_w * sim_h) as usize];
-    let mut next_u = vec![0.0f32; (sim_w * sim_h) as usize];
-    let mut next_v = vec![0.0f32; (sim_w * sim_h) as usize];
+    let sim_len = (sim_w * sim_h) as usize;
+    ensure_len_with_fill(&mut scratch.reaction_u, sim_len, 1.0);
+    ensure_len_with_fill(&mut scratch.reaction_v, sim_len, 0.0);
+    ensure_len_with_fill(&mut scratch.reaction_next_u, sim_len, 0.0);
+    ensure_len_with_fill(&mut scratch.reaction_next_v, sim_len, 0.0);
+    let (mut u, mut v, mut next_u, mut next_v) = (
+        &mut scratch.reaction_u,
+        &mut scratch.reaction_v,
+        &mut scratch.reaction_next_u,
+        &mut scratch.reaction_next_v,
+    );
     let mut seed_rng = XorShift32::new(rng.next_u32() ^ 0xC0DE_F00D);
 
     let mut i = 0usize;
@@ -5183,7 +5315,8 @@ fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: 
     let w = sim_w as usize;
     let h = sim_h as usize;
     let lattice_seed = seed_rng.next_u32();
-    let mut lattice_noise = vec![0.0f32; w * h];
+    ensure_len_with_fill(&mut scratch.reaction_noise, sim_len, 0.0);
+    let lattice_noise = &mut scratch.reaction_noise;
     lattice_noise
         .par_chunks_mut(w)
         .enumerate()
@@ -5225,14 +5358,13 @@ fn render_reaction_lattice(width: u32, height: u32, rng: &mut XorShift32, fast: 
     }
 
     let tone_seed = seed_rng.next_u32();
-    let mut out = v;
-    out.par_iter_mut().enumerate().for_each(|(idx, value)| {
+    v.par_iter_mut().enumerate().for_each(|(idx, value)| {
         let idx_f = idx as f32;
         let noise = value_noise(*value * 5.0 + idx_f * 0.0007, *value * 7.0, tone_seed);
         *value = clamp01(*value * (1.0 + noise * 0.3));
     });
-    normalize(&mut out);
-    resize_bilinear(&out, sim_w, sim_h, width, height)
+    normalize(v);
+    resize_bilinear_into(v, sim_w, sim_h, width, height, out);
 }
 
 fn render_harmonic_interference(width: u32, height: u32, rng: &mut XorShift32) -> Vec<f32> {
