@@ -27,6 +27,8 @@ pub(crate) struct RenderWorkspace {
     pub(crate) percentile: Vec<f32>,
     /// Final (possibly resized) luminance buffer before encoding.
     pub(crate) final_luma: Vec<f32>,
+    /// Reusable byte scratch used while downsampling `f32` luma via GrayImage.
+    pub(crate) downsample_source_u8: Vec<u8>,
     /// Grayscale output bytes.
     pub(crate) final_pixels: Vec<u8>,
 }
@@ -45,6 +47,7 @@ impl RenderWorkspace {
             background: vec![0.0f32; render_pixel_count],
             percentile: vec![0.0f32; render_pixel_count],
             final_luma: vec![0.0f32; final_pixel_count],
+            downsample_source_u8: Vec::new(),
             final_pixels: vec![0u8; final_pixel_count],
         }
     }

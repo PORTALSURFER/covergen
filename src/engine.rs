@@ -729,6 +729,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 config.width,
                 config.height,
                 &mut workspace.final_luma,
+                &mut workspace.downsample_source_u8,
             )?;
             workspace.final_luma.as_slice()
         };

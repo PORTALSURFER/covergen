@@ -113,6 +113,7 @@ pub(crate) fn downsample_luma<'a>(
     target_width: u32,
     target_height: u32,
     output: &'a mut Vec<f32>,
+    source_u8_scratch: &mut Vec<u8>,
 ) -> Result<&'a [f32], Box<dyn Error>> {
     let target_len = (target_width as usize) * (target_height as usize);
     if output.len() != target_len {
@@ -133,13 +134,15 @@ pub(crate) fn downsample_luma<'a>(
         return Ok(&output[..source.len()]);
     }
 
-    let source_bytes = source
-        .iter()
-        .map(|value| (clamp01(*value) * 255.0).round() as u8)
-        .collect::<Vec<u8>>();
+    source_u8_scratch.resize(source.len(), 0u8);
+    encode_gray(source_u8_scratch, source);
 
-    let source_image = image::GrayImage::from_raw(source_width, source_height, source_bytes)
-        .ok_or("invalid source image buffer during downsample")?;
+    let source_image = image::GrayImage::from_raw(
+        source_width,
+        source_height,
+        std::mem::take(source_u8_scratch),
+    )
+    .ok_or("invalid source image buffer during downsample")?;
 
     let resized = image::imageops::resize(
         &source_image,
@@ -147,14 +150,15 @@ pub(crate) fn downsample_luma<'a>(
         target_height,
         image::imageops::FilterType::Lanczos3,
     );
+    *source_u8_scratch = source_image.into_raw();
 
-    let resized_values = resized.into_raw();
+    let resized_values = resized.as_raw();
     if resized_values.len() != target_len {
         return Err("downsample output size mismatch".into());
     }
 
-    for (out, value) in output.iter_mut().zip(resized_values.into_iter()) {
-        *out = (value as f32) / 255.0;
+    for (out, value) in output.iter_mut().zip(resized_values.iter()) {
+        *out = (*value as f32) / 255.0;
     }
 
     Ok(&output[..target_len])
@@ -756,7 +760,9 @@ pub(crate) fn save_png_under_10mb(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_contrast, apply_posterize_and_contrast, apply_posterize_buffer};
+    use super::{
+        apply_contrast, apply_posterize_and_contrast, apply_posterize_buffer, downsample_luma,
+    };
 
     #[test]
     fn fused_posterize_and_contrast_matches_split_passes() {
@@ -772,5 +778,21 @@ mod tests {
         for (a, b) in split.iter().zip(fused.iter()) {
             assert!((*a - *b).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn downsample_luma_reuses_source_byte_scratch() {
+        let source = vec![
+            0.0f32, 0.1, 0.2, 0.3, 0.1, 0.2, 0.3, 0.4, 0.2, 0.3, 0.4, 0.5, 0.3, 0.4, 0.5, 0.6,
+        ];
+        let mut output = Vec::new();
+        let mut source_u8_scratch = Vec::new();
+
+        let downsampled = downsample_luma(&source, 4, 4, 2, 2, &mut output, &mut source_u8_scratch)
+            .expect("downsample should succeed");
+
+        assert_eq!(downsampled.len(), 4);
+        assert_eq!(source_u8_scratch.len(), source.len());
+        assert!(downsampled.iter().all(|value| (0.0..=1.0).contains(value)));
     }
 }
