@@ -340,6 +340,22 @@ impl LayerBlendMode {
             Self::Shadow => "shadow",
         }
     }
+
+    /// Numeric representation used by GPU retained post-processing.
+    pub(crate) fn as_u32(self) -> u32 {
+        match self {
+            Self::Normal => 0,
+            Self::Add => 1,
+            Self::Multiply => 2,
+            Self::Screen => 3,
+            Self::Overlay => 4,
+            Self::Difference => 5,
+            Self::Lighten => 6,
+            Self::Darken => 7,
+            Self::Glow => 8,
+            Self::Shadow => 9,
+        }
+    }
 }
 
 /// Lightweight xorshift RNG used for all deterministic randomness in generation.

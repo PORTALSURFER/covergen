@@ -7,6 +7,7 @@ mod blending;
 mod config;
 mod engine;
 mod gpu_render;
+mod gpu_retained;
 mod image_ops;
 mod model;
 mod progress;

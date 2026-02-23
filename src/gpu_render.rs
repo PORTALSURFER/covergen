@@ -2,12 +2,13 @@ use std::error::Error;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
+use crate::gpu_retained::RetainedGpuPost;
 use crate::image_ops::decode_luma;
 use crate::model::Params;
 use bytemuck::Zeroable;
 use wgpu::{self, util::DeviceExt};
 
-/// Default timeout used while waiting for the compute output buffer to map.
+/// Default timeout used while waiting for mapped GPU buffers.
 const MAP_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// GPU-backed compute renderer for one fixed output resolution.
@@ -24,6 +25,7 @@ pub(crate) struct GpuLayerRenderer {
     height: u32,
     output_size: u64,
     pending_readback: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
+    retained: RetainedGpuPost,
 }
 
 impl GpuLayerRenderer {
@@ -67,14 +69,12 @@ impl GpuLayerRenderer {
             contents: bytemuck::bytes_of(&zero),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("staging"),
             size: output_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("bind group layout"),
             entries: &[
@@ -100,7 +100,6 @@ impl GpuLayerRenderer {
                 },
             ],
         });
-
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("bind group"),
             layout: &bind_group_layout,
@@ -115,20 +114,19 @@ impl GpuLayerRenderer {
                 },
             ],
         });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline layout"),
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
-
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("compute pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(&layout),
             module: &shader_module,
             entry_point: "main",
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         });
+        let retained = RetainedGpuPost::new(&device, &out_buffer, width, height);
 
         Ok(Self {
             device,
@@ -142,7 +140,51 @@ impl GpuLayerRenderer {
             height,
             output_size,
             pending_readback: None,
+            retained,
         })
+    }
+
+    /// Reset retained accumulation buffers for the next image.
+    pub(crate) fn begin_retained_image(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.pending_readback.is_some() {
+            return Err("cannot begin retained image while readback is pending".into());
+        }
+        self.retained.begin_image(&self.device, &self.queue);
+        Ok(())
+    }
+
+    /// Submit one layer into retained GPU post-processing accumulation.
+    pub(crate) fn submit_retained_layer(
+        &mut self,
+        params: &Params,
+        opacity: f32,
+        blend_mode: u32,
+        contrast: f32,
+    ) -> Result<(), Box<dyn Error>> {
+        self.validate_params(params)?;
+        if self.pending_readback.is_some() {
+            return Err("gpu readback already pending; collect before submitting again".into());
+        }
+
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("retained layer encoder"),
+            });
+        self.dispatch_main_pass(&mut encoder, params);
+        self.retained
+            .encode_blend_pass(&mut encoder, &self.queue, opacity, blend_mode, contrast);
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// Read the retained accumulation into `out` using a single map/readback.
+    pub(crate) fn collect_retained_image(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
+        let receiver = self.retained.begin_readback(&self.device, &self.queue);
+        self.wait_for_map(receiver)?;
+        self.retained.finish_readback(out)
     }
 
     /// Submit one GPU layer render and stage it for asynchronous readback.
@@ -159,18 +201,7 @@ impl GpuLayerRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("command encoder"),
             });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("compute pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            let work_x = params.width.div_ceil(16);
-            let work_y = params.height.div_ceil(16);
-            pass.dispatch_workgroups(work_x, work_y, 1);
-        }
-
+        self.dispatch_main_pass(&mut encoder, params);
         encoder.copy_buffer_to_buffer(
             &self.out_buffer,
             0,
@@ -191,38 +222,14 @@ impl GpuLayerRenderer {
 
     /// Complete a previously submitted GPU layer render and decode into `out`.
     pub(crate) fn collect_layer(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
-        let expected_pixels = self
-            .width
-            .checked_mul(self.height)
-            .ok_or("invalid renderer dimensions")? as usize;
-        if out.len() != expected_pixels {
+        if out.len() != self.expected_pixels()? {
             return Err("output buffer length does not match render dimensions".into());
         }
-
         let receiver = self
             .pending_readback
             .take()
             .ok_or("no gpu readback pending for collect")?;
-
-        let deadline = Instant::now() + MAP_TIMEOUT;
-        loop {
-            self.device.poll(wgpu::Maintain::Poll);
-            match receiver.try_recv() {
-                Ok(Ok(())) => break,
-                Ok(Err(err)) => {
-                    return Err(format!("buffer map failed: {err:?}").into());
-                }
-                Err(TryRecvError::Empty) => {
-                    if Instant::now() >= deadline {
-                        return Err("timeout waiting for GPU buffer mapping".into());
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Err(TryRecvError::Disconnected) => {
-                    return Err("gpu map callback disconnected before completion".into());
-                }
-            }
-        }
+        self.wait_for_map(receiver)?;
 
         let slice = self.staging_buffer.slice(..);
         {
@@ -241,6 +248,46 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         self.submit_layer(params)?;
         self.collect_layer(out)
+    }
+
+    fn dispatch_main_pass(&self, encoder: &mut wgpu::CommandEncoder, params: &Params) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("compute pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.dispatch_workgroups(params.width.div_ceil(16), params.height.div_ceil(16), 1);
+    }
+
+    fn wait_for_map(
+        &self,
+        receiver: Receiver<Result<(), wgpu::BufferAsyncError>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let deadline = Instant::now() + MAP_TIMEOUT;
+        loop {
+            self.device.poll(wgpu::Maintain::Poll);
+            match receiver.try_recv() {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(err)) => return Err(format!("buffer map failed: {err:?}").into()),
+                Err(TryRecvError::Empty) => {
+                    if Instant::now() >= deadline {
+                        return Err("timeout waiting for GPU buffer mapping".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TryRecvError::Disconnected) => {
+                    return Err("gpu map callback disconnected before completion".into());
+                }
+            }
+        }
+    }
+
+    fn expected_pixels(&self) -> Result<usize, Box<dyn Error>> {
+        self.width
+            .checked_mul(self.height)
+            .map(|pixels| pixels as usize)
+            .ok_or("invalid renderer dimensions".into())
     }
 
     fn validate_params(&self, params: &Params) -> Result<(), Box<dyn Error>> {

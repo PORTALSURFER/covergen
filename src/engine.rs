@@ -66,6 +66,13 @@ fn perf_timing_enabled_from_env() -> bool {
         .unwrap_or(false)
 }
 
+/// Returns true when retained GPU post-processing is enabled.
+fn retained_gpu_enabled_from_env() -> bool {
+    std::env::var("COVERGEN_GPU_RETAINED")
+        .map(|value| parse_perf_timing_flag(&value))
+        .unwrap_or(false)
+}
+
 /// Build the GPU layer renderer on first use so CPU-only runs skip startup cost.
 async fn ensure_gpu_renderer(
     adapter: &wgpu::Adapter,
@@ -211,8 +218,20 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let user_set_layer_count = config.layers.is_some();
     let (spinner_running, _spinner_handle) = start_spinner(spinner_state.clone());
     let perf_timing_enabled = perf_timing_enabled_from_env();
+    let retained_gpu_requested = retained_gpu_enabled_from_env();
+    let retained_gpu_enabled = retained_gpu_requested && can_use_gpu;
+    if retained_gpu_requested && !can_use_gpu {
+        log_progress_message(
+            "[perf] COVERGEN_GPU_RETAINED requested but no hardware GPU adapter is available",
+        );
+    }
     if perf_timing_enabled {
         log_progress_message("[perf] timing logs enabled (set COVERGEN_PERF_TIMING=0 to disable)");
+    }
+    if retained_gpu_enabled {
+        log_progress_message(
+            "[perf] retained GPU postprocess enabled (single image-end readback path active)",
+        );
     }
 
     for i in 0..config.count {
@@ -283,6 +302,9 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             fast,
             can_use_gpu,
         );
+        if retained_gpu_enabled && matches!(base_strategy, RenderStrategy::Cpu(_)) {
+            base_strategy = RenderStrategy::Gpu(base_art_style.as_u32());
+        }
         let base_strategy_name = base_strategy.label();
         let base_profile = strategy_profile(base_strategy);
         let mut structural_profile =
@@ -299,6 +321,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         let background_strength = 0.2 + (image_rng.next_f32() * 0.14);
         let mut pre_filter_stats = LumaStats::default();
         workspace.reset_layered();
+        let mut used_retained_gpu_path = false;
         let image_setup_ms = image_setup_start.elapsed().as_secs_f64() * 1000.0;
 
         for layer_index in 0..layer_count {
@@ -321,7 +344,7 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     can_use_gpu,
                 );
             }
-            let layer_strategy = if layer_index == 0 {
+            let mut layer_strategy = if layer_index == 0 {
                 base_strategy
             } else {
                 active_strategy
@@ -397,6 +420,71 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     layer_force_detail,
                 ),
             };
+
+            if retained_gpu_enabled {
+                if layer_index == 0 {
+                    ensure_gpu_renderer(&adapter, &mut gpu, render_width, render_height).await?;
+                    let renderer = gpu
+                        .as_mut()
+                        .ok_or("gpu renderer unavailable for retained image start")?;
+                    renderer.begin_retained_image()?;
+                }
+
+                if let RenderStrategy::Cpu(_) = layer_strategy {
+                    layer_strategy = RenderStrategy::Gpu(params.art_style);
+                }
+                used_retained_gpu_path = true;
+                let overlay = if layer_index == 0 {
+                    crate::model::LayerBlendMode::Normal
+                } else {
+                    pick_layer_blend(&mut image_rng)
+                };
+                let opacity = if layer_index == 0 {
+                    1.0
+                } else {
+                    layer_opacity(&mut image_rng)
+                };
+                let layer_contrast = pick_layer_contrast(&mut image_rng, fast);
+                let layer_cost = render_strategy_cost(layer_strategy);
+                let retained_start = Instant::now();
+                let renderer = gpu
+                    .as_mut()
+                    .ok_or("gpu renderer unavailable for retained layer submission")?;
+                renderer.submit_retained_layer(
+                    &params,
+                    opacity,
+                    overlay.as_u32(),
+                    layer_contrast.max(1.0),
+                )?;
+                let retained_elapsed = retained_start.elapsed();
+                record_strategy_runtime(layer_strategy, retained_elapsed);
+                let layer_ms = retained_elapsed.as_secs_f64() * 1000.0;
+                strategy_budget = strategy_budget.saturating_sub(layer_cost);
+                layers_total_ms += layer_ms;
+
+                layer_steps.push(format!(
+                    "L{}:{}({:.2}, gpu-retained, c{:.2}) S{}+{}:{:.2}",
+                    layer_index + 1,
+                    overlay.label(),
+                    opacity,
+                    layer_contrast,
+                    ArtStyle::from_u32(params.art_style).label(),
+                    ArtStyle::from_u32(params.art_style_secondary).label(),
+                    params.art_style_mix,
+                ));
+                if perf_timing_enabled {
+                    log_progress_message(&format!(
+                        "[perf] image {}/{} layer {}/{} | retained-submit {:.2}ms | total {:.2}ms",
+                        i + 1,
+                        config.count,
+                        layer_index + 1,
+                        layer_count,
+                        layer_ms,
+                        layer_start.elapsed().as_secs_f64() * 1000.0
+                    ));
+                }
+                continue;
+            }
 
             let layer_cost = render_strategy_cost(layer_strategy);
             let layer_complexity_budget = params.iterations.min(strategy_budget.max(96));
@@ -744,6 +832,24 @@ pub(crate) async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     layer_mix_ms,
                     layer_post_ms,
                     layer_total_ms
+                ));
+            }
+        }
+
+        if used_retained_gpu_path {
+            let retained_collect_start = Instant::now();
+            let renderer = gpu
+                .as_mut()
+                .ok_or("gpu renderer unavailable for retained image collection")?;
+            renderer.collect_retained_image(&mut workspace.layered)?;
+            pre_filter_stats =
+                collect_luma_metrics(&workspace.layered, render_width, render_height).stats;
+            if perf_timing_enabled {
+                log_progress_message(&format!(
+                    "[perf] image {}/{} retained readback | {:.2}ms",
+                    i + 1,
+                    config.count,
+                    retained_collect_start.elapsed().as_secs_f64() * 1000.0
                 ));
             }
         }
