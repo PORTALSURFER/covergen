@@ -19,9 +19,9 @@ use super::preset_catalog::PresetContext;
 use super::primitives::{generate_layer_node, render_size};
 
 use ops::{
-    add_blend_node, add_tone_node, add_warp_node, allows_mask_source, allows_modulation,
-    blend_in_core_anchor, choose_index, random_mask_node, random_source_noise, take_merge_pair,
-    wire_outputs,
+    add_blend_node, add_feedback_node, add_tone_node, add_warp_node, allows_mask_source,
+    allows_modulation, blend_in_core_anchor, choose_index, random_mask_node, random_source_noise,
+    take_merge_pair, wire_outputs,
 };
 
 const GRAPH_SALT: u32 = 0x4A95_11E3;
@@ -208,7 +208,10 @@ fn apply_modulation_passes(
         };
 
         let source = state.luma_pool[source_index];
-        let value = if rng.next_f32() < 0.5 {
+        let roll = rng.next_f32();
+        let value = if roll < 0.36 {
+            add_feedback_node(builder, ctx, rng, source)?
+        } else if roll < 0.68 {
             add_warp_node(builder, ctx, rng, source)?
         } else {
             add_tone_node(builder, ctx, rng, source)?

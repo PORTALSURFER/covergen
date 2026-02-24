@@ -3,6 +3,7 @@ use crate::graph::GraphBuilder;
 use crate::model::LayerBlendMode;
 use crate::node::{
     BlendNode, BlendTemporal, GenerateLayerNode, GenerateLayerTemporal, MaskNode, MaskTemporal,
+    StatefulFeedbackNode,
 };
 
 fn sample_layer() -> GenerateLayerNode {
@@ -230,4 +231,29 @@ fn compiles_multiple_outputs_with_primary_and_tap() {
         .expect("tap binding should exist");
     assert_eq!(tap_binding.source_node, a);
     assert_eq!(tap_binding.slot, 1);
+}
+
+#[test]
+fn compiles_stateful_feedback_with_persistent_slots() {
+    let mut builder = GraphBuilder::new(256, 256, 23);
+    let source = builder.add_generate_layer(sample_layer());
+    let feedback = builder.add_stateful_feedback(StatefulFeedbackNode { mix: 0.55 });
+    let out = builder.add_output();
+    builder.connect_luma(source, feedback);
+    builder.connect_luma(feedback, out);
+
+    let graph = builder.build().expect("graph should build");
+    let compiled = compile_graph(&graph).expect("graph should compile");
+
+    let feedback_step = compiled
+        .steps
+        .iter()
+        .find(|step| step.node_id == feedback)
+        .expect("feedback node should have a compiled step");
+    assert!(matches!(
+        feedback_step.op,
+        CompiledOp::StatefulFeedback(StatefulFeedbackNode { .. })
+    ));
+    assert_eq!(compiled.feedback_slots.get(&feedback).copied(), Some(0));
+    assert!(compiled.resource_plan.gpu_lifetime_for(feedback).is_some());
 }

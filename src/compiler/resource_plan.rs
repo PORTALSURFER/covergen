@@ -136,6 +136,7 @@ fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         | CompiledOp::Blend(_)
         | CompiledOp::ToneMap(_)
         | CompiledOp::WarpTransform(_)
+        | CompiledOp::StatefulFeedback(_)
         | CompiledOp::TopCameraRender(_) => Some(CompiledValueKind::Luma),
         CompiledOp::SourceNoise(spec) => match spec.output_port {
             PortType::LumaTexture => Some(CompiledValueKind::Luma),
@@ -164,6 +165,7 @@ fn gpu_output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         CompiledOp::Blend(_)
         | CompiledOp::ToneMap(_)
         | CompiledOp::WarpTransform(_)
+        | CompiledOp::StatefulFeedback(_)
         | CompiledOp::TopCameraRender(_) => Some(CompiledValueKind::Luma),
         CompiledOp::ChopLfo(_)
         | CompiledOp::ChopMath(_)

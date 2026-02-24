@@ -1,6 +1,9 @@
 //! Low-level node construction and grammar-rule helpers.
 
-use crate::graph::{GraphBuildError, GraphBuilder, MaskNode, NodeId, OutputNode, SourceNoiseNode};
+use crate::graph::{
+    GraphBuildError, GraphBuilder, MaskNode, NodeId, OutputNode, SourceNoiseNode,
+    StatefulFeedbackNode,
+};
 use crate::model::{LayerBlendMode, XorShift32};
 use crate::node::{MaskTemporal, PortType, SourceNoiseTemporal};
 
@@ -76,6 +79,28 @@ pub(super) fn add_tone_node(
     Ok(LumaValue {
         id: node,
         class: NodeClass::ModulateTone,
+        mod_depth: source.mod_depth.saturating_add(1),
+        has_core_ancestry: source.has_core_ancestry,
+    })
+}
+
+pub(super) fn add_feedback_node(
+    builder: &mut GraphBuilder,
+    ctx: PresetContext<'_>,
+    rng: &mut XorShift32,
+    source: LumaValue,
+) -> Result<LumaValue, GraphBuildError> {
+    let mix = (0.18 + rng.next_f32() * 0.52).clamp(0.0, 0.95);
+    let node = ctx.nodes.create(
+        builder,
+        "feedback",
+        NodePayload::StatefulFeedback(StatefulFeedbackNode { mix }),
+    )?;
+    builder.connect_luma(source.id, node);
+
+    Ok(LumaValue {
+        id: node,
+        class: NodeClass::Composite,
         mod_depth: source.mod_depth.saturating_add(1),
         has_core_ancestry: source.has_core_ancestry,
     })

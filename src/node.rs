@@ -251,6 +251,16 @@ impl WarpTransformNode {
     }
 }
 
+/// Stateful feedback node that mixes prior-frame memory into current input.
+///
+/// The runtime stores one persistent GPU buffer per feedback node and updates it
+/// after each frame so subsequent frames can evolve from prior state.
+#[derive(Clone, Copy, Debug)]
+pub struct StatefulFeedbackNode {
+    /// Feedback amount in `[0, 1]`, where `0` keeps current input and `1` uses prior state.
+    pub mix: f32,
+}
+
 /// Role of an output node in a graph with one or more outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutputRole {
@@ -296,6 +306,7 @@ pub enum NodeKind {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
+    StatefulFeedback(StatefulFeedbackNode),
     ChopLfo(ChopLfoNode),
     ChopMath(ChopMathNode),
     ChopRemap(ChopRemapNode),
@@ -315,6 +326,7 @@ impl NodeKind {
             | Self::Blend(_)
             | Self::ToneMap(_)
             | Self::WarpTransform(_)
+            | Self::StatefulFeedback(_)
             | Self::TopCameraRender(_) => OperatorFamily::Top,
             Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => OperatorFamily::Chop,
             Self::SopCircle(_) | Self::SopSphere(_) => OperatorFamily::Sop,
@@ -343,6 +355,7 @@ impl NodeKind {
                 1 => Some(PortType::ChannelScalar),
                 _ => None,
             },
+            Self::StatefulFeedback(_) => (slot == 0).then_some(PortType::LumaTexture),
             Self::ChopLfo(_) => None,
             Self::ChopMath(_) => (slot <= 1).then_some(PortType::ChannelScalar),
             Self::ChopRemap(_) => (slot == 0).then_some(PortType::ChannelScalar),
@@ -365,6 +378,7 @@ impl NodeKind {
             Self::Blend(_) => Some(PortType::LumaTexture),
             Self::ToneMap(_) => Some(PortType::LumaTexture),
             Self::WarpTransform(_) => Some(PortType::LumaTexture),
+            Self::StatefulFeedback(_) => Some(PortType::LumaTexture),
             Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => {
                 Some(PortType::ChannelScalar)
             }
@@ -383,6 +397,7 @@ impl NodeKind {
             Self::Blend(_) => (2, 3),
             Self::ToneMap(_) => (1, 2),
             Self::WarpTransform(_) => (1, 2),
+            Self::StatefulFeedback(_) => (1, 1),
             Self::ChopLfo(_) => (0, 0),
             Self::ChopMath(_) => (1, 2),
             Self::ChopRemap(_) => (1, 1),

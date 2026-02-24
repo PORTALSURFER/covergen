@@ -9,7 +9,7 @@ use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 
 pub use super::node::{
     BlendNode, GenerateLayerNode, MaskNode, NodeKind, OperatorFamily, OutputNode, OutputRole,
-    PortType, SourceNoiseNode, ToneMapNode, WarpTransformNode,
+    PortType, SourceNoiseNode, StatefulFeedbackNode, ToneMapNode, WarpTransformNode,
 };
 
 /// Stable node identifier used across builder, compiler, and runtime.
@@ -117,6 +117,11 @@ impl GraphBuilder {
     /// Add a warp/transform node.
     pub fn add_warp_transform(&mut self, spec: WarpTransformNode) -> NodeId {
         self.add_node(NodeKind::WarpTransform(spec))
+    }
+
+    /// Add a stateful feedback node with persistent frame memory.
+    pub fn add_stateful_feedback(&mut self, spec: StatefulFeedbackNode) -> NodeId {
+        self.add_node(NodeKind::StatefulFeedback(spec))
     }
 
     pub fn add_chop_lfo(&mut self, spec: ChopLfoNode) -> NodeId {

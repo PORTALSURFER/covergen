@@ -138,3 +138,28 @@ fn validates_chop_sop_to_top_camera_graph() {
     builder.connect_luma(camera, out);
     builder.build().expect("graph should validate");
 }
+
+#[test]
+fn validates_stateful_feedback_node_contract() {
+    let mut builder = GraphBuilder::new(256, 256, 41);
+    let source = builder.add_generate_layer(sample_layer());
+    let feedback = builder.add_stateful_feedback(StatefulFeedbackNode { mix: 0.6 });
+    let out = builder.add_output();
+    builder.connect_luma(source, feedback);
+    builder.connect_luma(feedback, out);
+    builder
+        .build()
+        .expect("stateful feedback graph should validate");
+}
+
+#[test]
+fn rejects_stateful_feedback_without_input() {
+    let mut builder = GraphBuilder::new(256, 256, 42);
+    let feedback = builder.add_stateful_feedback(StatefulFeedbackNode { mix: 0.4 });
+    let out = builder.add_output();
+    builder.connect_luma(feedback, out);
+    let err = builder
+        .build()
+        .expect_err("stateful feedback node requires one luma input");
+    assert!(err.to_string().contains("requires 1..=1 inputs"));
+}

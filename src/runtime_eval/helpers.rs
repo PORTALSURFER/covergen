@@ -23,6 +23,7 @@ pub(super) fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::Blend(_) => "v2.node.blend",
         CompiledOp::ToneMap(_) => "v2.node.tonemap",
         CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
+        CompiledOp::StatefulFeedback(_) => "v2.node.stateful_feedback",
         CompiledOp::ChopLfo(_) => "v2.node.chop_lfo",
         CompiledOp::ChopMath(_) => "v2.node.chop_math",
         CompiledOp::ChopRemap(_) => "v2.node.chop_remap",

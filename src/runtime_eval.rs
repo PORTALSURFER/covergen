@@ -92,6 +92,8 @@ fn evaluate_mixed_graph(
 ) -> Result<(), Box<dyn Error>> {
     let pixels = pixel_count(compiled.width, compiled.height)?;
     let mut values: HashMap<NodeId, RuntimeValue> = HashMap::with_capacity(compiled.steps.len());
+    // Test-only fallback feedback memory. Production persistent feedback uses GPU buffers.
+    let mut feedback_state: HashMap<NodeId, Vec<f32>> = HashMap::new();
     let mut arena = AliasedResourceArena::new(&compiled.resource_plan, pixels);
     let mut output_written = false;
 
@@ -195,6 +197,21 @@ fn evaluate_mixed_graph(
                     effective.strength = (effective.strength * value).clamp(0.0, 2.4);
                 }
                 warp_luma(input, compiled.width, compiled.height, effective, &mut out);
+                values.insert(step.node_id, RuntimeValue::Luma(out));
+            }
+            CompiledOp::StatefulFeedback(spec) => {
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
+                let input = require_luma_input(&values, step, 0)?;
+                let state = feedback_state
+                    .entry(step.node_id)
+                    .or_insert_with(|| vec![0.0f32; pixels]);
+                let mix = spec.mix.clamp(0.0, 1.0);
+                for ((dst, current), previous) in out.iter_mut().zip(input.iter()).zip(state.iter())
+                {
+                    *dst = ((1.0 - mix) * *current + mix * *previous).clamp(0.0, 1.0);
+                }
+                state.copy_from_slice(&out);
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
             CompiledOp::ChopLfo(spec) => {

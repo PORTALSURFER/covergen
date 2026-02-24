@@ -40,6 +40,7 @@ pub(crate) async fn execute_still_with_selection(
         low_res_compiled.resource_plan.gpu_peak_luma_slots,
         low_res_compiled.resource_plan.gpu_peak_mask_slots,
     )?;
+    low_res_renderer.ensure_node_feedback_buffers(low_res_compiled.feedback_slots.len())?;
     let mut low_res_buffers = create_runtime_buffers(
         low_res_compiled.width,
         low_res_compiled.height,
@@ -64,6 +65,7 @@ pub(crate) async fn execute_still_with_selection(
 
     let explore_start = Instant::now();
     for candidate_index in 0..candidate_count {
+        low_res_renderer.reset_feedback_state()?;
         let seed_offset = base_seed.wrapping_add(candidate_index.wrapping_mul(0x9E37_79B9));
         render_graph_frame(low_res_compiled, &mut low_res_renderer, seed_offset, None)?;
         finalize_luma_for_output(low_res_config, &mut low_res_renderer, &mut low_res_buffers)?;
@@ -102,6 +104,7 @@ pub(crate) async fn execute_still_with_selection(
         let output_index = output_index as u32;
         let image_start = Instant::now();
         telemetry::snapshot_memory(format!("v2.image.{output_index}.start"));
+        renderer.reset_feedback_state()?;
 
         let render_start = Instant::now();
         render_graph_frame(compiled, renderer, winner.seed_offset, None)?;

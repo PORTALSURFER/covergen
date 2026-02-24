@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
 use super::node::{
     BlendNode, GenerateLayerNode, MaskNode, NodeKind, OutputNode, OutputRole, SourceNoiseNode,
-    ToneMapNode, WarpTransformNode,
+    StatefulFeedbackNode, ToneMapNode, WarpTransformNode,
 };
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
@@ -26,6 +26,7 @@ pub enum CompiledOp {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
+    StatefulFeedback(StatefulFeedbackNode),
     ChopLfo(ChopLfoNode),
     ChopMath(ChopMathNode),
     ChopRemap(ChopRemapNode),
@@ -107,6 +108,8 @@ pub struct CompiledGraph {
     pub steps: Vec<CompiledNodeStep>,
     pub primary_output_node: NodeId,
     pub output_bindings: Vec<CompiledOutputBinding>,
+    /// Persistent GPU feedback slot index for each stateful feedback node.
+    pub feedback_slots: HashMap<NodeId, usize>,
     #[cfg(test)]
     pub has_non_layer_nodes: bool,
     #[cfg(test)]
@@ -185,6 +188,13 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
                 }
                 CompiledOp::WarpTransform(spec)
             }
+            NodeKind::StatefulFeedback(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::StatefulFeedback(spec)
+            }
             NodeKind::ChopLfo(spec) => {
                 #[cfg(test)]
                 {
@@ -244,6 +254,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
     }
 
     let output_bindings = collect_output_bindings(&steps)?;
+    let feedback_slots = collect_feedback_slots(&steps);
     let primary_output = output_bindings
         .iter()
         .copied()
@@ -262,12 +273,24 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         steps,
         primary_output_node,
         output_bindings,
+        feedback_slots,
         #[cfg(test)]
         has_non_layer_nodes,
         #[cfg(test)]
         can_use_retained_layer_path,
         resource_plan,
     })
+}
+
+fn collect_feedback_slots(steps: &[CompiledNodeStep]) -> HashMap<NodeId, usize> {
+    let mut slots = HashMap::new();
+    for step in steps {
+        if matches!(step.op, CompiledOp::StatefulFeedback(_)) {
+            let next_slot = slots.len();
+            slots.insert(step.node_id, next_slot);
+        }
+    }
+    slots
 }
 
 fn topological_order(

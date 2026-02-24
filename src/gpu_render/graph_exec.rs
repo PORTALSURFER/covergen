@@ -45,6 +45,52 @@ impl GpuLayerRenderer {
         Ok(())
     }
 
+    /// Ensure persistent feedback buffers are allocated for stateful feedback nodes.
+    pub(crate) fn ensure_node_feedback_buffers(
+        &mut self,
+        feedback_slots: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.node_feedback_buffers.len() != feedback_slots {
+            self.node_feedback_buffers = (0..feedback_slots)
+                .map(|slot| {
+                    self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some(&format!("v2 node feedback {slot}")),
+                        size: self.output_size,
+                        usage: wgpu::BufferUsages::STORAGE
+                            | wgpu::BufferUsages::COPY_SRC
+                            | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    })
+                })
+                .collect();
+            self.reset_feedback_state()?;
+        }
+        Ok(())
+    }
+
+    /// Clear persistent stateful-feedback buffers before a new still/clip begins.
+    pub(crate) fn reset_feedback_state(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.node_feedback_buffers.is_empty() {
+            return Ok(());
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("v2 graph feedback reset encoder"),
+            });
+        for buffer in &self.node_feedback_buffers {
+            encoder.copy_buffer_to_buffer(
+                &self.node_feedback_clear_buffer,
+                0,
+                buffer,
+                0,
+                self.output_size,
+            );
+        }
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
     /// Dispatch one fractal layer and write normalized luma into an alias output slot.
     pub(crate) fn render_generate_layer_to_alias(
         &mut self,
@@ -298,6 +344,53 @@ impl GpuLayerRenderer {
         Ok(())
     }
 
+    /// Blend current input with persistent feedback state and update feedback memory.
+    pub(crate) fn render_stateful_feedback_to_alias(
+        &mut self,
+        input_slot: usize,
+        output_slot: usize,
+        feedback_slot: usize,
+        mix: f32,
+    ) -> Result<(), Box<dyn Error>> {
+        let input = self.alias_luma(input_slot)?;
+        let output = self.alias_luma(output_slot)?;
+        let feedback = self.alias_feedback(feedback_slot)?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("v2 graph stateful feedback encoder"),
+            });
+        let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
+        uniforms.p0 = mix.clamp(0.0, 1.0);
+        self.graph_ops.encode_feedback_mix(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            GraphBuffers {
+                src0: input,
+                src1: feedback,
+                src2: feedback,
+                dst: output,
+            },
+            uniforms,
+        );
+        self.graph_ops.encode_copy(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            GraphBuffers {
+                src0: output,
+                src1: output,
+                src2: output,
+                dst: feedback,
+            },
+            self.width,
+            self.height,
+        );
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
     /// Stage one luma alias slot as retained finalization input.
     pub(crate) fn stage_luma_alias_for_retained(
         &mut self,
@@ -368,5 +461,11 @@ impl GpuLayerRenderer {
         self.node_alias_mask_buffers
             .get(slot)
             .ok_or_else(|| format!("mask alias slot {slot} is out of range").into())
+    }
+
+    fn alias_feedback(&self, slot: usize) -> Result<&wgpu::Buffer, Box<dyn Error>> {
+        self.node_feedback_buffers
+            .get(slot)
+            .ok_or_else(|| format!("feedback slot {slot} is out of range").into())
     }
 }

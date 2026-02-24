@@ -70,6 +70,7 @@ pub(super) struct GpuGraphOps {
     source_noise_pipeline: wgpu::ComputePipeline,
     mask_pipeline: wgpu::ComputePipeline,
     blend_pipeline: wgpu::ComputePipeline,
+    feedback_pipeline: wgpu::ComputePipeline,
     tone_map_pipeline: wgpu::ComputePipeline,
     warp_pipeline: wgpu::ComputePipeline,
 }
@@ -121,6 +122,12 @@ impl GpuGraphOps {
             ),
             mask_pipeline: create_pipeline(device, &graph_layout, &shader_module, "build_mask"),
             blend_pipeline: create_pipeline(device, &graph_layout, &shader_module, "blend_luma"),
+            feedback_pipeline: create_pipeline(
+                device,
+                &graph_layout,
+                &shader_module,
+                "feedback_mix",
+            ),
             tone_map_pipeline: create_pipeline(device, &graph_layout, &shader_module, "tone_map"),
             warp_pipeline: create_pipeline(device, &graph_layout, &shader_module, "warp_luma"),
         })
@@ -227,6 +234,24 @@ impl GpuGraphOps {
             queue,
             encoder,
             &self.tone_map_pipeline,
+            buffers,
+            uniforms,
+        );
+    }
+
+    pub(super) fn encode_feedback_mix(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        buffers: GraphBuffers<'_>,
+        uniforms: GraphOpUniforms,
+    ) {
+        self.encode_graph_pass(
+            device,
+            queue,
+            encoder,
+            &self.feedback_pipeline,
             buffers,
             uniforms,
         );

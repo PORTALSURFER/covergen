@@ -78,3 +78,33 @@ fn grammar_builder_emits_mixed_node_classes() {
     assert!(has_mask, "grammar graph should include mask nodes");
     assert!(has_blend, "grammar graph should include blend nodes");
 }
+
+#[test]
+fn grammar_builder_can_emit_stateful_feedback_nodes() {
+    let nodes = NodeCatalog::with_builtins().expect("node catalog");
+    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
+
+    let mut found_feedback = false;
+    for seed in 1..=24 {
+        let config = grammar_config(seed);
+        let context = PresetContext {
+            config: &config,
+            nodes: &nodes,
+            modules: &modules,
+        };
+        let graph = build_constrained_random_grammar(context).expect("graph");
+        if graph
+            .nodes
+            .iter()
+            .any(|node| matches!(node.kind, NodeKind::StatefulFeedback(_)))
+        {
+            found_feedback = true;
+            break;
+        }
+    }
+
+    assert!(
+        found_feedback,
+        "expected at least one seed to emit stateful feedback node"
+    );
+}

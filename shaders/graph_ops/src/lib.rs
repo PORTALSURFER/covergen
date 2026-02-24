@@ -280,6 +280,27 @@ pub fn blend_luma(
     dst_f32[i] = clamp01(((1.0 - alpha) * base) + (alpha * mixed));
 }
 
+/// Blend current-frame input with persistent prior-frame feedback state.
+#[spirv(compute(threads(16, 16, 1)))]
+pub fn feedback_mix(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] src0_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] src1_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] _src2_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] dst_f32: &mut [f32],
+    #[spirv(uniform, descriptor_set = 0, binding = 4)] cfg: &GraphOpUniforms,
+) {
+    if id.x >= cfg.width || id.y >= cfg.height {
+        return;
+    }
+
+    let i = idx(cfg, id.x, id.y);
+    let current = src0_f32[i];
+    let prior = src1_f32[i];
+    let mix = cfg.p0.clamp(0.0, 1.0);
+    dst_f32[i] = clamp01(((1.0 - mix) * current) + (mix * prior));
+}
+
 /// Apply contrast and percentile stretch.
 #[spirv(compute(threads(16, 16, 1)))]
 pub fn tone_map(

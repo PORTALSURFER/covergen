@@ -129,6 +129,17 @@ pub(crate) fn render_graph_luma_gpu(
                     effective.phase,
                 )?;
             }
+            CompiledOp::StatefulFeedback(spec) => {
+                let input = luma_input_slot(compiled, step, 0)?;
+                let output = output_luma_slot(compiled, step.node_id)?;
+                let feedback_slot = stateful_feedback_slot(compiled, step.node_id)?;
+                renderer.render_stateful_feedback_to_alias(
+                    input,
+                    output,
+                    feedback_slot,
+                    spec.mix,
+                )?;
+            }
             CompiledOp::ChopLfo(spec) => {
                 scalar_values.insert(step.node_id, eval_chop_lfo(spec, modulation));
             }
@@ -229,6 +240,17 @@ fn optional_luma_input_slot(
     Ok(Some(luma_input_slot(compiled, step, slot)?))
 }
 
+fn stateful_feedback_slot(
+    compiled: &CompiledGraph,
+    node_id: NodeId,
+) -> Result<usize, Box<dyn Error>> {
+    compiled
+        .feedback_slots
+        .get(&node_id)
+        .copied()
+        .ok_or_else(|| format!("missing feedback slot mapping for node {:?}", node_id).into())
+}
+
 fn require_scalar_input(
     step: &CompiledNodeStep,
     slot: usize,
@@ -279,6 +301,7 @@ fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::Blend(_) => "v2.node.blend",
         CompiledOp::ToneMap(_) => "v2.node.tonemap",
         CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
+        CompiledOp::StatefulFeedback(_) => "v2.node.stateful_feedback",
         CompiledOp::ChopLfo(_) => "v2.node.chop_lfo",
         CompiledOp::ChopMath(_) => "v2.node.chop_math",
         CompiledOp::ChopRemap(_) => "v2.node.chop_remap",

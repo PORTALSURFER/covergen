@@ -35,6 +35,8 @@ pub(crate) struct GpuLayerRenderer {
     node_layer_temp_buffer: wgpu::Buffer,
     node_alias_luma_buffers: Vec<wgpu::Buffer>,
     node_alias_mask_buffers: Vec<wgpu::Buffer>,
+    node_feedback_buffers: Vec<wgpu::Buffer>,
+    node_feedback_clear_buffer: wgpu::Buffer,
 }
 
 impl GpuLayerRenderer {
@@ -157,6 +159,12 @@ impl GpuLayerRenderer {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let node_feedback_clear_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("v2 node feedback clear"),
+            size: output_size,
+            usage: wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
 
         Ok(Self {
             device,
@@ -175,6 +183,8 @@ impl GpuLayerRenderer {
             node_layer_temp_buffer,
             node_alias_luma_buffers: Vec::new(),
             node_alias_mask_buffers: Vec::new(),
+            node_feedback_buffers: Vec::new(),
+            node_feedback_clear_buffer,
         })
     }
 

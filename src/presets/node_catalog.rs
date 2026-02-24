@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::graph::{
     BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OperatorFamily,
-    OutputNode, SourceNoiseNode, ToneMapNode, WarpTransformNode,
+    OutputNode, SourceNoiseNode, StatefulFeedbackNode, ToneMapNode, WarpTransformNode,
 };
 use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 
@@ -18,6 +18,7 @@ pub enum NodePayload {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
+    StatefulFeedback(StatefulFeedbackNode),
     ChopLfo(ChopLfoNode),
     ChopMath(ChopMathNode),
     ChopRemap(ChopRemapNode),
@@ -155,6 +156,12 @@ fn register_builtin_templates(catalog: &mut NodeCatalog) -> Result<(), GraphBuil
         constructor: create_warp,
     })?;
     catalog.register(NodeTemplate {
+        key: "stateful-feedback",
+        aliases: &["feedback"],
+        family: OperatorFamily::Top,
+        constructor: create_stateful_feedback,
+    })?;
+    catalog.register(NodeTemplate {
         key: "output",
         aliases: &["out"],
         family: OperatorFamily::Output,
@@ -286,6 +293,18 @@ fn create_output(
     }
 }
 
+fn create_stateful_feedback(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::StatefulFeedback(spec) => Ok(builder.add_stateful_feedback(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'stateful-feedback' requires StatefulFeedback payload",
+        )),
+    }
+}
+
 fn create_chop_lfo(
     builder: &mut GraphBuilder,
     payload: NodePayload,
@@ -392,7 +411,7 @@ mod tests {
         let chop = catalog.keys_for_family(OperatorFamily::Chop);
         let sop = catalog.keys_for_family(OperatorFamily::Sop);
 
-        assert_eq!(top.len(), 7);
+        assert_eq!(top.len(), 8);
         assert_eq!(output, vec!["output"]);
         assert_eq!(chop.len(), 3);
         assert_eq!(sop.len(), 2);

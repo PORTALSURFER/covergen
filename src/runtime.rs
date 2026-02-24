@@ -52,6 +52,7 @@ pub async fn execute_compiled(
         compiled.resource_plan.gpu_peak_luma_slots,
         compiled.resource_plan.gpu_peak_mask_slots,
     )?;
+    renderer.ensure_node_feedback_buffers(compiled.feedback_slots.len())?;
     telemetry::record_timing("v2.gpu.alias_buffers.init", alias_start.elapsed());
 
     let mut buffers =
@@ -82,6 +83,7 @@ pub async fn execute_compiled(
             .seed
             .wrapping_add(compiled.seed)
             .wrapping_add(image_index.wrapping_mul(0x9E37_79B9));
+        renderer.reset_feedback_state()?;
 
         let render_start = Instant::now();
         render_graph_frame(compiled, &mut renderer, image_seed_offset, None)?;
@@ -176,6 +178,7 @@ fn execute_animation(
         let motion = config.animation.motion;
         let modulation_intensity = motion.modulation_intensity();
         let use_seed_jitter = motion.use_seed_jitter();
+        renderer.reset_feedback_state()?;
 
         for frame_index in 0..frames {
             let frame_start = Instant::now();
