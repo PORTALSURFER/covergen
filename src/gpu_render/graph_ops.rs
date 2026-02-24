@@ -5,7 +5,7 @@ use std::error::Error;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::shaders::{ShaderProgram, create_shader_module};
+use crate::shaders::{create_shader_module, ShaderProgram};
 
 mod layout;
 use layout::{create_decode_bind_group_layout, create_graph_bind_group_layout, create_pipeline};

@@ -400,11 +400,9 @@ throughput_p95_fps_min=40.0
         ];
         let violations =
             validate_thresholds(&path, "desktop_mid", &summaries).expect("validate thresholds");
-        assert!(
-            violations
-                .iter()
-                .any(|line| line.contains("missing scenario 'v2_still' in threshold file"))
-        );
+        assert!(violations
+            .iter()
+            .any(|line| line.contains("missing scenario 'v2_still' in threshold file")));
         let _ = std::fs::remove_file(&path);
     }
 }

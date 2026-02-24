@@ -97,7 +97,7 @@ fn parse_spirv_words(bytes: &[u8], path: &Path) -> Result<Vec<u32>, Box<dyn Erro
 
 #[cfg(test)]
 mod tests {
-    use super::{ShaderProgram, program_spirv_name};
+    use super::{program_spirv_name, ShaderProgram};
 
     #[test]
     fn spirv_program_names_match_expected_files() {

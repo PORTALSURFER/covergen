@@ -6,8 +6,8 @@ use std::io::Cursor;
 use std::path::Path;
 
 use image::{
-    ImageEncoder,
     codecs::png::{CompressionType, FilterType, PngEncoder},
+    ImageEncoder,
 };
 use rayon::prelude::*;
 

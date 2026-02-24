@@ -4,8 +4,8 @@ use std::error::Error;
 
 use crate::model::Params;
 
-use super::GpuLayerRenderer;
 use super::graph_ops::{DecodeBuffers, GraphBuffers, GraphOpUniforms};
+use super::GpuLayerRenderer;
 
 impl GpuLayerRenderer {
     /// Ensure aliased node-output buffers are allocated once for the active graph.

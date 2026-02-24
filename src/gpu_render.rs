@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use crate::gpu_retained::RetainedGpuPost;
 use crate::image_ops::decode_luma;
 use crate::model::Params;
-use crate::shaders::{ShaderProgram, create_shader_module};
+use crate::shaders::{create_shader_module, ShaderProgram};
 use bytemuck::Zeroable;
 use wgpu::{self, util::DeviceExt};
 

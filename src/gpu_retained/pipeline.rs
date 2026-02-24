@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver};
 use wgpu::util::DeviceExt;
 
 use super::{RetainedFinalizeParams, RetainedPostParams};
-use crate::shaders::{ShaderProgram, create_shader_module};
+use crate::shaders::{create_shader_module, ShaderProgram};
 
 /// All retained resources created together so `mod.rs` can stay focused on behavior.
 pub(super) struct RetainedSetup {
