@@ -22,6 +22,22 @@ pub struct SopSphereNode {
     pub ambient: f32,
 }
 
+/// SOP geometry-modulation node driven by optional noise/channel inputs.
+///
+/// This node deforms primitive parameters before camera rasterization, enabling
+/// graph shapes like `sphere -> noise -> geometry -> top-camera-render`.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct SopGeometryNode {
+    /// Radius deformation response to modulation input.
+    pub radius_response: f32,
+    /// Center translation response to modulation input.
+    pub center_response: f32,
+    /// Lighting-direction response to modulation input.
+    pub light_response: f32,
+    /// Bias applied to modulation before shaping, in `[-1, 1]`.
+    pub bias: f32,
+}
+
 /// TOP camera node that rasterizes SOP primitives to luma.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopCameraRenderNode {

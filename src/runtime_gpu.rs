@@ -5,7 +5,10 @@ use std::error::Error;
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
-use crate::proc_graph::{eval_chop_lfo, eval_chop_math, eval_chop_remap, SopPrimitive};
+use crate::proc_graph::{
+    apply_sop_geometry, eval_chop_lfo, eval_chop_math, eval_chop_remap, eval_source_noise_scalar,
+    SopPrimitive,
+};
 use crate::telemetry;
 
 use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp, CompiledValueKind};
@@ -48,20 +51,39 @@ pub(crate) fn render_graph_luma_gpu(
             }
             CompiledOp::SourceNoise(spec) => {
                 let effective = modulation.map_or(spec, |time| spec.with_time(time));
-                let output_mask = matches!(effective.output_port, PortType::MaskTexture);
-                let output = if output_mask {
-                    output_mask_slot(compiled, step.node_id)?
-                } else {
-                    output_luma_slot(compiled, step.node_id)?
-                };
-                renderer.render_source_noise_to_alias(
-                    output_mask,
-                    output,
-                    effective.seed.wrapping_add(seed_offset),
-                    effective.scale,
-                    effective.octaves,
-                    effective.amplitude,
-                )?;
+                let effective_seed = effective.seed.wrapping_add(seed_offset);
+                match effective.output_port {
+                    PortType::LumaTexture | PortType::MaskTexture => {
+                        let output_mask = matches!(effective.output_port, PortType::MaskTexture);
+                        let output = if output_mask {
+                            output_mask_slot(compiled, step.node_id)?
+                        } else {
+                            output_luma_slot(compiled, step.node_id)?
+                        };
+                        renderer.render_source_noise_to_alias(
+                            output_mask,
+                            output,
+                            effective_seed,
+                            effective.scale,
+                            effective.octaves,
+                            effective.amplitude,
+                        )?;
+                    }
+                    PortType::ChannelScalar => {
+                        scalar_values.insert(
+                            step.node_id,
+                            eval_source_noise_scalar(
+                                effective_seed,
+                                effective.scale,
+                                effective.octaves,
+                                effective.amplitude,
+                            ),
+                        );
+                    }
+                    PortType::SopPrimitive => {
+                        return Err("source-noise output port cannot be SOP".into());
+                    }
+                }
             }
             CompiledOp::Mask(spec) => {
                 let effective = modulation.map_or(spec, |time| spec.with_time(time));
@@ -154,6 +176,11 @@ pub(crate) fn render_graph_luma_gpu(
             }
             CompiledOp::SopSphere(spec) => {
                 sop_values.insert(step.node_id, SopPrimitive::Sphere(spec));
+            }
+            CompiledOp::SopGeometry(spec) => {
+                let input = require_sop_input(step, 0, &sop_values)?;
+                let modulation = optional_scalar_input(step, 1, &scalar_values)?;
+                sop_values.insert(step.node_id, apply_sop_geometry(input, spec, modulation));
             }
             CompiledOp::TopCameraRender(spec) => {
                 let primitive = require_sop_input(step, 0, &sop_values)?;
@@ -320,6 +347,7 @@ fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::ChopRemap(_) => "v2.node.chop_remap",
         CompiledOp::SopCircle(_) => "v2.node.sop_circle",
         CompiledOp::SopSphere(_) => "v2.node.sop_sphere",
+        CompiledOp::SopGeometry(_) => "v2.node.sop_geometry",
         CompiledOp::TopCameraRender(_) => "v2.node.top_camera_render",
         CompiledOp::Output(_) => "v2.node.output",
     }

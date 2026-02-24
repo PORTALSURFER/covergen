@@ -7,7 +7,7 @@ use crate::graph::{
     BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OperatorFamily,
     OutputNode, SourceNoiseNode, StatefulFeedbackNode, ToneMapNode, WarpTransformNode,
 };
-use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderNode};
 
 /// Payload used when instantiating a node template.
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +24,7 @@ pub enum NodePayload {
     ChopRemap(ChopRemapNode),
     SopCircle(SopCircleNode),
     SopSphere(SopSphereNode),
+    SopGeometry(SopGeometryNode),
     TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
@@ -198,6 +199,12 @@ fn register_builtin_templates(catalog: &mut NodeCatalog) -> Result<(), GraphBuil
         constructor: create_sop_sphere,
     })?;
     catalog.register(NodeTemplate {
+        key: "sop-geometry",
+        aliases: &["geo", "sop-geo"],
+        family: OperatorFamily::Sop,
+        constructor: create_sop_geometry,
+    })?;
+    catalog.register(NodeTemplate {
         key: "top-camera-render",
         aliases: &["camera-render"],
         family: OperatorFamily::Top,
@@ -365,6 +372,18 @@ fn create_sop_sphere(
     }
 }
 
+fn create_sop_geometry(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::SopGeometry(spec) => Ok(builder.add_sop_geometry(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'sop-geometry' requires SopGeometry payload",
+        )),
+    }
+}
+
 fn create_top_camera_render(
     builder: &mut GraphBuilder,
     payload: NodePayload,
@@ -414,6 +433,6 @@ mod tests {
         assert_eq!(top.len(), 8);
         assert_eq!(output, vec!["output"]);
         assert_eq!(chop.len(), 3);
-        assert_eq!(sop.len(), 2);
+        assert_eq!(sop.len(), 3);
     }
 }

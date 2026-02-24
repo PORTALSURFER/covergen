@@ -29,6 +29,7 @@ pub(super) fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::ChopRemap(_) => "v2.node.chop_remap",
         CompiledOp::SopCircle(_) => "v2.node.sop_circle",
         CompiledOp::SopSphere(_) => "v2.node.sop_sphere",
+        CompiledOp::SopGeometry(_) => "v2.node.sop_geometry",
         CompiledOp::TopCameraRender(_) => "v2.node.top_camera_render",
         CompiledOp::Output(_) => "v2.node.output",
     }

@@ -13,7 +13,8 @@ use std::time::Instant;
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{apply_contrast, blend_layer_stack, stretch_to_percentile};
 use crate::proc_graph::{
-    eval_chop_lfo, eval_chop_math, eval_chop_remap, render_top_camera, SopPrimitive,
+    apply_sop_geometry, eval_chop_lfo, eval_chop_math, eval_chop_remap, eval_source_noise_scalar,
+    render_top_camera, SopPrimitive,
 };
 use crate::telemetry;
 
@@ -115,26 +116,49 @@ fn evaluate_mixed_graph(
             }
             CompiledOp::SourceNoise(spec) => {
                 let effective = modulation.map_or(spec, |time| spec.with_time(time));
-                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
-                let mut out = arena.acquire_for(lifetime);
-                generate_source_noise(
-                    compiled.width,
-                    compiled.height,
-                    effective.seed.wrapping_add(seed_offset),
-                    effective.scale,
-                    effective.octaves,
-                    effective.amplitude,
-                    &mut out,
-                );
+                let effective_seed = effective.seed.wrapping_add(seed_offset);
                 match effective.output_port {
                     PortType::LumaTexture => {
+                        let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                        let mut out = arena.acquire_for(lifetime);
+                        generate_source_noise(
+                            compiled.width,
+                            compiled.height,
+                            effective_seed,
+                            effective.scale,
+                            effective.octaves,
+                            effective.amplitude,
+                            &mut out,
+                        );
                         values.insert(step.node_id, RuntimeValue::Luma(out));
                     }
                     PortType::MaskTexture => {
+                        let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                        let mut out = arena.acquire_for(lifetime);
+                        generate_source_noise(
+                            compiled.width,
+                            compiled.height,
+                            effective_seed,
+                            effective.scale,
+                            effective.octaves,
+                            effective.amplitude,
+                            &mut out,
+                        );
                         values.insert(step.node_id, RuntimeValue::Mask(out));
                     }
-                    PortType::ChannelScalar | PortType::SopPrimitive => {
-                        return Err("source-noise output port must be luma or mask".into());
+                    PortType::ChannelScalar => {
+                        values.insert(
+                            step.node_id,
+                            RuntimeValue::Scalar(eval_source_noise_scalar(
+                                effective_seed,
+                                effective.scale,
+                                effective.octaves,
+                                effective.amplitude,
+                            )),
+                        );
+                    }
+                    PortType::SopPrimitive => {
+                        return Err("source-noise output port cannot be SOP".into());
                     }
                 }
             }
@@ -240,6 +264,14 @@ fn evaluate_mixed_graph(
             }
             CompiledOp::SopSphere(spec) => {
                 values.insert(step.node_id, RuntimeValue::Sop(SopPrimitive::Sphere(spec)));
+            }
+            CompiledOp::SopGeometry(spec) => {
+                let input = require_sop_input(&values, step, 0)?;
+                let modulation = optional_scalar_input(&values, step, 1)?;
+                values.insert(
+                    step.node_id,
+                    RuntimeValue::Sop(apply_sop_geometry(input, spec, modulation)),
+                );
             }
             CompiledOp::TopCameraRender(spec) => {
                 let primitive = require_sop_input(&values, step, 0)?;

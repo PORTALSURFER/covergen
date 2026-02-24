@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
-use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderNode};
 use serde::{Deserialize, Serialize};
 
 pub use super::node::{
@@ -143,6 +143,10 @@ impl GraphBuilder {
 
     pub fn add_sop_sphere(&mut self, spec: SopSphereNode) -> NodeId {
         self.add_node(NodeKind::SopSphere(spec))
+    }
+
+    pub fn add_sop_geometry(&mut self, spec: SopGeometryNode) -> NodeId {
+        self.add_node(NodeKind::SopGeometry(spec))
     }
 
     pub fn add_top_camera_render(&mut self, spec: TopCameraRenderNode) -> NodeId {

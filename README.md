@@ -34,7 +34,7 @@ Useful V2 flags:
   - If omitted, V2 generates a fresh seed for each run.
 - `--count <u32>`
 - `--layers <u32>`
-- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage|td-random-network|td-cascade-lab|td-feedback-atlas|td-hyperweave|td-patchwork|td-router|td-signal-lab|td-orbit-forge|td-modular-network|td-multi-stage>`
+- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage|td-random-network|td-cascade-lab|td-feedback-atlas|td-hyperweave|td-patchwork|td-router|td-signal-lab|td-orbit-forge|td-modular-network|td-multi-stage|td-sphere-noise-geo>`
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
@@ -60,6 +60,12 @@ cargo run --bin covergen -- --preset td-hyperweave --output still.png --manifest
 
 # Re-run exactly from the manifest graph+config.
 cargo run --bin covergen -- --manifest-in replay.json
+```
+
+Sphere-noise-geometry network command:
+
+```bash
+cargo run --bin covergen -- --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
 ```
 
 Operator-family model (TouchDesigner-style):

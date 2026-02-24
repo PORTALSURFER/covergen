@@ -3,7 +3,7 @@
 use super::temporal::{apply_add, apply_mul, sample};
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::model::{LayerBlendMode, Params};
-use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderNode};
 use serde::{Deserialize, Serialize};
 
 pub use super::temporal::{
@@ -313,6 +313,7 @@ pub enum NodeKind {
     ChopRemap(ChopRemapNode),
     SopCircle(SopCircleNode),
     SopSphere(SopSphereNode),
+    SopGeometry(SopGeometryNode),
     TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
@@ -330,7 +331,7 @@ impl NodeKind {
             | Self::StatefulFeedback(_)
             | Self::TopCameraRender(_) => OperatorFamily::Top,
             Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => OperatorFamily::Chop,
-            Self::SopCircle(_) | Self::SopSphere(_) => OperatorFamily::Sop,
+            Self::SopCircle(_) | Self::SopSphere(_) | Self::SopGeometry(_) => OperatorFamily::Sop,
             Self::Output(_) => OperatorFamily::Output,
         }
     }
@@ -361,6 +362,11 @@ impl NodeKind {
             Self::ChopMath(_) => (slot <= 1).then_some(PortType::ChannelScalar),
             Self::ChopRemap(_) => (slot == 0).then_some(PortType::ChannelScalar),
             Self::SopCircle(_) | Self::SopSphere(_) => None,
+            Self::SopGeometry(_) => match slot {
+                0 => Some(PortType::SopPrimitive),
+                1 => Some(PortType::ChannelScalar),
+                _ => None,
+            },
             Self::TopCameraRender(_) => match slot {
                 0 => Some(PortType::SopPrimitive),
                 1 => Some(PortType::ChannelScalar),
@@ -383,7 +389,9 @@ impl NodeKind {
             Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => {
                 Some(PortType::ChannelScalar)
             }
-            Self::SopCircle(_) | Self::SopSphere(_) => Some(PortType::SopPrimitive),
+            Self::SopCircle(_) | Self::SopSphere(_) | Self::SopGeometry(_) => {
+                Some(PortType::SopPrimitive)
+            }
             Self::TopCameraRender(_) => Some(PortType::LumaTexture),
             Self::Output(_) => None,
         }
@@ -403,6 +411,7 @@ impl NodeKind {
             Self::ChopMath(_) => (1, 2),
             Self::ChopRemap(_) => (1, 1),
             Self::SopCircle(_) | Self::SopSphere(_) => (0, 0),
+            Self::SopGeometry(_) => (1, 2),
             Self::TopCameraRender(_) => (1, 2),
             Self::Output(_) => (1, 1),
         }

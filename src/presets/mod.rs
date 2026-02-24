@@ -46,6 +46,9 @@ mod touchdesigner_router_tests;
 mod touchdesigner_signal_lab;
 #[cfg(test)]
 mod touchdesigner_signal_lab_tests;
+mod touchdesigner_sphere_noise_geo;
+#[cfg(test)]
+mod touchdesigner_sphere_noise_geo_tests;
 mod touchdesigner_stage_primitives;
 #[cfg(test)]
 mod touchdesigner_tests;

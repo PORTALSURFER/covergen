@@ -8,7 +8,7 @@ use super::node::{
     StatefulFeedbackNode, ToneMapNode, WarpTransformNode,
 };
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
-use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderNode};
 use output_contract::collect_output_bindings;
 #[cfg(test)]
 use output_contract::detect_linear_layer_path;
@@ -32,6 +32,7 @@ pub enum CompiledOp {
     ChopRemap(ChopRemapNode),
     SopCircle(SopCircleNode),
     SopSphere(SopSphereNode),
+    SopGeometry(SopGeometryNode),
     TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
@@ -229,6 +230,13 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
                     has_non_layer_nodes = true;
                 }
                 CompiledOp::SopSphere(spec)
+            }
+            NodeKind::SopGeometry(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::SopGeometry(spec)
             }
             NodeKind::TopCameraRender(spec) => {
                 #[cfg(test)]

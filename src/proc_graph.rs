@@ -2,13 +2,67 @@
 
 use crate::chop::{ChopLfoNode, ChopMathMode, ChopMathNode, ChopRemapNode, ChopWave};
 use crate::node::GraphTimeInput;
-use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderNode};
 
 /// Runtime SOP primitive payload evaluated from one SOP node.
 #[derive(Clone, Copy, Debug)]
 pub enum SopPrimitive {
     Circle(SopCircleNode),
     Sphere(SopSphereNode),
+}
+
+/// Evaluate a deterministic scalar noise sample for CHOP/SOP modulation.
+pub fn eval_source_noise_scalar(seed: u32, scale: f32, octaves: u32, amplitude: f32) -> f32 {
+    let mut value = seed ^ 0x9E37_79B9;
+    let octave_count = octaves.clamp(1, 8);
+    let mut norm = 0.0;
+    let mut acc = 0.0;
+    for octave in 0..octave_count {
+        value ^= value >> 15;
+        value = value.wrapping_mul(0x2C1B_3C6D);
+        value ^= value >> 12;
+        value = value.wrapping_mul(0x297A_2D39);
+        value ^= value >> 15;
+        let sample = (value as f32 / u32::MAX as f32) * 2.0 - 1.0;
+        let weight = 1.0 / (1.0 + octave as f32);
+        acc += sample * weight;
+        norm += weight;
+        value = value.wrapping_add((scale.to_bits() ^ octave).wrapping_mul(0x85EB_CA77));
+    }
+    if norm <= 0.0 {
+        return 0.0;
+    }
+    (acc / norm * amplitude.clamp(0.0, 2.0)).clamp(-1.0, 1.0)
+}
+
+/// Deform SOP primitive parameters before camera render.
+pub fn apply_sop_geometry(
+    primitive: SopPrimitive,
+    node: SopGeometryNode,
+    modulation: Option<f32>,
+) -> SopPrimitive {
+    let signal = (modulation.unwrap_or(0.0) + node.bias).clamp(-1.0, 1.0);
+    match primitive {
+        SopPrimitive::Circle(mut circle) => {
+            let radius_gain = 1.0 + signal * node.radius_response.clamp(0.0, 2.0) * 0.45;
+            circle.radius = (circle.radius * radius_gain).clamp(0.04, 0.95);
+            let shift = signal * node.center_response.clamp(0.0, 1.5);
+            circle.center_x = (circle.center_x + shift * 0.5).clamp(-0.85, 0.85);
+            circle.center_y = (circle.center_y - shift * 0.35).clamp(-0.85, 0.85);
+            SopPrimitive::Circle(circle)
+        }
+        SopPrimitive::Sphere(mut sphere) => {
+            let radius_gain = 1.0 + signal * node.radius_response.clamp(0.0, 2.0) * 0.45;
+            sphere.radius = (sphere.radius * radius_gain).clamp(0.05, 0.98);
+            let shift = signal * node.center_response.clamp(0.0, 1.5);
+            sphere.center_x = (sphere.center_x + shift * 0.45).clamp(-0.85, 0.85);
+            sphere.center_y = (sphere.center_y - shift * 0.3).clamp(-0.85, 0.85);
+            let light_shift = signal * node.light_response.clamp(0.0, 2.0);
+            sphere.light_x = (sphere.light_x + light_shift).clamp(-2.8, 2.8);
+            sphere.light_y = (sphere.light_y - light_shift * 0.75).clamp(-2.8, 2.8);
+            SopPrimitive::Sphere(sphere)
+        }
+    }
 }
 
 /// Evaluate one LFO channel node at the current graph time.

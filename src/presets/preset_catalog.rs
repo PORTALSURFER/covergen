@@ -22,6 +22,7 @@ use super::touchdesigner_orbit_forge;
 use super::touchdesigner_patchwork;
 use super::touchdesigner_router;
 use super::touchdesigner_signal_lab;
+use super::touchdesigner_sphere_noise_geo;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -201,6 +202,15 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-multi-stage",
         aliases: &["td-stage", "touchdesigner-stage"],
         build: touchdesigner_multi_stage::build_td_multi_stage,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-sphere-noise-geo",
+        aliases: &[
+            "td-geo-sphere",
+            "touchdesigner-sphere-noise-geo",
+            "sphere-noise-geo",
+        ],
+        build: touchdesigner_sphere_noise_geo::build_td_sphere_noise_geo,
     })?;
     Ok(())
 }

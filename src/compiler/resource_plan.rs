@@ -148,7 +148,8 @@ fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         | CompiledOp::ChopMath(_)
         | CompiledOp::ChopRemap(_)
         | CompiledOp::SopCircle(_)
-        | CompiledOp::SopSphere(_) => None,
+        | CompiledOp::SopSphere(_)
+        | CompiledOp::SopGeometry(_) => None,
         CompiledOp::Output(_) => None,
     }
 }
@@ -171,7 +172,8 @@ fn gpu_output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         | CompiledOp::ChopMath(_)
         | CompiledOp::ChopRemap(_)
         | CompiledOp::SopCircle(_)
-        | CompiledOp::SopSphere(_) => None,
+        | CompiledOp::SopSphere(_)
+        | CompiledOp::SopGeometry(_) => None,
         CompiledOp::Output(_) => None,
     }
 }
