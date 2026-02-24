@@ -15,3 +15,4 @@
 - `v2/preset-authoring.md`
 - `v2/migration.md`
 - `v2/benchmarks/README.md`
+- `v2/rust-gpu.md`

@@ -14,6 +14,11 @@ all compiled node kinds:
 
 This avoids per-node host readbacks in graph-native execution.
 
+Shader modules are loaded through `src/shaders.rs` and can run from either:
+
+- embedded WGSL (default)
+- rust-gpu SPIR-V artifacts (`COVERGEN_SHADER_BACKEND=rust-gpu`)
+
 ## Animation Mode
 
 V2 supports clip rendering for social-video output:

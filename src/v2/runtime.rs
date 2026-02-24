@@ -317,7 +317,6 @@ async fn create_renderer(
 
     GpuLayerRenderer::new_with_output(
         &adapter,
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl")),
         compiled.width,
         compiled.height,
         config.width,

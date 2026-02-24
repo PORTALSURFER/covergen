@@ -67,3 +67,15 @@ scripts/bench/tier_gate.sh validate desktop_mid
 - `docs/v2/gpu-runtime.md`
 - `docs/v2/preset-authoring.md`
 - `docs/v2/migration.md`
+- `docs/v2/benchmarks/README.md`
+- `docs/v2/rust-gpu.md`
+
+## Shader Backend
+
+The default shader backend is WGSL. To run all shader pipelines with rust-gpu
+SPIR-V artifacts:
+
+```bash
+export COVERGEN_SHADER_BACKEND=rust-gpu
+export COVERGEN_RUST_GPU_SPIRV_DIR=target/rust-gpu
+```

@@ -26,9 +26,6 @@ use crate::strategies::{
 };
 use crate::telemetry;
 
-/// WGSL compute shader source used by the GPU renderer.
-const SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shader.wgsl"));
-
 /// Returns whether an adapter should be treated as software/CPU for performance safety.
 fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> bool {
     if matches!(
@@ -83,7 +80,7 @@ async fn ensure_gpu_renderer(
 ) -> Result<(), Box<dyn Error>> {
     if gpu.is_none() {
         eprintln!("Initializing GPU renderer ({width}x{height}) on first GPU strategy use.");
-        *gpu = Some(GpuLayerRenderer::new(adapter, SHADER, width, height).await?);
+        *gpu = Some(GpuLayerRenderer::new(adapter, width, height).await?);
     }
     Ok(())
 }

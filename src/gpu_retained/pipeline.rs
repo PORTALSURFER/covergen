@@ -1,8 +1,10 @@
+use std::error::Error;
 use std::sync::mpsc::{self, Receiver};
 
 use wgpu::util::DeviceExt;
 
 use super::{RetainedFinalizeParams, RetainedPostParams};
+use crate::shaders::{ShaderProgram, create_shader_module};
 
 /// All retained resources created together so `mod.rs` can stay focused on behavior.
 pub(super) struct RetainedSetup {
@@ -24,14 +26,13 @@ pub(super) struct RetainedSetup {
 pub(super) fn build_setup(
     device: &wgpu::Device,
     out_buffer: &wgpu::Buffer,
-    shader_source: &str,
     width: u32,
     height: u32,
     output_width: u32,
     output_height: u32,
     post_init: RetainedPostParams,
     finalize_init: RetainedFinalizeParams,
-) -> RetainedSetup {
+) -> Result<RetainedSetup, Box<dyn Error>> {
     let src_bytes = (width as u64)
         .saturating_mul(height as u64)
         .saturating_mul(std::mem::size_of::<f32>() as u64);
@@ -86,10 +87,7 @@ pub(super) fn build_setup(
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("retained post shader"),
-        source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-    });
+    let shader_module = create_shader_module(device, ShaderProgram::RetainedPost)?;
 
     let bind_group_layout = create_bind_group_layout(device);
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -133,7 +131,7 @@ pub(super) fn build_setup(
         push_constant_ranges: &[],
     });
 
-    RetainedSetup {
+    Ok(RetainedSetup {
         clear_pipeline: create_compute_pipeline(
             device,
             &layout,
@@ -183,7 +181,7 @@ pub(super) fn build_setup(
         final_output_buffer,
         staging_buffer,
         final_staging_buffer,
-    }
+    })
 }
 
 fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {

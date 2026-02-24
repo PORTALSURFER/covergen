@@ -1,16 +1,12 @@
 //! GPU compute pipelines for V2 graph-native node operations.
 
+use std::error::Error;
+
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-const GRAPH_OPS_SHADER: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/gpu_graph_ops.wgsl"
-));
-const GRAPH_DECODE_SHADER: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/gpu_graph_decode.wgsl"
-));
+use crate::shaders::{ShaderProgram, create_shader_module};
+
 mod layout;
 use layout::{create_decode_bind_group_layout, create_graph_bind_group_layout, create_pipeline};
 
@@ -79,7 +75,7 @@ pub(super) struct GpuGraphOps {
 }
 
 impl GpuGraphOps {
-    pub(super) fn new(device: &wgpu::Device) -> Self {
+    pub(super) fn new(device: &wgpu::Device) -> Result<Self, Box<dyn Error>> {
         let graph_bind_group_layout = create_graph_bind_group_layout(device);
         let decode_bind_group_layout = create_decode_bind_group_layout(device);
         let graph_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -92,14 +88,8 @@ impl GpuGraphOps {
             bind_group_layouts: &[&decode_bind_group_layout],
             push_constant_ranges: &[],
         });
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("v2 graph ops shader"),
-            source: wgpu::ShaderSource::Wgsl(GRAPH_OPS_SHADER.into()),
-        });
-        let decode_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("v2 graph decode shader"),
-            source: wgpu::ShaderSource::Wgsl(GRAPH_DECODE_SHADER.into()),
-        });
+        let shader_module = create_shader_module(device, ShaderProgram::GraphOps)?;
+        let decode_shader_module = create_shader_module(device, ShaderProgram::GraphDecode)?;
         let graph_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("v2 graph ops uniforms"),
             contents: bytemuck::bytes_of(&GraphOpUniforms::sized(1, 1)),
@@ -111,7 +101,7 @@ impl GpuGraphOps {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        Self {
+        Ok(Self {
             graph_bind_group_layout,
             decode_bind_group_layout,
             graph_uniform_buffer,
@@ -133,7 +123,7 @@ impl GpuGraphOps {
             blend_pipeline: create_pipeline(device, &graph_layout, &shader_module, "blend_luma"),
             tone_map_pipeline: create_pipeline(device, &graph_layout, &shader_module, "tone_map"),
             warp_pipeline: create_pipeline(device, &graph_layout, &shader_module, "warp_luma"),
-        }
+        })
     }
 
     pub(super) fn encode_copy(

@@ -14,6 +14,7 @@ mod model;
 mod progress;
 mod randomization;
 mod render_workspace;
+mod shaders;
 mod strategies;
 mod telemetry;
 mod v2;

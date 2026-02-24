@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use crate::gpu_retained::RetainedGpuPost;
 use crate::image_ops::decode_luma;
 use crate::model::Params;
+use crate::shaders::{ShaderProgram, create_shader_module};
 use bytemuck::Zeroable;
 use wgpu::{self, util::DeviceExt};
 
@@ -37,30 +38,23 @@ pub(crate) struct GpuLayerRenderer {
 }
 
 impl GpuLayerRenderer {
-    /// Build a compute renderer from an adapter and WGSL source.
+    /// Build a compute renderer from an adapter and the configured shader backend.
     pub(crate) async fn new(
         adapter: &wgpu::Adapter,
-        shader_source: &str,
         width: u32,
         height: u32,
     ) -> Result<Self, Box<dyn Error>> {
-        Self::new_with_output(adapter, shader_source, width, height, width, height).await
+        Self::new_with_output(adapter, width, height, width, height).await
     }
 
     /// Build a compute renderer with an explicit output size for retained finalization.
     pub(crate) async fn new_with_output(
         adapter: &wgpu::Adapter,
-        shader_source: &str,
         width: u32,
         height: u32,
         output_width: u32,
         output_height: u32,
     ) -> Result<Self, Box<dyn Error>> {
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("fractal shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        };
-
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -72,7 +66,7 @@ impl GpuLayerRenderer {
             )
             .await?;
 
-        let shader_module = device.create_shader_module(shader);
+        let shader_module = create_shader_module(&device, ShaderProgram::FractalMain)?;
         let output_size = (width as u64)
             .saturating_mul(height as u64)
             .saturating_mul(std::mem::size_of::<u32>() as u64);
@@ -153,8 +147,8 @@ impl GpuLayerRenderer {
             height,
             output_width,
             output_height,
-        );
-        let graph_ops = GpuGraphOps::new(&device);
+        )?;
+        let graph_ops = GpuGraphOps::new(&device)?;
         let node_layer_temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("v2 node layer temp"),
             size: output_size,

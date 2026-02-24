@@ -25,5 +25,5 @@ fn graph_ops_shader_compiles_when_adapter_is_available() {
         return;
     };
 
-    let _ops = GpuGraphOps::new(&device);
+    let _ops = GpuGraphOps::new(&device).expect("graph ops shader should compile");
 }

@@ -14,6 +14,7 @@
 - `src/v2/runtime.rs`: GPU executor and output encoding.
 - `src/v2/cli.rs`: V2-specific argument parsing.
 - `src/v2/mod.rs`: orchestration entrypoint.
+- `src/shaders.rs`: shared shader backend loader (WGSL or rust-gpu SPIR-V).
 
 ## Pipeline
 

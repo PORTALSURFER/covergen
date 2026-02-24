@@ -6,12 +6,6 @@ use bytemuck::{Pod, Zeroable};
 mod pipeline;
 use pipeline::{build_setup, map_buffer_async};
 
-/// WGSL shader implementing retained post-processing passes.
-const RETAINED_POST_SHADER: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/gpu_retained_post.wgsl"
-));
-
 /// Uniforms for one retained blend dispatch.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -70,7 +64,7 @@ impl RetainedGpuPost {
         height: u32,
         output_width: u32,
         output_height: u32,
-    ) -> Self {
+    ) -> Result<Self, Box<dyn Error>> {
         let post_init = RetainedPostParams {
             width,
             height,
@@ -94,16 +88,15 @@ impl RetainedGpuPost {
         let setup = build_setup(
             device,
             out_buffer,
-            RETAINED_POST_SHADER,
             width,
             height,
             output_width,
             output_height,
             post_init,
             finalize_init,
-        );
+        )?;
 
-        Self {
+        Ok(Self {
             clear_pipeline: setup.clear_pipeline,
             blend_pipeline: setup.blend_pipeline,
             clear_hist_pipeline: setup.clear_hist_pipeline,
@@ -121,7 +114,7 @@ impl RetainedGpuPost {
             height,
             output_width,
             output_height,
-        }
+        })
     }
 
     /// Dispatch clear pass for a new image.
