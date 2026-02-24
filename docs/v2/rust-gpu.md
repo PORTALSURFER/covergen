@@ -14,17 +14,22 @@ Expected SPIR-V file names:
 
 ## Runtime Switch
 
-Default backend remains WGSL for compatibility.
+Default backend is rust-gpu SPIR-V.
 
-To run with rust-gpu shaders:
+Use custom artifact directory if needed:
 
 ```bash
-export COVERGEN_SHADER_BACKEND=rust-gpu
 export COVERGEN_RUST_GPU_SPIRV_DIR=target/rust-gpu
 ```
 
 If `COVERGEN_RUST_GPU_SPIRV_DIR` is unset, runtime defaults to
 `target/rust-gpu`.
+
+Force legacy WGSL backend only when needed:
+
+```bash
+export COVERGEN_SHADER_BACKEND=wgsl
+```
 
 ## Artifact Validation
 

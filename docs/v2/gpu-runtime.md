@@ -14,10 +14,13 @@ all compiled node kinds:
 
 This avoids per-node host readbacks in graph-native execution.
 
-Shader modules are loaded through `src/shaders.rs` and can run from either:
+Shader modules are loaded through `src/shaders.rs` and run from:
 
-- embedded WGSL (default)
-- rust-gpu SPIR-V artifacts (`COVERGEN_SHADER_BACKEND=rust-gpu`)
+- rust-gpu SPIR-V artifacts (default)
+
+Legacy fallback remains available:
+
+- embedded WGSL (`COVERGEN_SHADER_BACKEND=wgsl`)
 
 ## Animation Mode
 
