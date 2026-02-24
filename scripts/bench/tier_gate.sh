@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/bench/tier_gate.sh lock <desktop_mid|laptop_integrated>
+  scripts/bench/tier_gate.sh validate <desktop_mid|laptop_integrated>
+
+Environment overrides:
+  SAMPLES            default: 8
+  ANIMATION_SAMPLES  default: 4
+  SIZE               default: 1024
+  SECONDS            default: 6
+  FPS                default: 24
+  PRESET             default: mask-atlas
+  PROFILE            default: performance
+  OUTPUT_ROOT        default: target/bench
+EOF
+}
+
+if [[ $# -ne 2 ]]; then
+  usage
+  exit 1
+fi
+
+mode="$1"
+tier="$2"
+
+case "${mode}" in
+  lock|validate) ;;
+  *)
+    echo "unknown mode: ${mode}" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+case "${tier}" in
+  desktop_mid|laptop_integrated) ;;
+  *)
+    echo "unknown tier: ${tier}" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+samples="${SAMPLES:-8}"
+animation_samples="${ANIMATION_SAMPLES:-4}"
+size="${SIZE:-1024}"
+seconds="${SECONDS:-6}"
+fps="${FPS:-24}"
+preset="${PRESET:-mask-atlas}"
+profile="${PROFILE:-performance}"
+output_root="${OUTPUT_ROOT:-target/bench}"
+
+threshold_file="docs/v2/benchmarks/${tier}.thresholds.ini"
+output_dir="${output_root}/${tier}"
+
+if [[ "${mode}" == "lock" ]]; then
+  threshold_arg=(--lock-thresholds "${threshold_file}")
+else
+  threshold_arg=(--thresholds "${threshold_file}")
+fi
+
+echo "[bench] ${mode} tier=${tier} output=${output_dir} thresholds=${threshold_file}"
+cargo run --quiet -- bench \
+  --tier "${tier}" \
+  --samples "${samples}" \
+  --animation-samples "${animation_samples}" \
+  --size "${size}" \
+  --seconds "${seconds}" \
+  --fps "${fps}" \
+  --preset "${preset}" \
+  --profile "${profile}" \
+  --output-dir "${output_dir}" \
+  --require-v2-scenarios \
+  "${threshold_arg[@]}"

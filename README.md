@@ -54,10 +54,10 @@ Tiered baseline + threshold lock workflow:
 
 ```bash
 # 1) On each target hardware tier, capture baseline metrics and lock thresholds
-cargo run -- bench --tier desktop_mid --output-dir target/bench/desktop_mid --lock-thresholds docs/v2/benchmarks/desktop_mid.thresholds.ini
+scripts/bench/tier_gate.sh lock desktop_mid
 
 # 2) Validate future runs against the locked thresholds
-cargo run -- bench --tier desktop_mid --output-dir target/bench/desktop_mid --thresholds docs/v2/benchmarks/desktop_mid.thresholds.ini
+scripts/bench/tier_gate.sh validate desktop_mid
 ```
 
 ## V2 Design Docs

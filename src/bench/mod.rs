@@ -32,6 +32,7 @@ pub(super) struct BenchConfig {
     tier: String,
     samples: u32,
     animation_samples: u32,
+    require_v2_scenarios: bool,
     size: u32,
     seed: u32,
     out_dir: PathBuf,
@@ -101,6 +102,21 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
         }
     }
 
+    let mut scenario_failures = Vec::new();
+    if config.require_v2_scenarios {
+        if v2_still_samples.is_empty() {
+            scenario_failures.push(
+                "V2 still scenario is required but no V2 still samples were captured".to_string(),
+            );
+        }
+        if v2_animation_samples.is_empty() {
+            scenario_failures.push(
+                "V2 animation scenario is required but no V2 animation samples were captured"
+                    .to_string(),
+            );
+        }
+    }
+
     let summaries = vec![
         summarize_scenario("V1 still", &v1_samples),
         summarize_scenario("V2 still", &v2_still_samples),
@@ -143,13 +159,16 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
     std::fs::write(&report_path, report)?;
 
     println!("Benchmark report written to {}", report_path.display());
-    if !threshold_failures.is_empty() {
-        let details = threshold_failures
+    let mut failures = Vec::new();
+    failures.extend(scenario_failures);
+    failures.extend(threshold_failures);
+    if !failures.is_empty() {
+        let details = failures
             .into_iter()
             .map(|line| format!("- {line}"))
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(format!("cutover threshold validation failed:\n{details}").into());
+        return Err(format!("benchmark gate validation failed:\n{details}").into());
     }
     Ok(())
 }
@@ -159,6 +178,7 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
         tier: "unclassified".to_string(),
         samples: 8,
         animation_samples: 4,
+        require_v2_scenarios: false,
         size: 1024,
         seed: 0x9E37_79B9,
         out_dir: PathBuf::from("target/bench"),
@@ -182,6 +202,9 @@ fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
                     .next()
                     .ok_or("missing value for --animation-samples")?
                     .parse()?;
+            }
+            "--require-v2-scenarios" => {
+                cfg.require_v2_scenarios = true;
             }
             "--size" => {
                 cfg.size = iter.next().ok_or("missing value for --size")?.parse()?;
