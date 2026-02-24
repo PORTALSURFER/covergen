@@ -16,3 +16,7 @@
 - `v2/migration.md`
 - `v2/benchmarks/README.md`
 - `v2/rust-gpu.md`
+
+## CI and Validation
+- Local CI entrypoint: `../scripts/ci_local.sh`
+- Tier benchmark lock/validate: `../scripts/bench/tier_gate.sh`

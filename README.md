@@ -61,10 +61,29 @@ Tiered baseline + threshold lock workflow:
 
 ```bash
 # 1) On each target hardware tier, capture baseline metrics and lock thresholds
-scripts/bench/tier_gate.sh lock desktop_mid
+scripts/ci_local.sh lock desktop_mid
 
 # 2) Validate future runs against the locked thresholds
-scripts/bench/tier_gate.sh validate desktop_mid
+scripts/ci_local.sh validate desktop_mid
+```
+
+## Local CI (Authoritative)
+
+Project gating is local-first. GitHub Actions are not the source of truth for
+cutover decisions.
+
+Run full local CI on each hardware tier host:
+
+```bash
+scripts/ci_local.sh validate desktop_mid
+scripts/ci_local.sh validate laptop_integrated
+```
+
+When refreshing thresholds from measured baselines:
+
+```bash
+scripts/ci_local.sh lock desktop_mid
+scripts/ci_local.sh lock laptop_integrated
 ```
 
 ## V2 Design Docs
