@@ -22,7 +22,10 @@ Current presets:
 2. Generate base `GenerateLayerNode` sources from deterministic RNG.
 3. Add graph-native operator nodes (`SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`).
 4. Build a DAG with fan-in/fan-out branches (avoid pure linear stacks).
-5. Add `Output`, connect final luma stream, and return `builder.build()`.
+5. Add output contract nodes:
+   - one `OutputNode::primary()` for default final image encode
+   - optional `OutputNode::tap(slot)` for extra products/module boundaries
+6. Connect final luma streams to outputs and return `builder.build()`.
 
 ## Adding a Preset
 

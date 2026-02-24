@@ -3,36 +3,87 @@
 ## Core Types
 
 - `NodeId`: stable node identifier.
-- `PortType`: currently `LumaTexture`.
+- `PortType`:
+  - `LumaTexture`
+  - `MaskTexture`
 - `NodeKind`:
   - `GenerateLayer(GenerateLayerNode)`
-  - `Output`
+  - `SourceNoise(SourceNoiseNode)`
+  - `Mask(MaskNode)`
+  - `Blend(BlendNode)`
+  - `ToneMap(ToneMapNode)`
+  - `WarpTransform(WarpTransformNode)`
+  - `Output(OutputNode)`
 - `EdgeSpec`: typed directed edge between node ports.
 - `GpuGraph`: immutable validated graph payload.
 
-## GenerateLayerNode Fields
+## Output Contract
 
-`GenerateLayerNode` captures shader and blend parameters:
+`OutputNode` defines output semantics:
 
-- Fractal controls (`symmetry`, `iterations`, `fill_scale`, `fractal_zoom`, etc.)
-- Style controls (`art_style`, `art_style_secondary`, `art_style_mix`)
-- Warp controls (`bend_strength`, `warp_strength`, `warp_frequency`)
-- Layering controls (`blend_mode`, `opacity`, `contrast`)
+- `role`:
+  - `Primary`: default final image target used by runtime encode/finalize.
+  - `Tap`: additional output product or module boundary output.
+- `slot`: stable output slot index (`u8`) for addressing outputs.
+
+Graph contract requires:
+
+- At least one `Output` node is required.
+- Exactly one `Primary` output is required.
+- Output slots must be unique across all outputs.
+
+## Node Port Contracts
+
+- `GenerateLayer`:
+  - inputs: `0..=1` (`slot 0: LumaTexture`)
+  - output: `LumaTexture`
+- `SourceNoise`:
+  - inputs: `0`
+  - output: `LumaTexture` or `MaskTexture` (`output_port`)
+- `Mask`:
+  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - output: `MaskTexture`
+- `Blend`:
+  - inputs: `2..=3`
+  - `slot 0: LumaTexture` (base)
+  - `slot 1: LumaTexture` (top)
+  - `slot 2: MaskTexture` (optional mask)
+  - output: `LumaTexture`
+- `ToneMap`:
+  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - output: `LumaTexture`
+- `WarpTransform`:
+  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - output: `LumaTexture`
+- `Output`:
+  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - output: none
 
 ## Validation Rules
 
-- Graph must have non-zero dimensions.
-- Graph must contain nodes.
-- At least one `Output` node is required.
-- `Output` nodes must have exactly one incoming luma edge.
-- `GenerateLayer` nodes may have at most one incoming edge.
-- Edge source/target node IDs must exist.
-- Edge port types must match node port contracts.
+`GraphBuilder::build()` validates:
+
+- Graph dimensions must be non-zero.
+- Graph must contain at least one node.
+- Node IDs must be unique.
+- At least one output node exists.
+- Exactly one primary output exists.
+- Output slots are unique.
+- Each edge source/target node must exist.
+- Source and target port types must match node contracts.
+- A target input slot can have at most one incoming edge.
+- Every node input count must satisfy its min/max input range.
 - Graph must be acyclic.
 
-## Compilation Constraints
+## Compilation Rules
 
-The current runtime compiler additionally enforces:
+`compile_graph()` performs:
 
-- Exactly one `Output` node at execution time.
-- `GenerateLayer` nodes with at most one outgoing edge.
+- Topological ordering of validated DAG nodes.
+- Input ordering by destination slot (`to_input`) per step.
+- Output binding extraction for every output node.
+- Primary output node detection from output bindings.
+- GPU resource lifetime planning (alias slots + release schedule).
+
+Runtime uses output bindings for metadata and stages only the primary output
+for default image finalization.

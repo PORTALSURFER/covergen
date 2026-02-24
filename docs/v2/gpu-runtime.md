@@ -8,7 +8,9 @@ all compiled node kinds:
 1. `begin_retained_image()` clears retained accumulation state.
 2. Graph nodes (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`,
    `WarpTransform`) run on aliased GPU output slots.
-3. `Output` copies the selected luma slot into retained accumulation.
+3. `Output(Primary)` stages the selected luma slot into retained accumulation.
+   `Output(Tap)` bindings are compiled and reported but are not encoded by the
+   default finalization path.
 4. `collect_retained_output_gray(...)` runs GPU finalize passes and performs
    one image-end readback.
 

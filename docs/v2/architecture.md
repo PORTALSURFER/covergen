@@ -28,17 +28,18 @@
 Animation path:
 
 1. Compile once per clip.
-2. For each frame, modulate layer params with deterministic low-frequency
-   functions.
+2. For each frame, evaluate graph-time modulation on supported node params
+   using deterministic low-frequency functions.
 3. Execute retained GPU graph and read back once per frame.
 4. Encode PNG sequence and assemble MP4 with ffmpeg.
 
 ## Current Runtime Limits
 
-- Current executor supports linear or near-linear graphs where each `GenerateLayer`
-  has at most one downstream edge.
-- One `Output` node is supported.
-- Composition is encoded per layer using blend mode, opacity, and contrast.
-
-These constraints are deliberate to keep execution deterministic while the node
-library and scheduler evolve.
+- Graphs must be acyclic and type-correct per node port contracts.
+- Runtime supports DAG fan-out/fan-in across all current node kinds
+  (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`,
+  `Output`).
+- Graph must define exactly one primary output and may define additional tap
+  outputs with unique slots.
+- Default encode/finalization path reads back and encodes the primary output.
+- V2 requires a hardware GPU adapter; software adapters are rejected.
