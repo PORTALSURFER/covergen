@@ -1,7 +1,7 @@
 # V2 rust-gpu Shader Backend
 
-The runtime now supports loading all shader programs from rust-gpu SPIR-V
-artifacts instead of embedded WGSL text.
+The runtime loads all shader programs from rust-gpu SPIR-V artifacts.
+WGSL fallback paths have been removed.
 
 ## Programs
 
@@ -12,10 +12,12 @@ Expected SPIR-V file names:
 - `graph_decode.spv`
 - `retained_post.spv`
 
-## Runtime Switch
+## Runtime Behavior
 
-Default backend is rust-gpu SPIR-V in auto mode.
-If SPIR-V files are missing, runtime falls back to WGSL with a warning.
+Shader loading is strict:
+
+- if artifacts are present and valid, runtime proceeds
+- if artifacts are missing/invalid, runtime fails fast with an actionable error
 
 Use custom artifact directory if needed:
 
@@ -25,18 +27,6 @@ export COVERGEN_RUST_GPU_SPIRV_DIR=target/rust-gpu
 
 If `COVERGEN_RUST_GPU_SPIRV_DIR` is unset, runtime defaults to
 `target/rust-gpu`.
-
-Force legacy WGSL backend only when needed:
-
-```bash
-export COVERGEN_SHADER_BACKEND=wgsl
-```
-
-Require strict rust-gpu (disable fallback):
-
-```bash
-export COVERGEN_SHADER_BACKEND=rust-gpu
-```
 
 ## Artifact Validation
 

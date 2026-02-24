@@ -73,23 +73,11 @@ scripts/bench/tier_gate.sh validate desktop_mid
 
 ## Shader Backend
 
-The default shader backend is rust-gpu SPIR-V in auto mode: it will fall back
-to WGSL if SPIR-V artifacts are missing.
+V2 shader loading is strict rust-gpu SPIR-V only.
+If artifacts are missing, runtime fails fast.
 
 To point at rust-gpu artifacts explicitly:
 
 ```bash
 export COVERGEN_RUST_GPU_SPIRV_DIR=target/rust-gpu
-```
-
-To require strict rust-gpu (no fallback):
-
-```bash
-export COVERGEN_SHADER_BACKEND=rust-gpu
-```
-
-To force legacy WGSL shaders:
-
-```bash
-export COVERGEN_SHADER_BACKEND=wgsl
 ```
