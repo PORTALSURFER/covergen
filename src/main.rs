@@ -4,6 +4,7 @@ use std::error::Error;
 
 mod animation;
 mod bench;
+mod chop;
 mod cli;
 mod compiler;
 mod gpu_render;
@@ -13,6 +14,7 @@ mod image_ops;
 mod model;
 mod node;
 mod presets;
+mod proc_graph;
 mod runtime;
 mod runtime_config;
 #[cfg(test)]
@@ -23,6 +25,7 @@ mod runtime_ops;
 #[cfg(test)]
 mod runtime_test_support;
 mod shaders;
+mod sop;
 mod telemetry;
 mod temporal;
 #[cfg(test)]

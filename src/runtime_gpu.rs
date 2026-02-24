@@ -1,9 +1,13 @@
 //! GPU-native graph evaluator for compiled V2 node graphs.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
+use crate::proc_graph::{
+    eval_chop_lfo, eval_chop_math, eval_chop_remap, render_top_camera, SopPrimitive,
+};
 use crate::telemetry;
 
 use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp, CompiledValueKind};
@@ -18,6 +22,10 @@ pub(crate) fn render_graph_luma_gpu(
     modulation: Option<GraphTimeInput>,
 ) -> Result<(), Box<dyn Error>> {
     renderer.begin_retained_image()?;
+
+    let mut scalar_values: HashMap<NodeId, f32> = HashMap::new();
+    let mut sop_values: HashMap<NodeId, SopPrimitive> = HashMap::new();
+    let mut scratch_luma = vec![0.0f32; pixel_count(compiled.width, compiled.height)?];
 
     for (step_index, step) in compiled.steps.iter().enumerate() {
         let node_start = Instant::now();
@@ -90,7 +98,11 @@ pub(crate) fn render_graph_luma_gpu(
                 )?;
             }
             CompiledOp::ToneMap(spec) => {
-                let effective = modulation.map_or(spec, |time| spec.with_time(time));
+                let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
+                let channel = optional_scalar_input(step, 1, &scalar_values)?;
+                if let Some(value) = channel {
+                    effective.contrast = (effective.contrast * value).clamp(0.5, 3.0);
+                }
                 let input = luma_input_slot(compiled, step, 0)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_tone_map_to_alias(
@@ -102,7 +114,11 @@ pub(crate) fn render_graph_luma_gpu(
                 )?;
             }
             CompiledOp::WarpTransform(spec) => {
-                let effective = modulation.map_or(spec, |time| spec.with_time(time));
+                let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
+                let channel = optional_scalar_input(step, 1, &scalar_values)?;
+                if let Some(value) = channel {
+                    effective.strength = (effective.strength * value).clamp(0.0, 2.4);
+                }
                 let input = luma_input_slot(compiled, step, 0)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_warp_to_alias(
@@ -112,6 +128,38 @@ pub(crate) fn render_graph_luma_gpu(
                     effective.frequency,
                     effective.phase,
                 )?;
+            }
+            CompiledOp::ChopLfo(spec) => {
+                scalar_values.insert(step.node_id, eval_chop_lfo(spec, modulation));
+            }
+            CompiledOp::ChopMath(spec) => {
+                let a = require_scalar_input(step, 0, &scalar_values)?;
+                let b = optional_scalar_input(step, 1, &scalar_values)?;
+                scalar_values.insert(step.node_id, eval_chop_math(spec, a, b));
+            }
+            CompiledOp::ChopRemap(spec) => {
+                let input = require_scalar_input(step, 0, &scalar_values)?;
+                scalar_values.insert(step.node_id, eval_chop_remap(spec, input));
+            }
+            CompiledOp::SopCircle(spec) => {
+                sop_values.insert(step.node_id, SopPrimitive::Circle(spec));
+            }
+            CompiledOp::SopSphere(spec) => {
+                sop_values.insert(step.node_id, SopPrimitive::Sphere(spec));
+            }
+            CompiledOp::TopCameraRender(spec) => {
+                let primitive = require_sop_input(step, 0, &sop_values)?;
+                let channel = optional_scalar_input(step, 1, &scalar_values)?;
+                render_top_camera(
+                    primitive,
+                    spec,
+                    channel,
+                    compiled.width,
+                    compiled.height,
+                    &mut scratch_luma,
+                );
+                let output = output_luma_slot(compiled, step.node_id)?;
+                renderer.write_luma_alias_from_host(output, &scratch_luma)?;
             }
             CompiledOp::Output(output) => {
                 if step.node_id == compiled.primary_output_node
@@ -181,6 +229,41 @@ fn optional_luma_input_slot(
     Ok(Some(luma_input_slot(compiled, step, slot)?))
 }
 
+fn require_scalar_input(
+    step: &CompiledNodeStep,
+    slot: usize,
+    values: &HashMap<NodeId, f32>,
+) -> Result<f32, Box<dyn Error>> {
+    let node = input_node(step, slot)?;
+    values
+        .get(&node)
+        .copied()
+        .ok_or_else(|| format!("missing scalar input value from node {:?}", node).into())
+}
+
+fn optional_scalar_input(
+    step: &CompiledNodeStep,
+    slot: usize,
+    values: &HashMap<NodeId, f32>,
+) -> Result<Option<f32>, Box<dyn Error>> {
+    if slot >= step.inputs.len() {
+        return Ok(None);
+    }
+    Ok(Some(require_scalar_input(step, slot, values)?))
+}
+
+fn require_sop_input(
+    step: &CompiledNodeStep,
+    slot: usize,
+    values: &HashMap<NodeId, SopPrimitive>,
+) -> Result<SopPrimitive, Box<dyn Error>> {
+    let node = input_node(step, slot)?;
+    values
+        .get(&node)
+        .copied()
+        .ok_or_else(|| format!("missing SOP input value from node {:?}", node).into())
+}
+
 fn input_node(step: &CompiledNodeStep, slot: usize) -> Result<NodeId, Box<dyn Error>> {
     step.inputs
         .get(slot)
@@ -196,6 +279,12 @@ fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::Blend(_) => "v2.node.blend",
         CompiledOp::ToneMap(_) => "v2.node.tonemap",
         CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
+        CompiledOp::ChopLfo(_) => "v2.node.chop_lfo",
+        CompiledOp::ChopMath(_) => "v2.node.chop_math",
+        CompiledOp::ChopRemap(_) => "v2.node.chop_remap",
+        CompiledOp::SopCircle(_) => "v2.node.sop_circle",
+        CompiledOp::SopSphere(_) => "v2.node.sop_sphere",
+        CompiledOp::TopCameraRender(_) => "v2.node.top_camera_render",
         CompiledOp::Output(_) => "v2.node.output",
     }
 }
@@ -217,4 +306,11 @@ fn validate_release_index(
             .ok_or_else(|| format!("missing gpu lifetime for release node {:?}", node_id))?;
     }
     Ok(())
+}
+
+fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {
+    width
+        .checked_mul(height)
+        .map(|count| count as usize)
+        .ok_or("invalid pixel dimensions".into())
 }

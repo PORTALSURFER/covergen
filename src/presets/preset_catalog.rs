@@ -12,6 +12,7 @@ use super::families;
 use super::grammar;
 use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
+use super::touchdesigner;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -136,6 +137,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "random-grammar",
         aliases: &["grammar", "random"],
         build: grammar::build_constrained_random_grammar,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-primitive-stage",
+        aliases: &["td", "touchdesigner"],
+        build: touchdesigner::build_td_primitive_stage,
     })?;
     Ok(())
 }

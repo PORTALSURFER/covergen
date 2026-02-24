@@ -6,6 +6,8 @@
 - `PortType`:
   - `LumaTexture`
   - `MaskTexture`
+  - `ChannelScalar`
+  - `SopPrimitive`
 - `NodeKind`:
   - `GenerateLayer(GenerateLayerNode)`
   - `SourceNoise(SourceNoiseNode)`
@@ -13,11 +15,17 @@
   - `Blend(BlendNode)`
   - `ToneMap(ToneMapNode)`
   - `WarpTransform(WarpTransformNode)`
+  - `ChopLfo(ChopLfoNode)`
+  - `ChopMath(ChopMathNode)`
+  - `ChopRemap(ChopRemapNode)`
+  - `SopCircle(SopCircleNode)`
+  - `SopSphere(SopSphereNode)`
+  - `TopCameraRender(TopCameraRenderNode)`
   - `Output(OutputNode)`
 - `OperatorFamily`:
   - `Top`: texture/image operators
-  - `Chop`: channel/stream operators (reserved for future node types)
-  - `Sop`: geometry operators (reserved for future node types)
+  - `Chop`: channel/stream operators
+  - `Sop`: geometry operators
   - `Output`: terminal output operators
 - `EdgeSpec`: typed directed edge between node ports.
 - `GpuGraph`: immutable validated graph payload.
@@ -39,7 +47,7 @@ Graph contract requires:
 
 ## Node Port Contracts
 
-Current built-in nodes are all `Top` family operators plus `Output`.
+Current built-in nodes span `Top`, `Chop`, `Sop`, and `Output` families.
 
 - `GenerateLayer`:
   - inputs: `0..=1` (`slot 0: LumaTexture`)
@@ -57,10 +65,33 @@ Current built-in nodes are all `Top` family operators plus `Output`.
   - `slot 2: MaskTexture` (optional mask)
   - output: `LumaTexture`
 - `ToneMap`:
-  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - inputs: `1..=2`
+  - `slot 0: LumaTexture`
+  - `slot 1: ChannelScalar` (optional contrast modulation)
   - output: `LumaTexture`
 - `WarpTransform`:
-  - inputs: exactly `1` (`slot 0: LumaTexture`)
+  - inputs: `1..=2`
+  - `slot 0: LumaTexture`
+  - `slot 1: ChannelScalar` (optional strength modulation)
+  - output: `LumaTexture`
+- `ChopLfo`:
+  - inputs: `0`
+  - output: `ChannelScalar`
+- `ChopMath`:
+  - inputs: `1..=2`
+  - `slot 0: ChannelScalar` (required)
+  - `slot 1: ChannelScalar` (optional)
+  - output: `ChannelScalar`
+- `ChopRemap`:
+  - inputs: exactly `1` (`slot 0: ChannelScalar`)
+  - output: `ChannelScalar`
+- `SopCircle` / `SopSphere`:
+  - inputs: `0`
+  - output: `SopPrimitive`
+- `TopCameraRender`:
+  - inputs: `1..=2`
+  - `slot 0: SopPrimitive` (required)
+  - `slot 1: ChannelScalar` (optional camera modulation)
   - output: `LumaTexture`
 - `Output`:
   - inputs: exactly `1` (`slot 0: LumaTexture`)
@@ -101,6 +132,7 @@ Example expression:
 - Source and target port types must match node contracts.
 - A target input slot can have at most one incoming edge.
 - Every node input count must satisfy its min/max input range.
+- Required low-index input slots (`0..min_inputs-1`) must all be connected.
 - Graph must be acyclic.
 
 ## Compilation Rules

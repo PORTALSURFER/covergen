@@ -1,7 +1,9 @@
 //! Node, port, and temporal-control definitions for the V2 graph IR.
 
 use super::temporal::{apply_add, apply_mul, sample};
+use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::model::{LayerBlendMode, Params};
+use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 
 pub use super::temporal::{
     BlendTemporal, GenerateLayerTemporal, GraphTimeInput, MaskTemporal, SourceNoiseTemporal,
@@ -11,35 +13,19 @@ pub use super::temporal::{
 /// TouchDesigner-style operator families used for graph authoring semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperatorFamily {
-    /// Texture/image operators (`TOP`) that process pixel buffers.
     Top,
-    /// Channel operators (`CHOP`) for scalar/vector streams.
     Chop,
-    /// Surface operators (`SOP`) for geometric data streams.
     Sop,
-    /// Terminal graph-output operators.
     Output,
-}
-
-impl OperatorFamily {
-    /// Return stable lowercase label for logs and registry lookups.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Top => "top",
-            Self::Chop => "chop",
-            Self::Sop => "sop",
-            Self::Output => "output",
-        }
-    }
 }
 
 /// Port categories supported by the V2 graph IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortType {
-    /// Single-channel image data in normalized [0, 1] range.
     LumaTexture,
-    /// Single-channel mask data in normalized [0, 1] range.
     MaskTexture,
+    ChannelScalar,
+    SopPrimitive,
 }
 
 /// GPU layer generation node parameters.
@@ -304,19 +290,18 @@ impl OutputNode {
 /// Graph node kinds supported by V2.
 #[derive(Clone, Copy, Debug)]
 pub enum NodeKind {
-    /// Produce a luma layer using the fractal compute shader.
     GenerateLayer(GenerateLayerNode),
-    /// Produce a procedural source map from a seed.
     SourceNoise(SourceNoiseNode),
-    /// Convert incoming luma into a soft mask.
     Mask(MaskNode),
-    /// Blend two luma inputs with optional mask.
     Blend(BlendNode),
-    /// Apply tone mapping to luma.
     ToneMap(ToneMapNode),
-    /// Apply geometric warp to luma.
     WarpTransform(WarpTransformNode),
-    /// Terminal output node with explicit output contract.
+    ChopLfo(ChopLfoNode),
+    ChopMath(ChopMathNode),
+    ChopRemap(ChopRemapNode),
+    SopCircle(SopCircleNode),
+    SopSphere(SopSphereNode),
+    TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
 
@@ -329,7 +314,10 @@ impl NodeKind {
             | Self::Mask(_)
             | Self::Blend(_)
             | Self::ToneMap(_)
-            | Self::WarpTransform(_) => OperatorFamily::Top,
+            | Self::WarpTransform(_)
+            | Self::TopCameraRender(_) => OperatorFamily::Top,
+            Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => OperatorFamily::Chop,
+            Self::SopCircle(_) | Self::SopSphere(_) => OperatorFamily::Sop,
             Self::Output(_) => OperatorFamily::Output,
         }
     }
@@ -345,8 +333,25 @@ impl NodeKind {
                 2 => Some(PortType::MaskTexture),
                 _ => None,
             },
-            Self::ToneMap(_) => (slot == 0).then_some(PortType::LumaTexture),
-            Self::WarpTransform(_) => (slot == 0).then_some(PortType::LumaTexture),
+            Self::ToneMap(_) => match slot {
+                0 => Some(PortType::LumaTexture),
+                1 => Some(PortType::ChannelScalar),
+                _ => None,
+            },
+            Self::WarpTransform(_) => match slot {
+                0 => Some(PortType::LumaTexture),
+                1 => Some(PortType::ChannelScalar),
+                _ => None,
+            },
+            Self::ChopLfo(_) => None,
+            Self::ChopMath(_) => (slot <= 1).then_some(PortType::ChannelScalar),
+            Self::ChopRemap(_) => (slot == 0).then_some(PortType::ChannelScalar),
+            Self::SopCircle(_) | Self::SopSphere(_) => None,
+            Self::TopCameraRender(_) => match slot {
+                0 => Some(PortType::SopPrimitive),
+                1 => Some(PortType::ChannelScalar),
+                _ => None,
+            },
             Self::Output(_) => (slot == 0).then_some(PortType::LumaTexture),
         }
     }
@@ -360,6 +365,11 @@ impl NodeKind {
             Self::Blend(_) => Some(PortType::LumaTexture),
             Self::ToneMap(_) => Some(PortType::LumaTexture),
             Self::WarpTransform(_) => Some(PortType::LumaTexture),
+            Self::ChopLfo(_) | Self::ChopMath(_) | Self::ChopRemap(_) => {
+                Some(PortType::ChannelScalar)
+            }
+            Self::SopCircle(_) | Self::SopSphere(_) => Some(PortType::SopPrimitive),
+            Self::TopCameraRender(_) => Some(PortType::LumaTexture),
             Self::Output(_) => None,
         }
     }
@@ -371,8 +381,13 @@ impl NodeKind {
             Self::SourceNoise(_) => (0, 0),
             Self::Mask(_) => (1, 1),
             Self::Blend(_) => (2, 3),
-            Self::ToneMap(_) => (1, 1),
-            Self::WarpTransform(_) => (1, 1),
+            Self::ToneMap(_) => (1, 2),
+            Self::WarpTransform(_) => (1, 2),
+            Self::ChopLfo(_) => (0, 0),
+            Self::ChopMath(_) => (1, 2),
+            Self::ChopRemap(_) => (1, 1),
+            Self::SopCircle(_) | Self::SopSphere(_) => (0, 0),
+            Self::TopCameraRender(_) => (1, 2),
             Self::Output(_) => (1, 1),
         }
     }

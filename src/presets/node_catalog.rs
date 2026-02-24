@@ -1,16 +1,13 @@
 //! Extensible node-template catalog for V2 graph construction.
-//!
-//! This catalog decouples graph-building code from direct `NodeKind` matching by
-//! exposing named node templates that can be looked up by key/alias. Presets and
-//! subgraph modules can create nodes through this layer, and downstream runtime
-//! semantics stay unchanged.
 
 use std::collections::HashMap;
 
+use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::graph::{
     BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OperatorFamily,
     OutputNode, SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };
+use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 
 /// Payload used when instantiating a node template.
 #[derive(Clone, Copy, Debug)]
@@ -21,6 +18,12 @@ pub enum NodePayload {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
+    ChopLfo(ChopLfoNode),
+    ChopMath(ChopMathNode),
+    ChopRemap(ChopRemapNode),
+    SopCircle(SopCircleNode),
+    SopSphere(SopSphereNode),
+    TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
 
@@ -32,30 +35,24 @@ pub struct NodeTemplate {
     pub family: OperatorFamily,
     constructor: NodeConstructor,
 }
-
 type NodeConstructor = fn(&mut GraphBuilder, NodePayload) -> Result<NodeId, GraphBuildError>;
 
-/// Mutable registry of node templates keyed by case-insensitive names.
 #[derive(Debug, Default)]
 pub struct NodeCatalog {
     templates: Vec<NodeTemplate>,
     lookup: HashMap<String, usize>,
 }
-
 impl NodeCatalog {
-    /// Create an empty catalog.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a catalog with all built-in V2 node templates.
     pub fn with_builtins() -> Result<Self, GraphBuildError> {
         let mut catalog = Self::new();
         register_builtin_templates(&mut catalog)?;
         Ok(catalog)
     }
 
-    /// Register a template and all aliases.
     pub fn register(&mut self, template: NodeTemplate) -> Result<(), GraphBuildError> {
         let slot = self.templates.len();
         self.insert_lookup(template.key, slot)?;
@@ -66,7 +63,6 @@ impl NodeCatalog {
         Ok(())
     }
 
-    /// Instantiate a node from a named template.
     pub fn create(
         &self,
         builder: &mut GraphBuilder,
@@ -77,7 +73,6 @@ impl NodeCatalog {
         (template.constructor)(builder, payload)
     }
 
-    /// Return sorted canonical template keys.
     pub fn keys(&self) -> Vec<&'static str> {
         let mut keys: Vec<&'static str> =
             self.templates.iter().map(|template| template.key).collect();
@@ -85,7 +80,6 @@ impl NodeCatalog {
         keys
     }
 
-    /// Return sorted canonical keys for one operator family.
     pub fn keys_for_family(&self, family: OperatorFamily) -> Vec<&'static str> {
         let mut keys: Vec<&'static str> = self
             .templates
@@ -97,7 +91,6 @@ impl NodeCatalog {
         keys
     }
 
-    /// Resolve a template by key or alias.
     pub fn resolve(&self, key: &str) -> Result<NodeTemplate, GraphBuildError> {
         let lookup_key = normalize(key);
         let index = self.lookup.get(&lookup_key).copied().ok_or_else(|| {
@@ -166,6 +159,42 @@ fn register_builtin_templates(catalog: &mut NodeCatalog) -> Result<(), GraphBuil
         aliases: &["out"],
         family: OperatorFamily::Output,
         constructor: create_output,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "chop-lfo",
+        aliases: &["lfo"],
+        family: OperatorFamily::Chop,
+        constructor: create_chop_lfo,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "chop-math",
+        aliases: &["chop-math-op"],
+        family: OperatorFamily::Chop,
+        constructor: create_chop_math,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "chop-remap",
+        aliases: &["remap"],
+        family: OperatorFamily::Chop,
+        constructor: create_chop_remap,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "sop-circle",
+        aliases: &["circle"],
+        family: OperatorFamily::Sop,
+        constructor: create_sop_circle,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "sop-sphere",
+        aliases: &["sphere"],
+        family: OperatorFamily::Sop,
+        constructor: create_sop_sphere,
+    })?;
+    catalog.register(NodeTemplate {
+        key: "top-camera-render",
+        aliases: &["camera-render"],
+        family: OperatorFamily::Top,
+        constructor: create_top_camera_render,
     })?;
     Ok(())
 }
@@ -257,6 +286,78 @@ fn create_output(
     }
 }
 
+fn create_chop_lfo(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::ChopLfo(spec) => Ok(builder.add_chop_lfo(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'chop-lfo' requires ChopLfo payload",
+        )),
+    }
+}
+
+fn create_chop_math(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::ChopMath(spec) => Ok(builder.add_chop_math(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'chop-math' requires ChopMath payload",
+        )),
+    }
+}
+
+fn create_chop_remap(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::ChopRemap(spec) => Ok(builder.add_chop_remap(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'chop-remap' requires ChopRemap payload",
+        )),
+    }
+}
+
+fn create_sop_circle(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::SopCircle(spec) => Ok(builder.add_sop_circle(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'sop-circle' requires SopCircle payload",
+        )),
+    }
+}
+
+fn create_sop_sphere(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::SopSphere(spec) => Ok(builder.add_sop_sphere(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'sop-sphere' requires SopSphere payload",
+        )),
+    }
+}
+
+fn create_top_camera_render(
+    builder: &mut GraphBuilder,
+    payload: NodePayload,
+) -> Result<NodeId, GraphBuildError> {
+    match payload {
+        NodePayload::TopCameraRender(spec) => Ok(builder.add_top_camera_render(spec)),
+        _ => Err(GraphBuildError::new(
+            "node template 'top-camera-render' requires TopCameraRender payload",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,9 +392,9 @@ mod tests {
         let chop = catalog.keys_for_family(OperatorFamily::Chop);
         let sop = catalog.keys_for_family(OperatorFamily::Sop);
 
-        assert_eq!(top.len(), 6);
+        assert_eq!(top.len(), 7);
         assert_eq!(output, vec!["output"]);
-        assert!(chop.is_empty());
-        assert!(sop.is_empty());
+        assert_eq!(chop.len(), 3);
+        assert_eq!(sop.len(), 2);
     }
 }

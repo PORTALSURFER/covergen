@@ -16,6 +16,7 @@ Current presets:
 - `mask-atlas`
 - `warp-grid`
 - `random-grammar`
+- `td-primitive-stage`
 
 ## Pattern
 

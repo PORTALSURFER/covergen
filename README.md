@@ -34,7 +34,7 @@ Useful V2 flags:
   - If omitted, V2 generates a fresh seed for each run.
 - `--count <u32>`
 - `--layers <u32>`
-- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar>`
+- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage>`
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
@@ -45,9 +45,9 @@ Useful V2 flags:
 
 Operator-family model (TouchDesigner-style):
 
-- `TOP`: image/texture operators (current built-ins)
-- `CHOP`: channel operators (reserved scaffolding)
-- `SOP`: geometry operators (reserved scaffolding)
+- `TOP`: image/texture operators (includes camera render from SOP primitives)
+- `CHOP`: channel operators (`chop-lfo`, `chop-math`, `chop-remap`)
+- `SOP`: geometry operators (`sop-circle`, `sop-sphere`)
 - `Output`: terminal output contracts
 
 ## Benchmark Suite

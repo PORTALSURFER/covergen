@@ -1,6 +1,8 @@
 use super::*;
+use crate::chop::{ChopLfoNode, ChopWave};
 use crate::model::LayerBlendMode;
 use crate::node::GenerateLayerTemporal;
+use crate::sop::{SopCircleNode, TopCameraRenderNode};
 
 fn sample_layer() -> GenerateLayerNode {
     GenerateLayerNode {
@@ -102,4 +104,37 @@ fn classifies_nodes_by_operator_family() {
     let out = NodeKind::Output(OutputNode::primary());
     assert_eq!(layer.operator_family(), OperatorFamily::Top);
     assert_eq!(out.operator_family(), OperatorFamily::Output);
+}
+
+#[test]
+fn validates_chop_sop_to_top_camera_graph() {
+    let mut builder = GraphBuilder::new(256, 256, 19);
+    let lfo = builder.add_chop_lfo(ChopLfoNode {
+        wave: ChopWave::Sine,
+        frequency: 0.6,
+        phase: 0.0,
+        amplitude: 0.5,
+        offset: 1.0,
+    });
+    let circle = builder.add_sop_circle(SopCircleNode {
+        radius: 0.28,
+        feather: 0.04,
+        center_x: 0.0,
+        center_y: 0.0,
+    });
+    let camera = builder.add_top_camera_render(TopCameraRenderNode {
+        exposure: 1.2,
+        gamma: 1.0,
+        zoom: 1.0,
+        pan_x: 0.0,
+        pan_y: 0.0,
+        rotate: 0.0,
+        invert: false,
+    });
+    let out = builder.add_output();
+
+    builder.connect_sop_input(circle, camera, 0);
+    builder.connect_channel_input(lfo, camera, 1);
+    builder.connect_luma(camera, out);
+    builder.build().expect("graph should validate");
 }

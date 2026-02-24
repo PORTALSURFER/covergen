@@ -4,27 +4,30 @@
 //! and legacy cross-checking. Production V2 execution uses retained GPU flow in
 //! `runtime_gpu`.
 
+mod helpers;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{apply_contrast, blend_layer_stack, stretch_to_percentile};
+use crate::proc_graph::{
+    eval_chop_lfo, eval_chop_math, eval_chop_remap, render_top_camera, SopPrimitive,
+};
 use crate::telemetry;
 
-use super::compiler::{
-    CompiledGraph, CompiledNodeStep, CompiledOp, CompiledResourcePlan, CompiledValueKind,
-    CompiledValueLifetime,
-};
+use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp};
 use super::graph::NodeId;
 use super::node::{GraphTimeInput, PortType};
 use super::runtime::RuntimeBuffers;
 use super::runtime_ops::{blend_with_mask, build_mask, generate_source_noise, warp_luma};
 
-enum RuntimeValue {
-    Luma(Vec<f32>),
-    Mask(Vec<f32>),
-}
+use helpers::{
+    op_scope, optional_scalar_input, pixel_count, release_step_values, require_luma,
+    require_luma_input, require_mask_input, require_scalar_input, require_sop_input,
+    required_lifetime, AliasedResourceArena, RuntimeValue,
+};
 
 /// Render raw graph luma into `buffers.layered` before output post-processing.
 pub(crate) fn render_graph_luma(
@@ -128,6 +131,9 @@ fn evaluate_mixed_graph(
                     PortType::MaskTexture => {
                         values.insert(step.node_id, RuntimeValue::Mask(out));
                     }
+                    PortType::ChannelScalar | PortType::SopPrimitive => {
+                        return Err("source-noise output port must be luma or mask".into());
+                    }
                 }
             }
             CompiledOp::Mask(spec) => {
@@ -164,8 +170,12 @@ fn evaluate_mixed_graph(
                 let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
                 let mut out = arena.acquire_for(lifetime);
                 let input = require_luma_input(&values, step, 0)?;
+                let channel = optional_scalar_input(&values, step, 1)?;
                 out.copy_from_slice(input);
-                apply_contrast(&mut out, effective.contrast);
+                apply_contrast(
+                    &mut out,
+                    (effective.contrast * channel.unwrap_or(1.0)).clamp(0.5, 3.0),
+                );
                 stretch_to_percentile(
                     &mut out,
                     &mut buffers.percentile,
@@ -176,11 +186,57 @@ fn evaluate_mixed_graph(
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
             CompiledOp::WarpTransform(spec) => {
-                let effective = modulation.map_or(spec, |time| spec.with_time(time));
+                let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
                 let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
                 let mut out = arena.acquire_for(lifetime);
                 let input = require_luma_input(&values, step, 0)?;
+                let channel = optional_scalar_input(&values, step, 1)?;
+                if let Some(value) = channel {
+                    effective.strength = (effective.strength * value).clamp(0.0, 2.4);
+                }
                 warp_luma(input, compiled.width, compiled.height, effective, &mut out);
+                values.insert(step.node_id, RuntimeValue::Luma(out));
+            }
+            CompiledOp::ChopLfo(spec) => {
+                values.insert(
+                    step.node_id,
+                    RuntimeValue::Scalar(eval_chop_lfo(spec, modulation)),
+                );
+            }
+            CompiledOp::ChopMath(spec) => {
+                let a = require_scalar_input(&values, step, 0)?;
+                let b = optional_scalar_input(&values, step, 1)?;
+                values.insert(
+                    step.node_id,
+                    RuntimeValue::Scalar(eval_chop_math(spec, a, b)),
+                );
+            }
+            CompiledOp::ChopRemap(spec) => {
+                let input = require_scalar_input(&values, step, 0)?;
+                values.insert(
+                    step.node_id,
+                    RuntimeValue::Scalar(eval_chop_remap(spec, input)),
+                );
+            }
+            CompiledOp::SopCircle(spec) => {
+                values.insert(step.node_id, RuntimeValue::Sop(SopPrimitive::Circle(spec)));
+            }
+            CompiledOp::SopSphere(spec) => {
+                values.insert(step.node_id, RuntimeValue::Sop(SopPrimitive::Sphere(spec)));
+            }
+            CompiledOp::TopCameraRender(spec) => {
+                let primitive = require_sop_input(&values, step, 0)?;
+                let channel = optional_scalar_input(&values, step, 1)?;
+                let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+                let mut out = arena.acquire_for(lifetime);
+                render_top_camera(
+                    primitive,
+                    spec,
+                    channel,
+                    compiled.width,
+                    compiled.height,
+                    &mut out,
+                );
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
             CompiledOp::Output(_) => {
@@ -193,7 +249,6 @@ fn evaluate_mixed_graph(
             }
         }
         telemetry::record_timing(op_scope(step.op), node_start.elapsed());
-
         release_step_values(step_index, compiled, &mut values, &mut arena)?;
     }
 
@@ -238,164 +293,4 @@ fn execute_generate_layer(
 
     values.insert(step.node_id, RuntimeValue::Luma(out));
     Ok(())
-}
-
-fn op_scope(op: CompiledOp) -> &'static str {
-    match op {
-        CompiledOp::GenerateLayer(_) => "v2.node.generate_layer",
-        CompiledOp::SourceNoise(_) => "v2.node.source_noise",
-        CompiledOp::Mask(_) => "v2.node.mask",
-        CompiledOp::Blend(_) => "v2.node.blend",
-        CompiledOp::ToneMap(_) => "v2.node.tonemap",
-        CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
-        CompiledOp::Output(_) => "v2.node.output",
-    }
-}
-
-fn release_step_values(
-    step_index: usize,
-    compiled: &CompiledGraph,
-    values: &mut HashMap<NodeId, RuntimeValue>,
-    arena: &mut AliasedResourceArena,
-) -> Result<(), Box<dyn Error>> {
-    let releases = compiled
-        .resource_plan
-        .releases_by_step
-        .get(step_index)
-        .ok_or("invalid release schedule index")?;
-
-    for node_id in releases {
-        let value = values
-            .remove(node_id)
-            .ok_or_else(|| format!("missing transient value for release node {:?}", node_id))?;
-        let lifetime = required_lifetime(&compiled.resource_plan, *node_id)?;
-        arena.recycle(lifetime, value)?;
-    }
-
-    Ok(())
-}
-
-fn required_lifetime(
-    plan: &CompiledResourcePlan,
-    node_id: NodeId,
-) -> Result<CompiledValueLifetime, Box<dyn Error>> {
-    plan.lifetime_for(node_id)
-        .ok_or_else(|| format!("missing resource lifetime for node {:?}", node_id).into())
-}
-
-fn require_luma_input<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
-    step: &CompiledNodeStep,
-    slot: usize,
-) -> Result<&'a [f32], Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    require_luma(values, node_id)
-}
-
-fn require_mask_input<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
-    step: &CompiledNodeStep,
-    slot: usize,
-) -> Result<&'a [f32], Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    require_mask(values, node_id)
-}
-
-fn require_luma<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
-    node_id: NodeId,
-) -> Result<&'a [f32], Box<dyn Error>> {
-    match values.get(&node_id) {
-        Some(RuntimeValue::Luma(value)) => Ok(value),
-        Some(RuntimeValue::Mask(_)) => {
-            Err(format!("node {:?} output is mask but luma was required", node_id).into())
-        }
-        None => Err(format!("missing input value for node {:?}", node_id).into()),
-    }
-}
-
-fn require_mask<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
-    node_id: NodeId,
-) -> Result<&'a [f32], Box<dyn Error>> {
-    match values.get(&node_id) {
-        Some(RuntimeValue::Mask(value)) => Ok(value),
-        Some(RuntimeValue::Luma(_)) => {
-            Err(format!("node {:?} output is luma but mask was required", node_id).into())
-        }
-        None => Err(format!("missing input value for node {:?}", node_id).into()),
-    }
-}
-
-fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {
-    width
-        .checked_mul(height)
-        .map(|count| count as usize)
-        .ok_or("invalid pixel dimensions".into())
-}
-
-struct AliasedResourceArena {
-    pixel_count: usize,
-    luma_slots: Vec<Option<Vec<f32>>>,
-    mask_slots: Vec<Option<Vec<f32>>>,
-}
-
-impl AliasedResourceArena {
-    fn new(plan: &CompiledResourcePlan, pixel_count: usize) -> Self {
-        Self {
-            pixel_count,
-            luma_slots: (0..plan.peak_luma_slots)
-                .map(|_| Some(vec![0.0f32; pixel_count]))
-                .collect(),
-            mask_slots: (0..plan.peak_mask_slots)
-                .map(|_| Some(vec![0.0f32; pixel_count]))
-                .collect(),
-        }
-    }
-
-    fn acquire_for(&mut self, lifetime: CompiledValueLifetime) -> Vec<f32> {
-        let slots = match lifetime.kind {
-            CompiledValueKind::Luma => &mut self.luma_slots,
-            CompiledValueKind::Mask => &mut self.mask_slots,
-        };
-
-        slots
-            .get_mut(lifetime.alias_slot)
-            .and_then(Option::take)
-            .unwrap_or_else(|| vec![0.0f32; self.pixel_count])
-    }
-
-    fn recycle(
-        &mut self,
-        lifetime: CompiledValueLifetime,
-        value: RuntimeValue,
-    ) -> Result<(), Box<dyn Error>> {
-        let (kind, mut buffer) = match value {
-            RuntimeValue::Luma(buffer) => (CompiledValueKind::Luma, buffer),
-            RuntimeValue::Mask(buffer) => (CompiledValueKind::Mask, buffer),
-        };
-
-        if kind != lifetime.kind {
-            return Err("resource kind mismatch while recycling aliased buffer".into());
-        }
-        if buffer.len() != self.pixel_count {
-            buffer.resize(self.pixel_count, 0.0);
-        }
-
-        let slots = match lifetime.kind {
-            CompiledValueKind::Luma => &mut self.luma_slots,
-            CompiledValueKind::Mask => &mut self.mask_slots,
-        };
-        let slot = slots
-            .get_mut(lifetime.alias_slot)
-            .ok_or("alias slot index out of bounds")?;
-        *slot = Some(buffer);
-        Ok(())
-    }
 }

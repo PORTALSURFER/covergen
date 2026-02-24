@@ -4,6 +4,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
+use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+
 pub use super::node::{
     BlendNode, GenerateLayerNode, MaskNode, NodeKind, OperatorFamily, OutputNode, OutputRole,
     PortType, SourceNoiseNode, ToneMapNode, WarpTransformNode,
@@ -116,6 +119,30 @@ impl GraphBuilder {
         self.add_node(NodeKind::WarpTransform(spec))
     }
 
+    pub fn add_chop_lfo(&mut self, spec: ChopLfoNode) -> NodeId {
+        self.add_node(NodeKind::ChopLfo(spec))
+    }
+
+    pub fn add_chop_math(&mut self, spec: ChopMathNode) -> NodeId {
+        self.add_node(NodeKind::ChopMath(spec))
+    }
+
+    pub fn add_chop_remap(&mut self, spec: ChopRemapNode) -> NodeId {
+        self.add_node(NodeKind::ChopRemap(spec))
+    }
+
+    pub fn add_sop_circle(&mut self, spec: SopCircleNode) -> NodeId {
+        self.add_node(NodeKind::SopCircle(spec))
+    }
+
+    pub fn add_sop_sphere(&mut self, spec: SopSphereNode) -> NodeId {
+        self.add_node(NodeKind::SopSphere(spec))
+    }
+
+    pub fn add_top_camera_render(&mut self, spec: TopCameraRenderNode) -> NodeId {
+        self.add_node(NodeKind::TopCameraRender(spec))
+    }
+
     /// Add one output node.
     pub fn add_output(&mut self) -> NodeId {
         self.add_output_with_contract(OutputNode::primary())
@@ -154,6 +181,26 @@ impl GraphBuilder {
             to,
             from_port: PortType::MaskTexture,
             to_port: PortType::MaskTexture,
+            to_input,
+        });
+    }
+
+    pub fn connect_channel_input(&mut self, from: NodeId, to: NodeId, to_input: u8) {
+        self.edges.push(EdgeSpec {
+            from,
+            to,
+            from_port: PortType::ChannelScalar,
+            to_port: PortType::ChannelScalar,
+            to_input,
+        });
+    }
+
+    pub fn connect_sop_input(&mut self, from: NodeId, to: NodeId, to_input: u8) {
+        self.edges.push(EdgeSpec {
+            from,
+            to,
+            from_port: PortType::SopPrimitive,
+            to_port: PortType::SopPrimitive,
             to_input,
         });
     }
@@ -267,6 +314,14 @@ impl GraphBuilder {
                     "node {:?} requires {}..={} inputs, got {}",
                     node.id, min_inputs, max_inputs, total_inputs
                 )));
+            }
+            for required_slot in 0..min_inputs {
+                if !slot_counts.contains_key(&(required_slot as u8)) {
+                    return Err(GraphBuildError::new(format!(
+                        "node {:?} is missing required input slot {}",
+                        node.id, required_slot
+                    )));
+                }
             }
         }
 

@@ -314,6 +314,50 @@ impl GpuLayerRenderer {
         Ok(())
     }
 
+    /// Upload host-computed luma values into one luma alias slot.
+    pub(crate) fn write_luma_alias_from_host(
+        &mut self,
+        output_slot: usize,
+        data: &[f32],
+    ) -> Result<(), Box<dyn Error>> {
+        let expected = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .ok_or("invalid renderer dimensions for host luma upload")?;
+        if data.len() != expected {
+            return Err(format!(
+                "host luma upload size mismatch: expected {}, got {}",
+                expected,
+                data.len()
+            )
+            .into());
+        }
+        let dst = self.alias_luma(output_slot)?;
+        self.queue.write_buffer(dst, 0, bytemuck::cast_slice(data));
+        Ok(())
+    }
+
+    /// Upload host-computed mask values into one mask alias slot.
+    pub(crate) fn write_mask_alias_from_host(
+        &mut self,
+        output_slot: usize,
+        data: &[f32],
+    ) -> Result<(), Box<dyn Error>> {
+        let expected = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .ok_or("invalid renderer dimensions for host mask upload")?;
+        if data.len() != expected {
+            return Err(format!(
+                "host mask upload size mismatch: expected {}, got {}",
+                expected,
+                data.len()
+            )
+            .into());
+        }
+        let dst = self.alias_mask(output_slot)?;
+        self.queue.write_buffer(dst, 0, bytemuck::cast_slice(data));
+        Ok(())
+    }
+
     fn alias_luma(&self, slot: usize) -> Result<&wgpu::Buffer, Box<dyn Error>> {
         self.node_alias_luma_buffers
             .get(slot)

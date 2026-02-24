@@ -7,6 +7,8 @@ use super::node::{
     BlendNode, GenerateLayerNode, MaskNode, NodeKind, OutputNode, OutputRole, SourceNoiseNode,
     ToneMapNode, WarpTransformNode,
 };
+use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
+use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 use output_contract::collect_output_bindings;
 #[cfg(test)]
 use output_contract::detect_linear_layer_path;
@@ -24,6 +26,12 @@ pub enum CompiledOp {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
+    ChopLfo(ChopLfoNode),
+    ChopMath(ChopMathNode),
+    ChopRemap(ChopRemapNode),
+    SopCircle(SopCircleNode),
+    SopSphere(SopSphereNode),
+    TopCameraRender(TopCameraRenderNode),
     Output(OutputNode),
 }
 
@@ -176,6 +184,48 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
                     has_non_layer_nodes = true;
                 }
                 CompiledOp::WarpTransform(spec)
+            }
+            NodeKind::ChopLfo(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::ChopLfo(spec)
+            }
+            NodeKind::ChopMath(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::ChopMath(spec)
+            }
+            NodeKind::ChopRemap(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::ChopRemap(spec)
+            }
+            NodeKind::SopCircle(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::SopCircle(spec)
+            }
+            NodeKind::SopSphere(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::SopSphere(spec)
+            }
+            NodeKind::TopCameraRender(spec) => {
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
+                CompiledOp::TopCameraRender(spec)
             }
             NodeKind::Output(output) => CompiledOp::Output(output),
         };

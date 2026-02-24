@@ -135,12 +135,19 @@ fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         CompiledOp::GenerateLayer(_)
         | CompiledOp::Blend(_)
         | CompiledOp::ToneMap(_)
-        | CompiledOp::WarpTransform(_) => Some(CompiledValueKind::Luma),
+        | CompiledOp::WarpTransform(_)
+        | CompiledOp::TopCameraRender(_) => Some(CompiledValueKind::Luma),
         CompiledOp::SourceNoise(spec) => match spec.output_port {
             PortType::LumaTexture => Some(CompiledValueKind::Luma),
             PortType::MaskTexture => Some(CompiledValueKind::Mask),
+            PortType::ChannelScalar | PortType::SopPrimitive => None,
         },
         CompiledOp::Mask(_) => Some(CompiledValueKind::Mask),
+        CompiledOp::ChopLfo(_)
+        | CompiledOp::ChopMath(_)
+        | CompiledOp::ChopRemap(_)
+        | CompiledOp::SopCircle(_)
+        | CompiledOp::SopSphere(_) => None,
         CompiledOp::Output(_) => None,
     }
 }
@@ -151,11 +158,18 @@ fn gpu_output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         CompiledOp::SourceNoise(spec) => match spec.output_port {
             PortType::LumaTexture => Some(CompiledValueKind::Luma),
             PortType::MaskTexture => Some(CompiledValueKind::Mask),
+            PortType::ChannelScalar | PortType::SopPrimitive => None,
         },
         CompiledOp::Mask(_) => Some(CompiledValueKind::Mask),
-        CompiledOp::Blend(_) | CompiledOp::ToneMap(_) | CompiledOp::WarpTransform(_) => {
-            Some(CompiledValueKind::Luma)
-        }
+        CompiledOp::Blend(_)
+        | CompiledOp::ToneMap(_)
+        | CompiledOp::WarpTransform(_)
+        | CompiledOp::TopCameraRender(_) => Some(CompiledValueKind::Luma),
+        CompiledOp::ChopLfo(_)
+        | CompiledOp::ChopMath(_)
+        | CompiledOp::ChopRemap(_)
+        | CompiledOp::SopCircle(_)
+        | CompiledOp::SopSphere(_) => None,
         CompiledOp::Output(_) => None,
     }
 }
