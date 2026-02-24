@@ -14,6 +14,10 @@ pub mod preset_catalog;
 mod primitives;
 pub mod subgraph_catalog;
 mod touchdesigner;
+mod touchdesigner_multi_stage;
+#[cfg(test)]
+mod touchdesigner_multi_stage_tests;
+mod touchdesigner_stage_primitives;
 #[cfg(test)]
 mod touchdesigner_tests;
 

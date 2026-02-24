@@ -13,6 +13,7 @@ use super::grammar;
 use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
 use super::touchdesigner;
+use super::touchdesigner_multi_stage;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -147,6 +148,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-random-network",
         aliases: &["td-random", "touchdesigner-random"],
         build: touchdesigner::build_td_random_network,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-multi-stage",
+        aliases: &["td-stage", "touchdesigner-stage"],
+        build: touchdesigner_multi_stage::build_td_multi_stage,
     })?;
     Ok(())
 }
