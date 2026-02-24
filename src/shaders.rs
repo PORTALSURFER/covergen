@@ -1,11 +1,14 @@
 //! Shader module loading for WGSL and rust-gpu SPIR-V backends.
 //!
-//! The runtime defaults to rust-gpu SPIR-V artifacts. Set
-//! `COVERGEN_SHADER_BACKEND=wgsl` to force the legacy WGSL path.
+//! The runtime defaults to rust-gpu SPIR-V artifacts and can fall back to WGSL
+//! when artifacts are unavailable. Set `COVERGEN_SHADER_BACKEND=rust-gpu` to
+//! require rust-gpu strictly, or `COVERGEN_SHADER_BACKEND=wgsl` to force the
+//! legacy WGSL path.
 
 use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Shader programs used by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,7 +22,8 @@ pub(crate) enum ShaderProgram {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ShaderBackend {
     Wgsl,
-    RustGpu,
+    RustGpuStrict,
+    RustGpuAuto,
 }
 
 const SHADER_BACKEND_ENV: &str = "COVERGEN_SHADER_BACKEND";
@@ -49,13 +53,29 @@ pub(crate) fn create_shader_module(
             label: Some(program_label(program)),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(program_wgsl(program))),
         })),
-        ShaderBackend::RustGpu => {
+        ShaderBackend::RustGpuStrict => {
             let words = load_spirv_words(program)?;
             Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(program_label(program)),
                 source: wgpu::ShaderSource::SpirV(Cow::Owned(words)),
             }))
         }
+        ShaderBackend::RustGpuAuto => match load_spirv_words(program) {
+            Ok(words) => Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(program_label(program)),
+                source: wgpu::ShaderSource::SpirV(Cow::Owned(words)),
+            })),
+            Err(err) => {
+                warn_once(format!(
+                    "[shader] rust-gpu artifacts unavailable, falling back to WGSL: {err}. \
+set {SHADER_BACKEND_ENV}=rust-gpu to require strict rust-gpu."
+                ));
+                Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(program_label(program)),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(program_wgsl(program))),
+                }))
+            }
+        },
     }
 }
 
@@ -66,12 +86,13 @@ fn shader_backend_from_env() -> ShaderBackend {
 
 fn parse_shader_backend(raw: Option<&str>) -> ShaderBackend {
     let Some(raw) = raw else {
-        return ShaderBackend::RustGpu;
+        return ShaderBackend::RustGpuAuto;
     };
     match raw.trim().to_ascii_lowercase().as_str() {
         "wgsl" | "legacy" => ShaderBackend::Wgsl,
-        "rust-gpu" | "rust_gpu" | "spirv" => ShaderBackend::RustGpu,
-        _ => ShaderBackend::RustGpu,
+        "rust-gpu" | "rust_gpu" | "spirv" => ShaderBackend::RustGpuStrict,
+        "auto" | "default" => ShaderBackend::RustGpuAuto,
+        _ => ShaderBackend::RustGpuAuto,
     }
 }
 
@@ -151,16 +172,28 @@ fn parse_spirv_words(bytes: &[u8], path: &Path) -> Result<Vec<u32>, Box<dyn Erro
     Ok(words)
 }
 
+fn warn_once(message: String) {
+    static WARN_ONCE: OnceLock<()> = OnceLock::new();
+    if WARN_ONCE.get().is_none() {
+        let _ = WARN_ONCE.set(());
+        eprintln!("{message}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ShaderBackend, parse_shader_backend};
 
     #[test]
-    fn default_backend_is_rust_gpu() {
-        assert_eq!(parse_shader_backend(None), ShaderBackend::RustGpu);
+    fn default_backend_is_rust_gpu_auto() {
+        assert_eq!(parse_shader_backend(None), ShaderBackend::RustGpuAuto);
         assert_eq!(
             parse_shader_backend(Some("invalid")),
-            ShaderBackend::RustGpu
+            ShaderBackend::RustGpuAuto
+        );
+        assert_eq!(
+            parse_shader_backend(Some("auto")),
+            ShaderBackend::RustGpuAuto
         );
     }
 
@@ -168,5 +201,9 @@ mod tests {
     fn wgsl_can_be_selected_explicitly() {
         assert_eq!(parse_shader_backend(Some("wgsl")), ShaderBackend::Wgsl);
         assert_eq!(parse_shader_backend(Some("legacy")), ShaderBackend::Wgsl);
+        assert_eq!(
+            parse_shader_backend(Some("rust-gpu")),
+            ShaderBackend::RustGpuStrict
+        );
     }
 }

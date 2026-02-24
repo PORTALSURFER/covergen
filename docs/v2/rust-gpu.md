@@ -14,7 +14,8 @@ Expected SPIR-V file names:
 
 ## Runtime Switch
 
-Default backend is rust-gpu SPIR-V.
+Default backend is rust-gpu SPIR-V in auto mode.
+If SPIR-V files are missing, runtime falls back to WGSL with a warning.
 
 Use custom artifact directory if needed:
 
@@ -29,6 +30,12 @@ Force legacy WGSL backend only when needed:
 
 ```bash
 export COVERGEN_SHADER_BACKEND=wgsl
+```
+
+Require strict rust-gpu (disable fallback):
+
+```bash
+export COVERGEN_SHADER_BACKEND=rust-gpu
 ```
 
 ## Artifact Validation

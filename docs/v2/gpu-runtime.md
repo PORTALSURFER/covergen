@@ -16,11 +16,12 @@ This avoids per-node host readbacks in graph-native execution.
 
 Shader modules are loaded through `src/shaders.rs` and run from:
 
-- rust-gpu SPIR-V artifacts (default)
+- rust-gpu SPIR-V artifacts (default, auto-fallback mode)
 
 Legacy fallback remains available:
 
 - embedded WGSL (`COVERGEN_SHADER_BACKEND=wgsl`)
+- strict rust-gpu only (`COVERGEN_SHADER_BACKEND=rust-gpu`)
 
 ## Animation Mode
 
