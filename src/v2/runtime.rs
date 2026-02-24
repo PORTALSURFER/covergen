@@ -2,7 +2,7 @@
 //!
 //! The runtime orchestrates per-image execution, output finalization, and
 //! animation frame encoding. Node evaluation logic lives in `runtime_eval`
-//! (CPU fallback/legacy path) and `runtime_gpu` (retained GPU path).
+//! (test-only CPU validation path) and `runtime_gpu` (retained GPU path).
 
 use std::error::Error;
 use std::io::{self, Write};
@@ -10,10 +10,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
-use crate::image_ops::{
-    apply_contrast, downsample_luma, encode_gray, encode_png_bytes, resolve_output_path,
-    save_png_under_10mb, stretch_to_percentile,
-};
+use crate::image_ops::{encode_png_bytes, resolve_output_path, save_png_under_10mb};
 use crate::telemetry;
 use image::codecs::png::CompressionType;
 
@@ -22,17 +19,21 @@ use super::animation::{
     total_frames,
 };
 use super::cli::{V2Config, V2Profile};
-use super::compiler::{CompiledGraph, CompiledOp};
+use super::compiler::CompiledGraph;
 use super::node::GraphTimeInput;
-use super::runtime_eval::render_graph_luma;
 use super::runtime_gpu::render_graph_luma_gpu;
 
 /// Reusable image buffers for V2 execution.
 pub(crate) struct RuntimeBuffers {
+    #[cfg(test)]
     pub layered: Vec<f32>,
+    #[cfg(test)]
     pub percentile: Vec<f32>,
+    #[cfg(test)]
     pub layer_scratch: Vec<f32>,
+    #[cfg(test)]
     pub final_luma: Vec<f32>,
+    #[cfg(test)]
     pub downsample_scratch: Vec<u8>,
     pub output_gray: Vec<u8>,
 }
@@ -43,32 +44,30 @@ pub async fn execute_compiled(
     compiled: &CompiledGraph,
 ) -> Result<(), Box<dyn Error>> {
     telemetry::snapshot_memory("v2.run.start");
-    let needs_gpu = graph_uses_gpu_generation(compiled);
-    let mut renderer = if needs_gpu {
-        Some(create_renderer(config, compiled).await?)
-    } else {
-        None
-    };
-    if let Some(renderer) = renderer.as_mut() {
-        let alias_start = Instant::now();
-        renderer.ensure_node_alias_buffers(
-            compiled.resource_plan.gpu_peak_luma_slots,
-            compiled.resource_plan.gpu_peak_mask_slots,
-        )?;
-        telemetry::record_timing("v2.gpu.alias_buffers.init", alias_start.elapsed());
-    }
+    let mut renderer = create_renderer(config, compiled).await?;
+    let alias_start = Instant::now();
+    renderer.ensure_node_alias_buffers(
+        compiled.resource_plan.gpu_peak_luma_slots,
+        compiled.resource_plan.gpu_peak_mask_slots,
+    )?;
+    telemetry::record_timing("v2.gpu.alias_buffers.init", alias_start.elapsed());
 
     let mut buffers = RuntimeBuffers {
+        #[cfg(test)]
         layered: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
+        #[cfg(test)]
         percentile: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
+        #[cfg(test)]
         layer_scratch: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
+        #[cfg(test)]
         final_luma: vec![0.0f32; pixel_count(config.width, config.height)?],
+        #[cfg(test)]
         downsample_scratch: Vec::new(),
         output_gray: vec![0u8; pixel_count(config.width, config.height)?],
     };
 
     if config.animation.enabled {
-        return execute_animation(config, compiled, renderer.as_mut(), &mut buffers);
+        return execute_animation(config, compiled, &mut renderer, &mut buffers);
     }
 
     for image_index in 0..config.count {
@@ -80,16 +79,10 @@ pub async fn execute_compiled(
             .wrapping_add(image_index.wrapping_mul(0x9E37_79B9));
 
         let render_start = Instant::now();
-        render_graph_frame(
-            compiled,
-            renderer.as_mut(),
-            &mut buffers,
-            image_seed_offset,
-            None,
-        )?;
+        render_graph_frame(compiled, &mut renderer, image_seed_offset, None)?;
         telemetry::record_timing("v2.image.render", render_start.elapsed());
         let finalize_start = Instant::now();
-        finalize_luma_for_output(config, compiled, renderer.as_mut(), &mut buffers)?;
+        finalize_luma_for_output(config, &mut renderer, &mut buffers)?;
         telemetry::record_timing("v2.image.finalize", finalize_start.elapsed());
 
         let output_start = Instant::now();
@@ -124,7 +117,7 @@ pub async fn execute_compiled(
 fn execute_animation(
     config: &V2Config,
     compiled: &CompiledGraph,
-    mut renderer: Option<&mut GpuLayerRenderer>,
+    renderer: &mut GpuLayerRenderer,
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
     let frames = total_frames(&config.animation);
@@ -166,14 +159,8 @@ fn execute_animation(
             let graph_time = GraphTimeInput::from_frame(frame_index, frames)
                 .with_intensity(modulation_intensity);
 
-            render_graph_frame(
-                compiled,
-                renderer.as_deref_mut(),
-                buffers,
-                frame_seed_offset,
-                Some(graph_time),
-            )?;
-            finalize_luma_for_output(config, compiled, renderer.as_deref_mut(), buffers)?;
+            render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
+            finalize_luma_for_output(config, renderer, buffers)?;
             if let Some(encoder) = stream_encoder.as_mut() {
                 encoder.write_gray_frame(&buffers.output_gray)?;
             } else if let Some(dir) = frame_dir.as_ref() {
@@ -292,8 +279,7 @@ fn format_eta(seconds: f64) -> String {
 
 fn finalize_luma_for_output(
     config: &V2Config,
-    compiled: &CompiledGraph,
-    renderer: Option<&mut GpuLayerRenderer>,
+    renderer: &mut GpuLayerRenderer,
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
     let final_contrast = match config.profile {
@@ -307,70 +293,28 @@ fn finalize_luma_for_output(
     };
     let fast_mode = matches!(config.profile, V2Profile::Performance);
 
-    if renderer.is_some() && (compiled.can_use_retained_layer_path || compiled.has_non_layer_nodes)
-    {
-        let renderer = renderer.ok_or("retained finalization requires GPU renderer")?;
-        let retained_finalize_start = Instant::now();
-        renderer.collect_retained_output_gray(
-            &mut buffers.output_gray,
-            final_contrast,
-            low_pct,
-            0.99,
-            fast_mode,
-        )?;
-        telemetry::record_timing(
-            "v2.gpu.node.finalize_retained_output",
-            retained_finalize_start.elapsed(),
-        );
-        return Ok(());
-    }
-
-    apply_contrast(&mut buffers.layered, final_contrast);
-    stretch_to_percentile(
-        &mut buffers.layered,
-        &mut buffers.percentile,
+    let retained_finalize_start = Instant::now();
+    renderer.collect_retained_output_gray(
+        &mut buffers.output_gray,
+        final_contrast,
         low_pct,
         0.99,
         fast_mode,
+    )?;
+    telemetry::record_timing(
+        "v2.gpu.node.finalize_retained_output",
+        retained_finalize_start.elapsed(),
     );
-
-    let output_luma = if compiled.width == config.width && compiled.height == config.height {
-        buffers.layered.as_slice()
-    } else {
-        downsample_luma(
-            &buffers.layered,
-            compiled.width,
-            compiled.height,
-            config.width,
-            config.height,
-            &mut buffers.final_luma,
-            &mut buffers.downsample_scratch,
-        )?
-    };
-    encode_gray(&mut buffers.output_gray, output_luma);
     Ok(())
-}
-
-fn graph_uses_gpu_generation(compiled: &CompiledGraph) -> bool {
-    compiled.has_non_layer_nodes
-        || compiled
-            .steps
-            .iter()
-            .any(|step| matches!(step.op, CompiledOp::GenerateLayer(_)))
 }
 
 fn render_graph_frame(
     compiled: &CompiledGraph,
-    renderer: Option<&mut GpuLayerRenderer>,
-    buffers: &mut RuntimeBuffers,
+    renderer: &mut GpuLayerRenderer,
     seed_offset: u32,
     modulation: Option<GraphTimeInput>,
 ) -> Result<(), Box<dyn Error>> {
-    if compiled.has_non_layer_nodes {
-        let renderer = renderer.ok_or("graph-native v2 execution requires a GPU renderer")?;
-        return render_graph_luma_gpu(compiled, renderer, seed_offset, modulation);
-    }
-    render_graph_luma(compiled, renderer, buffers, seed_offset, modulation)
+    render_graph_luma_gpu(compiled, renderer, seed_offset, modulation)
 }
 
 async fn create_renderer(
@@ -404,16 +348,6 @@ async fn create_renderer(
         config.height,
     )
     .await
-}
-
-#[cfg(test)]
-pub(super) fn finalize_luma_for_output_for_test(
-    config: &V2Config,
-    compiled: &CompiledGraph,
-    renderer: Option<&mut GpuLayerRenderer>,
-    buffers: &mut RuntimeBuffers,
-) -> Result<(), Box<dyn Error>> {
-    finalize_luma_for_output(config, compiled, renderer, buffers)
 }
 
 fn indexed_output(base: &str, index: u32, total: u32) -> std::path::PathBuf {

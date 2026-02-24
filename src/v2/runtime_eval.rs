@@ -1,7 +1,8 @@
 //! Graph evaluation for V2 runtime execution.
 //!
-//! This module runs compiled nodes either through retained GPU layering or
-//! through mixed CPU/GPU execution when explicit node operators are present.
+//! This module evaluates compiled nodes on CPU for deterministic test snapshots
+//! and legacy cross-checking. Production V2 execution uses retained GPU flow in
+//! `runtime_gpu`.
 
 use std::collections::HashMap;
 use std::error::Error;

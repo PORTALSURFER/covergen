@@ -1,6 +1,8 @@
 //! Graph compiler for the V2 GPU node runtime.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 
 use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
 use super::node::{
@@ -50,20 +52,25 @@ pub struct CompiledValueLifetime {
 #[derive(Clone, Debug)]
 pub struct CompiledResourcePlan {
     /// Host-side transient lifetimes used by current mixed CPU execution.
+    #[cfg(test)]
     pub lifetimes: HashMap<NodeId, CompiledValueLifetime>,
     /// GPU-capable transient lifetimes used for buffer alias planning.
     pub gpu_lifetimes: HashMap<NodeId, CompiledValueLifetime>,
     /// Host-side release schedule keyed by producer last-use step.
+    #[cfg(test)]
     pub releases_by_step: Vec<Vec<NodeId>>,
     /// GPU-side release schedule keyed by producer last-use step.
     pub gpu_releases_by_step: Vec<Vec<NodeId>>,
+    #[cfg(test)]
     pub peak_luma_slots: usize,
+    #[cfg(test)]
     pub peak_mask_slots: usize,
     pub gpu_peak_luma_slots: usize,
     pub gpu_peak_mask_slots: usize,
 }
 
 impl CompiledResourcePlan {
+    #[cfg(test)]
     pub fn lifetime_for(&self, node_id: NodeId) -> Option<CompiledValueLifetime> {
         self.lifetimes.get(&node_id).copied()
     }
@@ -79,8 +86,11 @@ pub struct CompiledGraph {
     pub height: u32,
     pub seed: u32,
     pub steps: Vec<CompiledNodeStep>,
+    #[cfg(test)]
     pub output_node: NodeId,
+    #[cfg(test)]
     pub has_non_layer_nodes: bool,
+    #[cfg(test)]
     pub can_use_retained_layer_path: bool,
     pub resource_plan: CompiledResourcePlan,
 }
@@ -107,6 +117,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
 
     let mut output_node = None;
     let mut steps = Vec::with_capacity(graph.nodes.len());
+    #[cfg(test)]
     let mut has_non_layer_nodes = false;
 
     for node_id in topo_order {
@@ -122,23 +133,38 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         let op = match kind {
             NodeKind::GenerateLayer(spec) => CompiledOp::GenerateLayer(spec),
             NodeKind::SourceNoise(spec) => {
-                has_non_layer_nodes = true;
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
                 CompiledOp::SourceNoise(spec)
             }
             NodeKind::Mask(spec) => {
-                has_non_layer_nodes = true;
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
                 CompiledOp::Mask(spec)
             }
             NodeKind::Blend(spec) => {
-                has_non_layer_nodes = true;
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
                 CompiledOp::Blend(spec)
             }
             NodeKind::ToneMap(spec) => {
-                has_non_layer_nodes = true;
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
                 CompiledOp::ToneMap(spec)
             }
             NodeKind::WarpTransform(spec) => {
-                has_non_layer_nodes = true;
+                #[cfg(test)]
+                {
+                    has_non_layer_nodes = true;
+                }
                 CompiledOp::WarpTransform(spec)
             }
             NodeKind::Output => {
@@ -165,8 +191,13 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         ));
     }
 
+    #[cfg(test)]
     let output_node =
         output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
+    #[cfg(not(test))]
+    let _output_node =
+        output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
+    #[cfg(test)]
     let can_use_retained_layer_path =
         detect_linear_layer_path(&steps, &incoming, output_node, has_non_layer_nodes)?;
     let resource_plan = build_resource_plan(&steps)?;
@@ -176,13 +207,17 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         height: graph.height,
         seed: graph.seed,
         steps,
+        #[cfg(test)]
         output_node,
+        #[cfg(test)]
         has_non_layer_nodes,
+        #[cfg(test)]
         can_use_retained_layer_path,
         resource_plan,
     })
 }
 
+#[cfg(test)]
 fn detect_linear_layer_path(
     steps: &[CompiledNodeStep],
     incoming: &HashMap<NodeId, Vec<(u8, NodeId)>>,

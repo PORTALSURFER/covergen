@@ -11,9 +11,13 @@ pub mod graph;
 pub mod node;
 pub mod presets;
 pub mod runtime;
+#[cfg(test)]
 mod runtime_eval;
 mod runtime_gpu;
+#[cfg(test)]
 mod runtime_ops;
+#[cfg(test)]
+mod runtime_test_support;
 pub mod temporal;
 #[cfg(test)]
 mod visual_regression;

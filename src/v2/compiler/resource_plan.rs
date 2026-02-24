@@ -12,23 +12,31 @@ use super::{
 pub(super) fn build_resource_plan(
     steps: &[CompiledNodeStep],
 ) -> Result<CompiledResourcePlan, GraphBuildError> {
+    #[cfg(test)]
     let mut host_lifetimes = collect_lifetimes(steps, output_kind);
     let mut gpu_lifetimes = collect_lifetimes(steps, gpu_output_kind);
 
+    #[cfg(test)]
     let peak_luma_slots = assign_alias_slots(&mut host_lifetimes, CompiledValueKind::Luma);
+    #[cfg(test)]
     let peak_mask_slots = assign_alias_slots(&mut host_lifetimes, CompiledValueKind::Mask);
     let gpu_peak_luma_slots = assign_alias_slots(&mut gpu_lifetimes, CompiledValueKind::Luma);
     let gpu_peak_mask_slots = assign_alias_slots(&mut gpu_lifetimes, CompiledValueKind::Mask);
 
+    #[cfg(test)]
     let releases_by_step = build_releases(steps.len(), &host_lifetimes);
     let gpu_releases_by_step = build_releases(steps.len(), &gpu_lifetimes);
 
     Ok(CompiledResourcePlan {
+        #[cfg(test)]
         lifetimes: host_lifetimes,
         gpu_lifetimes,
+        #[cfg(test)]
         releases_by_step,
         gpu_releases_by_step,
+        #[cfg(test)]
         peak_luma_slots,
+        #[cfg(test)]
         peak_mask_slots,
         gpu_peak_luma_slots,
         gpu_peak_mask_slots,
@@ -121,6 +129,7 @@ fn assign_alias_slots(
     next_slot
 }
 
+#[cfg(test)]
 fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
     match op {
         CompiledOp::GenerateLayer(_)
