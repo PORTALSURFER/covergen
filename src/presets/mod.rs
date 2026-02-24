@@ -29,6 +29,9 @@ mod touchdesigner_modular_network_tests;
 mod touchdesigner_multi_stage;
 #[cfg(test)]
 mod touchdesigner_multi_stage_tests;
+mod touchdesigner_orbit_forge;
+#[cfg(test)]
+mod touchdesigner_orbit_forge_tests;
 mod touchdesigner_patchwork;
 #[cfg(test)]
 mod touchdesigner_patchwork_tests;

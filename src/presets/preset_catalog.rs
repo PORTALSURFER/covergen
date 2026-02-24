@@ -18,6 +18,7 @@ use super::touchdesigner_feedback_atlas;
 use super::touchdesigner_hyperweave;
 use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
+use super::touchdesigner_orbit_forge;
 use super::touchdesigner_patchwork;
 use super::touchdesigner_router;
 use super::touchdesigner_signal_lab;
@@ -185,6 +186,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-signal-lab",
         aliases: &["td-signal", "touchdesigner-signal"],
         build: touchdesigner_signal_lab::build_td_signal_lab,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-orbit-forge",
+        aliases: &["td-orbit", "touchdesigner-orbit"],
+        build: touchdesigner_orbit_forge::build_td_orbit_forge,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-modular-network",
