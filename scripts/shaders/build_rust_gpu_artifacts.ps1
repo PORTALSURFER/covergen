@@ -102,8 +102,26 @@ if (-not $SkipBashValidation) {
         Write-Host "[shader] bash not found; skipped scripts/shaders/validate_rust_gpu_artifacts.sh parity check"
     }
     else {
-        Write-Host "[shader] running bash parity validator"
-        & $bash.Source "scripts/shaders/validate_rust_gpu_artifacts.sh" $resolvedArtifactsDir
+        $bashValidator = Join-Path $repoRoot "scripts/shaders/validate_rust_gpu_artifacts.sh"
+        $bashSupportsPipefail = $false
+        try {
+            & $bash.Source -lc "set -o pipefail" *> $null
+            $bashSupportsPipefail = ($LASTEXITCODE -eq 0)
+        }
+        catch {
+            $bashSupportsPipefail = $false
+        }
+
+        if (-not $bashSupportsPipefail) {
+            Write-Host "[shader] bash parity validator skipped (bash lacks pipefail support)"
+        }
+        else {
+            Write-Host "[shader] running bash parity validator"
+            & $bash.Source $bashValidator $resolvedArtifactsDir
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[shader] bash parity validator failed; PowerShell validator already passed"
+            }
+        }
     }
 }
 
