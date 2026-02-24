@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 08:40:13 UTC
+Last Updated: 2026-02-24 08:50:36 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -18,6 +18,8 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 - Visual regression coverage was expanded (larger still sizes, additional sampled animation frames, and broader GPU-path confidence assertions).
 - Benchmark lock flow now refuses to write threshold files when required V2 scenarios are missing.
 - Benchmark and regression suites now validate multi-output contracts (exactly one primary + at least one tap) and follow a documented primary-only encode artifact policy.
+- Hardware-tier readiness now has a single script entrypoint (`scripts/bench/hardware_gate_readiness.sh`) that checks runner labels, threshold lock state, and manages `COVERGEN_ENABLE_HARDWARE_TIER_GATES`.
+- Hardware benchmark and GPU regression CI jobs now validate rust-gpu SPIR-V artifacts before running workload/test commands.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.

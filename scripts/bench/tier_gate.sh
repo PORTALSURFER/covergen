@@ -16,6 +16,8 @@ Environment overrides:
   PRESET             default: mask-atlas
   PROFILE            default: performance
   OUTPUT_ROOT        default: target/bench
+  COVERGEN_RUST_GPU_SPIRV_DIR
+                     default: target/rust-gpu
 EOF
 }
 
@@ -53,6 +55,7 @@ fps="${FPS:-24}"
 preset="${PRESET:-mask-atlas}"
 profile="${PROFILE:-performance}"
 output_root="${OUTPUT_ROOT:-target/bench}"
+shader_root="${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
 
 threshold_file="docs/v2/benchmarks/${tier}.thresholds.ini"
 output_dir="${output_root}/${tier}"
@@ -64,6 +67,7 @@ else
 fi
 
 echo "[bench] ${mode} tier=${tier} output=${output_dir} thresholds=${threshold_file}"
+scripts/shaders/validate_rust_gpu_artifacts.sh "${shader_root}"
 cargo run --quiet -- bench \
   --tier "${tier}" \
   --samples "${samples}" \

@@ -97,6 +97,9 @@ jobs:
           test -f docs/v2/benchmarks/${{ matrix.tier }}.thresholds.ini
           ! grep -q 'LOCK REQUIRED' docs/v2/benchmarks/${{ matrix.tier }}.thresholds.ini
 
+      - name: Validate rust-gpu shader artifacts
+        run: scripts/shaders/validate_rust_gpu_artifacts.sh
+
       - name: Run hardware tier threshold validation
         run: >
           cargo run --quiet -- bench
@@ -145,5 +148,11 @@ jobs:
       - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run GPU-targeted visual regression tests
-        run: cargo test v2_gpu_
+      - name: Validate rust-gpu shader artifacts
+        run: scripts/shaders/validate_rust_gpu_artifacts.sh
+
+      - name: Run GPU still deterministic regression
+        run: cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
+
+      - name: Run GPU animation temporal regression
+        run: cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available
