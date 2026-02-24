@@ -22,6 +22,7 @@ Current presets:
 - `td-feedback-atlas`
 - `td-hyperweave`
 - `td-patchwork`
+- `td-router`
 - `td-modular-network`
 - `td-multi-stage`
 

@@ -19,6 +19,7 @@ use super::touchdesigner_hyperweave;
 use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
 use super::touchdesigner_patchwork;
+use super::touchdesigner_router;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -173,6 +174,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-patchwork",
         aliases: &["td-patch", "touchdesigner-patchwork"],
         build: touchdesigner_patchwork::build_td_patchwork,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-router",
+        aliases: &["td-route", "touchdesigner-router"],
+        build: touchdesigner_router::build_td_router,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-modular-network",
