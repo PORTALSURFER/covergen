@@ -13,6 +13,7 @@ use super::grammar;
 use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
 use super::touchdesigner;
+use super::touchdesigner_cascade;
 use super::touchdesigner_multi_stage;
 
 /// Build context passed to preset builders.
@@ -148,6 +149,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-random-network",
         aliases: &["td-random", "touchdesigner-random"],
         build: touchdesigner::build_td_random_network,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-cascade-lab",
+        aliases: &["td-cascade", "touchdesigner-cascade"],
+        build: touchdesigner_cascade::build_td_cascade_lab,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-multi-stage",
