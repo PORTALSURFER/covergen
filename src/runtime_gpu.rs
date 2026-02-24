@@ -5,9 +5,7 @@ use std::error::Error;
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
-use crate::proc_graph::{
-    eval_chop_lfo, eval_chop_math, eval_chop_remap, render_top_camera, SopPrimitive,
-};
+use crate::proc_graph::{eval_chop_lfo, eval_chop_math, eval_chop_remap, SopPrimitive};
 use crate::telemetry;
 
 use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp, CompiledValueKind};
@@ -25,7 +23,6 @@ pub(crate) fn render_graph_luma_gpu(
 
     let mut scalar_values: HashMap<NodeId, f32> = HashMap::new();
     let mut sop_values: HashMap<NodeId, SopPrimitive> = HashMap::new();
-    let mut scratch_luma = vec![0.0f32; pixel_count(compiled.width, compiled.height)?];
 
     for (step_index, step) in compiled.steps.iter().enumerate() {
         let node_start = Instant::now();
@@ -161,16 +158,8 @@ pub(crate) fn render_graph_luma_gpu(
             CompiledOp::TopCameraRender(spec) => {
                 let primitive = require_sop_input(step, 0, &sop_values)?;
                 let channel = optional_scalar_input(step, 1, &scalar_values)?;
-                render_top_camera(
-                    primitive,
-                    spec,
-                    channel,
-                    compiled.width,
-                    compiled.height,
-                    &mut scratch_luma,
-                );
                 let output = output_luma_slot(compiled, step.node_id)?;
-                renderer.write_luma_alias_from_host(output, &scratch_luma)?;
+                renderer.render_top_camera_to_alias(primitive, spec, channel, output)?;
             }
             CompiledOp::Output(output) => {
                 if step.node_id == compiled.primary_output_node
@@ -329,11 +318,4 @@ fn validate_release_index(
             .ok_or_else(|| format!("missing gpu lifetime for release node {:?}", node_id))?;
     }
     Ok(())
-}
-
-fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {
-    width
-        .checked_mul(height)
-        .map(|count| count as usize)
-        .ok_or("invalid pixel dimensions".into())
 }

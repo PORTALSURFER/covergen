@@ -25,6 +25,14 @@ pub(super) struct GraphOpUniforms {
     pub(super) p1: f32,
     pub(super) p2: f32,
     pub(super) p3: f32,
+    pub(super) p4: f32,
+    pub(super) p5: f32,
+    pub(super) p6: f32,
+    pub(super) p7: f32,
+    pub(super) p8: f32,
+    pub(super) p9: f32,
+    pub(super) p10: f32,
+    pub(super) p11: f32,
 }
 
 impl GraphOpUniforms {
@@ -42,6 +50,14 @@ impl GraphOpUniforms {
             p1: 0.0,
             p2: 0.0,
             p3: 0.0,
+            p4: 0.0,
+            p5: 0.0,
+            p6: 0.0,
+            p7: 0.0,
+            p8: 0.0,
+            p9: 0.0,
+            p10: 0.0,
+            p11: 0.0,
         }
     }
 }
@@ -71,6 +87,7 @@ pub(super) struct GpuGraphOps {
     mask_pipeline: wgpu::ComputePipeline,
     blend_pipeline: wgpu::ComputePipeline,
     feedback_pipeline: wgpu::ComputePipeline,
+    top_camera_pipeline: wgpu::ComputePipeline,
     tone_map_pipeline: wgpu::ComputePipeline,
     warp_pipeline: wgpu::ComputePipeline,
 }
@@ -127,6 +144,12 @@ impl GpuGraphOps {
                 &graph_layout,
                 &shader_module,
                 "feedback_mix",
+            ),
+            top_camera_pipeline: create_pipeline(
+                device,
+                &graph_layout,
+                &shader_module,
+                "top_camera_render",
             ),
             tone_map_pipeline: create_pipeline(device, &graph_layout, &shader_module, "tone_map"),
             warp_pipeline: create_pipeline(device, &graph_layout, &shader_module, "warp_luma"),
@@ -252,6 +275,24 @@ impl GpuGraphOps {
             queue,
             encoder,
             &self.feedback_pipeline,
+            buffers,
+            uniforms,
+        );
+    }
+
+    pub(super) fn encode_top_camera(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        buffers: GraphBuffers<'_>,
+        uniforms: GraphOpUniforms,
+    ) {
+        self.encode_graph_pass(
+            device,
+            queue,
+            encoder,
+            &self.top_camera_pipeline,
             buffers,
             uniforms,
         );

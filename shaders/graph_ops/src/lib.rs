@@ -17,6 +17,14 @@ pub struct GraphOpUniforms {
     p1: f32,
     p2: f32,
     p3: f32,
+    p4: f32,
+    p5: f32,
+    p6: f32,
+    p7: f32,
+    p8: f32,
+    p9: f32,
+    p10: f32,
+    p11: f32,
 }
 
 /// Clamp a scalar to normalized grayscale range.
@@ -299,6 +307,98 @@ pub fn feedback_mix(
     let prior = src1_f32[i];
     let mix = cfg.p0.clamp(0.0, 1.0);
     dst_f32[i] = clamp01(((1.0 - mix) * current) + (mix * prior));
+}
+
+/// Circle primitive sampling in camera-normalized space.
+fn sample_circle_camera(radius: f32, feather: f32, center_x: f32, center_y: f32, x: f32, y: f32) -> f32 {
+    let dx = x - center_x;
+    let dy = y - center_y;
+    let distance = (dx * dx + dy * dy).sqrt();
+    let r = radius.max(0.01);
+    let f = feather.max(1e-4);
+    smoothstep(r + f, r - f, distance)
+}
+
+/// Sphere primitive sampling with simple diffuse shading in camera-normalized space.
+fn sample_sphere_camera(
+    radius: f32,
+    center_x: f32,
+    center_y: f32,
+    light_x: f32,
+    light_y: f32,
+    ambient: f32,
+    x: f32,
+    y: f32,
+) -> f32 {
+    let dx = x - center_x;
+    let dy = y - center_y;
+    let r = radius.max(0.01);
+    let rr = r * r;
+    let dist2 = dx * dx + dy * dy;
+    if dist2 > rr {
+        return 0.0;
+    }
+
+    let z = (rr - dist2).sqrt();
+    let inv_r = 1.0 / r;
+    let nx = dx * inv_r;
+    let ny = dy * inv_r;
+    let nz = z * inv_r;
+
+    let mut lx = light_x;
+    let mut ly = light_y;
+    let mut lz = 1.0;
+    let len = (lx * lx + ly * ly + lz * lz).sqrt().max(1e-6);
+    lx /= len;
+    ly /= len;
+    lz /= len;
+
+    let diffuse = (nx * lx + ny * ly + nz * lz).max(0.0);
+    let a = ambient.clamp(0.0, 1.0);
+    clamp01(a + (1.0 - a) * diffuse)
+}
+
+/// Render SOP primitive + camera parameters directly on GPU into luma output.
+#[spirv(compute(threads(16, 16, 1)))]
+pub fn top_camera_render(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] _src0_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] _src1_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] _src2_f32: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] dst_f32: &mut [f32],
+    #[spirv(uniform, descriptor_set = 0, binding = 4)] cfg: &GraphOpUniforms,
+) {
+    if id.x >= cfg.width || id.y >= cfg.height {
+        return;
+    }
+
+    let width_f = max_u32(cfg.width, 1) as f32;
+    let height_f = max_u32(cfg.height, 1) as f32;
+    let modulation = cfg.p6.clamp(0.2, 3.0);
+    let zoom = (cfg.p2 * modulation).clamp(0.2, 4.0);
+    let cos_r = cfg.p5.cos();
+    let sin_r = cfg.p5.sin();
+    let ux = id.x as f32 / width_f - 0.5;
+    let uy = id.y as f32 / height_f - 0.5;
+    let px = (ux - cfg.p3) / zoom;
+    let py = (uy - cfg.p4) / zoom;
+    let rx = px * cos_r - py * sin_r;
+    let ry = px * sin_r + py * cos_r;
+
+    let mut value = if cfg.mode == 0 {
+        sample_circle_camera(cfg.p7, cfg.p8, cfg.p9, cfg.p10, rx, ry)
+    } else {
+        let ambient = f32::from_bits(cfg.octaves);
+        sample_sphere_camera(cfg.p7, cfg.p8, cfg.p9, cfg.p10, cfg.p11, ambient, rx, ry)
+    };
+
+    value = (value * cfg.p0.max(0.0))
+        .max(0.0)
+        .powf(1.0 / cfg.p1.max(0.2));
+    if (cfg.flags & 0x1) != 0 {
+        value = 1.0 - value;
+    }
+    dst_f32[idx(cfg, id.x, id.y)] = clamp01(value);
 }
 
 /// Apply contrast and percentile stretch.

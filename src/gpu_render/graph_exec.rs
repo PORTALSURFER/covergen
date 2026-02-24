@@ -3,6 +3,8 @@
 use std::error::Error;
 
 use crate::model::Params;
+use crate::proc_graph::SopPrimitive;
+use crate::sop::TopCameraRenderNode;
 
 use super::graph_ops::{DecodeBuffers, GraphBuffers, GraphOpUniforms};
 use super::GpuLayerRenderer;
@@ -391,6 +393,63 @@ impl GpuLayerRenderer {
         Ok(())
     }
 
+    /// Render a SOP primitive with camera controls directly into a luma alias slot.
+    pub(crate) fn render_top_camera_to_alias(
+        &mut self,
+        primitive: SopPrimitive,
+        camera: TopCameraRenderNode,
+        channel_mod: Option<f32>,
+        output_slot: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        let output = self.alias_luma(output_slot)?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("v2 graph top camera encoder"),
+            });
+        let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
+        uniforms.p0 = camera.exposure;
+        uniforms.p1 = camera.gamma;
+        uniforms.p2 = camera.zoom;
+        uniforms.p3 = camera.pan_x;
+        uniforms.p4 = camera.pan_y;
+        uniforms.p5 = camera.rotate;
+        uniforms.p6 = channel_mod.unwrap_or(1.0).clamp(0.2, 3.0);
+        uniforms.flags = u32::from(camera.invert);
+        match primitive {
+            SopPrimitive::Circle(circle) => {
+                uniforms.mode = 0;
+                uniforms.p7 = circle.radius;
+                uniforms.p8 = circle.feather;
+                uniforms.p9 = circle.center_x;
+                uniforms.p10 = circle.center_y;
+            }
+            SopPrimitive::Sphere(sphere) => {
+                uniforms.mode = 1;
+                uniforms.p7 = sphere.radius;
+                uniforms.p8 = sphere.center_x;
+                uniforms.p9 = sphere.center_y;
+                uniforms.p10 = sphere.light_x;
+                uniforms.p11 = sphere.light_y;
+                uniforms.octaves = sphere.ambient.to_bits();
+            }
+        }
+        self.graph_ops.encode_top_camera(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            GraphBuffers {
+                src0: &self.node_layer_temp_buffer,
+                src1: &self.node_layer_temp_buffer,
+                src2: &self.node_layer_temp_buffer,
+                dst: output,
+            },
+            uniforms,
+        );
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
     /// Stage one luma alias slot as retained finalization input.
     pub(crate) fn stage_luma_alias_for_retained(
         &mut self,
@@ -404,50 +463,6 @@ impl GpuLayerRenderer {
             });
         self.retained.encode_copy_from_luma(&mut encoder, src);
         self.queue.submit(Some(encoder.finish()));
-        Ok(())
-    }
-
-    /// Upload host-computed luma values into one luma alias slot.
-    pub(crate) fn write_luma_alias_from_host(
-        &mut self,
-        output_slot: usize,
-        data: &[f32],
-    ) -> Result<(), Box<dyn Error>> {
-        let expected = (self.width as usize)
-            .checked_mul(self.height as usize)
-            .ok_or("invalid renderer dimensions for host luma upload")?;
-        if data.len() != expected {
-            return Err(format!(
-                "host luma upload size mismatch: expected {}, got {}",
-                expected,
-                data.len()
-            )
-            .into());
-        }
-        let dst = self.alias_luma(output_slot)?;
-        self.queue.write_buffer(dst, 0, bytemuck::cast_slice(data));
-        Ok(())
-    }
-
-    /// Upload host-computed mask values into one mask alias slot.
-    pub(crate) fn write_mask_alias_from_host(
-        &mut self,
-        output_slot: usize,
-        data: &[f32],
-    ) -> Result<(), Box<dyn Error>> {
-        let expected = (self.width as usize)
-            .checked_mul(self.height as usize)
-            .ok_or("invalid renderer dimensions for host mask upload")?;
-        if data.len() != expected {
-            return Err(format!(
-                "host mask upload size mismatch: expected {}, got {}",
-                expected,
-                data.len()
-            )
-            .into());
-        }
-        let dst = self.alias_mask(output_slot)?;
-        self.queue.write_buffer(dst, 0, bytemuck::cast_slice(data));
         Ok(())
     }
 
