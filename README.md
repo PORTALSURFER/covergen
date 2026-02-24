@@ -43,6 +43,13 @@ Useful V2 flags:
 - `--reels` (forces 1080x1920 and enables animation)
 - `--keep-frames` (preserve temporary PNG frames after MP4 encode)
 
+Operator-family model (TouchDesigner-style):
+
+- `TOP`: image/texture operators (current built-ins)
+- `CHOP`: channel operators (reserved scaffolding)
+- `SOP`: geometry operators (reserved scaffolding)
+- `Output`: terminal output contracts
+
 ## Benchmark Suite
 
 Run V2 benchmark + telemetry report:

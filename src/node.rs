@@ -8,6 +8,31 @@ pub use super::temporal::{
     TemporalCurve, TemporalModulation, ToneMapTemporal, WarpTransformTemporal,
 };
 
+/// TouchDesigner-style operator families used for graph authoring semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperatorFamily {
+    /// Texture/image operators (`TOP`) that process pixel buffers.
+    Top,
+    /// Channel operators (`CHOP`) for scalar/vector streams.
+    Chop,
+    /// Surface operators (`SOP`) for geometric data streams.
+    Sop,
+    /// Terminal graph-output operators.
+    Output,
+}
+
+impl OperatorFamily {
+    /// Return stable lowercase label for logs and registry lookups.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Chop => "chop",
+            Self::Sop => "sop",
+            Self::Output => "output",
+        }
+    }
+}
+
 /// Port categories supported by the V2 graph IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortType {
@@ -296,6 +321,19 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Return the TouchDesigner-style family for this node.
+    pub const fn operator_family(self) -> OperatorFamily {
+        match self {
+            Self::GenerateLayer(_)
+            | Self::SourceNoise(_)
+            | Self::Mask(_)
+            | Self::Blend(_)
+            | Self::ToneMap(_)
+            | Self::WarpTransform(_) => OperatorFamily::Top,
+            Self::Output(_) => OperatorFamily::Output,
+        }
+    }
+
     /// Returns the accepted input type for an input slot.
     pub fn input_port(self, slot: u8) -> Option<PortType> {
         match self {

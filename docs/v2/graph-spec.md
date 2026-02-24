@@ -14,6 +14,11 @@
   - `ToneMap(ToneMapNode)`
   - `WarpTransform(WarpTransformNode)`
   - `Output(OutputNode)`
+- `OperatorFamily`:
+  - `Top`: texture/image operators
+  - `Chop`: channel/stream operators (reserved for future node types)
+  - `Sop`: geometry operators (reserved for future node types)
+  - `Output`: terminal output operators
 - `EdgeSpec`: typed directed edge between node ports.
 - `GpuGraph`: immutable validated graph payload.
 
@@ -33,6 +38,8 @@ Graph contract requires:
 - Output slots must be unique across all outputs.
 
 ## Node Port Contracts
+
+Current built-in nodes are all `Top` family operators plus `Output`.
 
 - `GenerateLayer`:
   - inputs: `0..=1` (`slot 0: LumaTexture`)

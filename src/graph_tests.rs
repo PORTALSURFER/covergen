@@ -95,3 +95,11 @@ fn rejects_duplicate_output_slots() {
         .expect_err("duplicate output slots must be rejected");
     assert!(err.to_string().contains("duplicate output slot"));
 }
+
+#[test]
+fn classifies_nodes_by_operator_family() {
+    let layer = NodeKind::GenerateLayer(sample_layer());
+    let out = NodeKind::Output(OutputNode::primary());
+    assert_eq!(layer.operator_family(), OperatorFamily::Top);
+    assert_eq!(out.operator_family(), OperatorFamily::Output);
+}

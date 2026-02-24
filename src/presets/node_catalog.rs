@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use crate::graph::{
-    BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OutputNode,
-    SourceNoiseNode, ToneMapNode, WarpTransformNode,
+    BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OperatorFamily,
+    OutputNode, SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };
 
 /// Payload used when instantiating a node template.
@@ -29,6 +29,7 @@ pub enum NodePayload {
 pub struct NodeTemplate {
     pub key: &'static str,
     pub aliases: &'static [&'static str],
+    pub family: OperatorFamily,
     constructor: NodeConstructor,
 }
 
@@ -84,6 +85,18 @@ impl NodeCatalog {
         keys
     }
 
+    /// Return sorted canonical keys for one operator family.
+    pub fn keys_for_family(&self, family: OperatorFamily) -> Vec<&'static str> {
+        let mut keys: Vec<&'static str> = self
+            .templates
+            .iter()
+            .filter(|template| template.family == family)
+            .map(|template| template.key)
+            .collect();
+        keys.sort_unstable();
+        keys
+    }
+
     /// Resolve a template by key or alias.
     pub fn resolve(&self, key: &str) -> Result<NodeTemplate, GraphBuildError> {
         let lookup_key = normalize(key);
@@ -115,36 +128,43 @@ fn register_builtin_templates(catalog: &mut NodeCatalog) -> Result<(), GraphBuil
     catalog.register(NodeTemplate {
         key: "generate-layer",
         aliases: &["layer", "fractal-layer"],
+        family: OperatorFamily::Top,
         constructor: create_generate_layer,
     })?;
     catalog.register(NodeTemplate {
         key: "source-noise",
         aliases: &["noise", "source"],
+        family: OperatorFamily::Top,
         constructor: create_source_noise,
     })?;
     catalog.register(NodeTemplate {
         key: "mask",
         aliases: &["threshold-mask"],
+        family: OperatorFamily::Top,
         constructor: create_mask,
     })?;
     catalog.register(NodeTemplate {
         key: "blend",
         aliases: &["mix", "composite"],
+        family: OperatorFamily::Top,
         constructor: create_blend,
     })?;
     catalog.register(NodeTemplate {
         key: "tone-map",
         aliases: &["tonemap", "tone"],
+        family: OperatorFamily::Top,
         constructor: create_tonemap,
     })?;
     catalog.register(NodeTemplate {
         key: "warp-transform",
         aliases: &["warp", "transform"],
+        family: OperatorFamily::Top,
         constructor: create_warp,
     })?;
     catalog.register(NodeTemplate {
         key: "output",
         aliases: &["out"],
+        family: OperatorFamily::Output,
         constructor: create_output,
     })?;
     Ok(())
@@ -246,6 +266,7 @@ mod tests {
         let catalog = NodeCatalog::with_builtins().expect("builtins should register");
         let template = catalog.resolve("tone").expect("alias should resolve");
         assert_eq!(template.key, "tone-map");
+        assert_eq!(template.family, OperatorFamily::Top);
     }
 
     #[test]
@@ -260,5 +281,19 @@ mod tests {
             )
             .expect_err("mismatched payload should fail");
         assert!(err.to_string().contains("requires Mask payload"));
+    }
+
+    #[test]
+    fn builtin_keys_group_by_operator_family() {
+        let catalog = NodeCatalog::with_builtins().expect("builtins should register");
+        let top = catalog.keys_for_family(OperatorFamily::Top);
+        let output = catalog.keys_for_family(OperatorFamily::Output);
+        let chop = catalog.keys_for_family(OperatorFamily::Chop);
+        let sop = catalog.keys_for_family(OperatorFamily::Sop);
+
+        assert_eq!(top.len(), 6);
+        assert_eq!(output, vec!["output"]);
+        assert!(chop.is_empty());
+        assert!(sop.is_empty());
     }
 }

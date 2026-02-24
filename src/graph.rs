@@ -5,8 +5,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 pub use super::node::{
-    BlendNode, GenerateLayerNode, MaskNode, NodeKind, OutputNode, OutputRole, PortType,
-    SourceNoiseNode, ToneMapNode, WarpTransformNode,
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, OperatorFamily, OutputNode, OutputRole,
+    PortType, SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };
 
 /// Stable node identifier used across builder, compiler, and runtime.

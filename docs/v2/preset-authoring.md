@@ -20,13 +20,14 @@ Current presets:
 ## Pattern
 
 1. Create builder with target render size and seed.
-2. Generate base `GenerateLayerNode` sources from deterministic RNG.
-3. Add graph-native operator nodes (`SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`).
-4. Build a DAG with fan-in/fan-out branches (avoid pure linear stacks).
-5. Add output contract nodes:
+2. Select node templates by `OperatorFamily` (`Top`/`Chop`/`Sop`/`Output`) as needed.
+3. Generate base `GenerateLayerNode` sources from deterministic RNG.
+4. Add graph-native operator nodes (`SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`).
+5. Build a DAG with fan-in/fan-out branches (avoid pure linear stacks).
+6. Add output contract nodes:
    - one `OutputNode::primary()` for default final image encode
    - optional `OutputNode::tap(slot)` for extra products/module boundaries
-6. Connect final luma streams to outputs and return `builder.build()`.
+7. Connect final luma streams to outputs and return `builder.build()`.
 
 ## Adding a Preset
 
