@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 07:37:36 UTC
+Last Updated: 2026-02-24 08:09:34 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -16,13 +16,14 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
   - 30s reels animation mode with gentle parameter modulation (`src/v2/animation.rs`)
 - Benchmark + visual regression CI gates run from `.github/workflows/perf-gates.yml`.
 - CI software-tier benchmark thresholds are locked at `.github/bench/ci_software.thresholds.ini`.
+- Visual regression coverage was expanded (larger still sizes, additional sampled animation frames, and broader GPU-path confidence assertions).
+- Benchmark lock flow now refuses to write threshold files when required V2 scenarios are missing.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.
 
 ## Risks and Gaps (Current)
-- Target-hardware benchmark thresholds outside CI software tier are not yet locked.
-- Visual regression coverage should continue expanding for larger outputs and additional preset families.
+- Target-hardware benchmark thresholds outside CI software tier are not yet locked because self-hosted tier runners are not currently registered.
 - Multi-output/tap graph contracts need dedicated benchmark + artifact policy coverage.
 
 ## Working Assumptions
