@@ -1,58 +1,44 @@
 //! Programmatic graph preset generation for V2.
+//!
+//! This module exposes catalog-based preset composition so new presets, nodes,
+//! and reusable subgraph modules can be registered without editing central
+//! `match` statements.
 
 use super::cli::V2Config;
 use super::graph::{GpuGraph, GraphBuildError};
 
 mod families;
+pub mod node_catalog;
+pub mod preset_catalog;
 mod primitives;
+pub mod subgraph_catalog;
 
-const PRESET_NAMES: &[&str] = &[
-    "hybrid-stack",
-    "field-weave",
-    "node-weave",
-    "mask-atlas",
-    "warp-grid",
-];
+use node_catalog::NodeCatalog;
+use preset_catalog::PresetCatalog;
+use preset_catalog::PresetContext;
+use subgraph_catalog::SubgraphCatalog;
 
-/// Build a deterministic graph from the selected V2 preset and CLI config.
+/// Build a deterministic graph from the selected V2 preset and default catalogs.
 pub fn build_preset_graph(config: &V2Config) -> Result<GpuGraph, GraphBuildError> {
-    let preset = PresetKind::parse(&config.preset).ok_or_else(|| {
-        GraphBuildError::new(format!(
-            "unknown v2 preset '{}', expected {}",
-            config.preset,
-            PRESET_NAMES.join("|")
-        ))
-    })?;
-
-    match preset {
-        PresetKind::HybridStack => families::build_hybrid_stack(config),
-        PresetKind::FieldWeave => families::build_field_weave(config),
-        PresetKind::NodeWeave => families::build_node_weave(config),
-        PresetKind::MaskAtlas => families::build_mask_atlas(config),
-        PresetKind::WarpGrid => families::build_warp_grid(config),
-    }
+    let presets = PresetCatalog::with_builtins()?;
+    let nodes = NodeCatalog::with_builtins()?;
+    let modules = SubgraphCatalog::with_builtins()?;
+    build_preset_graph_with_catalogs(config, &presets, &nodes, &modules)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PresetKind {
-    HybridStack,
-    FieldWeave,
-    NodeWeave,
-    MaskAtlas,
-    WarpGrid,
-}
-
-impl PresetKind {
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "hybrid-stack" | "hybrid" => Some(Self::HybridStack),
-            "field-weave" | "field" => Some(Self::FieldWeave),
-            "node-weave" | "node" => Some(Self::NodeWeave),
-            "mask-atlas" | "atlas" => Some(Self::MaskAtlas),
-            "warp-grid" | "grid" => Some(Self::WarpGrid),
-            _ => None,
-        }
-    }
+/// Build a deterministic graph from explicit preset/node/module catalogs.
+pub fn build_preset_graph_with_catalogs(
+    config: &V2Config,
+    presets: &PresetCatalog,
+    nodes: &NodeCatalog,
+    modules: &SubgraphCatalog,
+) -> Result<GpuGraph, GraphBuildError> {
+    let context = PresetContext {
+        config,
+        nodes,
+        modules,
+    };
+    presets.build(&config.preset, context)
 }
 
 #[cfg(test)]
@@ -84,9 +70,16 @@ mod tests {
     }
 
     #[test]
-    fn all_presets_build_graph_native_topologies() {
-        for preset in PRESET_NAMES {
-            let graph = build_preset_graph(&config_for(preset)).expect("preset should build");
+    fn all_builtin_presets_build_graph_native_topologies() {
+        let presets = PresetCatalog::with_builtins().expect("preset catalog should register");
+        let nodes = NodeCatalog::with_builtins().expect("node catalog should register");
+        let modules = SubgraphCatalog::with_builtins().expect("module catalog should register");
+
+        for preset in presets.keys() {
+            let mut config = config_for(preset);
+            config.preset = preset.to_string();
+            let graph = build_preset_graph_with_catalogs(&config, &presets, &nodes, &modules)
+                .expect("preset should build");
             let has_graph_native_ops = graph
                 .nodes
                 .iter()
@@ -99,10 +92,16 @@ mod tests {
     }
 
     #[test]
-    fn unknown_preset_reports_full_known_set() {
-        let err = build_preset_graph(&config_for("unknown")).expect_err("should fail");
+    fn unknown_preset_reports_catalog_keys() {
+        let presets = PresetCatalog::with_builtins().expect("preset catalog should register");
+        let nodes = NodeCatalog::with_builtins().expect("node catalog should register");
+        let modules = SubgraphCatalog::with_builtins().expect("module catalog should register");
+
+        let err =
+            build_preset_graph_with_catalogs(&config_for("unknown"), &presets, &nodes, &modules)
+                .expect_err("unknown preset should fail");
         let text = err.to_string();
-        for preset in PRESET_NAMES {
+        for preset in presets.keys() {
             assert!(text.contains(preset));
         }
     }

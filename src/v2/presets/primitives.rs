@@ -3,12 +3,12 @@
 use crate::model::{ArtStyle, LayerBlendMode, SymmetryStyle, XorShift32};
 
 use super::super::cli::{V2Config, V2Profile};
-use super::super::graph::{GenerateLayerNode, GraphBuilder, NodeId};
+use super::super::graph::{GenerateLayerNode, GraphBuildError, GraphBuilder, NodeId};
 use super::super::node::{
-    BlendNode, BlendTemporal, GenerateLayerTemporal, MaskNode, MaskTemporal, PortType,
-    SourceNoiseNode, SourceNoiseTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal,
+    BlendNode, BlendTemporal, GenerateLayerTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal,
     WarpTransformNode, WarpTransformTemporal,
 };
+use super::node_catalog::{NodeCatalog, NodePayload};
 
 pub(super) fn render_size(config: &V2Config) -> (u32, u32) {
     (
@@ -19,48 +19,18 @@ pub(super) fn render_size(config: &V2Config) -> (u32, u32) {
 
 pub(super) fn add_layers(
     builder: &mut GraphBuilder,
+    nodes: &NodeCatalog,
     count: u32,
     profile: V2Profile,
     rng: &mut XorShift32,
     emphasize_fractal: bool,
-) -> Vec<NodeId> {
+) -> Result<Vec<NodeId>, GraphBuildError> {
     let mut layers = Vec::with_capacity(count as usize);
     for layer_index in 0..count {
         let node = generate_layer_node(layer_index, count, profile, rng, emphasize_fractal);
-        layers.push(builder.add_generate_layer(node));
+        layers.push(nodes.create(builder, "generate-layer", NodePayload::GenerateLayer(node))?);
     }
-    layers
-}
-
-pub(super) fn add_noise_mask(
-    builder: &mut GraphBuilder,
-    rng: &mut XorShift32,
-    invert: bool,
-) -> NodeId {
-    let source = builder.add_source_noise(SourceNoiseNode {
-        seed: rng.next_u32(),
-        scale: 1.4 + rng.next_f32() * 6.8,
-        octaves: 3 + (rng.next_u32() % 3),
-        amplitude: 0.65 + rng.next_f32() * 0.4,
-        output_port: PortType::LumaTexture,
-        temporal: SourceNoiseTemporal {
-            scale_mul: Some(curve(0.24, 0.6 + rng.next_f32() * 0.35, rng.next_f32())),
-            amplitude_mul: Some(curve(0.14, 0.8 + rng.next_f32() * 0.45, rng.next_f32())),
-        },
-    });
-
-    let mask = builder.add_mask(MaskNode {
-        threshold: 0.33 + rng.next_f32() * 0.34,
-        softness: 0.04 + rng.next_f32() * 0.24,
-        invert,
-        temporal: MaskTemporal {
-            threshold_add: Some(curve(0.05, 0.7 + rng.next_f32() * 0.45, rng.next_f32())),
-            softness_mul: Some(curve(0.22, 0.6 + rng.next_f32() * 0.4, rng.next_f32())),
-        },
-    });
-
-    builder.connect_luma(source, mask);
-    mask
+    Ok(layers)
 }
 
 pub(super) fn random_blend(
