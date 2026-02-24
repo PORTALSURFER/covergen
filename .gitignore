@@ -1,3 +1,4 @@
 /target
+/shaders/*/target
 out
 selected
