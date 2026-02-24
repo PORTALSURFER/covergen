@@ -15,6 +15,7 @@ use super::subgraph_catalog::SubgraphCatalog;
 use super::touchdesigner;
 use super::touchdesigner_cascade;
 use super::touchdesigner_feedback_atlas;
+use super::touchdesigner_hyperweave;
 use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
 use super::touchdesigner_patchwork;
@@ -162,6 +163,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-feedback-atlas",
         aliases: &["td-feedback", "touchdesigner-feedback"],
         build: touchdesigner_feedback_atlas::build_td_feedback_atlas,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-hyperweave",
+        aliases: &["td-hyper", "touchdesigner-hyperweave"],
+        build: touchdesigner_hyperweave::build_td_hyperweave,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-patchwork",
