@@ -3,12 +3,6 @@
 //! This module centralizes CLI parsing and top-level knobs that affect
 //! render-scale, quality/performance profiles, and deterministic seeding.
 
-use std::{
-    env,
-    error::Error,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
 /// Maximum amount of pixels the supersampled resolution can use before clamping.
 pub(crate) const MAX_RENDER_PIXELS: u64 = 16_777_216;
 
@@ -33,118 +27,6 @@ pub(crate) struct Config {
     pub(crate) count: u32,
     pub(crate) output: String,
     pub(crate) antialias: u32,
-}
-
-impl Config {
-    /// Parse CLI flags into a validated configuration.
-    pub(crate) fn from_env() -> Result<Self, Box<dyn Error>> {
-        let mut args = env::args().skip(1);
-        let mut cfg = Config {
-            width: 1024,
-            height: 1024,
-            symmetry: 4,
-            iterations: 320,
-            seed: random_seed(),
-            fill_scale: 1.35,
-            fractal_zoom: 0.72,
-            fast: false,
-            layers: None,
-            count: 1,
-            output: "fractal.png".to_string(),
-            antialias: 1,
-        };
-
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "--size" => {
-                    let value = args.next().ok_or("missing size value, pass --size <u32>")?;
-                    let size = value.parse::<u32>()?;
-                    cfg.width = size;
-                    cfg.height = size;
-                }
-                "--symmetry" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing symmetry value, pass --symmetry <1-8>")?;
-                    cfg.symmetry = value.parse()?;
-                }
-                "--iterations" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing iterations value, pass --iterations <u32>")?;
-                    cfg.iterations = value.parse()?;
-                }
-                "--seed" => {
-                    let value = args.next().ok_or("missing seed value, pass --seed <u32>")?;
-                    cfg.seed = value.parse()?;
-                }
-                "--fill" => {
-                    let value = args.next().ok_or("missing fill value, pass --fill <f32>")?;
-                    cfg.fill_scale = value.parse()?;
-                }
-                "--zoom" => {
-                    let value = args.next().ok_or("missing zoom value, pass --zoom <f32>")?;
-                    cfg.fractal_zoom = value.parse()?;
-                }
-                "--fast" => {
-                    cfg.fast = true;
-                }
-                "--layers" => {
-                    cfg.layers = Some(
-                        args.next()
-                            .ok_or("missing layers value, pass --layers <u32>")?
-                            .parse()?,
-                    );
-                }
-                "--count" | "-n" => {
-                    let value = args
-                        .next()
-                        .ok_or("missing count value, pass --count <u32>")?;
-                    cfg.count = value.parse()?;
-                }
-                "--output" | "-o" => {
-                    cfg.output = args
-                        .next()
-                        .ok_or("missing output file name, pass --output <path>")?
-                        .to_string();
-                }
-                "--antialias" | "--aa" => {
-                    cfg.antialias = args
-                        .next()
-                        .ok_or("missing antialias value, pass --antialias <1|2|3|4>")?
-                        .parse()?;
-                }
-                _ => return Err(format!("unknown argument: {arg}").into()),
-            }
-        }
-
-        if cfg.width == 0 || cfg.height == 0 {
-            return Err("width and height must be greater than zero".into());
-        }
-        if cfg.symmetry == 0 {
-            return Err("symmetry must be at least 1".into());
-        }
-        if cfg.iterations == 0 {
-            return Err("iterations must be at least 1".into());
-        }
-        if cfg.fill_scale <= 0.0 {
-            return Err("fill scale must be greater than 0".into());
-        }
-        if cfg.fractal_zoom <= 0.0 {
-            return Err("zoom must be greater than 0".into());
-        }
-        if let Some(0) = cfg.layers {
-            return Err("layers must be greater than 0".into());
-        }
-        if cfg.count == 0 {
-            return Err("count must be at least 1".into());
-        }
-        if cfg.antialias == 0 {
-            return Err("antialias must be at least 1".into());
-        }
-
-        Ok(cfg)
-    }
 }
 
 /// Performance profile settings derived from resolution and image count.
@@ -359,19 +241,6 @@ pub(crate) fn clamp_iteration_count(iterations: u32, cap: u32) -> u32 {
 /// Clamp layer count to a hard upper bound.
 pub(crate) fn clamp_layer_count(layer_count: u32, cap: u32) -> u32 {
     layer_count.min(cap)
-}
-
-/// Build a time-based seed for initial random state.
-pub(crate) fn random_seed() -> u32 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|time| time.as_nanos() as u64)
-        .unwrap_or(0);
-    let mut seed = now as u32 ^ (now >> 32) as u32;
-    seed ^= seed << 13;
-    seed ^= seed >> 17;
-    seed ^= seed << 5;
-    seed
 }
 
 #[cfg(test)]

@@ -6,10 +6,9 @@ GPU-driven procedural cover generation.
 
 - `covergen` runs the V2 node-graph runtime (`src/v2/*`) by default.
 - `covergen v2 ...` runs V2 explicitly.
-- `covergen v1` runs the legacy V1 pipeline (`src/engine.rs`).
 - `covergen bench ...` runs benchmark + telemetry workflows.
 
-V1 deprecation window is active from **February 23, 2026** through **May 24, 2026**. Cutover and deprecation gates are documented in `docs/v2/migration.md`.
+V1 CLI mode (`covergen v1`) was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
 
 ## V2 Quick Start
 

@@ -7,7 +7,7 @@
 - Expand V2 node graph/runtime beyond linear layer stacks.
 - Push more post-process work fully onto GPU.
 - Add benchmark and regression guardrails.
-- Prepare V2 for default-path cutover while V1 remains available.
+- Operate and harden a V2-only runtime path.
 
 ## Plan Hygiene
 - Keep this index high-level.

@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::v2::graph::GraphBuildError;
 #[cfg(test)]
 use crate::v2::graph::NodeId;
-use crate::v2::node::OutputRole;
 #[cfg(test)]
 use crate::v2::node::OutputNode;
+use crate::v2::node::OutputRole;
 
 use super::{CompiledNodeStep, CompiledOp, CompiledOutputBinding};
 

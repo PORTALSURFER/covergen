@@ -4,36 +4,36 @@
 
 - `covergen` runs V2 (`src/v2/*`) by default.
 - `covergen v2 ...` runs V2 explicitly.
-- `covergen v1` runs the legacy V1 compatibility path (`src/engine.rs`).
+- `covergen v1` is no longer supported (removed from CLI dispatch in `src/main.rs`).
 
-## Cutover + Deprecation Window
+## Cutover + Deprecation Timeline
 
-- Default-path cutover to V2 is active as of **February 23, 2026**.
-- V1 deprecation window is active from **February 23, 2026** through **May 24, 2026**.
-- During this window, V1 remains supported only through explicit `covergen v1`.
+- V2 default-path cutover started on **February 23, 2026**.
+- A V1 deprecation window was announced for **February 23, 2026** through **May 24, 2026**.
+- V1 CLI mode was retired early on **February 24, 2026** after stability-gate review.
 
-## Cutover Checklist Status
+## Final Checklist Status
 
 1. CLI contract
-   - Complete: explicit `covergen v1` mode exists.
-   - Complete: default path routes to V2 (`src/main.rs`).
+   - Complete: default and explicit paths are V2-only (`covergen`, `covergen v2 ...`).
+   - Complete: `covergen v1` now returns a hard deprecation error.
 2. CI performance gate
    - Complete: benchmark threshold workflow exists in `.github/workflows/perf-gates.yml`.
    - Complete: CI software threshold baseline is locked at `.github/bench/ci_software.thresholds.ini`.
 3. CI visual regression gate
    - Complete: fixed-seed still + sampled animation snapshot tests run in `.github/workflows/perf-gates.yml`.
 4. Documentation + handoff
-   - Complete: README mode contract and deprecation dates updated.
-   - Complete: migration notes, active TODO, and memory state aligned.
+   - Complete: README mode contract and migration timeline updated.
+   - Complete: migration notes, active TODO, and memory state aligned to V2-only operation.
 
-## Remaining Migration Work
+## Post-Deprecation Notes
 
-- Capture and lock threshold files for target non-CI hardware tiers in `docs/v2/benchmarks/*.thresholds.ini`.
-- Monitor benchmark + snapshot gate stability through the full deprecation window.
-- Decide V1 removal after deprecation window closes and stability criteria remain green.
+- V1 rendering code remains in-repo for internal benchmark/comparison workflows only.
+- User-facing runtime support is V2-only.
 
 ## Evidence Artifacts
 
+- CLI dispatch: `src/main.rs`
 - CI gate workflow: `.github/workflows/perf-gates.yml`
 - CI software thresholds: `.github/bench/ci_software.thresholds.ini`
 - Runtime benchmark report output: `target/bench_ci_software/benchmark_report.md`
