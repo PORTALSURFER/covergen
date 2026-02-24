@@ -14,6 +14,7 @@ use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
 use super::touchdesigner;
 use super::touchdesigner_cascade;
+use super::touchdesigner_feedback_atlas;
 use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
 
@@ -155,6 +156,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-cascade-lab",
         aliases: &["td-cascade", "touchdesigner-cascade"],
         build: touchdesigner_cascade::build_td_cascade_lab,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-feedback-atlas",
+        aliases: &["td-feedback", "touchdesigner-feedback"],
+        build: touchdesigner_feedback_atlas::build_td_feedback_atlas,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-modular-network",
