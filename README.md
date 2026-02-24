@@ -38,6 +38,8 @@ Useful V2 flags:
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
+- `--manifest-out <path>` (write graph+config replay manifest JSON)
+- `--manifest-in <path>` (replay exactly from a manifest JSON)
 - `--explore-candidates <u32>` (low-res generate-score-select before final still renders)
 - `--explore-size <u32>` (max dimension for low-res exploration pass; default `320`)
 - `--mood <balanced|moody|bright|dreamy>` (high-level tone/contrast intent)
@@ -49,6 +51,16 @@ Useful V2 flags:
 - `--motion <gentle|normal|wild>` (animation intensity profile; default `normal`)
 - `--reels` (forces 1080x1920 and enables animation)
 - `--keep-frames` (preserve temporary PNG frames after MP4 encode)
+
+Replay workflow:
+
+```bash
+# Generate art and persist an exact replay manifest.
+cargo run --bin covergen -- --preset td-hyperweave --output still.png --manifest-out replay.json
+
+# Re-run exactly from the manifest graph+config.
+cargo run --bin covergen -- --manifest-in replay.json
+```
 
 Operator-family model (TouchDesigner-style):
 

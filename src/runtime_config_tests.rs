@@ -65,6 +65,19 @@ fn parse_exploration_flags() {
 }
 
 #[test]
+fn parse_manifest_flags() {
+    let cfg = V2Config::parse(vec![
+        "--manifest-in".to_string(),
+        "fixtures/replay.json".to_string(),
+        "--manifest-out".to_string(),
+        "out/replay.json".to_string(),
+    ])
+    .expect("manifest flags should parse");
+    assert_eq!(cfg.manifest_in.as_deref(), Some("fixtures/replay.json"));
+    assert_eq!(cfg.manifest_out.as_deref(), Some("out/replay.json"));
+}
+
+#[test]
 fn low_res_explore_config_scales_dimensions() {
     let cfg = V2Config::parse(vec![
         "--width".to_string(),
@@ -94,6 +107,18 @@ fn exploration_rejected_for_animation_mode() {
         "8".to_string(),
     ])
     .expect_err("animation+exploration should be rejected");
+    assert!(err.to_string().contains("explore-candidates"));
+}
+
+#[test]
+fn exploration_rejected_for_manifest_replay_mode() {
+    let err = V2Config::parse(vec![
+        "--manifest-in".to_string(),
+        "fixtures/replay.json".to_string(),
+        "--explore-candidates".to_string(),
+        "8".to_string(),
+    ])
+    .expect_err("manifest+exploration should be rejected");
     assert!(err.to_string().contains("explore-candidates"));
 }
 

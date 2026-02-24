@@ -268,6 +268,8 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
         antialias: 1,
         preset: config.preset.clone(),
         profile: config.profile,
+        manifest_out: None,
+        manifest_in: None,
         art_direction: crate::art_direction::ArtDirectionConfig::default(),
         animation: AnimationConfig {
             enabled: false,

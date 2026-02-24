@@ -316,6 +316,8 @@ pub(super) fn snapshot_config(seed: u32, width: u32, height: u32, profile: V2Pro
         antialias: 1,
         preset: "hybrid-stack".to_string(),
         profile,
+        manifest_out: None,
+        manifest_in: None,
         art_direction: crate::art_direction::ArtDirectionConfig::default(),
         animation: AnimationConfig {
             enabled: false,

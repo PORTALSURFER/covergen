@@ -4,9 +4,10 @@
 //! symmetry, chaos, palette) and map them into deterministic numeric tuning.
 
 use clap::{Args, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 /// Emotional lighting and contrast intent for generated output.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum MoodDirection {
     /// Balanced contrast and neutral tonal bias.
     #[default]
@@ -24,7 +25,7 @@ pub enum MoodDirection {
 }
 
 /// Overall motion/detail intensity target.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum EnergyDirection {
     /// Restrained modulation and lower geometric aggression.
     Low,
@@ -38,7 +39,7 @@ pub enum EnergyDirection {
 }
 
 /// Symmetry intent applied to generated layer parameters.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum SymmetryDirection {
     /// Prefer lower symmetry counts for asymmetric compositions.
     #[value(alias = "asymmetric", alias = "loose")]
@@ -53,7 +54,7 @@ pub enum SymmetryDirection {
 }
 
 /// Controlled randomness level for structure and modulation variance.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum ChaosDirection {
     /// Keep structure stable and reduce extremes.
     #[value(alias = "low", alias = "calm")]
@@ -68,7 +69,7 @@ pub enum ChaosDirection {
 }
 
 /// Palette family bias for layer style selection.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum PaletteDirection {
     /// Allow broad style variety.
     #[default]
@@ -119,7 +120,7 @@ impl ArtDirectionArgs {
 }
 
 /// Runtime art-direction profile applied to graph node parameters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ArtDirectionConfig {
     pub mood: MoodDirection,
     pub energy: EnergyDirection,

@@ -1,7 +1,9 @@
 //! SOP (surface-operator) node types for primitive geometry sources.
 
+use serde::{Deserialize, Serialize};
+
 /// 2D circle primitive in normalized camera space.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SopCircleNode {
     pub radius: f32,
     pub feather: f32,
@@ -10,7 +12,7 @@ pub struct SopCircleNode {
 }
 
 /// 3D-lit sphere primitive projected in normalized camera space.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SopSphereNode {
     pub radius: f32,
     pub center_x: f32,
@@ -21,7 +23,7 @@ pub struct SopSphereNode {
 }
 
 /// TOP camera node that rasterizes SOP primitives to luma.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopCameraRenderNode {
     pub exposure: f32,
     pub gamma: f32,

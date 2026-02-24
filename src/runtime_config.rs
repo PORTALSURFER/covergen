@@ -4,11 +4,12 @@ use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::art_direction::{ArtDirectionArgs, ArtDirectionConfig};
 
 /// Runtime profile used by graph execution and preset generation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum V2Profile {
     #[default]
     #[value(alias = "q")]
@@ -18,7 +19,7 @@ pub enum V2Profile {
 }
 
 /// Animation motion profile controlling temporal intensity and seed jitter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum AnimationMotion {
     /// Balanced modulation with stable per-clip seed.
     #[default]
@@ -49,7 +50,7 @@ impl AnimationMotion {
 }
 
 /// Candidate exploration settings for generate-score-select rendering.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionConfig {
     /// Number of low-resolution candidates to explore before final rendering.
     pub explore_candidates: u32,
@@ -121,13 +122,19 @@ pub struct V2Args {
     /// Maximum low-res candidate dimension used by the exploration pass.
     #[arg(long, default_value_t = 320)]
     explore_size: u32,
+    /// Write a reproducibility manifest JSON containing graph + runtime config.
+    #[arg(long)]
+    manifest_out: Option<String>,
+    /// Replay from a reproducibility manifest JSON instead of generating a new graph.
+    #[arg(long)]
+    manifest_in: Option<String>,
     /// High-level creative steering controls.
     #[command(flatten)]
     art_direction: ArtDirectionArgs,
 }
 
 /// Animation settings for clip generation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnimationConfig {
     pub enabled: bool,
     pub seconds: u32,
@@ -137,7 +144,7 @@ pub struct AnimationConfig {
 }
 
 /// Parsed command-line configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V2Config {
     pub width: u32,
     pub height: u32,
@@ -148,6 +155,8 @@ pub struct V2Config {
     pub antialias: u32,
     pub preset: String,
     pub profile: V2Profile,
+    pub manifest_out: Option<String>,
+    pub manifest_in: Option<String>,
     pub art_direction: ArtDirectionConfig,
     pub animation: AnimationConfig,
     pub selection: SelectionConfig,
@@ -195,6 +204,8 @@ impl V2Config {
             antialias: args.antialias,
             preset: args.preset,
             profile: args.profile,
+            manifest_out: args.manifest_out,
+            manifest_in: args.manifest_in,
             art_direction: args.art_direction.into_config(),
             animation: AnimationConfig {
                 enabled: animation_enabled,
@@ -234,6 +245,8 @@ impl V2Config {
             antialias: 1,
             preset: self.preset.clone(),
             profile: self.profile,
+            manifest_out: None,
+            manifest_in: None,
             art_direction: self.art_direction,
             animation: AnimationConfig {
                 enabled: false,
@@ -281,6 +294,9 @@ fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
     }
     if config.animation.enabled && config.selection.enabled() {
         return Err("explore-candidates cannot be used with animation mode".into());
+    }
+    if config.manifest_in.is_some() && config.selection.enabled() {
+        return Err("explore-candidates cannot be used with manifest replay mode".into());
     }
     Ok(())
 }

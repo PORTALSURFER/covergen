@@ -1,6 +1,7 @@
 //! Core data types shared across GPU/CUDA renderers and strategy selection.
 
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 
 /// Uniform buffer payload consumed by the fractal SPIR-V compute shader.
 #[repr(C)]
@@ -296,7 +297,7 @@ impl SymmetryStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerBlendMode {
     Normal,
     Add,

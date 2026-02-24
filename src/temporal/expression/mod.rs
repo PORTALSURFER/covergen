@@ -8,6 +8,8 @@ mod parser;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+
 use super::GraphTimeInput;
 use parser::parse_ops;
 
@@ -99,7 +101,41 @@ impl TemporalExpression {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl Serialize for TemporalExpression {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        TemporalExpressionSerde {
+            len: self.len,
+            ops: self.ops[..self.len as usize].to_vec(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TemporalExpression {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = TemporalExpressionSerde::deserialize(deserializer)?;
+        if wire.ops.len() != wire.len as usize {
+            return Err(de::Error::custom(
+                "temporal expression len does not match op payload length",
+            ));
+        }
+        Self::from_ops(&wire.ops).map_err(de::Error::custom)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TemporalExpressionSerde {
+    len: u8,
+    ops: Vec<ExprOp>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) enum ExprOp {
     Const(f32),
     Time,

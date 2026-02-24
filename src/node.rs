@@ -4,6 +4,7 @@ use super::temporal::{apply_add, apply_mul, sample};
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::model::{LayerBlendMode, Params};
 use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use serde::{Deserialize, Serialize};
 
 pub use super::temporal::{
     BlendTemporal, GenerateLayerTemporal, GraphTimeInput, MaskTemporal, SourceNoiseTemporal,
@@ -11,7 +12,7 @@ pub use super::temporal::{
 };
 
 /// TouchDesigner-style operator families used for graph authoring semantics.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatorFamily {
     Top,
     Chop,
@@ -20,7 +21,7 @@ pub enum OperatorFamily {
 }
 
 /// Port categories supported by the V2 graph IR.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PortType {
     LumaTexture,
     MaskTexture,
@@ -29,7 +30,7 @@ pub enum PortType {
 }
 
 /// GPU layer generation node parameters.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct GenerateLayerNode {
     pub symmetry: u32,
     pub symmetry_style: u32,
@@ -136,7 +137,7 @@ impl GenerateLayerNode {
 }
 
 /// Procedural source-node generating reusable noise maps.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SourceNoiseNode {
     pub seed: u32,
     pub scale: f32,
@@ -158,7 +159,7 @@ impl SourceNoiseNode {
 }
 
 /// Mask extraction node converting luma into a soft threshold mask.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct MaskNode {
     pub threshold: f32,
     pub softness: f32,
@@ -178,7 +179,7 @@ impl MaskNode {
 }
 
 /// Explicit blend/composite node with optional mask input.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct BlendNode {
     pub mode: LayerBlendMode,
     pub opacity: f32,
@@ -196,7 +197,7 @@ impl BlendNode {
 }
 
 /// Tone-map node for post contrast/stretch style adjustments.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ToneMapNode {
     pub contrast: f32,
     pub low_pct: f32,
@@ -225,7 +226,7 @@ impl ToneMapNode {
 }
 
 /// Warp/transform node for lightweight geometric modulation.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct WarpTransformNode {
     pub strength: f32,
     pub frequency: f32,
@@ -255,14 +256,14 @@ impl WarpTransformNode {
 ///
 /// The runtime stores one persistent GPU buffer per feedback node and updates it
 /// after each frame so subsequent frames can evolve from prior state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct StatefulFeedbackNode {
     /// Feedback amount in `[0, 1]`, where `0` keeps current input and `1` uses prior state.
     pub mix: f32,
 }
 
 /// Role of an output node in a graph with one or more outputs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputRole {
     /// Primary output used by default runtime encode/finalization.
     Primary,
@@ -271,7 +272,7 @@ pub enum OutputRole {
 }
 
 /// Output node contract describing role and output slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputNode {
     /// Semantic role of this output.
     pub role: OutputRole,
@@ -298,7 +299,7 @@ impl OutputNode {
 }
 
 /// Graph node kinds supported by V2.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum NodeKind {
     GenerateLayer(GenerateLayerNode),
     SourceNoise(SourceNoiseNode),

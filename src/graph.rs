@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::chop::{ChopLfoNode, ChopMathNode, ChopRemapNode};
 use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
+use serde::{Deserialize, Serialize};
 
 pub use super::node::{
     BlendNode, GenerateLayerNode, MaskNode, NodeKind, OperatorFamily, OutputNode, OutputRole,
@@ -13,18 +14,18 @@ pub use super::node::{
 };
 
 /// Stable node identifier used across builder, compiler, and runtime.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub u32);
 
 /// Immutable node descriptor in a validated graph.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NodeSpec {
     pub id: NodeId,
     pub kind: NodeKind,
 }
 
 /// Directed edge connecting typed ports between nodes.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct EdgeSpec {
     pub from: NodeId,
     pub to: NodeId,
@@ -34,7 +35,7 @@ pub struct EdgeSpec {
 }
 
 /// Fully built and validated graph for compiler input.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GpuGraph {
     pub width: u32,
     pub height: u32,

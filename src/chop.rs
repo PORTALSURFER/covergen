@@ -1,7 +1,9 @@
 //! CHOP (channel-operator) node types for scalar modulation graphs.
 
+use serde::{Deserialize, Serialize};
+
 /// Oscillator waveform used by `ChopLfoNode`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ChopWave {
     Sine,
     Triangle,
@@ -20,7 +22,7 @@ impl ChopWave {
 }
 
 /// Time-driven scalar oscillator node.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ChopLfoNode {
     pub wave: ChopWave,
     pub frequency: f32,
@@ -30,7 +32,7 @@ pub struct ChopLfoNode {
 }
 
 /// Scalar math operation for combining one/two channel inputs.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ChopMathMode {
     Add,
     Multiply,
@@ -53,7 +55,7 @@ impl ChopMathMode {
 }
 
 /// Scalar math node driven by one or two channel inputs.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ChopMathNode {
     pub mode: ChopMathMode,
     pub value: f32,
@@ -61,7 +63,7 @@ pub struct ChopMathNode {
 }
 
 /// Scalar remap node with optional clamping.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ChopRemapNode {
     pub in_min: f32,
     pub in_max: f32,

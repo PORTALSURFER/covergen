@@ -3,9 +3,10 @@
 mod expression;
 
 pub use expression::{TemporalExpression, TemporalExpressionError};
+use serde::{Deserialize, Serialize};
 
 /// Normalized graph-time input sampled once per rendered frame.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct GraphTimeInput {
     /// Normalized frame position in `[0, 1]`.
     pub normalized: f32,
@@ -62,13 +63,13 @@ impl GraphTimeInput {
 }
 
 /// Oscillator shape used by temporal parameter curves.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum TemporalWave {
     Sine,
 }
 
 /// Modulation curve sampled against normalized graph time.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TemporalCurve {
     /// Base wave function.
     pub wave: TemporalWave,
@@ -105,7 +106,7 @@ impl TemporalCurve {
 }
 
 /// Temporal modulation source used by node channels.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum TemporalModulation {
     /// Legacy fixed sine-curve modulation.
     Curve(TemporalCurve),
@@ -148,7 +149,7 @@ impl From<TemporalExpression> for TemporalModulation {
 }
 
 /// Temporal modulation channels for one `GenerateLayerNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct GenerateLayerTemporal {
     pub iterations_scale: Option<TemporalModulation>,
     pub fill_scale_mul: Option<TemporalModulation>,
@@ -164,27 +165,27 @@ pub struct GenerateLayerTemporal {
 }
 
 /// Temporal modulation channels for one `SourceNoiseNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct SourceNoiseTemporal {
     pub scale_mul: Option<TemporalModulation>,
     pub amplitude_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `MaskNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct MaskTemporal {
     pub threshold_add: Option<TemporalModulation>,
     pub softness_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `BlendNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct BlendTemporal {
     pub opacity_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `ToneMapNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct ToneMapTemporal {
     pub contrast_mul: Option<TemporalModulation>,
     pub low_pct_add: Option<TemporalModulation>,
@@ -192,7 +193,7 @@ pub struct ToneMapTemporal {
 }
 
 /// Temporal modulation channels for one `WarpTransformNode`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct WarpTransformTemporal {
     pub strength_mul: Option<TemporalModulation>,
     pub frequency_mul: Option<TemporalModulation>,
