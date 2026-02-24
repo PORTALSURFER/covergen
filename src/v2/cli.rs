@@ -19,6 +19,42 @@ impl V2Profile {
     }
 }
 
+/// Animation motion profile controlling temporal intensity and seed jitter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnimationMotion {
+    /// Slow, low-amplitude modulation with stable per-clip seed.
+    Gentle,
+    /// Balanced modulation with stable per-clip seed.
+    Normal,
+    /// High modulation and per-frame seed jitter for aggressive motion.
+    Wild,
+}
+
+impl AnimationMotion {
+    fn parse(value: &str) -> Result<Self, Box<dyn Error>> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "gentle" | "soft" | "calm" => Ok(Self::Gentle),
+            "normal" | "medium" | "balanced" => Ok(Self::Normal),
+            "wild" | "intense" | "high" => Ok(Self::Wild),
+            _ => Err(format!("invalid motion '{value}', expected gentle|normal|wild").into()),
+        }
+    }
+
+    /// Return temporal modulation scale for this motion profile.
+    pub fn modulation_intensity(self) -> f32 {
+        match self {
+            Self::Gentle => 0.25,
+            Self::Normal => 0.55,
+            Self::Wild => 1.0,
+        }
+    }
+
+    /// Return whether per-frame seed jitter should be enabled.
+    pub fn use_seed_jitter(self) -> bool {
+        matches!(self, Self::Wild)
+    }
+}
+
 /// Animation settings for V2 clip generation.
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
@@ -27,6 +63,7 @@ pub struct AnimationConfig {
     pub fps: u32,
     pub keep_frames: bool,
     pub reels: bool,
+    pub motion: AnimationMotion,
 }
 
 /// Parsed V2 command-line configuration.
@@ -63,6 +100,7 @@ impl V2Config {
                 fps: 30,
                 keep_frames: false,
                 reels: false,
+                motion: AnimationMotion::Normal,
             },
         };
 
@@ -126,6 +164,10 @@ impl V2Config {
                 "--reels" => {
                     cfg.animation.reels = true;
                 }
+                "--motion" => {
+                    let value = iter.next().ok_or("missing value for --motion")?;
+                    cfg.animation.motion = AnimationMotion::parse(&value)?;
+                }
                 _ => return Err(format!("unknown v2 argument: {arg}").into()),
             }
         }
@@ -165,7 +207,7 @@ impl V2Config {
 
 #[cfg(test)]
 mod tests {
-    use super::V2Config;
+    use super::{AnimationMotion, V2Config};
 
     #[test]
     fn reels_mode_enables_animation_and_dimensions() {
@@ -185,5 +227,12 @@ mod tests {
         ])
         .expect("animation configuration should parse");
         assert!(cfg.output.ends_with(".mp4"));
+    }
+
+    #[test]
+    fn motion_profile_parses() {
+        let cfg = V2Config::parse(vec!["--motion".to_string(), "gentle".to_string()])
+            .expect("motion profile should parse");
+        assert_eq!(cfg.animation.motion, AnimationMotion::Gentle);
     }
 }

@@ -152,12 +152,19 @@ fn execute_animation(
             .seed
             .wrapping_add(compiled.seed)
             .wrapping_add(clip_index.wrapping_mul(0x6A09_E667));
+        let motion = config.animation.motion;
+        let modulation_intensity = motion.modulation_intensity();
+        let use_seed_jitter = motion.use_seed_jitter();
 
         for frame_index in 0..frames {
             let frame_start = Instant::now();
-            let frame_seed_offset =
-                clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9));
-            let graph_time = GraphTimeInput::from_frame(frame_index, frames);
+            let frame_seed_offset = if use_seed_jitter {
+                clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9))
+            } else {
+                clip_seed_offset
+            };
+            let graph_time = GraphTimeInput::from_frame(frame_index, frames)
+                .with_intensity(modulation_intensity);
 
             render_graph_frame(
                 compiled,

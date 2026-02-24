@@ -5,6 +5,8 @@
 pub struct GraphTimeInput {
     /// Normalized frame position in `[0, 1]`.
     pub normalized: f32,
+    /// Global temporal intensity scale applied to modulation amplitudes.
+    pub intensity: f32,
 }
 
 impl GraphTimeInput {
@@ -17,7 +19,16 @@ impl GraphTimeInput {
         }
         .clamp(0.0, 1.0);
 
-        Self { normalized }
+        Self {
+            normalized,
+            intensity: 1.0,
+        }
+    }
+
+    /// Override the global temporal intensity for this sample.
+    pub fn with_intensity(mut self, intensity: f32) -> Self {
+        self.intensity = intensity.clamp(0.0, 1.5);
+        self
     }
 }
 
@@ -60,7 +71,7 @@ impl TemporalCurve {
         let wave = match self.wave {
             TemporalWave::Sine => (cycle * std::f32::consts::TAU).sin(),
         };
-        self.offset + (self.amplitude * wave)
+        self.offset + (self.amplitude * time.intensity * wave)
     }
 }
 

@@ -225,6 +225,7 @@ mod tests {
             fps: 0,
             keep_frames: false,
             reels: false,
+            motion: super::super::cli::AnimationMotion::Normal,
         };
         assert_eq!(total_frames(&cfg), 1);
     }

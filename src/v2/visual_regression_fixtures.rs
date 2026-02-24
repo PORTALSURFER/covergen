@@ -3,7 +3,7 @@
 use std::error::Error;
 
 use crate::model::LayerBlendMode;
-use crate::v2::cli::{AnimationConfig, V2Config, V2Profile};
+use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
 use crate::v2::compiler::{CompiledGraph, compile_graph};
 use crate::v2::graph::{GpuGraph, GraphBuilder, NodeId};
 use crate::v2::node::{
@@ -245,6 +245,7 @@ pub(super) fn snapshot_config(seed: u32, width: u32, height: u32, profile: V2Pro
             fps: 12,
             keep_frames: false,
             reels: false,
+            motion: AnimationMotion::Normal,
         },
     }
 }

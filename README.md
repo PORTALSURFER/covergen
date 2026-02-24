@@ -34,6 +34,7 @@ Useful V2 flags:
 - `--antialias <1..=4>`
 - `--output <path>`
 - `--animate --seconds <u32> --fps <u32>`
+- `--motion <gentle|normal|wild>` (animation intensity profile; default `normal`)
 - `--reels` (forces 1080x1920 and enables animation)
 - `--keep-frames` (preserve temporary PNG frames after MP4 encode)
 

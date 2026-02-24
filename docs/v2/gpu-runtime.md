@@ -29,10 +29,17 @@ V2 supports clip rendering for social-video output:
 
 - `--animate --seconds <n> --fps <n>` enables frame sequence rendering.
 - `--reels` sets `1080x1920` and enables animation automatically.
+- `--motion <gentle|normal|wild>` controls temporal modulation intensity.
 
 For each frame, layer parameters are gently modulated (center offsets, zoom,
 mix, warp, contrast, opacity) using deterministic sinusoids. This produces slow
 morphing over the full clip duration.
+
+Motion profile behavior:
+
+- `gentle`: low modulation amplitude, stable per-clip seed (minimum flicker)
+- `normal`: moderate modulation amplitude, stable per-clip seed
+- `wild`: full modulation amplitude with per-frame seed jitter
 
 Frame flow:
 

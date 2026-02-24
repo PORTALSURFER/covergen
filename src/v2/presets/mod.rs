@@ -58,7 +58,7 @@ impl PresetKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::cli::{AnimationConfig, V2Profile};
+    use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Profile};
     use crate::v2::graph::NodeKind;
 
     fn config_for(preset: &str) -> V2Config {
@@ -78,6 +78,7 @@ mod tests {
                 fps: 30,
                 keep_frames: false,
                 reels: false,
+                motion: AnimationMotion::Normal,
             },
         }
     }

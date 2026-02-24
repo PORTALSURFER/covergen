@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::engine;
 use crate::telemetry::{self, CaptureReport};
 use crate::v2::animation::total_frames;
-use crate::v2::cli::{AnimationConfig, V2Config, V2Profile};
+use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
 use crate::v2::compiler::compile_graph;
 use crate::v2::presets::build_preset_graph;
 use crate::v2::runtime::execute_compiled;
@@ -358,6 +358,7 @@ async fn run_v2_animation_sample(
         fps: config.animation_fps,
         keep_frames: false,
         reels: false,
+        motion: AnimationMotion::Normal,
     };
 
     let frame_count = total_frames(&run_cfg.animation);
@@ -397,6 +398,7 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
             fps: config.animation_fps,
             keep_frames: false,
             reels: false,
+            motion: AnimationMotion::Normal,
         },
     }
 }
