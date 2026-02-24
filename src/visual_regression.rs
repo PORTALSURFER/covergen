@@ -6,9 +6,9 @@
 
 use std::error::Error;
 
-use super::cli::V2Profile;
 use super::compiler::CompiledGraph;
 use super::node::{GraphTimeInput, OutputRole};
+use super::runtime_config::V2Profile;
 use super::runtime_eval::render_graph_luma;
 use super::runtime_test_support::finalize_luma_for_output_for_test;
 use super::visual_regression_fixtures as fixtures;

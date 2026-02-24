@@ -7,7 +7,7 @@ use clap::Args;
 #[cfg(test)]
 use clap::Parser;
 
-use crate::v2::cli::V2Profile;
+use crate::runtime_config::V2Profile;
 
 use super::BenchConfig;
 
@@ -121,7 +121,7 @@ fn validate_bench_config(config: &BenchConfig) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::parse_bench_config;
-    use crate::v2::cli::V2Profile;
+    use crate::runtime_config::V2Profile;
 
     #[test]
     fn profile_alias_parses() {

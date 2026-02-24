@@ -2,12 +2,12 @@
 
 use crate::model::{ArtStyle, LayerBlendMode, SymmetryStyle, XorShift32};
 
-use super::super::cli::{V2Config, V2Profile};
 use super::super::graph::{GenerateLayerNode, GraphBuildError, GraphBuilder, NodeId};
 use super::super::node::{
     BlendNode, BlendTemporal, GenerateLayerTemporal, TemporalCurve, TemporalModulation,
     ToneMapNode, ToneMapTemporal, WarpTransformNode, WarpTransformTemporal,
 };
+use super::super::runtime_config::{V2Config, V2Profile};
 use super::node_catalog::{NodeCatalog, NodePayload};
 
 pub(super) fn render_size(config: &V2Config) -> (u32, u32) {

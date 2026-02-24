@@ -7,8 +7,8 @@
 use std::collections::HashSet;
 use std::error::Error;
 
-use super::cli::V2Profile;
 use super::node::GraphTimeInput;
+use super::runtime_config::V2Profile;
 use super::runtime_gpu::render_graph_luma_gpu;
 use super::runtime_test_support::finalize_luma_for_output_for_test;
 use super::visual_regression_fixtures as fixtures;

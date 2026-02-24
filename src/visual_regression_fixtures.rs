@@ -2,16 +2,16 @@
 
 use std::error::Error;
 
+use crate::compiler::{compile_graph, CompiledGraph};
+use crate::graph::{GpuGraph, GraphBuilder, NodeId};
 use crate::model::LayerBlendMode;
-use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
-use crate::v2::compiler::{compile_graph, CompiledGraph};
-use crate::v2::graph::{GpuGraph, GraphBuilder, NodeId};
-use crate::v2::node::{
+use crate::node::{
     BlendNode, BlendTemporal, MaskNode, MaskTemporal, PortType, SourceNoiseNode,
     SourceNoiseTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal, WarpTransformNode,
     WarpTransformTemporal,
 };
-use crate::v2::runtime::RuntimeBuffers;
+use crate::runtime::RuntimeBuffers;
+use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum SnapshotGraphKind {

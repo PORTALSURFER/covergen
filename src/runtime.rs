@@ -15,12 +15,12 @@ use crate::telemetry;
 use image::codecs::png::CompressionType;
 
 use super::animation::{
-    RawVideoEncoder, clip_output_path, create_frame_dir, encode_frames_to_mp4, frame_filename,
-    total_frames,
+    clip_output_path, create_frame_dir, encode_frames_to_mp4, frame_filename, total_frames,
+    RawVideoEncoder,
 };
-use super::cli::{V2Config, V2Profile};
 use super::compiler::CompiledGraph;
 use super::node::GraphTimeInput;
+use super::runtime_config::{V2Config, V2Profile};
 use super::runtime_gpu::render_graph_luma_gpu;
 
 /// Reusable image buffers for V2 execution.

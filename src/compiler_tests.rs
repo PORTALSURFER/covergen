@@ -1,7 +1,7 @@
 use super::*;
+use crate::graph::GraphBuilder;
 use crate::model::LayerBlendMode;
-use crate::v2::graph::GraphBuilder;
-use crate::v2::node::{
+use crate::node::{
     BlendNode, BlendTemporal, GenerateLayerNode, GenerateLayerTemporal, MaskNode, MaskTemporal,
 };
 

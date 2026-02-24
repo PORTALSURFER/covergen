@@ -1,9 +1,9 @@
 //! Markdown report rendering for benchmark output.
 
-use crate::v2::cli::V2Profile;
+use crate::runtime_config::V2Profile;
 
-use super::BenchConfig;
 use super::stats::{NodeTimingSummary, ScenarioSummary};
+use super::BenchConfig;
 
 /// Render benchmark summaries into a markdown report.
 pub(super) fn render_report(

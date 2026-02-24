@@ -15,12 +15,12 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use crate::animation::total_frames;
+use crate::compiler::compile_graph;
+use crate::presets::build_preset_graph;
+use crate::runtime::execute_compiled;
+use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
 use crate::telemetry::{self, CaptureReport};
-use crate::v2::animation::total_frames;
-use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
-use crate::v2::compiler::compile_graph;
-use crate::v2::presets::build_preset_graph;
-use crate::v2::runtime::execute_compiled;
 
 use baseline::{validate_thresholds, write_locked_thresholds, write_metrics_snapshot};
 use contracts::validate_output_contract_for_bench;

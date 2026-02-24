@@ -1,4 +1,4 @@
-//! Animation helpers for V2 graph execution.
+//! Animation helpers for graph execution.
 //!
 //! This module handles clip timing, output naming, and ffmpeg integration for
 //! both frame-directory and direct-stream encoding paths.
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::cli::AnimationConfig;
+use super::runtime_config::AnimationConfig;
 
 /// Returns the number of frames to render for one animation clip.
 pub fn total_frames(config: &AnimationConfig) -> u32 {
@@ -21,7 +21,7 @@ pub fn create_frame_dir(base_output: &str, clip_index: u32) -> Result<PathBuf, B
     let stem = Path::new(base_output)
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("covergen_v2")
+        .unwrap_or("covergen")
         .replace(
             |ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-',
             "_",
@@ -55,7 +55,7 @@ pub fn clip_output_path(base: &str, clip_index: u32, total_clips: u32) -> PathBu
     let stem = base_path
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("covergen_v2_animation");
+        .unwrap_or("covergen_animation");
     let ext = base_path
         .extension()
         .and_then(|value| value.to_str())
@@ -224,7 +224,7 @@ mod tests {
             seconds: 0,
             fps: 0,
             keep_frames: false,
-            motion: super::super::cli::AnimationMotion::Normal,
+            motion: crate::runtime_config::AnimationMotion::Normal,
         };
         assert_eq!(total_frames(&cfg), 1);
     }

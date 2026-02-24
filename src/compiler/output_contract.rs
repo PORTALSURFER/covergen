@@ -3,12 +3,12 @@
 #[cfg(test)]
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::v2::graph::GraphBuildError;
+use crate::graph::GraphBuildError;
 #[cfg(test)]
-use crate::v2::graph::NodeId;
+use crate::graph::NodeId;
 #[cfg(test)]
-use crate::v2::node::OutputNode;
-use crate::v2::node::OutputRole;
+use crate::node::OutputNode;
+use crate::node::OutputRole;
 
 use super::{CompiledNodeStep, CompiledOp, CompiledOutputBinding};
 

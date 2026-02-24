@@ -1,18 +1,19 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 11:31:11 UTC
+Last Updated: 2026-02-24 14:00:28 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
 
 ## Current State
-- V2 is the only user-facing CLI runtime path (`covergen` and `covergen v2 ...`).
+- V2 is the only user-facing runtime path (`covergen`).
 - V1 runtime code and CLI path are removed from source.
 - V2 includes:
-  - graph IR + compiler (`src/v2/graph.rs`, `src/v2/compiler.rs`)
-  - deterministic presets (`src/v2/presets/*`)
-  - GPU-retained runtime (`src/v2/runtime.rs`)
-  - 30s reels animation mode with gentle parameter modulation (`src/v2/animation.rs`)
+  - graph IR + compiler (`src/graph.rs`, `src/compiler.rs`)
+  - deterministic presets (`src/presets/*`)
+  - GPU-retained runtime (`src/runtime.rs`)
+  - 30s reels animation mode with gentle parameter modulation (`src/animation.rs`)
+- V2 runtime modules are now flattened into top-level `src/*` (the `src/v2/` split is removed).
 - Hardware GPU is now a hard runtime requirement for both `covergen` and `covergen bench`; software adapters/CPU fallback are rejected with an immediate process error.
 - Benchmark + visual regression gates are local-first via `scripts/ci_local.sh`.
 - CI software-tier benchmark thresholds at `.github/bench/ci_software.thresholds.ini` are legacy/non-authoritative.

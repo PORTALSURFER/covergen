@@ -6,8 +6,8 @@ use super::preset_catalog::PresetContext;
 use super::primitives::{add_layers, random_blend, random_tonemap, random_warp, render_size};
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest};
 use super::{node_catalog::NodePayload, subgraph_catalog::ModuleResult};
-use crate::v2::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
-use crate::v2::node::OutputNode;
+use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
+use crate::node::OutputNode;
 
 pub(super) fn build_hybrid_stack(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (mut builder, mut rng) = builder_with_rng(ctx, 0x2F94_11D3, 0x771B_6A83);

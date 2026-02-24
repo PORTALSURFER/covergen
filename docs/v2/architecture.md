@@ -8,12 +8,12 @@
 
 ## Module Layout
 
-- `src/v2/graph.rs`: typed graph IR and validation.
-- `src/v2/compiler.rs`: topological lowering to runtime plan.
-- `src/v2/presets.rs`: deterministic graph generators from seed.
-- `src/v2/runtime.rs`: GPU executor and output encoding.
-- `src/v2/cli.rs`: V2-specific argument parsing.
-- `src/v2/mod.rs`: orchestration entrypoint.
+- `src/graph.rs`: typed graph IR and validation.
+- `src/compiler.rs`: topological lowering to runtime plan.
+- `src/presets/mod.rs`: deterministic graph generators from seed.
+- `src/runtime.rs`: GPU executor and output encoding.
+- `src/runtime_config.rs`: runtime argument parsing.
+- `src/main.rs`: orchestration entrypoint.
 - `src/shaders.rs`: strict rust-gpu SPIR-V shader loader.
 
 ## Pipeline

@@ -6,8 +6,8 @@
 
 use std::error::Error;
 
-use crate::v2::compiler::CompiledGraph;
-use crate::v2::node::OutputRole;
+use crate::compiler::CompiledGraph;
+use crate::node::OutputRole;
 
 /// Summary of compiled output bindings for a benchmark graph.
 #[derive(Clone, Copy, Debug)]
@@ -52,9 +52,9 @@ pub(super) fn validate_output_contract_for_bench(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::compiler::compile_graph;
-    use crate::v2::graph::GraphBuilder;
-    use crate::v2::node::{PortType, SourceNoiseNode, SourceNoiseTemporal};
+    use crate::compiler::compile_graph;
+    use crate::graph::GraphBuilder;
+    use crate::node::{PortType, SourceNoiseNode, SourceNoiseTemporal};
 
     #[test]
     fn benchmark_contract_accepts_primary_and_tap_outputs() {

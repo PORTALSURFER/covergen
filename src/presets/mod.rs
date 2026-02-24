@@ -4,8 +4,8 @@
 //! and reusable subgraph modules can be registered without editing central
 //! `match` statements.
 
-use super::cli::V2Config;
 use super::graph::{GpuGraph, GraphBuildError};
+use super::runtime_config::V2Config;
 
 mod families;
 pub mod node_catalog;
@@ -44,8 +44,8 @@ pub fn build_preset_graph_with_catalogs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Profile};
-    use crate::v2::graph::NodeKind;
+    use crate::graph::NodeKind;
+    use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Profile};
 
     fn config_for(preset: &str) -> V2Config {
         V2Config {

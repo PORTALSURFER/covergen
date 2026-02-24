@@ -68,7 +68,11 @@ pub(crate) fn build_mask(
     out.par_iter_mut().enumerate().for_each(|(idx, target)| {
         let source = input[idx];
         let mut value = if softness <= f32::EPSILON {
-            if source >= threshold { 1.0 } else { 0.0 }
+            if source >= threshold {
+                1.0
+            } else {
+                0.0
+            }
         } else {
             smoothstep(edge_min, edge_max, source)
         };

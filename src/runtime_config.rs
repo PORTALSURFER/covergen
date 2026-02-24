@@ -1,11 +1,11 @@
-//! CLI configuration parsing for the V2 graph runtime.
+//! CLI configuration parsing for the default graph runtime.
 
 use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, ValueEnum};
 
-/// Runtime profile used by V2 execution and preset generation.
+/// Runtime profile used by graph execution and preset generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum V2Profile {
     #[default]
@@ -46,7 +46,7 @@ impl AnimationMotion {
     }
 }
 
-/// V2 command-line flags used by `covergen` and `covergen v2`.
+/// Command-line flags used by `covergen`.
 #[derive(Args, Debug, Clone)]
 pub struct V2Args {
     /// Set square output size (same as setting width and height).
@@ -65,7 +65,7 @@ pub struct V2Args {
     #[arg(long, short = 'n', default_value_t = 1)]
     count: u32,
     /// Output path (or base path when count > 1).
-    #[arg(long, short = 'o', default_value = "covergen_v2.png")]
+    #[arg(long, short = 'o', default_value = "covergen.png")]
     output: String,
     /// Layer budget used by preset generation.
     #[arg(long, default_value_t = 4)]
@@ -99,7 +99,7 @@ pub struct V2Args {
     motion: AnimationMotion,
 }
 
-/// Animation settings for V2 clip generation.
+/// Animation settings for clip generation.
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
     pub enabled: bool,
@@ -109,7 +109,7 @@ pub struct AnimationConfig {
     pub motion: AnimationMotion,
 }
 
-/// Parsed V2 command-line configuration.
+/// Parsed command-line configuration.
 #[derive(Debug, Clone)]
 pub struct V2Config {
     pub width: u32,
@@ -132,7 +132,7 @@ struct V2ArgsParser {
 }
 
 impl V2Config {
-    /// Parse `covergen v2` arguments.
+    /// Parse runtime arguments.
     #[cfg(test)]
     pub fn parse(args: Vec<String>) -> Result<Self, Box<dyn Error>> {
         let parsed = parse_v2_args(args)?;
@@ -181,29 +181,29 @@ impl V2Config {
 
 #[cfg(test)]
 fn parse_v2_args(args: Vec<String>) -> Result<V2Args, Box<dyn Error>> {
-    let argv = std::iter::once("v2".to_string()).chain(args);
+    let argv = std::iter::once("covergen".to_string()).chain(args);
     let parsed = V2ArgsParser::try_parse_from(argv)?;
     Ok(parsed.args)
 }
 
 fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
     if config.width == 0 || config.height == 0 {
-        return Err("v2 width and height must be greater than zero".into());
+        return Err("width and height must be greater than zero".into());
     }
     if config.count == 0 {
-        return Err("v2 count must be at least 1".into());
+        return Err("count must be at least 1".into());
     }
     if config.layers == 0 {
-        return Err("v2 layers must be at least 1".into());
+        return Err("layers must be at least 1".into());
     }
     if config.antialias == 0 || config.antialias > 4 {
-        return Err("v2 antialias must be in range 1..=4".into());
+        return Err("antialias must be in range 1..=4".into());
     }
     if config.animation.seconds == 0 {
-        return Err("v2 animation duration must be at least 1 second".into());
+        return Err("animation duration must be at least 1 second".into());
     }
     if config.animation.fps == 0 || config.animation.fps > 120 {
-        return Err("v2 fps must be in range 1..=120".into());
+        return Err("fps must be in range 1..=120".into());
     }
     Ok(())
 }
@@ -217,7 +217,11 @@ fn runtime_seed() -> u32 {
     let pid = u64::from(std::process::id());
     let mixed = splitmix64(nanos ^ (pid << 32));
     let seed = (mixed as u32) ^ ((mixed >> 32) as u32);
-    if seed == 0 { 0x9e37_79b9 } else { seed }
+    if seed == 0 {
+        0x9e37_79b9
+    } else {
+        seed
+    }
 }
 
 fn splitmix64(mut value: u64) -> u64 {

@@ -6,10 +6,10 @@
 
 use std::collections::HashMap;
 
+use crate::graph::{GraphBuildError, GraphBuilder, NodeId};
 use crate::model::{LayerBlendMode, XorShift32};
-use crate::v2::cli::V2Profile;
-use crate::v2::graph::{GraphBuildError, GraphBuilder, NodeId};
-use crate::v2::node::{MaskTemporal, PortType, SourceNoiseTemporal};
+use crate::node::{MaskTemporal, PortType, SourceNoiseTemporal};
+use crate::runtime_config::V2Profile;
 
 use super::node_catalog::{NodeCatalog, NodePayload};
 use super::primitives::{random_blend, random_tonemap, random_warp};
@@ -153,7 +153,7 @@ fn build_noise_mask(
     let source = context.nodes.create(
         context.builder,
         "source-noise",
-        NodePayload::SourceNoise(crate::v2::graph::SourceNoiseNode {
+        NodePayload::SourceNoise(crate::graph::SourceNoiseNode {
             seed: context.rng.next_u32() ^ request.seed,
             scale: 1.4 + context.rng.next_f32() * 6.8,
             octaves: 3 + (context.rng.next_u32() % 3),
@@ -166,7 +166,7 @@ fn build_noise_mask(
     let mask = context.nodes.create(
         context.builder,
         "mask",
-        NodePayload::Mask(crate::v2::graph::MaskNode {
+        NodePayload::Mask(crate::graph::MaskNode {
             threshold: 0.33 + context.rng.next_f32() * 0.34,
             softness: 0.04 + context.rng.next_f32() * 0.24,
             invert: matches!(request.profile, V2Profile::Performance),
@@ -256,7 +256,7 @@ fn build_masked_blend(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::node::OutputNode;
+    use crate::node::OutputNode;
 
     #[test]
     fn masked_blend_module_wires_graph() {
@@ -269,7 +269,7 @@ mod tests {
             .create(
                 &mut builder,
                 "source-noise",
-                NodePayload::SourceNoise(crate::v2::graph::SourceNoiseNode {
+                NodePayload::SourceNoise(crate::graph::SourceNoiseNode {
                     seed: 1,
                     scale: 1.0,
                     octaves: 3,
@@ -283,7 +283,7 @@ mod tests {
             .create(
                 &mut builder,
                 "source-noise",
-                NodePayload::SourceNoise(crate::v2::graph::SourceNoiseNode {
+                NodePayload::SourceNoise(crate::graph::SourceNoiseNode {
                     seed: 2,
                     scale: 2.0,
                     octaves: 2,

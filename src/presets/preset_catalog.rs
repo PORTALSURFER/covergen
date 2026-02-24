@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use crate::v2::cli::V2Config;
-use crate::v2::graph::{GpuGraph, GraphBuildError};
+use crate::graph::{GpuGraph, GraphBuildError};
+use crate::runtime_config::V2Config;
 
 use super::families;
 use super::node_catalog::NodeCatalog;
@@ -137,7 +137,7 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Profile};
+    use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Profile};
 
     fn config_for(preset: &str) -> V2Config {
         V2Config {

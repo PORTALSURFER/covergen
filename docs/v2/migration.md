@@ -2,8 +2,7 @@
 
 ## Current Contract
 
-- `covergen` runs V2 (`src/v2/*`) by default.
-- `covergen v2 ...` runs V2 explicitly.
+- `covergen` runs V2 (`src/*`) by default.
 - V1 runtime code and CLI mode are removed.
 
 ## Cutover + Deprecation Timeline
@@ -15,7 +14,7 @@
 ## Final Checklist Status
 
 1. CLI contract
-   - Complete: default and explicit paths are V2-only (`covergen`, `covergen v2 ...`).
+   - Complete: default path is V2-only (`covergen`).
    - Complete: V1 runtime path no longer exists in source.
 2. Local performance gate
    - Complete: tiered benchmark lock/validate workflow exists via `scripts/ci_local.sh` and `scripts/bench/tier_gate.sh`.

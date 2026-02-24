@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::v2::graph::{GraphBuildError, NodeId};
-use crate::v2::node::PortType;
+use crate::graph::{GraphBuildError, NodeId};
+use crate::node::PortType;
 
 use super::{
     CompiledNodeStep, CompiledOp, CompiledResourcePlan, CompiledValueKind, CompiledValueLifetime,

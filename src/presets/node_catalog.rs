@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::v2::graph::{
+use crate::graph::{
     BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OutputNode,
     SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };

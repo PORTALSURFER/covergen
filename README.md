@@ -10,8 +10,7 @@ hardware GPU is available, the process exits with an error.
 
 ## Modes
 
-- `covergen` runs the V2 node-graph runtime (`src/v2/*`) by default.
-- `covergen v2 ...` runs V2 explicitly.
+- `covergen` runs the node-graph runtime (`src/*`).
 - `covergen bench ...` runs benchmark + telemetry workflows.
 
 V1 runtime support was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
@@ -19,13 +18,13 @@ V1 runtime support was removed on **February 24, 2026**. Migration and cutover s
 ## V2 Quick Start
 
 ```bash
-cargo run --bin covergen -- v2 --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
+cargo run --bin covergen -- --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
 ```
 
 Instagram Reels animation (30 seconds, vertical 1080x1920, gentle modulation):
 
 ```bash
-cargo run --bin covergen -- v2 --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
+cargo run --bin covergen -- --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
 ```
 
 Useful V2 flags:

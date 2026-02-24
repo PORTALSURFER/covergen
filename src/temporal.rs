@@ -213,12 +213,12 @@ mod tests {
 
     #[test]
     fn expression_drives_node_channel() {
-        let node = crate::v2::node::SourceNoiseNode {
+        let node = crate::node::SourceNoiseNode {
             seed: 123,
             scale: 4.0,
             octaves: 4,
             amplitude: 1.0,
-            output_port: crate::v2::node::PortType::LumaTexture,
+            output_port: crate::node::PortType::LumaTexture,
             temporal: SourceNoiseTemporal {
                 scale_mul: Some(TemporalModulation::parse("0.2 * i").unwrap()),
                 amplitude_mul: None,

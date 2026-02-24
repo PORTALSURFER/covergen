@@ -8,9 +8,9 @@ use std::error::Error;
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{apply_contrast, downsample_luma, encode_gray, stretch_to_percentile};
 
-use super::cli::{V2Config, V2Profile};
 use super::compiler::CompiledGraph;
 use super::runtime::RuntimeBuffers;
+use super::runtime_config::{V2Config, V2Profile};
 
 /// Finalize one rendered frame into grayscale test output.
 ///
