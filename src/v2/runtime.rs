@@ -5,6 +5,7 @@
 //! (CPU fallback/legacy path) and `runtime_gpu` (retained GPU path).
 
 use std::error::Error;
+use std::io::{self, Write};
 use std::path::Path;
 use std::time::Instant;
 
@@ -127,6 +128,7 @@ fn execute_animation(
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
     let frames = total_frames(&config.animation);
+    print_animation_progress(0, frames, 0.0, config.count, 0);
     for clip_index in 0..config.count {
         let clip_start = Instant::now();
         telemetry::snapshot_memory(format!("v2.animation.clip.{clip_index}.start"));
@@ -182,7 +184,15 @@ fn execute_animation(
             let frame_elapsed = frame_start.elapsed();
             telemetry::record_timing("v2.animation.frame.total", frame_elapsed);
             telemetry::record_frame("v2.animation.frame.total", frame_elapsed);
+            print_animation_progress(
+                frame_index + 1,
+                frames,
+                clip_start.elapsed().as_secs_f64(),
+                config.count,
+                clip_index,
+            );
         }
+        finish_animation_progress_line();
 
         if let Some(encoder) = stream_encoder {
             encoder.finish()?;
@@ -207,6 +217,70 @@ fn execute_animation(
         telemetry::snapshot_memory(format!("v2.animation.clip.{clip_index}.end"));
     }
     Ok(())
+}
+
+/// Render one terminal progress row for clip/frame animation execution.
+fn print_animation_progress(
+    frame_done: u32,
+    frame_total: u32,
+    elapsed_secs: f64,
+    clip_total: u32,
+    clip_index: u32,
+) {
+    let percent = if frame_total == 0 {
+        0.0
+    } else {
+        (frame_done as f64 / frame_total as f64) * 100.0
+    };
+    let fps = if elapsed_secs > 0.0 {
+        frame_done as f64 / elapsed_secs
+    } else {
+        0.0
+    };
+    let eta_secs = if frame_done > 0 && fps > 0.0 {
+        (frame_total.saturating_sub(frame_done)) as f64 / fps
+    } else {
+        0.0
+    };
+    let bar = progress_bar(frame_done, frame_total, 28);
+    let _ = write!(
+        io::stderr(),
+        "\r[v2] clip {}/{} {} {:>6.2}% frame {}/{} | {:>5.1} fps | eta {}",
+        clip_index + 1,
+        clip_total,
+        bar,
+        percent,
+        frame_done,
+        frame_total,
+        fps,
+        format_eta(eta_secs),
+    );
+    let _ = io::stderr().flush();
+}
+
+/// End the current terminal progress line.
+fn finish_animation_progress_line() {
+    let _ = writeln!(io::stderr());
+    let _ = io::stderr().flush();
+}
+
+/// Build a compact fixed-width text progress bar.
+fn progress_bar(done: u32, total: u32, width: usize) -> String {
+    let clamped_total = total.max(1);
+    let filled = ((done.min(clamped_total) as usize) * width) / clamped_total as usize;
+    format!(
+        "[{}{}]",
+        "=".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
+}
+
+/// Format ETA as `mm:ss` for terminal progress output.
+fn format_eta(seconds: f64) -> String {
+    let total = seconds.max(0.0).round() as u64;
+    let mins = total / 60;
+    let secs = total % 60;
+    format!("{mins:02}:{secs:02}")
 }
 
 fn finalize_luma_for_output(
