@@ -82,12 +82,31 @@ const STILL_SNAPSHOTS: &[StillSnapshotCase] = &[
         graph: fixtures::SnapshotGraphKind::BranchMosaic,
         expected_hash: 0x594e_857b_d61f_d5f7,
     },
+    StillSnapshotCase {
+        name: "cpu-mask-atlas-still-768",
+        seed: 0x9E37_2471,
+        width: 768,
+        height: 768,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::MaskAtlas,
+        expected_hash: 0x9cfe_0129_b7a9_1d9a,
+    },
+    StillSnapshotCase {
+        name: "cpu-tone-cascade-still-704",
+        seed: 0x7F1A_21CD,
+        width: 704,
+        height: 704,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::ToneCascade,
+        expected_hash: 0x5532_af66_fe50_4b70,
+    },
 ];
 
 const ANIMATION_WEAVE_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 31];
 const ANIMATION_MASK_ATLAS_INDICES: &[u32] = &[0, 5, 10, 15, 20, 25, 29];
 const ANIMATION_WARP_GRID_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 47];
 const ANIMATION_BRANCH_MOSAIC_INDICES: &[u32] = &[0, 3, 7, 11, 15, 19, 23, 27, 31, 35];
+const ANIMATION_TONE_CASCADE_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 47];
 
 const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
     AnimationSnapshotCase {
@@ -173,6 +192,31 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0x2e9c_dc73_90f2_ed80,
             0xdb55_5fe9_dcc0_eb13,
             0x4f9c_2c66_0864_1e80,
+        ],
+    },
+    AnimationSnapshotCase {
+        name: "cpu-tone-cascade-animation-48f",
+        seed: 0x731B_11D0,
+        width: 448,
+        height: 448,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::ToneCascade,
+        frame_total: 48,
+        frame_indices: ANIMATION_TONE_CASCADE_INDICES,
+        expected_hashes: &[
+            0x8ade_21e2_d0b9_0643,
+            0x4f6a_fe51_e517_f5b8,
+            0x1ac3_3a3e_d06a_a85f,
+            0x7299_0b29_9c60_8417,
+            0x9346_c8a5_f060_b7c2,
+            0xc4ae_db35_f61a_1f86,
+            0x9129_07a0_0b2c_980d,
+            0x8625_b517_2c3a_ea9b,
+            0xfd46_53be_6b8a_1e98,
+            0xaba9_f563_e602_4b2c,
+            0x234c_48d9_c27c_a267,
+            0x663d_f414_3405_fdc1,
+            0x3139_35f0_a4f7_c25d,
         ],
     },
 ];

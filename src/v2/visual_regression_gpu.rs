@@ -4,6 +4,7 @@
 //! deterministic still rendering and temporal variation across sampled
 //! animation frames on the GPU path.
 
+use std::collections::HashSet;
 use std::error::Error;
 
 use super::cli::V2Profile;
@@ -33,57 +34,94 @@ struct GpuAnimationCase {
     frame_indices: &'static [u32],
 }
 
-#[test]
-fn v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available() {
-    let case = GpuStillCase {
+const GPU_STILL_CASES: &[GpuStillCase] = &[
+    GpuStillCase {
         seed: 0x44AA_9911,
         width: 320,
         height: 320,
         profile: V2Profile::Performance,
         graph: fixtures::SnapshotGraphKind::MaskAtlas,
-    };
-    let Ok(mut renderer) = try_create_hardware_gpu_renderer(case.width, case.height) else {
-        return;
-    };
-    let Some(renderer) = renderer.as_mut() else {
-        return;
-    };
+    },
+    GpuStillCase {
+        seed: 0x11DD_7139,
+        width: 448,
+        height: 448,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::ToneCascade,
+    },
+    GpuStillCase {
+        seed: 0x0F0F_C0DE,
+        width: 512,
+        height: 512,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::WarpGrid,
+    },
+];
 
-    let first = render_still_hash_gpu(case, renderer)
-        .unwrap_or_else(|err| panic!("gpu deterministic first render failed: {err}"));
-    let second = render_still_hash_gpu(case, renderer)
-        .unwrap_or_else(|err| panic!("gpu deterministic second render failed: {err}"));
-    assert_eq!(
-        first, second,
-        "gpu still output should be deterministic for fixed seed"
-    );
-}
-
-#[test]
-fn v2_gpu_animation_sampled_frames_change_when_hardware_available() {
-    let case = GpuAnimationCase {
+const GPU_ANIMATION_CASES: &[GpuAnimationCase] = &[
+    GpuAnimationCase {
         seed: 0x5599_AA33,
         width: 256,
         height: 256,
         profile: V2Profile::Quality,
         graph: fixtures::SnapshotGraphKind::Weave,
         frame_total: 24,
-        frame_indices: &[0, 12],
-    };
-    let Ok(mut renderer) = try_create_hardware_gpu_renderer(case.width, case.height) else {
-        return;
-    };
-    let Some(renderer) = renderer.as_mut() else {
-        return;
-    };
+        frame_indices: &[0, 6, 12, 18, 23],
+    },
+    GpuAnimationCase {
+        seed: 0x8081_2299,
+        width: 384,
+        height: 384,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::BranchMosaic,
+        frame_total: 30,
+        frame_indices: &[0, 5, 10, 15, 20, 25, 29],
+    },
+];
 
-    let frame_hashes = render_animation_hashes_gpu(case, renderer)
-        .unwrap_or_else(|err| panic!("gpu animation sample render failed: {err}"));
-    assert_eq!(frame_hashes.len(), 2);
-    assert_ne!(
-        frame_hashes[0], frame_hashes[1],
-        "gpu sampled animation frames should differ across clip time"
-    );
+#[test]
+fn v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available() {
+    for case in GPU_STILL_CASES {
+        let Ok(mut renderer) = try_create_hardware_gpu_renderer(case.width, case.height) else {
+            return;
+        };
+        let Some(renderer) = renderer.as_mut() else {
+            return;
+        };
+
+        let first = render_still_hash_gpu(*case, renderer)
+            .unwrap_or_else(|err| panic!("gpu deterministic first render failed: {err}"));
+        let second = render_still_hash_gpu(*case, renderer)
+            .unwrap_or_else(|err| panic!("gpu deterministic second render failed: {err}"));
+        assert_eq!(
+            first, second,
+            "gpu still output should be deterministic for fixed seed"
+        );
+    }
+}
+
+#[test]
+fn v2_gpu_animation_sampled_frames_change_when_hardware_available() {
+    for case in GPU_ANIMATION_CASES {
+        let Ok(mut renderer) = try_create_hardware_gpu_renderer(case.width, case.height) else {
+            return;
+        };
+        let Some(renderer) = renderer.as_mut() else {
+            return;
+        };
+
+        let frame_hashes = render_animation_hashes_gpu(*case, renderer)
+            .unwrap_or_else(|err| panic!("gpu animation sample render failed: {err}"));
+        assert!(
+            !frame_hashes.is_empty(),
+            "gpu sampled animation frame set should not be empty"
+        );
+        let unique: HashSet<u64> = frame_hashes.into_iter().collect();
+        assert!(
+            unique.len() > 1,
+            "gpu sampled animation frames should vary over clip time"
+        );
+    }
 }
 
 fn render_still_hash_gpu(
