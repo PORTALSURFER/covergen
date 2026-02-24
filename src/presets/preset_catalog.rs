@@ -9,6 +9,7 @@ use crate::graph::{GpuGraph, GraphBuildError};
 use crate::runtime_config::V2Config;
 
 use super::families;
+use super::grammar;
 use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
 
@@ -130,6 +131,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "warp-grid",
         aliases: &["grid"],
         build: families::build_warp_grid,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "random-grammar",
+        aliases: &["grammar", "random"],
+        build: grammar::build_constrained_random_grammar,
     })?;
     Ok(())
 }

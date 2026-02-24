@@ -8,6 +8,7 @@ use super::graph::{GpuGraph, GraphBuildError};
 use super::runtime_config::V2Config;
 
 mod families;
+mod grammar;
 pub mod node_catalog;
 pub mod preset_catalog;
 mod primitives;

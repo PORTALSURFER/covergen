@@ -15,6 +15,7 @@ Current presets:
 - `node-weave`
 - `mask-atlas`
 - `warp-grid`
+- `random-grammar`
 
 ## Pattern
 
@@ -29,8 +30,8 @@ Current presets:
 
 ## Adding a Preset
 
-1. Add a new builder function in `src/presets/families.rs`.
-2. Register it in `src/presets/mod.rs::build_preset_graph`.
+1. Add a new builder function in `src/presets/families.rs` or a dedicated module under `src/presets/`.
+2. Register it in `src/presets/preset_catalog.rs::register_builtin_presets`.
 3. Keep generation deterministic for fixed seed.
 4. Keep graph validation-compatible (acyclic and typed).
 
