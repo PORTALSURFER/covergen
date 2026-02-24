@@ -363,9 +363,9 @@ throughput_p95_fps_min=40.0
 version=1
 tier=desktop_mid
 
-[v1_still]
-latency_p50_ms_max=110.0
-latency_p95_ms_max=140.0
+    [v2_compile]
+    latency_p50_ms_max=110.0
+    latency_p95_ms_max=140.0
 frame_time_p50_ms_max=12.0
 frame_time_p95_ms_max=16.0
 throughput_p50_fps_min=45.0
@@ -374,7 +374,7 @@ throughput_p95_fps_min=40.0
         std::fs::write(&path, input).expect("write thresholds fixture");
         let summaries = vec![
             ScenarioSummary {
-                name: "V1 still",
+                name: "V2 compile",
                 sample_count: 1,
                 p50_ms: 100.0,
                 p95_ms: 120.0,

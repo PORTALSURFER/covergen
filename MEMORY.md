@@ -1,14 +1,13 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 08:13:46 UTC
+Last Updated: 2026-02-24 08:40:13 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
 
 ## Current State
 - V2 is the only user-facing CLI runtime path (`covergen` and `covergen v2 ...`).
-- `covergen v1` was removed from CLI dispatch on 2026-02-24 and now returns a deprecation error.
-- V1 rendering code remains in-repo only for internal benchmark/comparison workflows.
+- V1 runtime code and CLI path are removed from source.
 - V2 includes:
   - graph IR + compiler (`src/v2/graph.rs`, `src/v2/compiler.rs`)
   - deterministic presets (`src/v2/presets/*`)
@@ -29,5 +28,5 @@ The immediate ordered queue is maintained in `docs/plans/active/todo.md`.
 
 ## Working Assumptions
 - V2 is the long-term and only supported user runtime path.
-- Bench-only V1 comparisons are internal diagnostics, not a supported user mode.
+- Bench and runtime execution paths are V2-only.
 - Documentation-driven handoff is required for stateless agent wake-up.

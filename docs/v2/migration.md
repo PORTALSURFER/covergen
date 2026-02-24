@@ -4,7 +4,7 @@
 
 - `covergen` runs V2 (`src/v2/*`) by default.
 - `covergen v2 ...` runs V2 explicitly.
-- `covergen v1` is no longer supported (removed from CLI dispatch in `src/main.rs`).
+- V1 runtime code and CLI mode are removed.
 
 ## Cutover + Deprecation Timeline
 
@@ -16,7 +16,7 @@
 
 1. CLI contract
    - Complete: default and explicit paths are V2-only (`covergen`, `covergen v2 ...`).
-   - Complete: `covergen v1` now returns a hard deprecation error.
+   - Complete: V1 runtime path no longer exists in source.
 2. CI performance gate
    - Complete: benchmark threshold workflow exists in `.github/workflows/perf-gates.yml`.
    - Complete: CI software threshold baseline is locked at `.github/bench/ci_software.thresholds.ini`.
@@ -28,8 +28,7 @@
 
 ## Post-Deprecation Notes
 
-- V1 rendering code remains in-repo for internal benchmark/comparison workflows only.
-- User-facing runtime support is V2-only.
+- Runtime and benchmark execution are V2-only.
 
 ## Evidence Artifacts
 

@@ -11,8 +11,13 @@ use image::{
 };
 use rayon::prelude::*;
 
-use crate::config::{MAX_OUTPUT_BYTES, MIN_IMAGE_DIMENSION};
 use crate::model::{BlurConfig, FilterMode, GradientConfig, GradientMode, XorShift32};
+
+/// Absolute output size cap for generated PNG files.
+pub(crate) const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
+
+/// Minimum allowed output dimension used when shrinking oversized outputs.
+pub(crate) const MIN_IMAGE_DIMENSION: u32 = 64;
 
 pub(crate) fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)

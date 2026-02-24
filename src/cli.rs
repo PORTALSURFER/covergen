@@ -29,8 +29,6 @@ pub(crate) enum CovergenCommand {
     V2(V2Args),
     /// Run benchmark and threshold workflows.
     Bench(BenchArgs),
-    /// Legacy V1 command path (removed).
-    V1,
 }
 
 #[cfg(test)]

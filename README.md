@@ -8,7 +8,7 @@ GPU-driven procedural cover generation.
 - `covergen v2 ...` runs V2 explicitly.
 - `covergen bench ...` runs benchmark + telemetry workflows.
 
-V1 CLI mode (`covergen v1`) was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
+V1 runtime support was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
 
 ## V2 Quick Start
 
@@ -40,7 +40,7 @@ Useful V2 flags:
 
 ## Benchmark Suite
 
-Run V1 vs V2 benchmark + telemetry report:
+Run V2 benchmark + telemetry report:
 
 ```bash
 cargo run -- bench

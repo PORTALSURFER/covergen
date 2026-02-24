@@ -1,9 +1,9 @@
-//! Cross-pipeline benchmark suite and performance report generator.
+//! V2 benchmark suite and performance report generator.
 //!
-//! This module executes V1 and V2 workloads with telemetry capture enabled and
-//! writes a markdown report containing latency percentiles, GPU-node timings,
-//! memory usage, frame throughput, animation timing, and tiered cutover
-//! threshold artifacts.
+//! This module executes V2 compile, still, and animation workloads with
+//! telemetry capture enabled and writes a markdown report containing latency
+//! percentiles, GPU-node timings, memory usage, frame throughput, animation
+//! timing, and tiered cutover threshold artifacts.
 
 mod baseline;
 pub(crate) mod cli;
@@ -15,8 +15,6 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::config::Config;
-use crate::engine;
 use crate::telemetry::{self, CaptureReport};
 use crate::v2::animation::total_frames;
 use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
@@ -61,7 +59,7 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
     let mut skip_notes = Vec::new();
     let mut cutover_notes = Vec::new();
 
-    let mut v1_samples = Vec::with_capacity(config.samples as usize);
+    let mut v2_compile_samples = Vec::with_capacity(config.samples as usize);
     let mut v2_still_samples = Vec::with_capacity(config.samples as usize);
     let mut v2_animation_samples = Vec::with_capacity(config.animation_samples as usize);
     let output_contract = probe_v2_output_contract(&config)?;
@@ -71,8 +69,8 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
     ));
 
     for index in 0..config.samples {
-        eprintln!("[bench] V1 sample {}/{}", index + 1, config.samples);
-        v1_samples.push(run_v1_sample(&config, index).await?);
+        eprintln!("[bench] V2 compile sample {}/{}", index + 1, config.samples);
+        v2_compile_samples.push(run_v2_compile_sample(&config, index)?);
     }
 
     for index in 0..config.samples {
@@ -125,7 +123,7 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
     }
 
     let summaries = vec![
-        summarize_scenario("V1 still", &v1_samples),
+        summarize_scenario("V2 compile", &v2_compile_samples),
         summarize_scenario("V2 still", &v2_still_samples),
         summarize_scenario("V2 animation", &v2_animation_samples),
     ];
@@ -187,37 +185,26 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
     Ok(())
 }
 
-async fn run_v1_sample(
+fn run_v2_compile_sample(
     config: &BenchConfig,
     sample: u32,
 ) -> Result<ScenarioSample, Box<dyn Error>> {
-    let output_path = config.out_dir.join(format!("v1_sample_{sample}.png"));
-    let output = output_path.to_string_lossy().into_owned();
-    let run_cfg = Config {
-        width: config.size,
-        height: config.size,
-        symmetry: 4,
-        iterations: 240,
-        seed: config.seed.wrapping_add(sample.wrapping_mul(0x9E37_79B9)),
-        fill_scale: 1.25,
-        fractal_zoom: 0.7,
-        fast: true,
-        layers: Some(3),
-        count: 1,
-        output,
-        antialias: 1,
-    };
-
-    let run_label = format!("v1.still.sample.{sample}");
+    let output_path = config
+        .out_dir
+        .join(format!("v2_compile_sample_{sample}.png"));
+    let mut run_cfg = v2_base_config(config, output_path.to_string_lossy().into_owned());
+    run_cfg.seed = run_cfg.seed.wrapping_add(sample.wrapping_mul(0x9E37_79B9));
+    let run_label = format!("v2.compile.sample.{sample}");
     telemetry::begin_capture(run_label);
     telemetry::snapshot_memory("run.start");
     let start = Instant::now();
-    engine::run(run_cfg).await?;
+    let graph = build_preset_graph(&run_cfg)?;
+    let compiled = compile_graph(&graph)?;
+    validate_output_contract_for_bench(&compiled)?;
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
     telemetry::snapshot_memory("run.end");
-    let capture = telemetry::end_capture().ok_or("missing telemetry capture for v1 sample")?;
-
-    cleanup_artifact(&output_path, config.keep_artifacts);
+    let capture =
+        telemetry::end_capture().ok_or("missing telemetry capture for v2 compile sample")?;
 
     Ok(ScenarioSample {
         elapsed_ms: elapsed,
