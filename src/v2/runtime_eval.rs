@@ -69,7 +69,7 @@ fn evaluate_retained_layer_graph(
                     gpu_start.elapsed(),
                 );
             }
-            CompiledOp::Output => {}
+            CompiledOp::Output(_) => {}
             _ => {
                 return Err("non-layer node found in retained-layer execution path".into());
             }
@@ -183,7 +183,7 @@ fn evaluate_mixed_graph(
                 warp_luma(input, compiled.width, compiled.height, effective, &mut out);
                 values.insert(step.node_id, RuntimeValue::Luma(out));
             }
-            CompiledOp::Output => {
+            CompiledOp::Output(_) => {
                 let output = require_luma_input(&values, step, 0)?;
                 if output.len() != pixels {
                     return Err("compiled output buffer size mismatch".into());
@@ -248,7 +248,7 @@ fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::Blend(_) => "v2.node.blend",
         CompiledOp::ToneMap(_) => "v2.node.tonemap",
         CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
-        CompiledOp::Output => "v2.node.output",
+        CompiledOp::Output(_) => "v2.node.output",
     }
 }
 

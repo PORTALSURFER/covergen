@@ -240,6 +240,42 @@ impl WarpTransformNode {
     }
 }
 
+/// Role of an output node in a graph with one or more outputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputRole {
+    /// Primary output used by default runtime encode/finalization.
+    Primary,
+    /// Additional output tap used for parallel products or module boundaries.
+    Tap,
+}
+
+/// Output node contract describing role and output slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputNode {
+    /// Semantic role of this output.
+    pub role: OutputRole,
+    /// Stable output slot index used to address parallel outputs.
+    pub slot: u8,
+}
+
+impl OutputNode {
+    /// Construct the default primary output contract.
+    pub const fn primary() -> Self {
+        Self {
+            role: OutputRole::Primary,
+            slot: 0,
+        }
+    }
+
+    /// Construct a tap output contract for a non-primary slot.
+    pub const fn tap(slot: u8) -> Self {
+        Self {
+            role: OutputRole::Tap,
+            slot,
+        }
+    }
+}
+
 /// Graph node kinds supported by V2.
 #[derive(Clone, Copy, Debug)]
 pub enum NodeKind {
@@ -255,8 +291,8 @@ pub enum NodeKind {
     ToneMap(ToneMapNode),
     /// Apply geometric warp to luma.
     WarpTransform(WarpTransformNode),
-    /// Terminal node indicating which stream should be encoded.
-    Output,
+    /// Terminal output node with explicit output contract.
+    Output(OutputNode),
 }
 
 impl NodeKind {
@@ -273,7 +309,7 @@ impl NodeKind {
             },
             Self::ToneMap(_) => (slot == 0).then_some(PortType::LumaTexture),
             Self::WarpTransform(_) => (slot == 0).then_some(PortType::LumaTexture),
-            Self::Output => (slot == 0).then_some(PortType::LumaTexture),
+            Self::Output(_) => (slot == 0).then_some(PortType::LumaTexture),
         }
     }
 
@@ -286,7 +322,7 @@ impl NodeKind {
             Self::Blend(_) => Some(PortType::LumaTexture),
             Self::ToneMap(_) => Some(PortType::LumaTexture),
             Self::WarpTransform(_) => Some(PortType::LumaTexture),
-            Self::Output => None,
+            Self::Output(_) => None,
         }
     }
 
@@ -299,7 +335,7 @@ impl NodeKind {
             Self::Blend(_) => (2, 3),
             Self::ToneMap(_) => (1, 1),
             Self::WarpTransform(_) => (1, 1),
-            Self::Output => (1, 1),
+            Self::Output(_) => (1, 1),
         }
     }
 }

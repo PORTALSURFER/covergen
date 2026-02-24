@@ -256,6 +256,7 @@ fn build_masked_blend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v2::node::OutputNode;
 
     #[test]
     fn masked_blend_module_wires_graph() {
@@ -314,7 +315,11 @@ mod tests {
 
         assert!(result.output_count() >= 1);
         let out = nodes
-            .create(&mut builder, "output", NodePayload::Output)
+            .create(
+                &mut builder,
+                "output",
+                NodePayload::Output(OutputNode::primary()),
+            )
             .expect("output node");
         builder.connect_luma(result.primary, out);
         builder.build().expect("graph should validate");

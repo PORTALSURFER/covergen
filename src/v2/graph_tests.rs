@@ -62,3 +62,36 @@ fn rejects_output_without_input() {
         .expect_err("output without edge must be rejected");
     assert!(err.to_string().contains("requires 1..=1 inputs"));
 }
+
+#[test]
+fn rejects_multiple_primary_outputs() {
+    let mut builder = GraphBuilder::new(1024, 1024, 7);
+    let layer = builder.add_generate_layer(sample_layer());
+    let primary_a = builder.add_output();
+    let primary_b = builder.add_output_with_contract(OutputNode {
+        role: OutputRole::Primary,
+        slot: 2,
+    });
+    builder.connect_luma(layer, primary_a);
+    builder.connect_luma(layer, primary_b);
+    let err = builder
+        .build()
+        .expect_err("multiple primary outputs must be rejected");
+    assert!(err.to_string().contains("exactly one primary output"));
+}
+
+#[test]
+fn rejects_duplicate_output_slots() {
+    let mut builder = GraphBuilder::new(1024, 1024, 7);
+    let layer = builder.add_generate_layer(sample_layer());
+    let primary = builder.add_output();
+    let tap_a = builder.add_output_tap(1);
+    let tap_b = builder.add_output_tap(1);
+    builder.connect_luma(layer, primary);
+    builder.connect_luma(layer, tap_a);
+    builder.connect_luma(layer, tap_b);
+    let err = builder
+        .build()
+        .expect_err("duplicate output slots must be rejected");
+    assert!(err.to_string().contains("duplicate output slot"));
+}

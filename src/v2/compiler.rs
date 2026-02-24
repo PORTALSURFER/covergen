@@ -1,16 +1,18 @@
 //! Graph compiler for the V2 GPU node runtime.
 
-#[cfg(test)]
-use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
 use super::graph::{EdgeSpec, GpuGraph, GraphBuildError, NodeId, NodeSpec};
 use super::node::{
-    BlendNode, GenerateLayerNode, MaskNode, NodeKind, SourceNoiseNode, ToneMapNode,
-    WarpTransformNode,
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, OutputNode, OutputRole, SourceNoiseNode,
+    ToneMapNode, WarpTransformNode,
 };
+use output_contract::collect_output_bindings;
+#[cfg(test)]
+use output_contract::detect_linear_layer_path;
 use resource_plan::build_resource_plan;
 
+mod output_contract;
 mod resource_plan;
 
 /// Executable node operation in compiled graph order.
@@ -22,7 +24,7 @@ pub enum CompiledOp {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
-    Output,
+    Output(OutputNode),
 }
 
 /// One scheduled node in a compiled graph.
@@ -31,6 +33,15 @@ pub struct CompiledNodeStep {
     pub node_id: NodeId,
     pub op: CompiledOp,
     pub inputs: Vec<NodeId>,
+}
+
+/// Output binding produced by one compiled output node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompiledOutputBinding {
+    pub output_node: NodeId,
+    pub source_node: NodeId,
+    pub role: OutputRole,
+    pub slot: u8,
 }
 
 /// Runtime value kind used for transient resource planning.
@@ -86,8 +97,8 @@ pub struct CompiledGraph {
     pub height: u32,
     pub seed: u32,
     pub steps: Vec<CompiledNodeStep>,
-    #[cfg(test)]
-    pub output_node: NodeId,
+    pub primary_output_node: NodeId,
+    pub output_bindings: Vec<CompiledOutputBinding>,
     #[cfg(test)]
     pub has_non_layer_nodes: bool,
     #[cfg(test)]
@@ -115,7 +126,6 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
             .push((edge.to_input, edge.from));
     }
 
-    let mut output_node = None;
     let mut steps = Vec::with_capacity(graph.nodes.len());
     #[cfg(test)]
     let mut has_non_layer_nodes = false;
@@ -167,15 +177,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
                 }
                 CompiledOp::WarpTransform(spec)
             }
-            NodeKind::Output => {
-                if output_node.is_some() {
-                    return Err(GraphBuildError::new(
-                        "multiple output nodes are not supported by current V2 runtime",
-                    ));
-                }
-                output_node = Some(node_id);
-                CompiledOp::Output
-            }
+            NodeKind::Output(output) => CompiledOp::Output(output),
         };
 
         steps.push(CompiledNodeStep {
@@ -191,15 +193,16 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         ));
     }
 
-    #[cfg(test)]
-    let output_node =
-        output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
-    #[cfg(not(test))]
-    let _output_node =
-        output_node.ok_or_else(|| GraphBuildError::new("compiled graph has no output node"))?;
+    let output_bindings = collect_output_bindings(&steps)?;
+    let primary_output = output_bindings
+        .iter()
+        .copied()
+        .find(|binding| matches!(binding.role, OutputRole::Primary))
+        .ok_or_else(|| GraphBuildError::new("compiled graph has no primary output node"))?;
+    let primary_output_node = primary_output.output_node;
     #[cfg(test)]
     let can_use_retained_layer_path =
-        detect_linear_layer_path(&steps, &incoming, output_node, has_non_layer_nodes)?;
+        detect_linear_layer_path(&steps, &incoming, primary_output_node, has_non_layer_nodes)?;
     let resource_plan = build_resource_plan(&steps)?;
 
     Ok(CompiledGraph {
@@ -207,81 +210,14 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         height: graph.height,
         seed: graph.seed,
         steps,
-        #[cfg(test)]
-        output_node,
+        primary_output_node,
+        output_bindings,
         #[cfg(test)]
         has_non_layer_nodes,
         #[cfg(test)]
         can_use_retained_layer_path,
         resource_plan,
     })
-}
-
-#[cfg(test)]
-fn detect_linear_layer_path(
-    steps: &[CompiledNodeStep],
-    incoming: &HashMap<NodeId, Vec<(u8, NodeId)>>,
-    output_node: NodeId,
-    has_non_layer_nodes: bool,
-) -> Result<bool, GraphBuildError> {
-    if has_non_layer_nodes {
-        return Ok(false);
-    }
-
-    let mut reachable = HashSet::with_capacity(steps.len());
-    let mut queue = VecDeque::from([output_node]);
-    while let Some(current) = queue.pop_front() {
-        if !reachable.insert(current) {
-            continue;
-        }
-        let parents = incoming.get(&current).ok_or_else(|| {
-            GraphBuildError::new("missing incoming table entry during path analysis")
-        })?;
-        for (_, source) in parents {
-            queue.push_back(*source);
-        }
-    }
-
-    if reachable.len() != steps.len() {
-        return Ok(false);
-    }
-
-    let mut outgoing_reachable = HashMap::with_capacity(steps.len());
-    for step in steps {
-        outgoing_reachable.insert(step.node_id, 0usize);
-    }
-    for step in steps {
-        for input in &step.inputs {
-            if let Some(count) = outgoing_reachable.get_mut(input) {
-                *count += 1;
-            }
-        }
-    }
-
-    let mut roots = 0usize;
-    for step in steps {
-        match step.op {
-            CompiledOp::GenerateLayer(_) => {
-                if step.inputs.len() > 1 {
-                    return Ok(false);
-                }
-                if step.inputs.is_empty() {
-                    roots += 1;
-                }
-                if outgoing_reachable.get(&step.node_id).copied().unwrap_or(0) != 1 {
-                    return Ok(false);
-                }
-            }
-            CompiledOp::Output => {
-                if step.node_id != output_node || step.inputs.len() != 1 {
-                    return Ok(false);
-                }
-            }
-            _ => return Ok(false),
-        }
-    }
-
-    Ok(roots == 1)
 }
 
 fn topological_order(

@@ -99,13 +99,14 @@ pub async fn execute_compiled(
         telemetry::snapshot_memory(format!("v2.image.{image_index}.end"));
 
         println!(
-            "[v2] generated {} | graph {}x{} -> output {}x{} | nodes {} | {:.2}MB",
+            "[v2] generated {} | graph {}x{} -> output {}x{} | nodes {} | outputs {} | {:.2}MB",
             output_path.display(),
             compiled.width,
             compiled.height,
             w,
             h,
             compiled.steps.len(),
+            compiled.output_bindings.len(),
             bytes as f64 / (1024.0 * 1024.0)
         );
     }

@@ -141,7 +141,7 @@ fn output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
             PortType::MaskTexture => Some(CompiledValueKind::Mask),
         },
         CompiledOp::Mask(_) => Some(CompiledValueKind::Mask),
-        CompiledOp::Output => None,
+        CompiledOp::Output(_) => None,
     }
 }
 
@@ -156,6 +156,6 @@ fn gpu_output_kind(op: CompiledOp) -> Option<CompiledValueKind> {
         CompiledOp::Blend(_) | CompiledOp::ToneMap(_) | CompiledOp::WarpTransform(_) => {
             Some(CompiledValueKind::Luma)
         }
-        CompiledOp::Output => None,
+        CompiledOp::Output(_) => None,
     }
 }

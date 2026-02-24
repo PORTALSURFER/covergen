@@ -83,7 +83,7 @@ mod tests {
             let has_graph_native_ops = graph
                 .nodes
                 .iter()
-                .any(|node| !matches!(node.kind, NodeKind::GenerateLayer(_) | NodeKind::Output));
+                .any(|node| !matches!(node.kind, NodeKind::GenerateLayer(_) | NodeKind::Output(_)));
             assert!(
                 has_graph_native_ops,
                 "preset {preset} should include graph-native nodes"

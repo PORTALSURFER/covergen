@@ -113,9 +113,13 @@ pub(crate) fn render_graph_luma_gpu(
                     effective.phase,
                 )?;
             }
-            CompiledOp::Output => {
-                let output_source = luma_input_slot(compiled, step, 0)?;
-                renderer.stage_luma_alias_for_retained(output_source)?;
+            CompiledOp::Output(output) => {
+                if step.node_id == compiled.primary_output_node
+                    && matches!(output.role, super::node::OutputRole::Primary)
+                {
+                    let output_source = luma_input_slot(compiled, step, 0)?;
+                    renderer.stage_luma_alias_for_retained(output_source)?;
+                }
             }
         }
         telemetry::record_timing(op_scope(step.op), node_start.elapsed());
@@ -192,7 +196,7 @@ fn op_scope(op: CompiledOp) -> &'static str {
         CompiledOp::Blend(_) => "v2.node.blend",
         CompiledOp::ToneMap(_) => "v2.node.tonemap",
         CompiledOp::WarpTransform(_) => "v2.node.warp_transform",
-        CompiledOp::Output => "v2.node.output",
+        CompiledOp::Output(_) => "v2.node.output",
     }
 }
 

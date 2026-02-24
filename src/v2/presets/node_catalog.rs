@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use crate::v2::graph::{
-    BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, SourceNoiseNode,
-    ToneMapNode, WarpTransformNode,
+    BlendNode, GenerateLayerNode, GraphBuildError, GraphBuilder, MaskNode, NodeId, OutputNode,
+    SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };
 
 /// Payload used when instantiating a node template.
@@ -21,7 +21,7 @@ pub enum NodePayload {
     Blend(BlendNode),
     ToneMap(ToneMapNode),
     WarpTransform(WarpTransformNode),
-    Output,
+    Output(OutputNode),
 }
 
 /// Metadata and constructor for one named node template.
@@ -227,7 +227,10 @@ fn create_output(
     payload: NodePayload,
 ) -> Result<NodeId, GraphBuildError> {
     match payload {
-        NodePayload::Output => Ok(builder.add_output()),
+        NodePayload::Output(spec) => match spec.role {
+            super::super::node::OutputRole::Primary => Ok(builder.add_output()),
+            super::super::node::OutputRole::Tap => Ok(builder.add_output_tap(spec.slot)),
+        },
         _ => Err(GraphBuildError::new(
             "node template 'output' requires Output payload",
         )),
@@ -250,7 +253,11 @@ mod tests {
         let catalog = NodeCatalog::with_builtins().expect("builtins should register");
         let mut builder = GraphBuilder::new(64, 64, 7);
         let err = catalog
-            .create(&mut builder, "mask", NodePayload::Output)
+            .create(
+                &mut builder,
+                "mask",
+                NodePayload::Output(OutputNode::primary()),
+            )
             .expect_err("mismatched payload should fail");
         assert!(err.to_string().contains("requires Mask payload"));
     }

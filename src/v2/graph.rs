@@ -1,12 +1,12 @@
 //! Typed graph model and validator for the V2 generated pipeline.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 pub use super::node::{
-    BlendNode, GenerateLayerNode, MaskNode, NodeKind, PortType, SourceNoiseNode, ToneMapNode,
-    WarpTransformNode,
+    BlendNode, GenerateLayerNode, MaskNode, NodeKind, OutputNode, OutputRole, PortType,
+    SourceNoiseNode, ToneMapNode, WarpTransformNode,
 };
 
 /// Stable node identifier used across builder, compiler, and runtime.
@@ -118,7 +118,17 @@ impl GraphBuilder {
 
     /// Add one output node.
     pub fn add_output(&mut self) -> NodeId {
-        self.add_node(NodeKind::Output)
+        self.add_output_with_contract(OutputNode::primary())
+    }
+
+    /// Add one non-primary tap output for parallel output products.
+    pub fn add_output_tap(&mut self, slot: u8) -> NodeId {
+        self.add_output_with_contract(OutputNode::tap(slot))
+    }
+
+    /// Add one output node with explicit output contract.
+    pub fn add_output_with_contract(&mut self, output: OutputNode) -> NodeId {
+        self.add_node(NodeKind::Output(output))
     }
 
     /// Connect luma output of `from` to the first luma input of `to`.
@@ -170,11 +180,22 @@ impl GraphBuilder {
         }
 
         let mut output_count = 0usize;
+        let mut primary_output_count = 0usize;
+        let mut output_slots = HashSet::new();
         let mut incoming: HashMap<NodeId, HashMap<u8, usize>> = HashMap::new();
         for node in &self.nodes {
             incoming.insert(node.id, HashMap::new());
-            if matches!(node.kind, NodeKind::Output) {
+            if let NodeKind::Output(output) = node.kind {
                 output_count += 1;
+                if !output_slots.insert(output.slot) {
+                    return Err(GraphBuildError::new(format!(
+                        "duplicate output slot {} on node {:?}",
+                        output.slot, node.id
+                    )));
+                }
+                if matches!(output.role, OutputRole::Primary) {
+                    primary_output_count += 1;
+                }
             }
         }
 
@@ -182,6 +203,12 @@ impl GraphBuilder {
             return Err(GraphBuildError::new(
                 "graph must include at least one output node",
             ));
+        }
+        if primary_output_count != 1 {
+            return Err(GraphBuildError::new(format!(
+                "graph must include exactly one primary output node, got {}",
+                primary_output_count
+            )));
         }
 
         for edge in &self.edges {

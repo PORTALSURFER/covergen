@@ -44,7 +44,9 @@ fn compiles_linear_layer_graph() {
     assert_eq!(compiled.steps.len(), 3);
     assert!(!compiled.has_non_layer_nodes);
     assert!(compiled.can_use_retained_layer_path);
-    assert_eq!(compiled.output_node, out);
+    assert_eq!(compiled.primary_output_node, out);
+    assert_eq!(compiled.output_bindings.len(), 1);
+    assert_eq!(compiled.output_bindings[0].source_node, b);
 }
 
 #[test]
@@ -202,4 +204,30 @@ fn gpu_resource_plan_tracks_lifetimes_for_all_renderable_nodes() {
     assert!(compiled.resource_plan.gpu_lifetime_for(out).is_none());
     assert!(compiled.resource_plan.gpu_peak_luma_slots >= 1);
     assert!(compiled.resource_plan.gpu_peak_mask_slots >= 1);
+}
+
+#[test]
+fn compiles_multiple_outputs_with_primary_and_tap() {
+    let mut builder = GraphBuilder::new(256, 256, 17);
+    let a = builder.add_generate_layer(sample_layer());
+    let b = builder.add_generate_layer(sample_layer());
+    let primary = builder.add_output();
+    let tap = builder.add_output_tap(1);
+    builder.connect_luma(a, b);
+    builder.connect_luma(b, primary);
+    builder.connect_luma(a, tap);
+
+    let graph = builder.build().expect("graph should build");
+    let compiled = compile_graph(&graph).expect("graph should compile");
+
+    assert_eq!(compiled.primary_output_node, primary);
+    assert_eq!(compiled.output_bindings.len(), 2);
+    let tap_binding = compiled
+        .output_bindings
+        .iter()
+        .find(|binding| binding.output_node == tap)
+        .copied()
+        .expect("tap binding should exist");
+    assert_eq!(tap_binding.source_node, a);
+    assert_eq!(tap_binding.slot, 1);
 }
