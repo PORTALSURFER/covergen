@@ -1,6 +1,7 @@
 //! CLI configuration parsing for the V2 graph runtime.
 
 use std::error::Error;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Runtime profile used by V2 execution and preset generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,7 +88,7 @@ impl V2Config {
         let mut cfg = Self {
             width: 1024,
             height: 1024,
-            seed: 0x9e37_79b9,
+            seed: 0,
             count: 1,
             output: "covergen_v2.png".to_string(),
             layers: 4,
@@ -103,6 +104,7 @@ impl V2Config {
                 motion: AnimationMotion::Normal,
             },
         };
+        let mut explicit_seed = false;
 
         let mut iter = args.into_iter();
         while let Some(arg) = iter.next() {
@@ -124,6 +126,7 @@ impl V2Config {
                 "--seed" => {
                     let value = iter.next().ok_or("missing value for --seed")?;
                     cfg.seed = value.parse()?;
+                    explicit_seed = true;
                 }
                 "--count" | "-n" => {
                     let value = iter.next().ok_or("missing value for --count")?;
@@ -200,9 +203,31 @@ impl V2Config {
         if cfg.animation.enabled && !cfg.output.to_ascii_lowercase().ends_with(".mp4") {
             cfg.output.push_str(".mp4");
         }
+        if !explicit_seed {
+            cfg.seed = runtime_seed();
+        }
 
         Ok(cfg)
     }
+}
+
+/// Generate a per-run seed when one is not explicitly supplied.
+fn runtime_seed() -> u32 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let pid = u64::from(std::process::id());
+    let mixed = splitmix64(nanos ^ (pid << 32));
+    let seed = (mixed as u32) ^ ((mixed >> 32) as u32);
+    if seed == 0 { 0x9e37_79b9 } else { seed }
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
 }
 
 #[cfg(test)]
@@ -234,5 +259,18 @@ mod tests {
         let cfg = V2Config::parse(vec!["--motion".to_string(), "gentle".to_string()])
             .expect("motion profile should parse");
         assert_eq!(cfg.animation.motion, AnimationMotion::Gentle);
+    }
+
+    #[test]
+    fn explicit_seed_is_preserved() {
+        let cfg = V2Config::parse(vec!["--seed".to_string(), "12345".to_string()])
+            .expect("seeded configuration should parse");
+        assert_eq!(cfg.seed, 12345);
+    }
+
+    #[test]
+    fn omitted_seed_generates_runtime_seed() {
+        let cfg = V2Config::parse(Vec::new()).expect("default configuration should parse");
+        assert_ne!(cfg.seed, 0);
     }
 }

@@ -26,6 +26,7 @@ Useful V2 flags:
 
 - `--size <u32>` or `--width/--height`
 - `--seed <u32>`
+  - If omitted, V2 generates a fresh seed for each run.
 - `--count <u32>`
 - `--layers <u32>`
 - `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid>`
