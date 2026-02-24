@@ -19,7 +19,7 @@ use super::animation::{
 };
 use super::compiler::CompiledGraph;
 use super::node::GraphTimeInput;
-use super::runtime_config::{V2Config, V2Profile};
+use super::runtime_config::{AnimationMotion, V2Config, V2Profile};
 use super::runtime_gpu::render_graph_luma_gpu;
 use super::runtime_progress::{finish_animation_progress_line, print_animation_progress};
 use super::runtime_selection::{execute_still_with_selection, should_use_selection};
@@ -184,8 +184,11 @@ fn execute_animation(
             } else {
                 clip_seed_offset
             };
-            let graph_time = GraphTimeInput::from_frame(frame_index, frames)
-                .with_intensity(modulation_intensity);
+            let graph_time = apply_motion_temporal_constraints(
+                GraphTimeInput::from_frame(frame_index, frames)
+                    .with_intensity(modulation_intensity),
+                motion,
+            );
 
             render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
             finalize_luma_for_output(config, renderer, buffers)?;
@@ -356,4 +359,22 @@ fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> boo
     ]
     .iter()
     .any(|needle| name.contains(needle))
+}
+
+/// Apply motion-profile temporal constraints to one graph-time sample.
+pub(crate) fn apply_motion_temporal_constraints(
+    time: GraphTimeInput,
+    motion: AnimationMotion,
+) -> GraphTimeInput {
+    let (envelope, slew_limit) = match motion {
+        AnimationMotion::Gentle => ((-0.35, 0.35), Some(0.02)),
+        AnimationMotion::Normal => ((-0.6, 0.6), Some(0.05)),
+        AnimationMotion::Wild => ((-1.0, 1.0), Some(0.12)),
+    };
+    let constrained = time.with_envelope(envelope.0, envelope.1);
+    if let Some(limit) = slew_limit {
+        constrained.with_slew_limit(limit)
+    } else {
+        constrained
+    }
 }

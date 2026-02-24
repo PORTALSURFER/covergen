@@ -102,6 +102,14 @@ Current built-in nodes span `Top`, `Chop`, `Sop`, and `Output` families.
 Node temporal channels are optional and evaluated once per frame through
 `GraphTimeInput` (`t` normalized clip position and global intensity `i`).
 
+Runtime may additionally apply motion-profile constraints on sampled modulation:
+
+- envelope clamp (`min..max`)
+- per-frame slew-rate limit (`max_delta_per_frame`)
+
+These constraints are applied after DSL/curve evaluation so they layer on top
+of existing temporal expressions.
+
 Each temporal channel accepts either:
 
 - `TemporalCurve` (legacy sine-curve modulation)

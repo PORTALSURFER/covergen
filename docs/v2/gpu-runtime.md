@@ -38,6 +38,14 @@ Motion profile behavior:
 - `normal`: moderate modulation amplitude, stable per-clip seed
 - `wild`: full modulation amplitude with per-frame seed jitter
 
+On top of DSL/curve temporal expressions, runtime applies profile constraints:
+
+- modulation envelope clamp
+- per-frame slew-rate cap
+
+This reduces abrupt frame-to-frame parameter jumps without removing the
+underlying modulation signal.
+
 Frame flow:
 
 1. Render all layers via retained GPU path.

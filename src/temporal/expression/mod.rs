@@ -249,10 +249,16 @@ mod tests {
         let start = expr.sample(GraphTimeInput {
             normalized: 0.0,
             intensity: 1.0,
+            frame_step: 0.0,
+            envelope: None,
+            max_slew_per_frame: None,
         });
         let quarter = expr.sample(GraphTimeInput {
             normalized: 0.25,
             intensity: 1.0,
+            frame_step: 0.0,
+            envelope: None,
+            max_slew_per_frame: None,
         });
         assert!(start.abs() < 1e-6);
         assert!((quarter - 0.5).abs() < 1e-4);
@@ -264,6 +270,9 @@ mod tests {
         let sample = expr.sample(GraphTimeInput {
             normalized: 0.4,
             intensity: 0.7,
+            frame_step: 0.0,
+            envelope: None,
+            max_slew_per_frame: None,
         });
         assert!((sample - 1.0).abs() < 1e-6);
     }

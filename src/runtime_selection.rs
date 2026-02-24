@@ -10,8 +10,8 @@ use std::time::Instant;
 use crate::compiler::CompiledGraph;
 use crate::gpu_render::GpuLayerRenderer;
 use crate::runtime::{
-    create_renderer, create_runtime_buffers, finalize_luma_for_output, indexed_output,
-    render_graph_frame, RuntimeBuffers,
+    apply_motion_temporal_constraints, create_renderer, create_runtime_buffers,
+    finalize_luma_for_output, indexed_output, render_graph_frame, RuntimeBuffers,
 };
 use crate::runtime_config::{SelectionConfig, V2Config};
 use crate::selection::{score_candidate, top_k, CandidateScore};
@@ -52,7 +52,10 @@ pub(crate) async fn execute_still_with_selection(
     let mut prior_histograms = Vec::with_capacity(candidate_count as usize);
     let mut primary_probe = vec![0u8; low_res_buffers.output_gray.len()];
     let mut temporal_probe = vec![0u8; low_res_buffers.output_gray.len()];
-    let stability_time = GraphTimeInput::from_frame(1, 48).with_intensity(0.25);
+    let stability_time = apply_motion_temporal_constraints(
+        GraphTimeInput::from_frame(1, 48).with_intensity(0.25),
+        low_res_config.animation.motion,
+    );
     let base_seed = config.seed.wrapping_add(compiled.seed);
     println!(
         "[v2] selecting {} outputs from {} low-res candidates ({}x{})",
