@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 11:06:47 UTC
+Last Updated: 2026-02-24 11:15:03 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -16,6 +16,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 - Hardware GPU is now a hard runtime requirement for both `covergen` and `covergen bench`; software adapters/CPU fallback are rejected with an immediate process error.
 - Benchmark + visual regression gates are local-first via `scripts/ci_local.sh`.
 - CI software-tier benchmark thresholds at `.github/bench/ci_software.thresholds.ini` are legacy/non-authoritative.
+- Legacy GitHub hardware-gate workflow jobs were removed; hardware validation is local-only on provisioned GPU tier hosts.
 - Visual regression coverage was expanded (larger still sizes, additional sampled animation frames, and broader GPU-path confidence assertions).
 - Benchmark lock flow now refuses to write threshold files when required V2 scenarios are missing.
 - Benchmark and regression suites now validate multi-output contracts (exactly one primary + at least one tap) and follow a documented primary-only encode artifact policy.
