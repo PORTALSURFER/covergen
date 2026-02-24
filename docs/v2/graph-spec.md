@@ -153,5 +153,6 @@ Example expression:
 - Primary output node detection from output bindings.
 - GPU resource lifetime planning (alias slots + release schedule).
 
-Runtime uses output bindings for metadata and stages only the primary output
-for default image finalization.
+Runtime resolves output bindings in an explicit final compositor stage:
+primary selects the base luma and tap outputs are composited in deterministic
+slot order before final image finalization.

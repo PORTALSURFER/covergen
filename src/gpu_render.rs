@@ -33,6 +33,7 @@ pub(crate) struct GpuLayerRenderer {
     retained: RetainedGpuPost,
     graph_ops: GpuGraphOps,
     node_layer_temp_buffer: wgpu::Buffer,
+    node_composite_temp_buffer: wgpu::Buffer,
     node_alias_luma_buffers: Vec<wgpu::Buffer>,
     node_alias_mask_buffers: Vec<wgpu::Buffer>,
     node_feedback_buffers: Vec<wgpu::Buffer>,
@@ -159,6 +160,14 @@ impl GpuLayerRenderer {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let node_composite_temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("v2 node composite temp"),
+            size: output_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let node_feedback_clear_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("v2 node feedback clear"),
             size: output_size,
@@ -181,6 +190,7 @@ impl GpuLayerRenderer {
             retained,
             graph_ops,
             node_layer_temp_buffer,
+            node_composite_temp_buffer,
             node_alias_luma_buffers: Vec::new(),
             node_alias_mask_buffers: Vec::new(),
             node_feedback_buffers: Vec::new(),

@@ -466,6 +466,63 @@ impl GpuLayerRenderer {
         Ok(())
     }
 
+    /// Explicitly composite primary and tap outputs before retained finalization.
+    pub(crate) fn compose_outputs_to_retained(
+        &mut self,
+        primary_slot: usize,
+        tap_slots: &[(u8, usize)],
+    ) -> Result<(), Box<dyn Error>> {
+        if tap_slots.is_empty() {
+            return self.stage_luma_alias_for_retained(primary_slot);
+        }
+
+        let primary = self.alias_luma(primary_slot)?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("v2 graph output compositor encoder"),
+            });
+        self.graph_ops.encode_copy(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            GraphBuffers {
+                src0: primary,
+                src1: primary,
+                src2: primary,
+                dst: &self.node_layer_temp_buffer,
+            },
+            self.width,
+            self.height,
+        );
+
+        let mut active = &self.node_layer_temp_buffer;
+        let mut scratch = &self.node_composite_temp_buffer;
+        for (index, (tap_slot, alias_slot)) in tap_slots.iter().enumerate() {
+            let tap = self.alias_luma(*alias_slot)?;
+            let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
+            uniforms.mode = 3; // Screen blend keeps taps additive but avoids hard clipping.
+            uniforms.p0 = compositor_tap_opacity(index, *tap_slot);
+            self.graph_ops.encode_blend(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                GraphBuffers {
+                    src0: active,
+                    src1: tap,
+                    src2: tap,
+                    dst: scratch,
+                },
+                uniforms,
+            );
+            std::mem::swap(&mut active, &mut scratch);
+        }
+
+        self.retained.encode_copy_from_luma(&mut encoder, active);
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
     fn alias_luma(&self, slot: usize) -> Result<&wgpu::Buffer, Box<dyn Error>> {
         self.node_alias_luma_buffers
             .get(slot)
@@ -483,4 +540,10 @@ impl GpuLayerRenderer {
             .get(slot)
             .ok_or_else(|| format!("feedback slot {slot} is out of range").into())
     }
+}
+
+fn compositor_tap_opacity(index: usize, tap_slot: u8) -> f32 {
+    let order_decay = 0.20 / ((index + 1) as f32).sqrt();
+    let slot_bias = (tap_slot % 3) as f32 * 0.02;
+    (order_decay + slot_bias).clamp(0.08, 0.28)
 }

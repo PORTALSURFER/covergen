@@ -162,12 +162,7 @@ pub(crate) fn render_graph_luma_gpu(
                 renderer.render_top_camera_to_alias(primitive, spec, channel, output)?;
             }
             CompiledOp::Output(output) => {
-                if step.node_id == compiled.primary_output_node
-                    && matches!(output.role, super::node::OutputRole::Primary)
-                {
-                    let output_source = luma_input_slot(compiled, step, 0)?;
-                    renderer.stage_luma_alias_for_retained(output_source)?;
-                }
+                let _ = output;
             }
         }
         telemetry::record_timing(op_scope(step.op), node_start.elapsed());
@@ -175,7 +170,36 @@ pub(crate) fn render_graph_luma_gpu(
         validate_release_index(compiled, step_index)?;
     }
 
+    let compositor_start = Instant::now();
+    let compositor_plan = build_final_compositor_plan(compiled)?;
+    renderer.compose_outputs_to_retained(compositor_plan.primary_slot, &compositor_plan.taps)?;
+    telemetry::record_timing("v2.gpu.final_compositor", compositor_start.elapsed());
+
     Ok(())
+}
+
+struct FinalCompositorPlan {
+    primary_slot: usize,
+    taps: Vec<(u8, usize)>,
+}
+
+fn build_final_compositor_plan(
+    compiled: &CompiledGraph,
+) -> Result<FinalCompositorPlan, Box<dyn Error>> {
+    let mut primary_slot = None;
+    let mut taps = Vec::new();
+    for binding in &compiled.output_bindings {
+        let source_slot = output_luma_slot(compiled, binding.source_node)?;
+        match binding.role {
+            super::node::OutputRole::Primary => {
+                primary_slot = Some(source_slot);
+            }
+            super::node::OutputRole::Tap => taps.push((binding.slot, source_slot)),
+        }
+    }
+    let primary_slot = primary_slot.ok_or("compiled graph has no primary output binding")?;
+    taps.sort_by_key(|(slot, _)| *slot);
+    Ok(FinalCompositorPlan { primary_slot, taps })
 }
 
 fn output_luma_slot(compiled: &CompiledGraph, node_id: NodeId) -> Result<usize, Box<dyn Error>> {
@@ -318,4 +342,72 @@ fn validate_release_index(
             .ok_or_else(|| format!("missing gpu lifetime for release node {:?}", node_id))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_final_compositor_plan, output_luma_slot};
+    use crate::compiler::compile_graph;
+    use crate::graph::{GenerateLayerNode, GraphBuilder};
+    use crate::model::LayerBlendMode;
+    use crate::node::GenerateLayerTemporal;
+
+    fn sample_layer(seed: u32) -> GenerateLayerNode {
+        GenerateLayerNode {
+            symmetry: 4,
+            symmetry_style: 1,
+            iterations: 180,
+            seed,
+            fill_scale: 1.0,
+            fractal_zoom: 0.9,
+            art_style: 2,
+            art_style_secondary: 3,
+            art_style_mix: 0.5,
+            bend_strength: 0.3,
+            warp_strength: 0.2,
+            warp_frequency: 1.8,
+            tile_scale: 1.0,
+            tile_phase: 0.0,
+            center_x: 0.0,
+            center_y: 0.0,
+            shader_layer_count: 3,
+            blend_mode: LayerBlendMode::Normal,
+            opacity: 1.0,
+            contrast: 1.0,
+            temporal: GenerateLayerTemporal::default(),
+        }
+    }
+
+    #[test]
+    fn compositor_plan_uses_primary_and_sorted_taps() {
+        let mut builder = GraphBuilder::new(256, 256, 99);
+        let a = builder.add_generate_layer(sample_layer(1));
+        let b = builder.add_generate_layer(sample_layer(2));
+        let primary = builder.add_output();
+        let tap3 = builder.add_output_tap(3);
+        let tap1 = builder.add_output_tap(1);
+        builder.connect_luma(a, tap3);
+        builder.connect_luma(b, tap1);
+        builder.connect_luma(b, primary);
+
+        let graph = builder.build().expect("graph");
+        let compiled = compile_graph(&graph).expect("compiled");
+        let plan = build_final_compositor_plan(&compiled).expect("plan");
+
+        assert_eq!(
+            plan.primary_slot,
+            output_luma_slot(&compiled, b).expect("slot")
+        );
+        assert_eq!(plan.taps.len(), 2);
+        assert_eq!(plan.taps[0].0, 1);
+        assert_eq!(plan.taps[1].0, 3);
+        assert_eq!(
+            plan.taps[0].1,
+            output_luma_slot(&compiled, b).expect("tap slot")
+        );
+        assert_eq!(
+            plan.taps[1].1,
+            output_luma_slot(&compiled, a).expect("tap slot")
+        );
+    }
 }

@@ -13,4 +13,4 @@ Status notes (2026-02-24):
 
 Completed 2026-02-24:
 - Expanded visual regression coverage with larger still outputs, additional animation sampling, and stronger GPU-path confidence checks.
-- Added benchmark/regression contract checks for primary+tap outputs and documented tap-output artifact strategy (primary-only encode by default).
+- Added benchmark/regression contract checks for primary+tap outputs and documented tap-output compositor strategy.

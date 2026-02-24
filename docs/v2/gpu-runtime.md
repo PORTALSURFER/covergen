@@ -8,10 +8,12 @@ all compiled node kinds:
 1. `begin_retained_image()` clears retained accumulation state.
 2. Graph nodes (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`,
    `WarpTransform`) run on aliased GPU output slots.
-3. `Output(Primary)` stages the selected luma slot into retained accumulation.
-   `Output(Tap)` bindings are compiled and reported but are not encoded by the
-   default finalization path.
-4. `collect_retained_output_gray(...)` runs GPU finalize passes and performs
+3. Final compositor stage resolves `Output` bindings:
+   - `Primary` selects the base luma slot.
+   - `Tap` outputs are sorted by slot and composited into the base with a
+     deterministic GPU blend policy.
+4. Composited result is staged into retained accumulation.
+5. `collect_retained_output_gray(...)` runs GPU finalize passes and performs
    one image-end readback.
 
 This avoids per-node host readbacks in graph-native execution.
@@ -86,9 +88,9 @@ After one readback, host-side finishing is applied:
 
 ## Tap Output Artifact Strategy
 
-- Primary output is the only default encoded artifact for still and animation runs.
-- Tap outputs are treated as graph contract surfaces for composition boundaries
-  and regression coverage, not as default file outputs.
+- Runtime encodes one artifact per still/frame (the composited primary output).
+- Tap outputs are still first-class graph surfaces and now directly feed the
+  explicit GPU compositor stage before finalization.
 - Bench and regression suites validate that benchmark/snapshot graphs compile
   with one primary output and at least one tap output.
 
