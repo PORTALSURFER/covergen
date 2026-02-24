@@ -143,6 +143,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         aliases: &["td", "touchdesigner"],
         build: touchdesigner::build_td_primitive_stage,
     })?;
+    catalog.register(PresetDescriptor {
+        key: "td-random-network",
+        aliases: &["td-random", "touchdesigner-random"],
+        build: touchdesigner::build_td_random_network,
+    })?;
     Ok(())
 }
 
