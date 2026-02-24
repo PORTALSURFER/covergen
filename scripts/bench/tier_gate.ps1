@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 <#
 .SYNOPSIS
 Lock or validate benchmark thresholds for one hardware tier on Windows hosts.
@@ -19,6 +17,8 @@ param(
     [ValidateSet("desktop_mid", "laptop_integrated")]
     [string]$Tier
 )
+
+$ErrorActionPreference = "Stop"
 
 function Get-EnvOrDefault {
     param(

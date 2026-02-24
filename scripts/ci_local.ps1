@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 <#
 .SYNOPSIS
 Run the full local CI gate for one hardware tier on Windows hosts.
@@ -22,6 +20,8 @@ param(
 
     [string]$HandoffRoot = "docs/plans/handoffs"
 )
+
+$ErrorActionPreference = "Stop"
 
 function Invoke-CheckedCommand {
     param(

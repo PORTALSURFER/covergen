@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 <#
 .SYNOPSIS
 Validate required rust-gpu SPIR-V shader artifacts on Windows hosts.
@@ -12,6 +10,8 @@ param(
     [Parameter(Position = 0)]
     [string]$Root = "target/rust-gpu"
 )
+
+$ErrorActionPreference = "Stop"
 
 $required = @(
     "fractal_main.spv",

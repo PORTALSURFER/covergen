@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 <#
 .SYNOPSIS
 Copy benchmark evidence artifacts into a release handoff folder.
@@ -17,6 +15,8 @@ param(
     [string]$HandoffRoot = "docs/plans/handoffs",
     [string]$Stamp = ""
 )
+
+$ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($Stamp)) {
     $Stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")

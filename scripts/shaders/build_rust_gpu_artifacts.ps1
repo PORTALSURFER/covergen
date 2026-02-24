@@ -1,5 +1,3 @@
-$ErrorActionPreference = "Stop"
-
 <#
 .SYNOPSIS
 Build and validate rust-gpu SPIR-V shader artifacts on Windows hosts.
@@ -15,6 +13,8 @@ param(
     [string]$Toolchain = $env:COVERGEN_RUST_GPU_TOOLCHAIN,
     [switch]$SkipBashValidation
 )
+
+$ErrorActionPreference = "Stop"
 
 $required = @(
     "fractal_main.spv",
