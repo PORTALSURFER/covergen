@@ -17,6 +17,7 @@ use super::touchdesigner_cascade;
 use super::touchdesigner_feedback_atlas;
 use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
+use super::touchdesigner_patchwork;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -161,6 +162,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-feedback-atlas",
         aliases: &["td-feedback", "touchdesigner-feedback"],
         build: touchdesigner_feedback_atlas::build_td_feedback_atlas,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-patchwork",
+        aliases: &["td-patch", "touchdesigner-patchwork"],
+        build: touchdesigner_patchwork::build_td_patchwork,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-modular-network",

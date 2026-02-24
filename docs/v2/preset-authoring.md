@@ -20,6 +20,7 @@ Current presets:
 - `td-random-network`
 - `td-cascade-lab`
 - `td-feedback-atlas`
+- `td-patchwork`
 - `td-modular-network`
 - `td-multi-stage`
 
