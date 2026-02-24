@@ -38,6 +38,8 @@ Useful V2 flags:
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
+- `--explore-candidates <u32>` (low-res generate-score-select before final still renders)
+- `--explore-size <u32>` (max dimension for low-res exploration pass; default `320`)
 - `--animate --seconds <u32> --fps <u32>`
 - `--motion <gentle|normal|wild>` (animation intensity profile; default `normal`)
 - `--reels` (forces 1080x1920 and enables animation)

@@ -19,7 +19,9 @@ use crate::animation::total_frames;
 use crate::compiler::compile_graph;
 use crate::presets::build_preset_graph;
 use crate::runtime::execute_compiled;
-use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
+use crate::runtime_config::{
+    AnimationConfig, AnimationMotion, SelectionConfig, V2Config, V2Profile,
+};
 use crate::telemetry::{self, CaptureReport};
 
 use baseline::{validate_thresholds, write_locked_thresholds, write_metrics_snapshot};
@@ -273,13 +275,17 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
             keep_frames: false,
             motion: AnimationMotion::Normal,
         },
+        selection: SelectionConfig {
+            explore_candidates: 0,
+            explore_size: 320,
+        },
     }
 }
 
 async fn execute_v2_once(config: &V2Config) -> Result<(), Box<dyn Error>> {
     let graph = build_preset_graph(config)?;
     let compiled = compile_graph(&graph)?;
-    execute_compiled(config, &compiled).await
+    execute_compiled(config, &compiled, None).await
 }
 
 fn probe_v2_output_contract(

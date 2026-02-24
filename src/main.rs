@@ -22,8 +22,11 @@ mod runtime_eval;
 mod runtime_gpu;
 #[cfg(test)]
 mod runtime_ops;
+mod runtime_progress;
+mod runtime_selection;
 #[cfg(test)]
 mod runtime_test_support;
+mod selection;
 mod shaders;
 mod sop;
 mod telemetry;
@@ -56,9 +59,21 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 async fn run_covergen(args: V2Args) -> Result<(), Box<dyn Error>> {
     let config = V2Config::from_args(args)?;
+    let low_res_config = config.low_res_explore_config();
     let graph = build_preset_graph(&config)?;
     let compiled = compile_graph(&graph)?;
-    execute_compiled(&config, &compiled).await
+    let low_res_compiled = if let Some(low_res) = low_res_config.as_ref() {
+        let low_graph = build_preset_graph(low_res)?;
+        Some(compile_graph(&low_graph)?)
+    } else {
+        None
+    };
+    execute_compiled(
+        &config,
+        &compiled,
+        low_res_config.as_ref().zip(low_res_compiled.as_ref()),
+    )
+    .await
 }
 
 /// Program entrypoint with explicit process exit handling.

@@ -46,6 +46,22 @@ impl AnimationMotion {
     }
 }
 
+/// Candidate exploration settings for generate-score-select rendering.
+#[derive(Debug, Clone)]
+pub struct SelectionConfig {
+    /// Number of low-resolution candidates to explore before final rendering.
+    pub explore_candidates: u32,
+    /// Maximum dimension used for low-resolution candidate scoring renders.
+    pub explore_size: u32,
+}
+
+impl SelectionConfig {
+    /// Return true when low-res candidate exploration is enabled.
+    pub fn enabled(&self) -> bool {
+        self.explore_candidates > 0
+    }
+}
+
 /// Command-line flags used by `covergen`.
 #[derive(Args, Debug, Clone)]
 pub struct V2Args {
@@ -97,6 +113,12 @@ pub struct V2Args {
     /// Temporal modulation profile.
     #[arg(long, default_value = "normal")]
     motion: AnimationMotion,
+    /// Explore N low-res candidates and render top-scoring outputs at full quality.
+    #[arg(long, default_value_t = 0)]
+    explore_candidates: u32,
+    /// Maximum low-res candidate dimension used by the exploration pass.
+    #[arg(long, default_value_t = 320)]
+    explore_size: u32,
 }
 
 /// Animation settings for clip generation.
@@ -122,6 +144,7 @@ pub struct V2Config {
     pub preset: String,
     pub profile: V2Profile,
     pub animation: AnimationConfig,
+    pub selection: SelectionConfig,
 }
 
 #[derive(Parser, Debug)]
@@ -173,9 +196,49 @@ impl V2Config {
                 keep_frames: args.keep_frames,
                 motion: args.motion,
             },
+            selection: SelectionConfig {
+                explore_candidates: args.explore_candidates,
+                explore_size: args.explore_size,
+            },
         };
         validate_v2_config(&config)?;
         Ok(config)
+    }
+
+    /// Build a low-resolution exploration config from this runtime config.
+    pub fn low_res_explore_config(&self) -> Option<Self> {
+        if !self.selection.enabled() || self.animation.enabled {
+            return None;
+        }
+
+        let max_dim = self.selection.explore_size.max(64);
+        let longest = self.width.max(self.height).max(1);
+        let scale = (max_dim as f32 / longest as f32).min(1.0);
+        let width = ((self.width as f32 * scale).round() as u32).max(16);
+        let height = ((self.height as f32 * scale).round() as u32).max(16);
+
+        Some(Self {
+            width,
+            height,
+            seed: self.seed,
+            count: 1,
+            output: self.output.clone(),
+            layers: self.layers,
+            antialias: 1,
+            preset: self.preset.clone(),
+            profile: self.profile,
+            animation: AnimationConfig {
+                enabled: false,
+                seconds: self.animation.seconds,
+                fps: self.animation.fps,
+                keep_frames: false,
+                motion: self.animation.motion,
+            },
+            selection: SelectionConfig {
+                explore_candidates: 0,
+                explore_size: self.selection.explore_size,
+            },
+        })
     }
 }
 
@@ -204,6 +267,12 @@ fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
     }
     if config.animation.fps == 0 || config.animation.fps > 120 {
         return Err("fps must be in range 1..=120".into());
+    }
+    if config.selection.explore_size < 16 {
+        return Err("explore-size must be at least 16".into());
+    }
+    if config.animation.enabled && config.selection.enabled() {
+        return Err("explore-candidates cannot be used with animation mode".into());
     }
     Ok(())
 }
@@ -280,5 +349,51 @@ mod tests {
     fn omitted_seed_generates_runtime_seed() {
         let cfg = V2Config::parse(Vec::new()).expect("default configuration should parse");
         assert_ne!(cfg.seed, 0);
+    }
+
+    #[test]
+    fn parse_exploration_flags() {
+        let cfg = V2Config::parse(vec![
+            "--explore-candidates".to_string(),
+            "12".to_string(),
+            "--explore-size".to_string(),
+            "256".to_string(),
+        ])
+        .expect("exploration configuration should parse");
+        assert_eq!(cfg.selection.explore_candidates, 12);
+        assert_eq!(cfg.selection.explore_size, 256);
+    }
+
+    #[test]
+    fn low_res_explore_config_scales_dimensions() {
+        let cfg = V2Config::parse(vec![
+            "--width".to_string(),
+            "1920".to_string(),
+            "--height".to_string(),
+            "1080".to_string(),
+            "--explore-candidates".to_string(),
+            "10".to_string(),
+            "--explore-size".to_string(),
+            "320".to_string(),
+        ])
+        .expect("explore configuration should parse");
+        let low = cfg
+            .low_res_explore_config()
+            .expect("low-res explore config should be available");
+        assert_eq!(low.width, 320);
+        assert_eq!(low.height, 180);
+        assert_eq!(low.antialias, 1);
+        assert!(!low.selection.enabled());
+    }
+
+    #[test]
+    fn exploration_rejected_for_animation_mode() {
+        let err = V2Config::parse(vec![
+            "--animate".to_string(),
+            "--explore-candidates".to_string(),
+            "8".to_string(),
+        ])
+        .expect_err("animation+exploration should be rejected");
+        assert!(err.to_string().contains("explore-candidates"));
     }
 }

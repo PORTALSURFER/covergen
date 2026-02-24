@@ -5,7 +5,6 @@
 //! (test-only CPU validation path) and `runtime_gpu` (retained GPU path).
 
 use std::error::Error;
-use std::io::{self, Write};
 use std::path::Path;
 use std::time::Instant;
 
@@ -22,6 +21,8 @@ use super::compiler::CompiledGraph;
 use super::node::GraphTimeInput;
 use super::runtime_config::{V2Config, V2Profile};
 use super::runtime_gpu::render_graph_luma_gpu;
+use super::runtime_progress::{finish_animation_progress_line, print_animation_progress};
+use super::runtime_selection::{execute_still_with_selection, should_use_selection};
 
 /// Reusable image buffers for V2 execution.
 pub(crate) struct RuntimeBuffers {
@@ -42,6 +43,7 @@ pub(crate) struct RuntimeBuffers {
 pub async fn execute_compiled(
     config: &V2Config,
     compiled: &CompiledGraph,
+    low_res_explore: Option<(&V2Config, &CompiledGraph)>,
 ) -> Result<(), Box<dyn Error>> {
     telemetry::snapshot_memory("v2.run.start");
     let mut renderer = create_renderer(config, compiled).await?;
@@ -52,22 +54,25 @@ pub async fn execute_compiled(
     )?;
     telemetry::record_timing("v2.gpu.alias_buffers.init", alias_start.elapsed());
 
-    let mut buffers = RuntimeBuffers {
-        #[cfg(test)]
-        layered: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        #[cfg(test)]
-        percentile: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        #[cfg(test)]
-        layer_scratch: vec![0.0f32; pixel_count(compiled.width, compiled.height)?],
-        #[cfg(test)]
-        final_luma: vec![0.0f32; pixel_count(config.width, config.height)?],
-        #[cfg(test)]
-        downsample_scratch: Vec::new(),
-        output_gray: vec![0u8; pixel_count(config.width, config.height)?],
-    };
+    let mut buffers =
+        create_runtime_buffers(compiled.width, compiled.height, config.width, config.height)?;
 
     if config.animation.enabled {
         return execute_animation(config, compiled, &mut renderer, &mut buffers);
+    }
+
+    if should_use_selection(&config.selection, low_res_explore) {
+        if let Some((low_res_config, low_res_compiled)) = low_res_explore {
+            return execute_still_with_selection(
+                config,
+                compiled,
+                &mut renderer,
+                &mut buffers,
+                low_res_config,
+                low_res_compiled,
+            )
+            .await;
+        }
     }
 
     for image_index in 0..config.count {
@@ -113,6 +118,28 @@ pub async fn execute_compiled(
     telemetry::snapshot_memory("v2.run.end");
 
     Ok(())
+}
+
+/// Allocate reusable runtime buffers for one graph/output shape.
+pub(crate) fn create_runtime_buffers(
+    _graph_width: u32,
+    _graph_height: u32,
+    output_width: u32,
+    output_height: u32,
+) -> Result<RuntimeBuffers, Box<dyn Error>> {
+    Ok(RuntimeBuffers {
+        #[cfg(test)]
+        layered: vec![0.0f32; pixel_count(_graph_width, _graph_height)?],
+        #[cfg(test)]
+        percentile: vec![0.0f32; pixel_count(_graph_width, _graph_height)?],
+        #[cfg(test)]
+        layer_scratch: vec![0.0f32; pixel_count(_graph_width, _graph_height)?],
+        #[cfg(test)]
+        final_luma: vec![0.0f32; pixel_count(output_width, output_height)?],
+        #[cfg(test)]
+        downsample_scratch: Vec::new(),
+        output_gray: vec![0u8; pixel_count(output_width, output_height)?],
+    })
 }
 
 fn execute_animation(
@@ -214,71 +241,8 @@ fn execute_animation(
     Ok(())
 }
 
-/// Render one terminal progress row for clip/frame animation execution.
-fn print_animation_progress(
-    frame_done: u32,
-    frame_total: u32,
-    elapsed_secs: f64,
-    clip_total: u32,
-    clip_index: u32,
-) {
-    let percent = if frame_total == 0 {
-        0.0
-    } else {
-        (frame_done as f64 / frame_total as f64) * 100.0
-    };
-    let fps = if elapsed_secs > 0.0 {
-        frame_done as f64 / elapsed_secs
-    } else {
-        0.0
-    };
-    let eta_secs = if frame_done > 0 && fps > 0.0 {
-        (frame_total.saturating_sub(frame_done)) as f64 / fps
-    } else {
-        0.0
-    };
-    let bar = progress_bar(frame_done, frame_total, 28);
-    let _ = write!(
-        io::stderr(),
-        "\r[v2] clip {}/{} {} {:>6.2}% frame {}/{} | {:>5.1} fps | eta {}",
-        clip_index + 1,
-        clip_total,
-        bar,
-        percent,
-        frame_done,
-        frame_total,
-        fps,
-        format_eta(eta_secs),
-    );
-    let _ = io::stderr().flush();
-}
-
-/// End the current terminal progress line.
-fn finish_animation_progress_line() {
-    let _ = writeln!(io::stderr());
-    let _ = io::stderr().flush();
-}
-
-/// Build a compact fixed-width text progress bar.
-fn progress_bar(done: u32, total: u32, width: usize) -> String {
-    let clamped_total = total.max(1);
-    let filled = ((done.min(clamped_total) as usize) * width) / clamped_total as usize;
-    format!(
-        "[{}{}]",
-        "=".repeat(filled),
-        "-".repeat(width.saturating_sub(filled))
-    )
-}
-
-/// Format ETA as `mm:ss` for terminal progress output.
-fn format_eta(seconds: f64) -> String {
-    let total = seconds.max(0.0).round() as u64;
-    let mins = total / 60;
-    let secs = total % 60;
-    format!("{mins:02}:{secs:02}")
-}
-
-fn finalize_luma_for_output(
+/// Run final retained-output post-processing and copy grayscale output bytes.
+pub(crate) fn finalize_luma_for_output(
     config: &V2Config,
     renderer: &mut GpuLayerRenderer,
     buffers: &mut RuntimeBuffers,
@@ -309,7 +273,8 @@ fn finalize_luma_for_output(
     Ok(())
 }
 
-fn render_graph_frame(
+/// Render one graph frame/image into retained GPU buffers.
+pub(crate) fn render_graph_frame(
     compiled: &CompiledGraph,
     renderer: &mut GpuLayerRenderer,
     seed_offset: u32,
@@ -318,7 +283,8 @@ fn render_graph_frame(
     render_graph_luma_gpu(compiled, renderer, seed_offset, modulation)
 }
 
-async fn create_renderer(
+/// Create a hardware-GPU renderer for one compiled graph shape.
+pub(crate) async fn create_renderer(
     config: &V2Config,
     compiled: &CompiledGraph,
 ) -> Result<GpuLayerRenderer, Box<dyn Error>> {
@@ -355,7 +321,8 @@ async fn create_renderer(
     .await
 }
 
-fn indexed_output(base: &str, index: u32, total: u32) -> std::path::PathBuf {
+/// Resolve indexed output path for multi-image runs.
+pub(crate) fn indexed_output(base: &str, index: u32, total: u32) -> std::path::PathBuf {
     if total <= 1 {
         return Path::new(base).to_path_buf();
     }

@@ -45,6 +45,21 @@ Frame flow:
 3. Write PNG frame.
 4. Assemble MP4 with `ffmpeg` (`libx264`, `yuv420p`, `+faststart`).
 
+## Still Candidate Selection Mode
+
+For still-image runs, V2 can explore low-resolution candidates and keep only
+top-scoring seeds for final full-resolution rendering:
+
+- `--explore-candidates <n>` enables generate-score-select mode.
+- `--explore-size <n>` sets the max low-res exploration dimension.
+- Final output count remains `--count`; runtime renders the top `count` seeds.
+
+Score combines:
+
+- composition quality (contrast/edge/exposure balance)
+- novelty against previously explored candidates
+- temporal stability under a small modulation probe
+
 ## Adapter Policy
 
 V2 targets hardware GPU execution. If a software adapter is selected

@@ -22,6 +22,10 @@ fn config(seed: u32) -> V2Config {
             keep_frames: false,
             motion: AnimationMotion::Normal,
         },
+        selection: crate::runtime_config::SelectionConfig {
+            explore_candidates: 0,
+            explore_size: 320,
+        },
     }
 }
 
