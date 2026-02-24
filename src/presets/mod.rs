@@ -9,6 +9,7 @@ use super::runtime_config::V2Config;
 
 mod families;
 mod grammar;
+mod graph_art_direction;
 pub mod node_catalog;
 pub mod preset_catalog;
 mod primitives;
@@ -70,12 +71,15 @@ pub fn build_preset_graph_with_catalogs(
         nodes,
         modules,
     };
-    presets.build(&config.preset, context)
+    let mut graph = presets.build(&config.preset, context)?;
+    graph_art_direction::apply_graph_art_direction(&mut graph, config.art_direction);
+    Ok(graph)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::art_direction::{ChaosDirection, PaletteDirection};
     use crate::graph::NodeKind;
     use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Profile};
 
@@ -90,6 +94,7 @@ mod tests {
             antialias: 1,
             preset: preset.to_string(),
             profile: V2Profile::Quality,
+            art_direction: crate::art_direction::ArtDirectionConfig::default(),
             animation: AnimationConfig {
                 enabled: false,
                 seconds: 30,
@@ -139,5 +144,41 @@ mod tests {
         for preset in presets.keys() {
             assert!(text.contains(preset));
         }
+    }
+
+    #[test]
+    fn art_direction_controls_modify_generated_parameters() {
+        let presets = PresetCatalog::with_builtins().expect("preset catalog should register");
+        let nodes = NodeCatalog::with_builtins().expect("node catalog should register");
+        let modules = SubgraphCatalog::with_builtins().expect("module catalog should register");
+
+        let base = config_for("hybrid-stack");
+        let mut stylized = base.clone();
+        stylized.art_direction.chaos = ChaosDirection::Wild;
+        stylized.art_direction.palette = PaletteDirection::Neon;
+
+        let graph_base = build_preset_graph_with_catalogs(&base, &presets, &nodes, &modules)
+            .expect("baseline graph");
+        let graph_stylized =
+            build_preset_graph_with_catalogs(&stylized, &presets, &nodes, &modules)
+                .expect("stylized graph");
+
+        let base_layer = graph_base.nodes.iter().find_map(|node| match node.kind {
+            NodeKind::GenerateLayer(layer) => Some(layer),
+            _ => None,
+        });
+        let stylized_layer = graph_stylized
+            .nodes
+            .iter()
+            .find_map(|node| match node.kind {
+                NodeKind::GenerateLayer(layer) => Some(layer),
+                _ => None,
+            });
+        let (Some(base_layer), Some(stylized_layer)) = (base_layer, stylized_layer) else {
+            panic!("expected at least one generate layer node");
+        };
+
+        assert_ne!(base_layer.art_style, stylized_layer.art_style);
+        assert_ne!(base_layer.warp_strength, stylized_layer.warp_strength);
     }
 }

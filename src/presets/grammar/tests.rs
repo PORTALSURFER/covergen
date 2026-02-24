@@ -16,6 +16,7 @@ fn grammar_config(seed: u32) -> V2Config {
         antialias: 1,
         preset: "random-grammar".to_string(),
         profile: V2Profile::Quality,
+        art_direction: crate::art_direction::ArtDirectionConfig::default(),
         animation: AnimationConfig {
             enabled: false,
             seconds: 30,

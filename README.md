@@ -40,6 +40,11 @@ Useful V2 flags:
 - `--output <path>`
 - `--explore-candidates <u32>` (low-res generate-score-select before final still renders)
 - `--explore-size <u32>` (max dimension for low-res exploration pass; default `320`)
+- `--mood <balanced|moody|bright|dreamy>` (high-level tone/contrast intent)
+- `--energy <low|medium|high>` (detail and geometric intensity)
+- `--symmetry <low|medium|high>` (asymmetric vs. strong radial/mirror bias)
+- `--chaos <controlled|balanced|wild>` (randomness/variance amount)
+- `--palette <mixed|warm|cool|monochrome|neon>` (style-family color bias)
 - `--animate --seconds <u32> --fps <u32>`
 - `--motion <gentle|normal|wild>` (animation intensity profile; default `normal`)
 - `--reels` (forces 1080x1920 and enables animation)

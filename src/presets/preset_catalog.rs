@@ -221,6 +221,7 @@ mod tests {
             antialias: 1,
             preset: preset.to_string(),
             profile: V2Profile::Quality,
+            art_direction: crate::art_direction::ArtDirectionConfig::default(),
             animation: AnimationConfig {
                 enabled: false,
                 seconds: 30,

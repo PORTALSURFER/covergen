@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, ValueEnum};
 
+use crate::art_direction::{ArtDirectionArgs, ArtDirectionConfig};
+
 /// Runtime profile used by graph execution and preset generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum V2Profile {
@@ -119,6 +121,9 @@ pub struct V2Args {
     /// Maximum low-res candidate dimension used by the exploration pass.
     #[arg(long, default_value_t = 320)]
     explore_size: u32,
+    /// High-level creative steering controls.
+    #[command(flatten)]
+    art_direction: ArtDirectionArgs,
 }
 
 /// Animation settings for clip generation.
@@ -143,6 +148,7 @@ pub struct V2Config {
     pub antialias: u32,
     pub preset: String,
     pub profile: V2Profile,
+    pub art_direction: ArtDirectionConfig,
     pub animation: AnimationConfig,
     pub selection: SelectionConfig,
 }
@@ -189,6 +195,7 @@ impl V2Config {
             antialias: args.antialias,
             preset: args.preset,
             profile: args.profile,
+            art_direction: args.art_direction.into_config(),
             animation: AnimationConfig {
                 enabled: animation_enabled,
                 seconds: args.seconds,
@@ -227,6 +234,7 @@ impl V2Config {
             antialias: 1,
             preset: self.preset.clone(),
             profile: self.profile,
+            art_direction: self.art_direction,
             animation: AnimationConfig {
                 enabled: false,
                 seconds: self.animation.seconds,
@@ -298,102 +306,4 @@ fn splitmix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{AnimationMotion, V2Config, V2Profile};
-
-    #[test]
-    fn reels_mode_enables_animation_and_dimensions() {
-        let cfg =
-            V2Config::parse(vec!["--reels".to_string()]).expect("reels configuration should parse");
-        assert_eq!(cfg.width, 1080);
-        assert_eq!(cfg.height, 1920);
-        assert!(cfg.animation.enabled);
-    }
-
-    #[test]
-    fn animate_output_defaults_to_mp4_extension() {
-        let cfg = V2Config::parse(vec![
-            "--animate".to_string(),
-            "--output".to_string(),
-            "clip".to_string(),
-        ])
-        .expect("animation configuration should parse");
-        assert!(cfg.output.ends_with(".mp4"));
-    }
-
-    #[test]
-    fn motion_profile_parses_with_alias() {
-        let cfg = V2Config::parse(vec!["--motion".to_string(), "soft".to_string()])
-            .expect("motion profile should parse");
-        assert_eq!(cfg.animation.motion, AnimationMotion::Gentle);
-    }
-
-    #[test]
-    fn profile_parses_with_alias() {
-        let cfg = V2Config::parse(vec!["--profile".to_string(), "perf".to_string()])
-            .expect("profile should parse");
-        assert_eq!(cfg.profile, V2Profile::Performance);
-    }
-
-    #[test]
-    fn explicit_seed_is_preserved() {
-        let cfg = V2Config::parse(vec!["--seed".to_string(), "12345".to_string()])
-            .expect("seeded configuration should parse");
-        assert_eq!(cfg.seed, 12345);
-    }
-
-    #[test]
-    fn omitted_seed_generates_runtime_seed() {
-        let cfg = V2Config::parse(Vec::new()).expect("default configuration should parse");
-        assert_ne!(cfg.seed, 0);
-    }
-
-    #[test]
-    fn parse_exploration_flags() {
-        let cfg = V2Config::parse(vec![
-            "--explore-candidates".to_string(),
-            "12".to_string(),
-            "--explore-size".to_string(),
-            "256".to_string(),
-        ])
-        .expect("exploration configuration should parse");
-        assert_eq!(cfg.selection.explore_candidates, 12);
-        assert_eq!(cfg.selection.explore_size, 256);
-    }
-
-    #[test]
-    fn low_res_explore_config_scales_dimensions() {
-        let cfg = V2Config::parse(vec![
-            "--width".to_string(),
-            "1920".to_string(),
-            "--height".to_string(),
-            "1080".to_string(),
-            "--explore-candidates".to_string(),
-            "10".to_string(),
-            "--explore-size".to_string(),
-            "320".to_string(),
-        ])
-        .expect("explore configuration should parse");
-        let low = cfg
-            .low_res_explore_config()
-            .expect("low-res explore config should be available");
-        assert_eq!(low.width, 320);
-        assert_eq!(low.height, 180);
-        assert_eq!(low.antialias, 1);
-        assert!(!low.selection.enabled());
-    }
-
-    #[test]
-    fn exploration_rejected_for_animation_mode() {
-        let err = V2Config::parse(vec![
-            "--animate".to_string(),
-            "--explore-candidates".to_string(),
-            "8".to_string(),
-        ])
-        .expect_err("animation+exploration should be rejected");
-        assert!(err.to_string().contains("explore-candidates"));
-    }
 }

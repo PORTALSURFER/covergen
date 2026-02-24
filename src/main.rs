@@ -3,6 +3,7 @@
 use std::error::Error;
 
 mod animation;
+mod art_direction;
 mod bench;
 mod chop;
 mod cli;
@@ -17,6 +18,8 @@ mod presets;
 mod proc_graph;
 mod runtime;
 mod runtime_config;
+#[cfg(test)]
+mod runtime_config_tests;
 #[cfg(test)]
 mod runtime_eval;
 mod runtime_gpu;
