@@ -3,44 +3,34 @@
 use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use clap::{Args, Parser, ValueEnum};
+
 /// Runtime profile used by V2 execution and preset generation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum V2Profile {
+    #[default]
+    #[value(alias = "q")]
     Quality,
+    #[value(alias = "perf", alias = "p")]
     Performance,
 }
 
-impl V2Profile {
-    fn parse(value: &str) -> Result<Self, Box<dyn Error>> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "quality" | "q" => Ok(Self::Quality),
-            "performance" | "perf" | "p" => Ok(Self::Performance),
-            _ => Err(format!("invalid profile '{value}', expected quality|performance").into()),
-        }
-    }
-}
-
 /// Animation motion profile controlling temporal intensity and seed jitter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum AnimationMotion {
-    /// Slow, low-amplitude modulation with stable per-clip seed.
-    Gentle,
     /// Balanced modulation with stable per-clip seed.
+    #[default]
+    #[value(alias = "medium", alias = "balanced")]
     Normal,
+    /// Slow, low-amplitude modulation with stable per-clip seed.
+    #[value(alias = "soft", alias = "calm")]
+    Gentle,
     /// High modulation and per-frame seed jitter for aggressive motion.
+    #[value(alias = "intense", alias = "high")]
     Wild,
 }
 
 impl AnimationMotion {
-    fn parse(value: &str) -> Result<Self, Box<dyn Error>> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "gentle" | "soft" | "calm" => Ok(Self::Gentle),
-            "normal" | "medium" | "balanced" => Ok(Self::Normal),
-            "wild" | "intense" | "high" => Ok(Self::Wild),
-            _ => Err(format!("invalid motion '{value}', expected gentle|normal|wild").into()),
-        }
-    }
-
     /// Return temporal modulation scale for this motion profile.
     pub fn modulation_intensity(self) -> f32 {
         match self {
@@ -56,6 +46,59 @@ impl AnimationMotion {
     }
 }
 
+/// V2 command-line flags used by `covergen` and `covergen v2`.
+#[derive(Args, Debug, Clone)]
+pub struct V2Args {
+    /// Set square output size (same as setting width and height).
+    #[arg(long)]
+    size: Option<u32>,
+    /// Output width in pixels.
+    #[arg(long)]
+    width: Option<u32>,
+    /// Output height in pixels.
+    #[arg(long)]
+    height: Option<u32>,
+    /// Seed used for deterministic generation.
+    #[arg(long)]
+    seed: Option<u32>,
+    /// Number of images/clips to generate.
+    #[arg(long, short = 'n', default_value_t = 1)]
+    count: u32,
+    /// Output path (or base path when count > 1).
+    #[arg(long, short = 'o', default_value = "covergen_v2.png")]
+    output: String,
+    /// Layer budget used by preset generation.
+    #[arg(long, default_value_t = 4)]
+    layers: u32,
+    /// Supersampling antialias factor.
+    #[arg(long, visible_alias = "aa", default_value_t = 1)]
+    antialias: u32,
+    /// Preset family name.
+    #[arg(long, default_value = "hybrid-stack")]
+    preset: String,
+    /// Runtime quality/performance profile.
+    #[arg(long, default_value = "quality")]
+    profile: V2Profile,
+    /// Enable clip animation mode.
+    #[arg(long)]
+    animate: bool,
+    /// Clip length in seconds.
+    #[arg(long, default_value_t = 30)]
+    seconds: u32,
+    /// Clip frame rate.
+    #[arg(long, default_value_t = 30)]
+    fps: u32,
+    /// Keep intermediate frame PNGs after mp4 assembly.
+    #[arg(long)]
+    keep_frames: bool,
+    /// Force Instagram Reels dimensions and enable animation mode.
+    #[arg(long)]
+    reels: bool,
+    /// Temporal modulation profile.
+    #[arg(long, default_value = "normal")]
+    motion: AnimationMotion,
+}
+
 /// Animation settings for V2 clip generation.
 #[derive(Debug, Clone)]
 pub struct AnimationConfig {
@@ -63,7 +106,6 @@ pub struct AnimationConfig {
     pub seconds: u32,
     pub fps: u32,
     pub keep_frames: bool,
-    pub reels: bool,
     pub motion: AnimationMotion,
 }
 
@@ -82,133 +124,88 @@ pub struct V2Config {
     pub animation: AnimationConfig,
 }
 
+#[derive(Parser, Debug)]
+#[command(disable_help_subcommand = true)]
+struct V2ArgsParser {
+    #[command(flatten)]
+    args: V2Args,
+}
+
 impl V2Config {
     /// Parse `covergen v2` arguments.
+    #[cfg(test)]
     pub fn parse(args: Vec<String>) -> Result<Self, Box<dyn Error>> {
-        let mut cfg = Self {
-            width: 1024,
-            height: 1024,
-            seed: 0,
-            count: 1,
-            output: "covergen_v2.png".to_string(),
-            layers: 4,
-            antialias: 1,
-            preset: "hybrid-stack".to_string(),
-            profile: V2Profile::Quality,
+        let parsed = parse_v2_args(args)?;
+        Self::from_args(parsed)
+    }
+
+    /// Convert validated clap arguments into runtime configuration.
+    pub fn from_args(args: V2Args) -> Result<Self, Box<dyn Error>> {
+        let size = args.size.unwrap_or(1024);
+        let mut width = args.width.unwrap_or(size);
+        let mut height = args.height.unwrap_or(size);
+
+        if args.reels {
+            width = 1080;
+            height = 1920;
+        }
+
+        let mut output = args.output;
+        let animation_enabled = args.animate || args.reels;
+        if animation_enabled && !output.to_ascii_lowercase().ends_with(".mp4") {
+            output.push_str(".mp4");
+        }
+
+        let config = Self {
+            width,
+            height,
+            seed: args.seed.unwrap_or_else(runtime_seed),
+            count: args.count,
+            output,
+            layers: args.layers,
+            antialias: args.antialias,
+            preset: args.preset,
+            profile: args.profile,
             animation: AnimationConfig {
-                enabled: false,
-                seconds: 30,
-                fps: 30,
-                keep_frames: false,
-                reels: false,
-                motion: AnimationMotion::Normal,
+                enabled: animation_enabled,
+                seconds: args.seconds,
+                fps: args.fps,
+                keep_frames: args.keep_frames,
+                motion: args.motion,
             },
         };
-        let mut explicit_seed = false;
-
-        let mut iter = args.into_iter();
-        while let Some(arg) = iter.next() {
-            match arg.as_str() {
-                "--size" => {
-                    let value = iter.next().ok_or("missing value for --size")?;
-                    let size: u32 = value.parse()?;
-                    cfg.width = size;
-                    cfg.height = size;
-                }
-                "--width" => {
-                    let value = iter.next().ok_or("missing value for --width")?;
-                    cfg.width = value.parse()?;
-                }
-                "--height" => {
-                    let value = iter.next().ok_or("missing value for --height")?;
-                    cfg.height = value.parse()?;
-                }
-                "--seed" => {
-                    let value = iter.next().ok_or("missing value for --seed")?;
-                    cfg.seed = value.parse()?;
-                    explicit_seed = true;
-                }
-                "--count" | "-n" => {
-                    let value = iter.next().ok_or("missing value for --count")?;
-                    cfg.count = value.parse()?;
-                }
-                "--output" | "-o" => {
-                    cfg.output = iter.next().ok_or("missing value for --output")?;
-                }
-                "--layers" => {
-                    let value = iter.next().ok_or("missing value for --layers")?;
-                    cfg.layers = value.parse()?;
-                }
-                "--antialias" | "--aa" => {
-                    let value = iter.next().ok_or("missing value for --antialias")?;
-                    cfg.antialias = value.parse()?;
-                }
-                "--preset" => {
-                    cfg.preset = iter.next().ok_or("missing value for --preset")?;
-                }
-                "--profile" => {
-                    let value = iter.next().ok_or("missing value for --profile")?;
-                    cfg.profile = V2Profile::parse(&value)?;
-                }
-                "--animate" => {
-                    cfg.animation.enabled = true;
-                }
-                "--seconds" => {
-                    let value = iter.next().ok_or("missing value for --seconds")?;
-                    cfg.animation.seconds = value.parse()?;
-                }
-                "--fps" => {
-                    let value = iter.next().ok_or("missing value for --fps")?;
-                    cfg.animation.fps = value.parse()?;
-                }
-                "--keep-frames" => {
-                    cfg.animation.keep_frames = true;
-                }
-                "--reels" => {
-                    cfg.animation.reels = true;
-                }
-                "--motion" => {
-                    let value = iter.next().ok_or("missing value for --motion")?;
-                    cfg.animation.motion = AnimationMotion::parse(&value)?;
-                }
-                _ => return Err(format!("unknown v2 argument: {arg}").into()),
-            }
-        }
-
-        if cfg.width == 0 || cfg.height == 0 {
-            return Err("v2 width and height must be greater than zero".into());
-        }
-        if cfg.count == 0 {
-            return Err("v2 count must be at least 1".into());
-        }
-        if cfg.layers == 0 {
-            return Err("v2 layers must be at least 1".into());
-        }
-        if cfg.antialias == 0 || cfg.antialias > 4 {
-            return Err("v2 antialias must be in range 1..=4".into());
-        }
-        if cfg.animation.seconds == 0 {
-            return Err("v2 animation duration must be at least 1 second".into());
-        }
-        if cfg.animation.fps == 0 || cfg.animation.fps > 120 {
-            return Err("v2 fps must be in range 1..=120".into());
-        }
-
-        if cfg.animation.reels {
-            cfg.width = 1080;
-            cfg.height = 1920;
-            cfg.animation.enabled = true;
-        }
-
-        if cfg.animation.enabled && !cfg.output.to_ascii_lowercase().ends_with(".mp4") {
-            cfg.output.push_str(".mp4");
-        }
-        if !explicit_seed {
-            cfg.seed = runtime_seed();
-        }
-
-        Ok(cfg)
+        validate_v2_config(&config)?;
+        Ok(config)
     }
+}
+
+#[cfg(test)]
+fn parse_v2_args(args: Vec<String>) -> Result<V2Args, Box<dyn Error>> {
+    let argv = std::iter::once("v2".to_string()).chain(args);
+    let parsed = V2ArgsParser::try_parse_from(argv)?;
+    Ok(parsed.args)
+}
+
+fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
+    if config.width == 0 || config.height == 0 {
+        return Err("v2 width and height must be greater than zero".into());
+    }
+    if config.count == 0 {
+        return Err("v2 count must be at least 1".into());
+    }
+    if config.layers == 0 {
+        return Err("v2 layers must be at least 1".into());
+    }
+    if config.antialias == 0 || config.antialias > 4 {
+        return Err("v2 antialias must be in range 1..=4".into());
+    }
+    if config.animation.seconds == 0 {
+        return Err("v2 animation duration must be at least 1 second".into());
+    }
+    if config.animation.fps == 0 || config.animation.fps > 120 {
+        return Err("v2 fps must be in range 1..=120".into());
+    }
+    Ok(())
 }
 
 /// Generate a per-run seed when one is not explicitly supplied.
@@ -232,7 +229,7 @@ fn splitmix64(mut value: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AnimationMotion, V2Config};
+    use super::{AnimationMotion, V2Config, V2Profile};
 
     #[test]
     fn reels_mode_enables_animation_and_dimensions() {
@@ -255,10 +252,17 @@ mod tests {
     }
 
     #[test]
-    fn motion_profile_parses() {
-        let cfg = V2Config::parse(vec!["--motion".to_string(), "gentle".to_string()])
+    fn motion_profile_parses_with_alias() {
+        let cfg = V2Config::parse(vec!["--motion".to_string(), "soft".to_string()])
             .expect("motion profile should parse");
         assert_eq!(cfg.animation.motion, AnimationMotion::Gentle);
+    }
+
+    #[test]
+    fn profile_parses_with_alias() {
+        let cfg = V2Config::parse(vec!["--profile".to_string(), "perf".to_string()])
+            .expect("profile should parse");
+        assert_eq!(cfg.profile, V2Profile::Performance);
     }
 
     #[test]

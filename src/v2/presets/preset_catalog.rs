@@ -155,7 +155,6 @@ mod tests {
                 seconds: 30,
                 fps: 30,
                 keep_frames: false,
-                reels: false,
                 motion: AnimationMotion::Normal,
             },
         }

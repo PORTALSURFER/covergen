@@ -6,6 +6,7 @@
 //! threshold artifacts.
 
 mod baseline;
+pub(crate) mod cli;
 mod contracts;
 mod report;
 mod stats;
@@ -54,9 +55,8 @@ struct ScenarioSample {
     capture: CaptureReport,
 }
 
-/// Run the benchmark suite and write the report to disk.
-pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error>> {
-    let config = parse_args(args)?;
+/// Run the benchmark suite from a prevalidated configuration.
+pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn Error>> {
     std::fs::create_dir_all(&config.out_dir)?;
     let mut skip_notes = Vec::new();
     let mut cutover_notes = Vec::new();
@@ -187,112 +187,6 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
     Ok(())
 }
 
-fn parse_args(args: Vec<String>) -> Result<BenchConfig, Box<dyn Error>> {
-    let mut cfg = BenchConfig {
-        tier: "unclassified".to_string(),
-        samples: 8,
-        animation_samples: 4,
-        require_v2_scenarios: false,
-        size: 1024,
-        seed: 0x9E37_79B9,
-        out_dir: PathBuf::from("target/bench"),
-        keep_artifacts: false,
-        preset: "mask-atlas".to_string(),
-        profile: V2Profile::Performance,
-        animation_seconds: 6,
-        animation_fps: 24,
-        thresholds_path: None,
-        lock_thresholds_path: None,
-    };
-
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--samples" => {
-                cfg.samples = iter.next().ok_or("missing value for --samples")?.parse()?;
-            }
-            "--animation-samples" => {
-                cfg.animation_samples = iter
-                    .next()
-                    .ok_or("missing value for --animation-samples")?
-                    .parse()?;
-            }
-            "--require-v2-scenarios" => {
-                cfg.require_v2_scenarios = true;
-            }
-            "--size" => {
-                cfg.size = iter.next().ok_or("missing value for --size")?.parse()?;
-            }
-            "--seed" => {
-                cfg.seed = iter.next().ok_or("missing value for --seed")?.parse()?;
-            }
-            "--output-dir" => {
-                cfg.out_dir = PathBuf::from(iter.next().ok_or("missing value for --output-dir")?);
-            }
-            "--tier" => {
-                cfg.tier = iter.next().ok_or("missing value for --tier")?;
-            }
-            "--keep-artifacts" => {
-                cfg.keep_artifacts = true;
-            }
-            "--preset" => {
-                cfg.preset = iter.next().ok_or("missing value for --preset")?;
-            }
-            "--profile" => {
-                let value = iter.next().ok_or("missing value for --profile")?;
-                cfg.profile = parse_profile(&value)?;
-            }
-            "--seconds" => {
-                cfg.animation_seconds =
-                    iter.next().ok_or("missing value for --seconds")?.parse()?;
-            }
-            "--fps" => {
-                cfg.animation_fps = iter.next().ok_or("missing value for --fps")?.parse()?;
-            }
-            "--thresholds" => {
-                cfg.thresholds_path = Some(PathBuf::from(
-                    iter.next().ok_or("missing value for --thresholds")?,
-                ));
-            }
-            "--lock-thresholds" => {
-                cfg.lock_thresholds_path = Some(PathBuf::from(
-                    iter.next().ok_or("missing value for --lock-thresholds")?,
-                ));
-            }
-            _ => return Err(format!("unknown bench argument: {arg}").into()),
-        }
-    }
-
-    if cfg.samples == 0 {
-        return Err("--samples must be at least 1".into());
-    }
-    if cfg.animation_samples == 0 {
-        return Err("--animation-samples must be at least 1".into());
-    }
-    if cfg.size == 0 {
-        return Err("--size must be greater than zero".into());
-    }
-    if cfg.animation_seconds == 0 {
-        return Err("--seconds must be at least 1".into());
-    }
-    if cfg.animation_fps == 0 {
-        return Err("--fps must be at least 1".into());
-    }
-    if cfg.tier.trim().is_empty() {
-        return Err("--tier must not be empty".into());
-    }
-
-    Ok(cfg)
-}
-
-fn parse_profile(value: &str) -> Result<V2Profile, Box<dyn Error>> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "quality" | "q" => Ok(V2Profile::Quality),
-        "performance" | "perf" | "p" => Ok(V2Profile::Performance),
-        _ => Err(format!("invalid profile '{value}', expected quality|performance").into()),
-    }
-}
-
 async fn run_v1_sample(
     config: &BenchConfig,
     sample: u32,
@@ -371,7 +265,6 @@ async fn run_v2_animation_sample(
         seconds: config.animation_seconds,
         fps: config.animation_fps,
         keep_frames: false,
-        reels: false,
         motion: AnimationMotion::Normal,
     };
 
@@ -411,7 +304,6 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
             seconds: config.animation_seconds,
             fps: config.animation_fps,
             keep_frames: false,
-            reels: false,
             motion: AnimationMotion::Normal,
         },
     }

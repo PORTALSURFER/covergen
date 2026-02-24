@@ -134,9 +134,7 @@ pub(super) fn validate_thresholds(
     let mut violations = Vec::new();
     for scenario in metrics.keys() {
         if !parsed.scenarios.contains_key(scenario) {
-            violations.push(format!(
-                "missing scenario '{scenario}' in threshold file"
-            ));
+            violations.push(format!("missing scenario '{scenario}' in threshold file"));
         }
     }
     for (scenario, expected) in parsed.scenarios {

@@ -321,7 +321,6 @@ pub(super) fn snapshot_config(seed: u32, width: u32, height: u32, profile: V2Pro
             seconds: 2,
             fps: 12,
             keep_frames: false,
-            reels: false,
             motion: AnimationMotion::Normal,
         },
     }

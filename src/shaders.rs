@@ -101,7 +101,10 @@ mod tests {
 
     #[test]
     fn spirv_program_names_match_expected_files() {
-        assert_eq!(program_spirv_name(ShaderProgram::FractalMain), "fractal_main.spv");
+        assert_eq!(
+            program_spirv_name(ShaderProgram::FractalMain),
+            "fractal_main.spv"
+        );
         assert_eq!(program_spirv_name(ShaderProgram::GraphOps), "graph_ops.spv");
         assert_eq!(
             program_spirv_name(ShaderProgram::GraphDecode),
