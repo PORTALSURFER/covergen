@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 11:02:19 UTC
+Last Updated: 2026-02-24 11:05:21 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -20,6 +20,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 - Benchmark lock flow now refuses to write threshold files when required V2 scenarios are missing.
 - Benchmark and regression suites now validate multi-output contracts (exactly one primary + at least one tap) and follow a documented primary-only encode artifact policy.
 - Local CI script (`scripts/ci_local.sh`) now defines the canonical gate sequence: shader validation, fmt/test, visual regression, GPU confidence tests, and tier threshold benchmark validation.
+- Windows hosts now have PowerShell rust-gpu artifact instrumentation scripts (`scripts/shaders/build_rust_gpu_artifacts.ps1`, `scripts/shaders/validate_rust_gpu_artifacts.ps1`) for build/validation parity.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.

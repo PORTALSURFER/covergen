@@ -106,3 +106,11 @@ To point at rust-gpu artifacts explicitly:
 ```bash
 export COVERGEN_RUST_GPU_SPIRV_DIR=target/rust-gpu
 ```
+
+Windows/PowerShell instrumentation for build + validation:
+
+```powershell
+pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 `
+  -ArtifactsDir target/rust-gpu `
+  -BuildCommand "<your rust-gpu build command>"
+```

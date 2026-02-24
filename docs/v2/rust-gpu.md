@@ -36,6 +36,29 @@ Validate that all required SPIR-V files exist and have correct magic:
 scripts/shaders/validate_rust_gpu_artifacts.sh target/rust-gpu
 ```
 
+PowerShell equivalent:
+
+```powershell
+pwsh -File scripts/shaders/validate_rust_gpu_artifacts.ps1 target/rust-gpu
+```
+
+## Windows Runner Instrumentation
+
+For Windows/PowerShell hosts, use the build+validate instrumentation script:
+
+```powershell
+pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 `
+  -ArtifactsDir target/rust-gpu `
+  -BuildCommand "<your rust-gpu build command>"
+```
+
+Behavior:
+
+- runs your provided build command (or validates existing artifacts when omitted)
+- validates required SPIR-V artifacts (`fractal_main`, `graph_ops`, `graph_decode`, `retained_post`)
+- prints per-file size, UTC timestamp, and SHA256
+- runs `scripts/shaders/validate_rust_gpu_artifacts.sh target/rust-gpu` when `bash` is available
+
 ## Integration Notes
 
 - `src/shaders.rs` is the single source of truth for shader program loading.
