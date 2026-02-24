@@ -43,7 +43,9 @@ pub(super) fn build_setup(
     let accum_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("retained accum"),
         size: src_bytes,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {

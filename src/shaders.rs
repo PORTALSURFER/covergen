@@ -128,11 +128,9 @@ fn load_spirv_words(program: ShaderProgram) -> Result<Vec<u32>, Box<dyn Error>> 
     let path = spirv_root_dir().join(file);
     let bytes = std::fs::read(&path).map_err(|err| {
         format!(
-            "failed to read rust-gpu SPIR-V '{}' at {}: {err}. \
-set {}=wgsl for legacy WGSL fallback.",
+            "failed to read rust-gpu SPIR-V '{}' at {}: {err}",
             file,
-            path.display(),
-            SHADER_BACKEND_ENV
+            path.display()
         )
     })?;
     parse_spirv_words(&bytes, &path)
