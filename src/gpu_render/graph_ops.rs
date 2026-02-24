@@ -86,7 +86,6 @@ pub(super) struct GpuGraphOps {
     source_noise_pipeline: wgpu::ComputePipeline,
     mask_pipeline: wgpu::ComputePipeline,
     blend_pipeline: wgpu::ComputePipeline,
-    feedback_pipeline: wgpu::ComputePipeline,
     top_camera_pipeline: wgpu::ComputePipeline,
     tone_map_pipeline: wgpu::ComputePipeline,
     warp_pipeline: wgpu::ComputePipeline,
@@ -139,12 +138,6 @@ impl GpuGraphOps {
             ),
             mask_pipeline: create_pipeline(device, &graph_layout, &shader_module, "build_mask"),
             blend_pipeline: create_pipeline(device, &graph_layout, &shader_module, "blend_luma"),
-            feedback_pipeline: create_pipeline(
-                device,
-                &graph_layout,
-                &shader_module,
-                "feedback_mix",
-            ),
             top_camera_pipeline: create_pipeline(
                 device,
                 &graph_layout,
@@ -268,13 +261,17 @@ impl GpuGraphOps {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         buffers: GraphBuffers<'_>,
-        uniforms: GraphOpUniforms,
+        mut uniforms: GraphOpUniforms,
     ) {
+        // Compatibility path: feedback is equivalent to normal blend with
+        // alpha=mix and no mask, so we can reuse `blend_luma`.
+        uniforms.mode = 0;
+        uniforms.flags &= !0x1;
         self.encode_graph_pass(
             device,
             queue,
             encoder,
-            &self.feedback_pipeline,
+            &self.blend_pipeline,
             buffers,
             uniforms,
         );
