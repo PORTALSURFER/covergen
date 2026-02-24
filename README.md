@@ -135,6 +135,14 @@ pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 `
   -ArtifactsDir target/rust-gpu `
 ```
 
+Default shader build uses:
+`cargo +nightly-2023-05-27 run --quiet --manifest-path shaders/build_spirv/Cargo.toml`.
+Install rust-gpu toolchain prerequisites first:
+
+```bash
+rustup toolchain install nightly-2023-05-27 -c rust-src -c rustc-dev -c llvm-tools-preview
+```
+
 Bash/Linux build + validation:
 
 ```bash

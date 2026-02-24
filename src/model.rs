@@ -2,7 +2,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-/// Uniform buffer payload consumed by the WGSL shader.
+/// Uniform buffer payload consumed by the fractal SPIR-V compute shader.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(crate) struct Params {

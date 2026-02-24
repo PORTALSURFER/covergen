@@ -16,7 +16,8 @@ pub(super) struct RetainedPostParams {
     pub(super) _pad0: u32,
     pub(super) opacity: f32,
     pub(super) contrast: f32,
-    pub(super) _pad1: [f32; 2],
+    pub(super) _pad1: f32,
+    pub(super) _pad2: f32,
 }
 
 /// Uniforms for final GPU output passes.
@@ -72,7 +73,8 @@ impl RetainedGpuPost {
             _pad0: 0,
             opacity: 1.0,
             contrast: 1.0,
-            _pad1: [0.0, 0.0],
+            _pad1: 0.0,
+            _pad2: 0.0,
         };
         let finalize_init = RetainedFinalizeParams {
             src_width: width,
@@ -126,7 +128,8 @@ impl RetainedGpuPost {
             _pad0: 0,
             opacity: 1.0,
             contrast: 1.0,
-            _pad1: [0.0, 0.0],
+            _pad1: 0.0,
+            _pad2: 0.0,
         };
         queue.write_buffer(&self.post_uniform, 0, bytemuck::bytes_of(&clear));
 
@@ -161,7 +164,8 @@ impl RetainedGpuPost {
             _pad0: 0,
             opacity: opacity.clamp(0.0, 1.0),
             contrast: contrast.clamp(1.0, 3.0),
-            _pad1: [0.0, 0.0],
+            _pad1: 0.0,
+            _pad2: 0.0,
         };
         queue.write_buffer(&self.post_uniform, 0, bytemuck::bytes_of(&post));
 

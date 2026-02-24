@@ -1,7 +1,7 @@
 # V2 rust-gpu Shader Backend
 
 The runtime loads all shader programs from rust-gpu SPIR-V artifacts.
-WGSL fallback paths have been removed.
+WGSL fallback paths are removed.
 
 ## Programs
 
@@ -11,6 +11,13 @@ Expected SPIR-V file names:
 - `graph_ops.spv`
 - `graph_decode.spv`
 - `retained_post.spv`
+
+Rust shader source crates:
+
+- `shaders/fractal_main`
+- `shaders/graph_ops`
+- `shaders/graph_decode`
+- `shaders/retained_post`
 
 ## Runtime Behavior
 
@@ -30,44 +37,60 @@ If `COVERGEN_RUST_GPU_SPIRV_DIR` is unset, runtime defaults to
 
 ## Artifact Validation
 
-Validate that all required SPIR-V files exist and have correct magic:
+Validate required SPIR-V files and magic bytes:
 
 ```bash
 scripts/shaders/validate_rust_gpu_artifacts.sh target/rust-gpu
 ```
 
-Build artifacts from WGSL source and validate:
+Build rust-gpu artifacts and validate:
 
 ```bash
 scripts/shaders/build_rust_gpu_artifacts.sh target/rust-gpu
 ```
 
-PowerShell equivalent:
+PowerShell equivalents:
 
 ```powershell
-pwsh -File scripts/shaders/validate_rust_gpu_artifacts.ps1 target/rust-gpu
+pwsh -File scripts/shaders/validate_rust_gpu_artifacts.ps1 -Root target/rust-gpu
+pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 -ArtifactsDir target/rust-gpu
 ```
 
-## Windows Runner Instrumentation
+## Toolchain Requirements
 
-For Windows/PowerShell hosts, use the build+validate instrumentation script:
+By default, build scripts run:
+
+`cargo +nightly-2023-05-27 run --quiet --manifest-path shaders/build_spirv/Cargo.toml`.
+
+Required components for the selected toolchain:
+
+- `rust-src`
+- `rustc-dev`
+- `llvm-tools-preview`
+
+Install example:
+
+```bash
+rustup toolchain install nightly-2023-05-27 -c rust-src -c rustc-dev -c llvm-tools-preview
+```
+
+Override toolchain when needed:
+
+```bash
+export COVERGEN_RUST_GPU_TOOLCHAIN=nightly-2023-05-27
+```
+
+Windows:
 
 ```powershell
-pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 `
-  -ArtifactsDir target/rust-gpu `
+$env:COVERGEN_RUST_GPU_TOOLCHAIN = "nightly-2023-05-27"
 ```
-
-Behavior:
-
-- runs `cargo run --quiet --bin build_spirv` by default (or your provided build command)
-- validates required SPIR-V artifacts (`fractal_main`, `graph_ops`, `graph_decode`, `retained_post`)
-- prints per-file size, UTC timestamp, and SHA256
-- runs `scripts/shaders/validate_rust_gpu_artifacts.sh target/rust-gpu` when `bash` is available
 
 ## Integration Notes
 
 - `src/shaders.rs` is the single source of truth for shader program loading.
-- All GPU pipelines now route through that module:
+- `shaders/build_spirv` compiles all runtime shader artifacts from rust-gpu crates.
+- All GPU pipelines route through `src/shaders.rs`:
   - main fractal generation
   - graph ops/decode
   - retained post passes

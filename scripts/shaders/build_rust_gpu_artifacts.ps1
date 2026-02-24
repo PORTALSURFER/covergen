@@ -12,6 +12,7 @@ optionally enforces the bash validator as a parity check when bash exists.
 param(
     [string]$ArtifactsDir = "target/rust-gpu",
     [string]$BuildCommand = $env:COVERGEN_RUST_GPU_BUILD_COMMAND,
+    [string]$Toolchain = $env:COVERGEN_RUST_GPU_TOOLCHAIN,
     [switch]$SkipBashValidation
 )
 
@@ -22,13 +23,29 @@ $required = @(
     "retained_post.spv"
 )
 
+if ([string]::IsNullOrWhiteSpace($Toolchain)) {
+    $Toolchain = "nightly-2023-05-27"
+}
+
 $started = Get-Date
 Write-Host "[shader] build+validate started at $($started.ToUniversalTime().ToString('u'))"
 Write-Host "[shader] artifacts dir: $ArtifactsDir"
+Write-Host "[shader] rustup toolchain: $Toolchain"
+
+$installedToolchains = (& rustup toolchain list) -split "`n" | ForEach-Object {
+    ($_ -split "\s+")[0].Trim()
+} | Where-Object { $_ -ne "" }
+if (-not ($installedToolchains | Where-Object { $_ -eq $Toolchain -or $_ -like "$Toolchain-*" })) {
+    throw "missing rustup toolchain '$Toolchain'. install with: rustup toolchain install $Toolchain -c rust-src -c rustc-dev -c llvm-tools-preview"
+}
 
 if ([string]::IsNullOrWhiteSpace($BuildCommand)) {
-    $BuildCommand = "cargo run --quiet --bin build_spirv"
+    $BuildCommand = "cargo +$Toolchain run --quiet --manifest-path shaders/build_spirv/Cargo.toml"
     Write-Host "[shader] no build command provided; using default: $BuildCommand"
+}
+
+if ([string]::IsNullOrWhiteSpace($env:RUSTGPU_SKIP_TOOLCHAIN_CHECK)) {
+    $env:RUSTGPU_SKIP_TOOLCHAIN_CHECK = "1"
 }
 
 [Environment]::SetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR", $ArtifactsDir)
