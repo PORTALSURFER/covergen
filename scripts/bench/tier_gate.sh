@@ -11,7 +11,7 @@ Environment overrides:
   SAMPLES            default: 8
   ANIMATION_SAMPLES  default: 4
   SIZE               default: 1024
-  SECONDS            default: 6
+  BENCH_SECONDS      default: 6
   FPS                default: 24
   PRESET             default: mask-atlas
   PROFILE            default: performance
@@ -50,7 +50,7 @@ esac
 samples="${SAMPLES:-8}"
 animation_samples="${ANIMATION_SAMPLES:-4}"
 size="${SIZE:-1024}"
-seconds="${SECONDS:-6}"
+seconds="${BENCH_SECONDS:-${COVERGEN_SECONDS:-6}}"
 fps="${FPS:-24}"
 preset="${PRESET:-mask-atlas}"
 profile="${PROFILE:-performance}"
@@ -68,7 +68,7 @@ fi
 
 echo "[bench] ${mode} tier=${tier} output=${output_dir} thresholds=${threshold_file}"
 scripts/shaders/validate_rust_gpu_artifacts.sh "${shader_root}"
-cargo run --quiet -- bench \
+cargo run --quiet --bin covergen -- bench \
   --tier "${tier}" \
   --samples "${samples}" \
   --animation-samples "${animation_samples}" \

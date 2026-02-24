@@ -19,13 +19,13 @@ V1 runtime support was removed on **February 24, 2026**. Migration and cutover s
 ## V2 Quick Start
 
 ```bash
-cargo run -- v2 --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
+cargo run --bin covergen -- v2 --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
 ```
 
 Instagram Reels animation (30 seconds, vertical 1080x1920, gentle modulation):
 
 ```bash
-cargo run -- v2 --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
+cargo run --bin covergen -- v2 --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
 ```
 
 Useful V2 flags:
@@ -49,7 +49,7 @@ Useful V2 flags:
 Run V2 benchmark + telemetry report:
 
 ```bash
-cargo run -- bench
+cargo run --bin covergen -- bench
 ```
 
 Report output:
@@ -133,5 +133,10 @@ Windows/PowerShell instrumentation for build + validation:
 ```powershell
 pwsh -File scripts/shaders/build_rust_gpu_artifacts.ps1 `
   -ArtifactsDir target/rust-gpu `
-  -BuildCommand "<your rust-gpu build command>"
+```
+
+Bash/Linux build + validation:
+
+```bash
+scripts/shaders/build_rust_gpu_artifacts.sh target/rust-gpu
 ```

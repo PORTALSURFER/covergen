@@ -37,6 +37,7 @@ function Invoke-CheckedCommand {
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $validateShaderScript = Join-Path $repoRoot "scripts/shaders/validate_rust_gpu_artifacts.ps1"
+$buildShaderScript = Join-Path $repoRoot "scripts/shaders/build_rust_gpu_artifacts.ps1"
 $tierGateScript = Join-Path $repoRoot "scripts/bench/tier_gate.ps1"
 $handoffScript = Join-Path $repoRoot "scripts/bench/store_handoff_artifacts.ps1"
 
@@ -45,8 +46,19 @@ if ([string]::IsNullOrWhiteSpace($shaderRoot)) {
     $shaderRoot = "target/rust-gpu"
 }
 
-Invoke-CheckedCommand -Label "validating rust-gpu artifacts" -Command {
+Write-Host "[ci_local] ensuring rust-gpu artifacts in $shaderRoot"
+try {
     & $validateShaderScript -Root $shaderRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "validate_rust_gpu_artifacts returned $LASTEXITCODE"
+    }
+    Write-Host "[ci_local] rust-gpu artifacts already valid"
+}
+catch {
+    Write-Host "[ci_local] rust-gpu artifacts missing/invalid, building"
+    Invoke-CheckedCommand -Label "building rust-gpu artifacts" -Command {
+        & $buildShaderScript -ArtifactsDir $shaderRoot
+    }
 }
 Invoke-CheckedCommand -Label "rustfmt check" -Command { & cargo fmt --check }
 Invoke-CheckedCommand -Label "full test suite" -Command { & cargo test -q }

@@ -298,6 +298,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "image",
+ "naga",
  "pollster",
  "rayon",
  "wgpu",

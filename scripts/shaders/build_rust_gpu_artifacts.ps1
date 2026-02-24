@@ -27,15 +27,16 @@ Write-Host "[shader] build+validate started at $($started.ToUniversalTime().ToSt
 Write-Host "[shader] artifacts dir: $ArtifactsDir"
 
 if ([string]::IsNullOrWhiteSpace($BuildCommand)) {
-    Write-Host "[shader] no build command provided; validating existing artifacts only"
+    $BuildCommand = "cargo run --quiet --bin build_spirv"
+    Write-Host "[shader] no build command provided; using default: $BuildCommand"
 }
-else {
-    Write-Host "[shader] running build command: $BuildCommand"
-    $buildStarted = Get-Date
-    & ([scriptblock]::Create($BuildCommand))
-    $buildElapsed = (Get-Date) - $buildStarted
-    Write-Host ("[shader] build command completed in {0:N2}s" -f $buildElapsed.TotalSeconds)
-}
+
+[Environment]::SetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR", $ArtifactsDir)
+Write-Host "[shader] running build command: $BuildCommand"
+$buildStarted = Get-Date
+& ([scriptblock]::Create($BuildCommand))
+$buildElapsed = (Get-Date) - $buildStarted
+Write-Host ("[shader] build command completed in {0:N2}s" -f $buildElapsed.TotalSeconds)
 
 $validateScript = Join-Path $PSScriptRoot "validate_rust_gpu_artifacts.ps1"
 & $validateScript -Root $ArtifactsDir

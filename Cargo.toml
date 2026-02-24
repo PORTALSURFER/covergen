@@ -7,6 +7,7 @@ edition = "2024"
 bytemuck = { version = "1.15", features = ["derive"] }
 clap = { version = "4.5", features = ["derive"] }
 image = "0.24"
+naga = { version = "0.20", features = ["wgsl-in", "spv-out"] }
 pollster = "0.3"
 rayon = "1.10"
 wgpu = { version = "0.20", features = ["spirv"] }

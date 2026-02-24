@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 11:23:06 UTC
+Last Updated: 2026-02-24 11:31:11 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -24,6 +24,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 - Windows hosts now have PowerShell rust-gpu artifact instrumentation scripts (`scripts/shaders/build_rust_gpu_artifacts.ps1`, `scripts/shaders/validate_rust_gpu_artifacts.ps1`) for build/validation parity.
 - Windows hosts now have a PowerShell tier threshold gate script (`scripts/bench/tier_gate.ps1`) for lock/validate parity with `scripts/bench/tier_gate.sh`.
 - Windows hosts now also have PowerShell local CI and handoff capture scripts (`scripts/ci_local.ps1`, `scripts/bench/store_handoff_artifacts.ps1`) for full local-gate and artifact retention flow.
+- Shader artifacts now have an in-repo build path via `cargo run --quiet --bin build_spirv` (wrapped by `scripts/shaders/build_rust_gpu_artifacts.sh` and `.ps1`), and local CI auto-builds them when missing.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.

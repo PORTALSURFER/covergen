@@ -6,8 +6,9 @@ Lock or validate benchmark thresholds for one hardware tier on Windows hosts.
 
 .DESCRIPTION
 PowerShell equivalent of scripts/bench/tier_gate.sh.
-It validates rust-gpu artifacts first, then runs `cargo run -- bench` with
-tier-specific threshold lock/validation arguments.
+It validates rust-gpu artifacts first, then runs
+`cargo run --bin covergen -- bench` with tier-specific threshold
+lock/validation arguments.
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -34,7 +35,10 @@ function Get-EnvOrDefault {
 $samples = Get-EnvOrDefault -Name "SAMPLES" -DefaultValue "8"
 $animationSamples = Get-EnvOrDefault -Name "ANIMATION_SAMPLES" -DefaultValue "4"
 $size = Get-EnvOrDefault -Name "SIZE" -DefaultValue "1024"
-$seconds = Get-EnvOrDefault -Name "SECONDS" -DefaultValue "6"
+$seconds = Get-EnvOrDefault -Name "BENCH_SECONDS" -DefaultValue ""
+if ([string]::IsNullOrWhiteSpace($seconds)) {
+    $seconds = Get-EnvOrDefault -Name "COVERGEN_SECONDS" -DefaultValue "6"
+}
 $fps = Get-EnvOrDefault -Name "FPS" -DefaultValue "24"
 $preset = Get-EnvOrDefault -Name "PRESET" -DefaultValue "mask-atlas"
 $profile = Get-EnvOrDefault -Name "PROFILE" -DefaultValue "performance"
@@ -53,6 +57,8 @@ Write-Host "[bench] $Mode tier=$Tier output=$outputDir thresholds=$thresholdFile
 $args = @(
     "run",
     "--quiet",
+    "--bin",
+    "covergen",
     "--",
     "bench",
     "--tier", $Tier,

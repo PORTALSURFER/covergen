@@ -47,7 +47,7 @@ jobs:
 
       - name: Run benchmark threshold validation
         run: >
-          cargo run --quiet -- bench
+          cargo run --quiet --bin covergen -- bench
           --tier ci_software
           --samples 3
           --animation-samples 1

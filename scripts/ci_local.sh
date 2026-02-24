@@ -42,8 +42,14 @@ case "${tier}" in
     ;;
 esac
 
-echo "[ci_local] validating rust-gpu artifacts"
-scripts/shaders/validate_rust_gpu_artifacts.sh "${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
+shader_root="${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
+echo "[ci_local] ensuring rust-gpu artifacts in ${shader_root}"
+if scripts/shaders/validate_rust_gpu_artifacts.sh "${shader_root}"; then
+  echo "[ci_local] rust-gpu artifacts already valid"
+else
+  echo "[ci_local] rust-gpu artifacts missing/invalid, building"
+  scripts/shaders/build_rust_gpu_artifacts.sh "${shader_root}"
+fi
 
 echo "[ci_local] rustfmt check"
 cargo fmt --check
