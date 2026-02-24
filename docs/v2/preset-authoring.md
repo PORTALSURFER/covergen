@@ -19,6 +19,7 @@ Current presets:
 - `td-primitive-stage`
 - `td-random-network`
 - `td-cascade-lab`
+- `td-modular-network`
 - `td-multi-stage`
 
 TouchDesigner-focused presets use constrained CHOP/SOP/TOP wiring plus

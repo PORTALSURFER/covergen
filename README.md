@@ -34,7 +34,7 @@ Useful V2 flags:
   - If omitted, V2 generates a fresh seed for each run.
 - `--count <u32>`
 - `--layers <u32>`
-- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage|td-random-network|td-cascade-lab|td-multi-stage>`
+- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage|td-random-network|td-cascade-lab|td-modular-network|td-multi-stage>`
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`

@@ -17,6 +17,9 @@ mod touchdesigner;
 mod touchdesigner_cascade;
 #[cfg(test)]
 mod touchdesigner_cascade_tests;
+mod touchdesigner_modular_network;
+#[cfg(test)]
+mod touchdesigner_modular_network_tests;
 mod touchdesigner_multi_stage;
 #[cfg(test)]
 mod touchdesigner_multi_stage_tests;
