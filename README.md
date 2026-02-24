@@ -2,6 +2,12 @@
 
 GPU-driven procedural cover generation.
 
+## Hardware Requirement
+
+`covergen` requires a hardware GPU (integrated or discrete) for all runtime and benchmark commands.
+Software adapters (for example llvmpipe/swiftshader/WARP) and CPU fallback are disabled; if no
+hardware GPU is available, the process exits with an error.
+
 ## Modes
 
 - `covergen` runs the V2 node-graph runtime (`src/v2/*`) by default.

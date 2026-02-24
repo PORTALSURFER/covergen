@@ -56,7 +56,7 @@ struct ScenarioSample {
 /// Run the benchmark suite from a prevalidated configuration.
 pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn Error>> {
     std::fs::create_dir_all(&config.out_dir)?;
-    let mut skip_notes = Vec::new();
+    let skip_notes = Vec::new();
     let mut cutover_notes = Vec::new();
 
     let mut v2_compile_samples = Vec::with_capacity(config.samples as usize);
@@ -75,36 +75,16 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
 
     for index in 0..config.samples {
         eprintln!("[bench] V2 still sample {}/{}", index + 1, config.samples);
-        match run_v2_still_sample(&config, index).await {
-            Ok(sample) => v2_still_samples.push(sample),
-            Err(err) if is_gpu_unavailable_error(err.as_ref()) => {
-                skip_notes.push(format!("V2 still benchmark skipped: {err}"));
-                break;
-            }
-            Err(err) => return Err(err),
-        }
+        v2_still_samples.push(run_v2_still_sample(&config, index).await?);
     }
 
-    if v2_still_samples.is_empty() {
-        skip_notes.push(
-            "V2 animation benchmark skipped because V2 still benchmark did not run.".to_string(),
+    for index in 0..config.animation_samples {
+        eprintln!(
+            "[bench] V2 animation sample {}/{}",
+            index + 1,
+            config.animation_samples
         );
-    } else {
-        for index in 0..config.animation_samples {
-            eprintln!(
-                "[bench] V2 animation sample {}/{}",
-                index + 1,
-                config.animation_samples
-            );
-            match run_v2_animation_sample(&config, index).await {
-                Ok(sample) => v2_animation_samples.push(sample),
-                Err(err) if is_gpu_unavailable_error(err.as_ref()) => {
-                    skip_notes.push(format!("V2 animation benchmark skipped: {err}"));
-                    break;
-                }
-                Err(err) => return Err(err),
-            }
-        }
+        v2_animation_samples.push(run_v2_animation_sample(&config, index).await?);
     }
 
     let mut scenario_failures = Vec::new();
@@ -309,10 +289,6 @@ fn probe_v2_output_contract(
     let graph = build_preset_graph(&probe_cfg)?;
     let compiled = compile_graph(&graph)?;
     validate_output_contract_for_bench(&compiled)
-}
-
-fn is_gpu_unavailable_error(err: &dyn Error) -> bool {
-    err.to_string().contains("requires a hardware GPU adapter")
 }
 
 fn cleanup_artifact(path: &Path, keep: bool) {

@@ -330,12 +330,16 @@ async fn create_renderer(
             compatible_surface: None,
         })
         .await
-        .ok_or("no compatible GPU adapter found for v2")?;
+        .ok_or_else(|| {
+            "covergen requires a hardware GPU adapter; no GPU adapter was detected. \
+            install GPU drivers and run on a machine with an available hardware GPU."
+        })?;
 
     let info = adapter.get_info();
     if is_software_adapter(info.device_type, &info.name) {
         return Err(format!(
-            "V2 requires a hardware GPU adapter, found software adapter '{} ({:?})'",
+            "covergen requires a hardware GPU adapter; software adapter '{} ({:?})' is not supported. \
+            use a system with an active integrated/discrete GPU and current graphics drivers.",
             info.name, info.device_type
         )
         .into());

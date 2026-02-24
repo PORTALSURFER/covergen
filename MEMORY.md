@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 08:50:36 UTC
+Last Updated: 2026-02-24 08:57:21 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -13,6 +13,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
   - deterministic presets (`src/v2/presets/*`)
   - GPU-retained runtime (`src/v2/runtime.rs`)
   - 30s reels animation mode with gentle parameter modulation (`src/v2/animation.rs`)
+- Hardware GPU is now a hard runtime requirement for both `covergen` and `covergen bench`; software adapters/CPU fallback are rejected with an immediate process error.
 - Benchmark + visual regression CI gates run from `.github/workflows/perf-gates.yml`.
 - CI software-tier benchmark thresholds are locked at `.github/bench/ci_software.thresholds.ini`.
 - Visual regression coverage was expanded (larger still sizes, additional sampled animation frames, and broader GPU-path confidence assertions).
