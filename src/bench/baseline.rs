@@ -132,6 +132,13 @@ pub(super) fn validate_thresholds(
 
     let metrics = summaries_to_metrics(summaries);
     let mut violations = Vec::new();
+    for scenario in metrics.keys() {
+        if !parsed.scenarios.contains_key(scenario) {
+            violations.push(format!(
+                "missing scenario '{scenario}' in threshold file"
+            ));
+        }
+    }
     for (scenario, expected) in parsed.scenarios {
         let Some(actual) = metrics.get(&scenario).copied() else {
             violations.push(format!("missing scenario '{scenario}' in benchmark output"));
@@ -345,5 +352,61 @@ throughput_p95_fps_min=40.0
         let parsed = parse_thresholds(input).expect("thresholds parse");
         assert_eq!(parsed.tier, "desktop_mid");
         assert_eq!(parsed.scenarios.len(), 1);
+    }
+
+    #[test]
+    fn validate_thresholds_reports_missing_threshold_scenario() {
+        let path = std::env::temp_dir().join(format!(
+            "covergen_thresholds_missing_{}_{}.ini",
+            std::process::id(),
+            "scenario"
+        ));
+        let input = r#"
+version=1
+tier=desktop_mid
+
+[v1_still]
+latency_p50_ms_max=110.0
+latency_p95_ms_max=140.0
+frame_time_p50_ms_max=12.0
+frame_time_p95_ms_max=16.0
+throughput_p50_fps_min=45.0
+throughput_p95_fps_min=40.0
+"#;
+        std::fs::write(&path, input).expect("write thresholds fixture");
+        let summaries = vec![
+            ScenarioSummary {
+                name: "V1 still",
+                sample_count: 1,
+                p50_ms: 100.0,
+                p95_ms: 120.0,
+                memory_p50_mb: 0.0,
+                memory_p95_mb: 0.0,
+                throughput_p50: 50.0,
+                throughput_p95: 45.0,
+                frame_time_p50_ms: 10.0,
+                frame_time_p95_ms: 14.0,
+            },
+            ScenarioSummary {
+                name: "V2 still",
+                sample_count: 1,
+                p50_ms: 90.0,
+                p95_ms: 100.0,
+                memory_p50_mb: 0.0,
+                memory_p95_mb: 0.0,
+                throughput_p50: 55.0,
+                throughput_p95: 50.0,
+                frame_time_p50_ms: 8.0,
+                frame_time_p95_ms: 10.0,
+            },
+        ];
+        let violations =
+            validate_thresholds(&path, "desktop_mid", &summaries).expect("validate thresholds");
+        assert!(
+            violations
+                .iter()
+                .any(|line| line.contains("missing scenario 'v2_still' in threshold file"))
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }

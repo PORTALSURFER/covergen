@@ -127,8 +127,15 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
     cutover_notes.push(format!("metrics snapshot: {}", metrics_path.display()));
 
     if let Some(path) = config.lock_thresholds_path.as_ref() {
-        write_locked_thresholds(path, &config.tier, &summaries)?;
-        cutover_notes.push(format!("locked thresholds written: {}", path.display()));
+        if scenario_failures.is_empty() {
+            write_locked_thresholds(path, &config.tier, &summaries)?;
+            cutover_notes.push(format!("locked thresholds written: {}", path.display()));
+        } else {
+            cutover_notes.push(format!(
+                "skipped locking thresholds due to missing required scenarios: {}",
+                path.display()
+            ));
+        }
     }
 
     let mut threshold_failures = Vec::new();
