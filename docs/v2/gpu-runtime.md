@@ -66,6 +66,14 @@ After one readback, host-side finishing is applied:
 - optional downsampling (AA > 1)
 - PNG encoding under size cap
 
+## Tap Output Artifact Strategy
+
+- Primary output is the only default encoded artifact for still and animation runs.
+- Tap outputs are treated as graph contract surfaces for composition boundaries
+  and regression coverage, not as default file outputs.
+- Bench and regression suites validate that benchmark/snapshot graphs compile
+  with one primary output and at least one tap output.
+
 ## Determinism
 
 - Preset generation is deterministic from CLI seed.

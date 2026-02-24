@@ -269,6 +269,8 @@ fn warp_node(strength: f32, frequency: f32, phase: f32) -> WarpTransformNode {
 }
 
 fn connect_output(builder: &mut GraphBuilder, source: NodeId) {
+    let tap = builder.add_output_tap(1);
+    builder.connect_luma(source, tap);
     let output = builder.add_output();
     builder.connect_luma(source, output);
 }

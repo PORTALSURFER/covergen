@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 08:09:34 UTC
+Last Updated: 2026-02-24 08:13:46 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -18,6 +18,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 - CI software-tier benchmark thresholds are locked at `.github/bench/ci_software.thresholds.ini`.
 - Visual regression coverage was expanded (larger still sizes, additional sampled animation frames, and broader GPU-path confidence assertions).
 - Benchmark lock flow now refuses to write threshold files when required V2 scenarios are missing.
+- Benchmark and regression suites now validate multi-output contracts (exactly one primary + at least one tap) and follow a documented primary-only encode artifact policy.
 
 ## Active Queue
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.

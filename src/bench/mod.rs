@@ -6,6 +6,7 @@
 //! threshold artifacts.
 
 mod baseline;
+mod contracts;
 mod report;
 mod stats;
 
@@ -23,6 +24,7 @@ use crate::v2::presets::build_preset_graph;
 use crate::v2::runtime::execute_compiled;
 
 use baseline::{validate_thresholds, write_locked_thresholds, write_metrics_snapshot};
+use contracts::validate_output_contract_for_bench;
 use report::render_report;
 use stats::{summarize_node_timings, summarize_scenario};
 
@@ -62,6 +64,11 @@ pub(crate) async fn run_from_args(args: Vec<String>) -> Result<(), Box<dyn Error
     let mut v1_samples = Vec::with_capacity(config.samples as usize);
     let mut v2_still_samples = Vec::with_capacity(config.samples as usize);
     let mut v2_animation_samples = Vec::with_capacity(config.animation_samples as usize);
+    let output_contract = probe_v2_output_contract(&config)?;
+    cutover_notes.push(format!(
+        "v2 output contract: primary={}, taps={}, total={}",
+        output_contract.primary_count, output_contract.tap_count, output_contract.total_count
+    ));
 
     for index in 0..config.samples {
         eprintln!("[bench] V1 sample {}/{}", index + 1, config.samples);
@@ -414,6 +421,15 @@ async fn execute_v2_once(config: &V2Config) -> Result<(), Box<dyn Error>> {
     let graph = build_preset_graph(config)?;
     let compiled = compile_graph(&graph)?;
     execute_compiled(config, &compiled).await
+}
+
+fn probe_v2_output_contract(
+    config: &BenchConfig,
+) -> Result<contracts::OutputContractSummary, Box<dyn Error>> {
+    let probe_cfg = v2_base_config(config, "bench_contract_probe.png".to_string());
+    let graph = build_preset_graph(&probe_cfg)?;
+    let compiled = compile_graph(&graph)?;
+    validate_output_contract_for_bench(&compiled)
 }
 
 fn is_gpu_unavailable_error(err: &dyn Error) -> bool {

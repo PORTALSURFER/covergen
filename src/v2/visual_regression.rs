@@ -7,7 +7,8 @@
 use std::error::Error;
 
 use super::cli::V2Profile;
-use super::node::GraphTimeInput;
+use super::compiler::CompiledGraph;
+use super::node::{GraphTimeInput, OutputRole};
 use super::runtime_eval::render_graph_luma;
 use super::runtime_test_support::finalize_luma_for_output_for_test;
 use super::visual_regression_fixtures as fixtures;
@@ -277,6 +278,7 @@ fn render_still_hash(case: StillSnapshotCase) -> Result<u64, Box<dyn Error>> {
     let config = fixtures::snapshot_config(case.seed, case.width, case.height, case.profile);
     let compiled =
         fixtures::build_cpu_only_compiled(case.seed, config.width, config.height, case.graph)?;
+    assert_snapshot_output_contract(case.name, &compiled)?;
     let mut buffers = fixtures::runtime_buffers(&config, &compiled)?;
 
     render_graph_luma(
@@ -294,6 +296,7 @@ fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<Vec<u64>, Box<
     let config = fixtures::snapshot_config(case.seed, case.width, case.height, case.profile);
     let compiled =
         fixtures::build_cpu_only_compiled(case.seed, config.width, config.height, case.graph)?;
+    assert_snapshot_output_contract(case.name, &compiled)?;
     let mut buffers = fixtures::runtime_buffers(&config, &compiled)?;
     let mut hashes = Vec::with_capacity(case.frame_indices.len());
 
@@ -318,4 +321,31 @@ fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<Vec<u64>, Box<
     }
 
     Ok(hashes)
+}
+
+fn assert_snapshot_output_contract(
+    snapshot_name: &str,
+    compiled: &CompiledGraph,
+) -> Result<(), Box<dyn Error>> {
+    let mut primary_count = 0usize;
+    let mut tap_count = 0usize;
+    for binding in &compiled.output_bindings {
+        match binding.role {
+            OutputRole::Primary => primary_count += 1,
+            OutputRole::Tap => tap_count += 1,
+        }
+    }
+    if primary_count != 1 {
+        return Err(format!(
+            "snapshot '{snapshot_name}' expected one primary output, got {primary_count}"
+        )
+        .into());
+    }
+    if tap_count == 0 {
+        return Err(format!(
+            "snapshot '{snapshot_name}' expected at least one tap output, got {tap_count}"
+        )
+        .into());
+    }
+    Ok(())
 }
