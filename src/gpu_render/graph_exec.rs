@@ -139,10 +139,13 @@ impl GpuLayerRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("v2 graph source noise encoder"),
             });
+        // `source_noise` writes only `dst`, but the shared bind layout also exposes
+        // read-only sources. Keep those bindings on a distinct scratch buffer so
+        // `dst` is never bound as both STORAGE_READ and STORAGE_READ_WRITE.
         let buffers = GraphBuffers {
-            src0: output,
-            src1: output,
-            src2: output,
+            src0: &self.node_layer_temp_buffer,
+            src1: &self.node_layer_temp_buffer,
+            src2: &self.node_layer_temp_buffer,
             dst: output,
         };
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
