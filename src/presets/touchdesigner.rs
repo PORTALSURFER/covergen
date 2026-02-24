@@ -1,9 +1,9 @@
 //! TouchDesigner-inspired preset builders using CHOP/SOP/TOP composition.
 
 use crate::chop::{ChopLfoNode, ChopMathMode, ChopMathNode, ChopRemapNode, ChopWave};
-use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
+use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, MaskNode, NodeId, SourceNoiseNode};
 use crate::model::{LayerBlendMode, XorShift32};
-use crate::node::OutputNode;
+use crate::node::{OutputNode, PortType};
 use crate::runtime_config::V2Profile;
 use crate::sop::{SopCircleNode, SopSphereNode, TopCameraRenderNode};
 
@@ -152,8 +152,42 @@ pub(super) fn build_td_random_network(ctx: PresetContext<'_>) -> Result<GpuGraph
         top_pool.push(camera);
     }
 
-    let mut current = choose_node(&top_pool, &mut rng)?;
-    let mut remaining: Vec<NodeId> = top_pool.into_iter().filter(|id| *id != current).collect();
+    let fx_count = (camera_count / 2 + 1).clamp(1, 4);
+    let mut noise_pool = Vec::with_capacity(fx_count as usize);
+    let mut mask_pool = Vec::with_capacity(fx_count as usize);
+    for _ in 0..fx_count {
+        let (noise, mask) = add_noise_source_and_mask(&mut builder, ctx, &mut rng)?;
+        noise_pool.push(noise);
+        mask_pool.push(mask);
+    }
+
+    let mut composited_pool = Vec::with_capacity(top_pool.len());
+    for camera in top_pool {
+        if rng.next_f32() < 0.6 {
+            let blend_mode = LayerBlendMode::from_u32(rng.next_u32());
+            let blend = ctx.nodes.create(
+                &mut builder,
+                "blend",
+                NodePayload::Blend(random_blend(&mut rng, blend_mode, 0.22, 0.72)),
+            )?;
+            builder.connect_luma_input(camera, blend, 0);
+            let noise = choose_node(&noise_pool, &mut rng)?;
+            builder.connect_luma_input(noise, blend, 1);
+            if rng.next_f32() < 0.7 {
+                let mask = choose_node(&mask_pool, &mut rng)?;
+                builder.connect_mask_input(mask, blend, 2);
+            }
+            composited_pool.push(blend);
+        } else {
+            composited_pool.push(camera);
+        }
+    }
+
+    let mut current = choose_node(&composited_pool, &mut rng)?;
+    let mut remaining: Vec<NodeId> = composited_pool
+        .into_iter()
+        .filter(|id| *id != current)
+        .collect();
     while let Some(next) = pop_random(&mut remaining, &mut rng) {
         let blend_mode = LayerBlendMode::from_u32(rng.next_u32());
         let blend = ctx.nodes.create(
@@ -163,6 +197,10 @@ pub(super) fn build_td_random_network(ctx: PresetContext<'_>) -> Result<GpuGraph
         )?;
         builder.connect_luma_input(current, blend, 0);
         builder.connect_luma_input(next, blend, 1);
+        if rng.next_f32() < 0.65 {
+            let mask = choose_node(&mask_pool, &mut rng)?;
+            builder.connect_mask_input(mask, blend, 2);
+        }
         current = blend;
     }
 
@@ -213,6 +251,38 @@ fn add_lfo(
             offset: 0.65 + rng.next_f32() * 0.55,
         }),
     )
+}
+
+fn add_noise_source_and_mask(
+    builder: &mut GraphBuilder,
+    ctx: PresetContext<'_>,
+    rng: &mut XorShift32,
+) -> Result<(NodeId, NodeId), GraphBuildError> {
+    let source = ctx.nodes.create(
+        builder,
+        "source-noise",
+        NodePayload::SourceNoise(SourceNoiseNode {
+            seed: rng.next_u32(),
+            scale: 1.4 + rng.next_f32() * 8.0,
+            octaves: 3 + (rng.next_u32() % 4),
+            amplitude: 0.4 + rng.next_f32() * 0.8,
+            output_port: PortType::LumaTexture,
+            temporal: Default::default(),
+        }),
+    )?;
+
+    let mask = ctx.nodes.create(
+        builder,
+        "mask",
+        NodePayload::Mask(MaskNode {
+            threshold: 0.35 + rng.next_f32() * 0.3,
+            softness: 0.08 + rng.next_f32() * 0.2,
+            invert: rng.next_f32() < 0.2,
+            temporal: Default::default(),
+        }),
+    )?;
+    builder.connect_luma(source, mask);
+    Ok((source, mask))
 }
 
 fn add_circle(
@@ -305,81 +375,5 @@ fn pop_random(pool: &mut Vec<NodeId>, rng: &mut XorShift32) -> Option<NodeId> {
     } else {
         let index = (rng.next_u32() as usize) % pool.len();
         Some(pool.swap_remove(index))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::graph::NodeKind;
-    use crate::presets::node_catalog::NodeCatalog;
-    use crate::presets::subgraph_catalog::SubgraphCatalog;
-    use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config};
-
-    fn config(seed: u32) -> V2Config {
-        V2Config {
-            width: 512,
-            height: 512,
-            seed,
-            count: 1,
-            output: "test.png".to_string(),
-            layers: 5,
-            antialias: 1,
-            preset: "td-random-network".to_string(),
-            profile: V2Profile::Quality,
-            animation: AnimationConfig {
-                enabled: false,
-                seconds: 30,
-                fps: 30,
-                keep_frames: false,
-                motion: AnimationMotion::Normal,
-            },
-        }
-    }
-
-    #[test]
-    fn td_random_network_is_seed_deterministic() {
-        let nodes = NodeCatalog::with_builtins().expect("node catalog");
-        let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-        let cfg = config(17);
-        let ctx = PresetContext {
-            config: &cfg,
-            nodes: &nodes,
-            modules: &modules,
-        };
-        let a = build_td_random_network(ctx).expect("graph a");
-        let b = build_td_random_network(ctx).expect("graph b");
-        assert_eq!(format!("{a:?}"), format!("{b:?}"));
-    }
-
-    #[test]
-    fn td_random_network_contains_chop_sop_and_top_camera() {
-        let nodes = NodeCatalog::with_builtins().expect("node catalog");
-        let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-        let cfg = config(33);
-        let ctx = PresetContext {
-            config: &cfg,
-            nodes: &nodes,
-            modules: &modules,
-        };
-        let graph = build_td_random_network(ctx).expect("graph");
-
-        let mut has_chop = false;
-        let mut has_sop = false;
-        let mut has_camera = false;
-        for node in &graph.nodes {
-            match node.kind {
-                NodeKind::ChopLfo(_) | NodeKind::ChopMath(_) | NodeKind::ChopRemap(_) => {
-                    has_chop = true
-                }
-                NodeKind::SopCircle(_) | NodeKind::SopSphere(_) => has_sop = true,
-                NodeKind::TopCameraRender(_) => has_camera = true,
-                _ => {}
-            }
-        }
-
-        assert!(has_chop);
-        assert!(has_sop);
-        assert!(has_camera);
     }
 }

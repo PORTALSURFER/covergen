@@ -19,6 +19,10 @@ Current presets:
 - `td-primitive-stage`
 - `td-random-network`
 
+TouchDesigner-focused presets use constrained CHOP/SOP/TOP wiring plus
+`SourceNoise`/`Mask` sub-branches so random graphs stay visually varied without
+devolving into unstructured flicker.
+
 ## Pattern
 
 1. Create builder with target render size and seed.

@@ -14,6 +14,8 @@ pub mod preset_catalog;
 mod primitives;
 pub mod subgraph_catalog;
 mod touchdesigner;
+#[cfg(test)]
+mod touchdesigner_tests;
 
 use node_catalog::NodeCatalog;
 use preset_catalog::PresetCatalog;
