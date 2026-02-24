@@ -15,10 +15,24 @@ Tracked tiers:
 scripts/ci_local.sh lock <tier-name>
 ```
 
+PowerShell (Windows host):
+
+```powershell
+pwsh -File scripts/bench/tier_gate.ps1 lock desktop_mid
+pwsh -File scripts/bench/tier_gate.ps1 lock laptop_integrated
+```
+
 2. Validate future runs against the locked thresholds:
 
 ```bash
 scripts/ci_local.sh validate <tier-name>
+```
+
+PowerShell (Windows host):
+
+```powershell
+pwsh -File scripts/bench/tier_gate.ps1 validate desktop_mid
+pwsh -File scripts/bench/tier_gate.ps1 validate laptop_integrated
 ```
 
 3. Treat local CI as the authoritative gate:

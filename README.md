@@ -67,6 +67,13 @@ scripts/ci_local.sh lock desktop_mid
 scripts/ci_local.sh validate desktop_mid
 ```
 
+PowerShell equivalents:
+
+```powershell
+pwsh -File scripts/bench/tier_gate.ps1 lock desktop_mid
+pwsh -File scripts/bench/tier_gate.ps1 lock laptop_integrated
+```
+
 ## Local CI (Authoritative)
 
 Project gating is local-first. GitHub Actions are not the source of truth for
