@@ -63,6 +63,9 @@ cargo test v2_still_fixed_seed_snapshots_match
 echo "[ci_local] animation snapshot regression"
 cargo test v2_animation_fixed_seed_sampled_frames_match
 
+echo "[ci_local] animation movie-quality regression"
+cargo test v2_animation_movie_quality_metrics_within_bounds
+
 echo "[ci_local] gpu still confidence regression"
 cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
 

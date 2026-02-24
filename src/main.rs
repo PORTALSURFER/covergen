@@ -37,6 +37,8 @@ mod visual_regression;
 mod visual_regression_fixtures;
 #[cfg(test)]
 mod visual_regression_gpu;
+#[cfg(test)]
+mod visual_regression_movie_metrics;
 
 use clap::Parser;
 use cli::{CovergenCli, CovergenCommand};

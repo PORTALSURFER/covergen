@@ -94,6 +94,16 @@ After one readback, host-side finishing is applied:
 - Bench and regression suites validate that benchmark/snapshot graphs compile
   with one primary output and at least one tap output.
 
+## Movie-Quality Regression Gates
+
+Animation visual regression includes temporal quality metrics in addition to
+sampled-frame hashes:
+
+- flicker proxy: mean/p95 normalized frame-to-frame delta
+- continuity proxy: smoothness score from delta jerk over adjacent frame deltas
+
+These gates are enforced in local CI scripts and perf-gate CI workflow.
+
 ## Determinism
 
 - Preset generation is deterministic from CLI seed.

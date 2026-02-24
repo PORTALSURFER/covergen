@@ -21,6 +21,7 @@
    - In progress: hardware-tier threshold files need lock refresh on real tier hosts.
 3. Local visual regression gate
    - Complete: fixed-seed still + sampled animation snapshot tests are included in `scripts/ci_local.sh`.
+   - Complete: movie-quality temporal gates (flicker/continuity) are enforced in visual regression.
 4. Documentation + handoff
    - Complete: README mode contract and migration timeline updated.
    - Complete: migration notes, active TODO, and memory state aligned to V2-only operation.

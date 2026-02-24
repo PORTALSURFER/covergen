@@ -68,6 +68,9 @@ Invoke-CheckedCommand -Label "still snapshot regression" -Command {
 Invoke-CheckedCommand -Label "animation snapshot regression" -Command {
     & cargo test v2_animation_fixed_seed_sampled_frames_match
 }
+Invoke-CheckedCommand -Label "animation movie-quality regression" -Command {
+    & cargo test v2_animation_movie_quality_metrics_within_bounds
+}
 Invoke-CheckedCommand -Label "gpu still confidence regression" -Command {
     & cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
 }

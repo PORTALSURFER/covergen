@@ -32,6 +32,9 @@ jobs:
       - name: Run V2 animation snapshot regression
         run: cargo test v2_animation_fixed_seed_sampled_frames_match
 
+      - name: Run V2 animation movie-quality regression
+        run: cargo test v2_animation_movie_quality_metrics_within_bounds
+
   benchmark-thresholds:
     name: Benchmark Threshold Gate (CI Software)
     runs-on: ubuntu-latest

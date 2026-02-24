@@ -12,6 +12,9 @@ use super::runtime_config::V2Profile;
 use super::runtime_eval::render_graph_luma;
 use super::runtime_test_support::finalize_luma_for_output_for_test;
 use super::visual_regression_fixtures as fixtures;
+use super::visual_regression_movie_metrics::{
+    assert_movie_quality_bounds, compute_movie_quality_metrics, MovieQualityBounds,
+};
 
 #[derive(Clone, Copy, Debug)]
 struct StillSnapshotCase {
@@ -35,6 +38,7 @@ struct AnimationSnapshotCase {
     frame_total: u32,
     frame_indices: &'static [u32],
     expected_hashes: &'static [u64],
+    quality_bounds: MovieQualityBounds,
 }
 
 const STILL_SNAPSHOTS: &[StillSnapshotCase] = &[
@@ -108,6 +112,36 @@ const ANIMATION_MASK_ATLAS_INDICES: &[u32] = &[0, 5, 10, 15, 20, 25, 29];
 const ANIMATION_WARP_GRID_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 47];
 const ANIMATION_BRANCH_MOSAIC_INDICES: &[u32] = &[0, 3, 7, 11, 15, 19, 23, 27, 31, 35];
 const ANIMATION_TONE_CASCADE_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 47];
+const MOVIE_QUALITY_BOUNDS_WEAVE: MovieQualityBounds = MovieQualityBounds {
+    min_pair_delta_mean: 0.20,
+    max_pair_delta_mean: 0.34,
+    max_pair_delta_p95: 0.38,
+    min_continuity_score: 0.88,
+};
+const MOVIE_QUALITY_BOUNDS_MASK_ATLAS: MovieQualityBounds = MovieQualityBounds {
+    min_pair_delta_mean: 0.30,
+    max_pair_delta_mean: 0.48,
+    max_pair_delta_p95: 0.62,
+    min_continuity_score: 0.74,
+};
+const MOVIE_QUALITY_BOUNDS_WARP_GRID: MovieQualityBounds = MovieQualityBounds {
+    min_pair_delta_mean: 0.22,
+    max_pair_delta_mean: 0.36,
+    max_pair_delta_p95: 0.42,
+    min_continuity_score: 0.80,
+};
+const MOVIE_QUALITY_BOUNDS_BRANCH_MOSAIC: MovieQualityBounds = MovieQualityBounds {
+    min_pair_delta_mean: 0.20,
+    max_pair_delta_mean: 0.35,
+    max_pair_delta_p95: 0.42,
+    min_continuity_score: 0.76,
+};
+const MOVIE_QUALITY_BOUNDS_TONE_CASCADE: MovieQualityBounds = MovieQualityBounds {
+    min_pair_delta_mean: 0.32,
+    max_pair_delta_mean: 0.50,
+    max_pair_delta_p95: 0.62,
+    min_continuity_score: 0.78,
+};
 
 const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
     AnimationSnapshotCase {
@@ -129,6 +163,7 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0x3562_d9c3_e732_75e3,
             0x77a2_16ea_8806_196f,
         ],
+        quality_bounds: MOVIE_QUALITY_BOUNDS_WEAVE,
     },
     AnimationSnapshotCase {
         name: "cpu-mask-atlas-animation-30f",
@@ -148,6 +183,7 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0x120d_adcc_07ec_19c8,
             0xada7_5900_384d_8617,
         ],
+        quality_bounds: MOVIE_QUALITY_BOUNDS_MASK_ATLAS,
     },
     AnimationSnapshotCase {
         name: "cpu-warp-grid-animation-48f",
@@ -172,6 +208,7 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0xfbb8_265b_4bb8_4114,
             0x251d_3dde_7566_d03d,
         ],
+        quality_bounds: MOVIE_QUALITY_BOUNDS_WARP_GRID,
     },
     AnimationSnapshotCase {
         name: "cpu-branch-mosaic-animation-36f",
@@ -194,6 +231,7 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0xdb55_5fe9_dcc0_eb13,
             0x4f9c_2c66_0864_1e80,
         ],
+        quality_bounds: MOVIE_QUALITY_BOUNDS_BRANCH_MOSAIC,
     },
     AnimationSnapshotCase {
         name: "cpu-tone-cascade-animation-48f",
@@ -219,6 +257,7 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0x663d_f414_3405_fdc1,
             0x3139_35f0_a4f7_c25d,
         ],
+        quality_bounds: MOVIE_QUALITY_BOUNDS_TONE_CASCADE,
     },
 ];
 
@@ -260,6 +299,21 @@ fn v2_animation_fixed_seed_sampled_frames_match() {
     }
 }
 
+#[test]
+fn v2_animation_movie_quality_metrics_within_bounds() {
+    for case in ANIMATION_SNAPSHOTS {
+        if should_skip_animation_case(case) {
+            continue;
+        }
+        let frames = render_animation_frames(*case)
+            .unwrap_or_else(|err| panic!("animation movie-metrics '{}': {err}", case.name));
+        let metrics = compute_movie_quality_metrics(&frames)
+            .unwrap_or_else(|err| panic!("animation movie-metrics '{}': {err}", case.name));
+        assert_movie_quality_bounds(case.name, metrics, case.quality_bounds)
+            .unwrap_or_else(|err| panic!("{err}"));
+    }
+}
+
 fn should_skip_animation_case(case: &AnimationSnapshotCase) -> bool {
     cfg!(windows) && case.name == "cpu-tone-cascade-animation-48f"
 }
@@ -274,10 +328,19 @@ fn dump_visual_snapshot_hashes() {
 
     for case in ANIMATION_SNAPSHOTS {
         let hashes = render_animation_hashes(*case).expect("animation snapshot hashes");
+        let frames = render_animation_frames(*case).expect("animation snapshot frames");
+        let metrics = compute_movie_quality_metrics(&frames).expect("animation movie metrics");
         eprintln!("animation {:<24}", case.name);
         for (idx, hash) in hashes.into_iter().enumerate() {
             eprintln!("  frame {:>3} => {:#018x}", case.frame_indices[idx], hash);
         }
+        eprintln!(
+            "  metrics => pair_mean={:.6}, pair_p95={:.6}, jerk={:.6}, continuity={:.6}",
+            metrics.pair_delta_mean,
+            metrics.pair_delta_p95,
+            metrics.delta_jerk_mean,
+            metrics.continuity_score
+        );
     }
 }
 
@@ -328,6 +391,29 @@ fn render_animation_hashes(case: AnimationSnapshotCase) -> Result<Vec<u64>, Box<
     }
 
     Ok(hashes)
+}
+
+fn render_animation_frames(case: AnimationSnapshotCase) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let config = fixtures::snapshot_config(case.seed, case.width, case.height, case.profile);
+    let compiled =
+        fixtures::build_cpu_only_compiled(case.seed, config.width, config.height, case.graph)?;
+    assert_snapshot_output_contract(case.name, &compiled)?;
+    let mut buffers = fixtures::runtime_buffers(&config, &compiled)?;
+    let mut frames = Vec::with_capacity(case.frame_total as usize);
+
+    for frame_index in 0..case.frame_total {
+        let graph_time = GraphTimeInput::from_frame(frame_index, case.frame_total);
+        let seed_offset = config
+            .seed
+            .wrapping_add(compiled.seed)
+            .wrapping_add(frame_index.wrapping_mul(0x9E37_79B9));
+
+        render_graph_luma(&compiled, None, &mut buffers, seed_offset, Some(graph_time))?;
+        finalize_luma_for_output_for_test(&config, &compiled, None, &mut buffers)?;
+        frames.push(buffers.output_gray.clone());
+    }
+
+    Ok(frames)
 }
 
 fn assert_snapshot_output_contract(
