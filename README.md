@@ -72,7 +72,7 @@ Operator-family model (TouchDesigner-style):
 
 - `TOP`: image/texture operators (includes camera render from SOP primitives)
 - `CHOP`: channel operators (`chop-lfo`, `chop-math`, `chop-remap`)
-- `SOP`: geometry operators (`sop-circle`, `sop-sphere`)
+- `SOP`: geometry operators (`sop-circle`, `sop-sphere`, `sop-geometry`)
 - `Output`: terminal output contracts
 
 ## Benchmark Suite
