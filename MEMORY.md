@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-02-24 08:57:21 UTC
+Last Updated: 2026-02-24 10:48:48 UTC
 
 ## Current Mission
 The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, and closing remaining migration follow-through work.
@@ -26,7 +26,7 @@ The team is operating on a V2-only runtime path, hardening GPU/perf guardrails, 
 The immediate ordered queue is maintained in `docs/plans/active/todo.md`.
 
 ## Risks and Gaps (Current)
-- Target-hardware benchmark thresholds outside CI software tier are not yet locked because self-hosted tier runners are not currently registered.
+- Target-hardware benchmark thresholds outside CI software tier are not yet locked because self-hosted tier runners are not currently registered (`total_count=0` from Actions runners API at last check).
 - Multi-output/tap graph contracts need dedicated benchmark + artifact policy coverage.
 
 ## Working Assumptions
