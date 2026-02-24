@@ -4,7 +4,7 @@ use std::error::Error;
 
 use crate::model::LayerBlendMode;
 use crate::v2::cli::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
-use crate::v2::compiler::{CompiledGraph, compile_graph};
+use crate::v2::compiler::{compile_graph, CompiledGraph};
 use crate::v2::graph::{GpuGraph, GraphBuilder, NodeId};
 use crate::v2::node::{
     BlendNode, BlendTemporal, MaskNode, MaskTemporal, PortType, SourceNoiseNode,
@@ -206,8 +206,8 @@ fn add_luma_source(
         amplitude,
         output_port: PortType::LumaTexture,
         temporal: SourceNoiseTemporal {
-            scale_mul: Some(TemporalCurve::sine(0.11, 0.8, 0.2, 0.0)),
-            amplitude_mul: Some(TemporalCurve::sine(0.09, 1.1, 0.4, 0.0)),
+            scale_mul: Some(TemporalCurve::sine(0.11, 0.8, 0.2, 0.0).into()),
+            amplitude_mul: Some(TemporalCurve::sine(0.09, 1.1, 0.4, 0.0).into()),
         },
     })
 }
@@ -224,8 +224,8 @@ fn add_mask_from(
         softness,
         invert,
         temporal: MaskTemporal {
-            threshold_add: Some(TemporalCurve::sine(0.05, 0.9, 0.1, 0.0)),
-            softness_mul: Some(TemporalCurve::sine(0.12, 1.2, 0.3, 0.0)),
+            threshold_add: Some(TemporalCurve::sine(0.05, 0.9, 0.1, 0.0).into()),
+            softness_mul: Some(TemporalCurve::sine(0.12, 1.2, 0.3, 0.0).into()),
         },
     });
     builder.connect_luma(luma, mask);
@@ -237,7 +237,7 @@ fn blend_node(mode: LayerBlendMode, opacity: f32) -> BlendNode {
         mode,
         opacity,
         temporal: BlendTemporal {
-            opacity_mul: Some(TemporalCurve::sine(0.18, 0.7, 0.0, 0.0)),
+            opacity_mul: Some(TemporalCurve::sine(0.18, 0.7, 0.0, 0.0).into()),
         },
     }
 }
@@ -248,9 +248,9 @@ fn tone_node(contrast: f32, low_pct: f32, high_pct: f32) -> ToneMapNode {
         low_pct,
         high_pct,
         temporal: ToneMapTemporal {
-            contrast_mul: Some(TemporalCurve::sine(0.09, 0.8, 0.0, 0.0)),
-            low_pct_add: Some(TemporalCurve::sine(0.008, 0.6, 0.25, 0.0)),
-            high_pct_add: Some(TemporalCurve::sine(0.008, 1.0, 0.6, 0.0)),
+            contrast_mul: Some(TemporalCurve::sine(0.09, 0.8, 0.0, 0.0).into()),
+            low_pct_add: Some(TemporalCurve::sine(0.008, 0.6, 0.25, 0.0).into()),
+            high_pct_add: Some(TemporalCurve::sine(0.008, 1.0, 0.6, 0.0).into()),
         },
     }
 }
@@ -261,9 +261,9 @@ fn warp_node(strength: f32, frequency: f32, phase: f32) -> WarpTransformNode {
         frequency,
         phase,
         temporal: WarpTransformTemporal {
-            strength_mul: Some(TemporalCurve::sine(0.14, 0.7, 0.3, 0.0)),
-            frequency_mul: Some(TemporalCurve::sine(0.10, 0.9, 0.1, 0.0)),
-            phase_add: Some(TemporalCurve::sine(0.22, 1.0, 0.0, 0.0)),
+            strength_mul: Some(TemporalCurve::sine(0.14, 0.7, 0.3, 0.0).into()),
+            frequency_mul: Some(TemporalCurve::sine(0.10, 0.9, 0.1, 0.0).into()),
+            phase_add: Some(TemporalCurve::sine(0.22, 1.0, 0.0, 0.0).into()),
         },
     }
 }

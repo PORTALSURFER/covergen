@@ -5,8 +5,8 @@ use crate::model::{ArtStyle, LayerBlendMode, SymmetryStyle, XorShift32};
 use super::super::cli::{V2Config, V2Profile};
 use super::super::graph::{GenerateLayerNode, GraphBuildError, GraphBuilder, NodeId};
 use super::super::node::{
-    BlendNode, BlendTemporal, GenerateLayerTemporal, TemporalCurve, ToneMapNode, ToneMapTemporal,
-    WarpTransformNode, WarpTransformTemporal,
+    BlendNode, BlendTemporal, GenerateLayerTemporal, TemporalCurve, TemporalModulation,
+    ToneMapNode, ToneMapTemporal, WarpTransformNode, WarpTransformTemporal,
 };
 use super::node_catalog::{NodeCatalog, NodePayload};
 
@@ -49,7 +49,7 @@ pub(super) fn random_blend(
         mode,
         opacity: opacity_min + (rng.next_f32() * (opacity_max - opacity_min)),
         temporal: BlendTemporal {
-            opacity_mul: Some(curve(0.24, 0.55 + rng.next_f32() * 0.6, rng.next_f32())),
+            opacity_mul: Some(expr_sine(0.24, 0.55 + rng.next_f32() * 0.6, rng.next_f32())),
         },
     }
 }
@@ -60,7 +60,11 @@ pub(super) fn random_tonemap(rng: &mut XorShift32) -> ToneMapNode {
         low_pct: 0.005 + rng.next_f32() * 0.035,
         high_pct: 0.94 + rng.next_f32() * 0.05,
         temporal: ToneMapTemporal {
-            contrast_mul: Some(curve(0.14, 0.65 + rng.next_f32() * 0.55, rng.next_f32())),
+            contrast_mul: Some(expr_sine(
+                0.14,
+                0.65 + rng.next_f32() * 0.55,
+                rng.next_f32(),
+            )),
             low_pct_add: Some(curve(0.012, 0.6 + rng.next_f32() * 0.5, rng.next_f32())),
             high_pct_add: Some(curve(0.012, 0.8 + rng.next_f32() * 0.5, rng.next_f32())),
         },
@@ -74,7 +78,7 @@ pub(super) fn random_warp(rng: &mut XorShift32, strength_scale: f32) -> WarpTran
         phase: rng.next_f32(),
         temporal: WarpTransformTemporal {
             strength_mul: Some(curve(0.18, 0.75 + rng.next_f32() * 0.5, rng.next_f32())),
-            frequency_mul: Some(curve(0.15, 0.6 + rng.next_f32() * 0.55, rng.next_f32())),
+            frequency_mul: Some(expr_sine(0.15, 0.6 + rng.next_f32() * 0.55, rng.next_f32())),
             phase_add: Some(curve(0.24, 0.8 + rng.next_f32() * 0.7, rng.next_f32())),
         },
     }
@@ -155,6 +159,11 @@ pub(super) fn generate_layer_node(
     }
 }
 
-fn curve(amplitude: f32, frequency: f32, phase: f32) -> TemporalCurve {
-    TemporalCurve::sine(amplitude, frequency, phase, 0.0)
+fn curve(amplitude: f32, frequency: f32, phase: f32) -> TemporalModulation {
+    TemporalCurve::sine(amplitude, frequency, phase, 0.0).into()
+}
+
+fn expr_sine(amplitude: f32, frequency: f32, phase: f32) -> TemporalModulation {
+    let expression = format!("{amplitude} * sin((t * {frequency} + {phase}) * tau) * i");
+    TemporalModulation::parse(&expression).unwrap_or_else(|_| curve(amplitude, frequency, phase))
 }

@@ -1,5 +1,9 @@
 //! Graph-time and temporal curve controls for V2 nodes.
 
+mod expression;
+
+pub use expression::{TemporalExpression, TemporalExpressionError};
+
 /// Normalized graph-time input sampled once per rendered frame.
 #[derive(Clone, Copy, Debug)]
 pub struct GraphTimeInput {
@@ -75,61 +79,104 @@ impl TemporalCurve {
     }
 }
 
+/// Temporal modulation source used by node channels.
+#[derive(Clone, Copy, Debug)]
+pub enum TemporalModulation {
+    /// Legacy fixed sine-curve modulation.
+    Curve(TemporalCurve),
+    /// Expression DSL modulation evaluated per frame.
+    Expr(TemporalExpression),
+}
+
+impl TemporalModulation {
+    /// Parse one temporal expression string into a compiled modulation source.
+    ///
+    /// Supported variables:
+    /// - `t`: normalized clip time in `[0, 1]`
+    /// - `i`: global modulation intensity
+    ///
+    /// Example:
+    /// `0.08 * sin((t * 0.9 + 0.2) * tau) * i`
+    pub fn parse(expression: &str) -> Result<Self, TemporalExpressionError> {
+        Ok(Self::Expr(TemporalExpression::parse(expression)?))
+    }
+
+    /// Evaluate the modulation source at graph-time sample.
+    pub fn sample(self, time: GraphTimeInput) -> f32 {
+        match self {
+            Self::Curve(curve) => curve.sample(time),
+            Self::Expr(expr) => expr.sample(time),
+        }
+    }
+}
+
+impl From<TemporalCurve> for TemporalModulation {
+    fn from(value: TemporalCurve) -> Self {
+        Self::Curve(value)
+    }
+}
+
+impl From<TemporalExpression> for TemporalModulation {
+    fn from(value: TemporalExpression) -> Self {
+        Self::Expr(value)
+    }
+}
+
 /// Temporal modulation channels for one `GenerateLayerNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GenerateLayerTemporal {
-    pub iterations_scale: Option<TemporalCurve>,
-    pub fill_scale_mul: Option<TemporalCurve>,
-    pub fractal_zoom_mul: Option<TemporalCurve>,
-    pub art_style_mix_add: Option<TemporalCurve>,
-    pub warp_strength_mul: Option<TemporalCurve>,
-    pub warp_frequency_add: Option<TemporalCurve>,
-    pub tile_phase_add: Option<TemporalCurve>,
-    pub center_x_add: Option<TemporalCurve>,
-    pub center_y_add: Option<TemporalCurve>,
-    pub opacity_mul: Option<TemporalCurve>,
-    pub contrast_mul: Option<TemporalCurve>,
+    pub iterations_scale: Option<TemporalModulation>,
+    pub fill_scale_mul: Option<TemporalModulation>,
+    pub fractal_zoom_mul: Option<TemporalModulation>,
+    pub art_style_mix_add: Option<TemporalModulation>,
+    pub warp_strength_mul: Option<TemporalModulation>,
+    pub warp_frequency_add: Option<TemporalModulation>,
+    pub tile_phase_add: Option<TemporalModulation>,
+    pub center_x_add: Option<TemporalModulation>,
+    pub center_y_add: Option<TemporalModulation>,
+    pub opacity_mul: Option<TemporalModulation>,
+    pub contrast_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `SourceNoiseNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SourceNoiseTemporal {
-    pub scale_mul: Option<TemporalCurve>,
-    pub amplitude_mul: Option<TemporalCurve>,
+    pub scale_mul: Option<TemporalModulation>,
+    pub amplitude_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `MaskNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MaskTemporal {
-    pub threshold_add: Option<TemporalCurve>,
-    pub softness_mul: Option<TemporalCurve>,
+    pub threshold_add: Option<TemporalModulation>,
+    pub softness_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `BlendNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BlendTemporal {
-    pub opacity_mul: Option<TemporalCurve>,
+    pub opacity_mul: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `ToneMapNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ToneMapTemporal {
-    pub contrast_mul: Option<TemporalCurve>,
-    pub low_pct_add: Option<TemporalCurve>,
-    pub high_pct_add: Option<TemporalCurve>,
+    pub contrast_mul: Option<TemporalModulation>,
+    pub low_pct_add: Option<TemporalModulation>,
+    pub high_pct_add: Option<TemporalModulation>,
 }
 
 /// Temporal modulation channels for one `WarpTransformNode`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WarpTransformTemporal {
-    pub strength_mul: Option<TemporalCurve>,
-    pub frequency_mul: Option<TemporalCurve>,
-    pub phase_add: Option<TemporalCurve>,
+    pub strength_mul: Option<TemporalModulation>,
+    pub frequency_mul: Option<TemporalModulation>,
+    pub phase_add: Option<TemporalModulation>,
 }
 
 pub(crate) fn apply_add(
     base: f32,
-    curve: Option<TemporalCurve>,
+    curve: Option<TemporalModulation>,
     time: GraphTimeInput,
     min: f32,
     max: f32,
@@ -139,7 +186,7 @@ pub(crate) fn apply_add(
 
 pub(crate) fn apply_mul(
     base: f32,
-    curve: Option<TemporalCurve>,
+    curve: Option<TemporalModulation>,
     time: GraphTimeInput,
     min: f32,
     max: f32,
@@ -147,6 +194,41 @@ pub(crate) fn apply_mul(
     (base * (1.0 + sample(curve, time))).clamp(min, max)
 }
 
-pub(crate) fn sample(curve: Option<TemporalCurve>, time: GraphTimeInput) -> f32 {
+pub(crate) fn sample(curve: Option<TemporalModulation>, time: GraphTimeInput) -> f32 {
     curve.map(|value| value.sample(time)).unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expression_modulation_matches_expected_signal() {
+        let modulation =
+            TemporalModulation::parse("0.1 * sin((t * 2.0 + 0.25) * tau) * i").unwrap();
+        let sample = modulation.sample(GraphTimeInput::from_frame(5, 10).with_intensity(0.5));
+        assert!(sample.is_finite());
+        assert!(sample.abs() <= 0.05 + 1e-5);
+    }
+
+    #[test]
+    fn expression_drives_node_channel() {
+        let node = crate::v2::node::SourceNoiseNode {
+            seed: 123,
+            scale: 4.0,
+            octaves: 4,
+            amplitude: 1.0,
+            output_port: crate::v2::node::PortType::LumaTexture,
+            temporal: SourceNoiseTemporal {
+                scale_mul: Some(TemporalModulation::parse("0.2 * i").unwrap()),
+                amplitude_mul: None,
+            },
+        };
+
+        let evaluated = node.with_time(GraphTimeInput {
+            normalized: 0.75,
+            intensity: 0.5,
+        });
+        assert!((evaluated.scale - 4.4).abs() < 1e-6);
+    }
 }

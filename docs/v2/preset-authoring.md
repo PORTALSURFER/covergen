@@ -41,3 +41,6 @@ Current presets:
 - Use profile (`quality`/`performance`) to scale iterations and complexity.
 - For animation-friendly presets, avoid abrupt discrete parameter jumps;
   prefer ranges that remain visually stable under slow modulation.
+- Prefer temporal expressions for reusable modulation shapes when curve
+  parameters become hard to tune. Example:
+  - `TemporalModulation::parse("0.08 * sin((t * 0.9 + 0.2) * tau) * i")`

@@ -59,6 +59,27 @@ Graph contract requires:
   - inputs: exactly `1` (`slot 0: LumaTexture`)
   - output: none
 
+## Temporal Modulation Contract
+
+Node temporal channels are optional and evaluated once per frame through
+`GraphTimeInput` (`t` normalized clip position and global intensity `i`).
+
+Each temporal channel accepts either:
+
+- `TemporalCurve` (legacy sine-curve modulation)
+- `TemporalModulation::Expr` (expression DSL program)
+
+Expression DSL:
+
+- Variables: `t`, `i`
+- Constants: `pi`, `tau`
+- Operators: `+`, `-`, `*`, `/`
+- Functions: `sin`, `cos`, `abs`, `fract`, `tri`, `saw`, `min`, `max`, `clamp`
+
+Example expression:
+
+`0.08 * sin((t * 0.9 + 0.2) * tau) * i`
+
 ## Validation Rules
 
 `GraphBuilder::build()` validates:

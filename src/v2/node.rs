@@ -5,7 +5,7 @@ use crate::model::{LayerBlendMode, Params};
 
 pub use super::temporal::{
     BlendTemporal, GenerateLayerTemporal, GraphTimeInput, MaskTemporal, SourceNoiseTemporal,
-    TemporalCurve, ToneMapTemporal, WarpTransformTemporal,
+    TemporalCurve, TemporalModulation, ToneMapTemporal, WarpTransformTemporal,
 };
 
 /// Port categories supported by the V2 graph IR.
