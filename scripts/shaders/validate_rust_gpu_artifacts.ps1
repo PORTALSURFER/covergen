@@ -44,7 +44,7 @@ foreach ($file in $required) {
 
     $magic = Get-SpirvMagicHex -Path $path
     if ($magic -ne "03022307") {
-        throw "invalid SPIR-V magic in $path: got $magic, expected 03022307"
+        throw "invalid SPIR-V magic in ${path}: got $magic, expected 03022307"
     }
 }
 
