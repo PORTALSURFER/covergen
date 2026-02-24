@@ -35,6 +35,9 @@ mod touchdesigner_patchwork_tests;
 mod touchdesigner_router;
 #[cfg(test)]
 mod touchdesigner_router_tests;
+mod touchdesigner_signal_lab;
+#[cfg(test)]
+mod touchdesigner_signal_lab_tests;
 mod touchdesigner_stage_primitives;
 #[cfg(test)]
 mod touchdesigner_tests;

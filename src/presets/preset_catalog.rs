@@ -20,6 +20,7 @@ use super::touchdesigner_modular_network;
 use super::touchdesigner_multi_stage;
 use super::touchdesigner_patchwork;
 use super::touchdesigner_router;
+use super::touchdesigner_signal_lab;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -179,6 +180,11 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         key: "td-router",
         aliases: &["td-route", "touchdesigner-router"],
         build: touchdesigner_router::build_td_router,
+    })?;
+    catalog.register(PresetDescriptor {
+        key: "td-signal-lab",
+        aliases: &["td-signal", "touchdesigner-signal"],
+        build: touchdesigner_signal_lab::build_td_signal_lab,
     })?;
     catalog.register(PresetDescriptor {
         key: "td-modular-network",

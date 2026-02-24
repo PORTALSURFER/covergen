@@ -23,6 +23,7 @@ Current presets:
 - `td-hyperweave`
 - `td-patchwork`
 - `td-router`
+- `td-signal-lab`
 - `td-modular-network`
 - `td-multi-stage`
 
