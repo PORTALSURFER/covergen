@@ -212,11 +212,12 @@ fn finalize_to_u8(@builtin(global_invocation_id) id: vec3<u32>) {
     let sample_x = u * f32(final_cfg.src_width) - 0.5;
     let sample_y = v * f32(final_cfg.src_height) - 0.5;
 
-    let sampled = if (final_cfg.fast_mode == 0u) {
-        sample_src_bilinear(sample_x, sample_y)
+    var sampled = 0.0;
+    if (final_cfg.fast_mode == 0u) {
+        sampled = sample_src_bilinear(sample_x, sample_y);
     } else {
-        sample_src_nearest(sample_x, sample_y)
-    };
+        sampled = sample_src_nearest(sample_x, sample_y);
+    }
 
     let contrasted = apply_contrast_value(sampled, final_cfg.contrast);
     let low = stretch_thresholds[0];
