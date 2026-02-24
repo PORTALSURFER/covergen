@@ -20,6 +20,22 @@ $required = @(
     "retained_post.spv"
 )
 
+function Resolve-RepoRelativePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+}
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "../..")
+$resolvedRoot = Resolve-RepoRelativePath -Path $Root -RepoRoot $repoRoot
+
 function Get-SpirvMagicHex {
     param([string]$Path)
     $stream = [System.IO.File]::OpenRead($Path)
@@ -37,7 +53,7 @@ function Get-SpirvMagicHex {
 }
 
 foreach ($file in $required) {
-    $path = Join-Path $Root $file
+    $path = Join-Path $resolvedRoot $file
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "missing shader artifact: $path"
     }
@@ -48,4 +64,4 @@ foreach ($file in $required) {
     }
 }
 
-Write-Host "rust-gpu shader artifacts look valid in $Root"
+Write-Host "rust-gpu shader artifacts look valid in $resolvedRoot"

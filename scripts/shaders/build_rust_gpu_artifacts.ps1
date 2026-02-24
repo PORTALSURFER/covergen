@@ -23,13 +23,28 @@ $required = @(
     "retained_post.spv"
 )
 
+function Resolve-RepoRelativePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+}
+
 if ([string]::IsNullOrWhiteSpace($Toolchain)) {
     $Toolchain = "nightly-2023-05-27"
 }
 
 $started = Get-Date
 Write-Host "[shader] build+validate started at $($started.ToUniversalTime().ToString('u'))"
-Write-Host "[shader] artifacts dir: $ArtifactsDir"
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "../..")
+$resolvedArtifactsDir = Resolve-RepoRelativePath -Path $ArtifactsDir -RepoRoot $repoRoot
+Write-Host "[shader] artifacts dir: $resolvedArtifactsDir"
 Write-Host "[shader] rustup toolchain: $Toolchain"
 
 $installedToolchains = (& rustup toolchain list) -split "`n" | ForEach-Object {
@@ -48,19 +63,26 @@ if ([string]::IsNullOrWhiteSpace($env:RUSTGPU_SKIP_TOOLCHAIN_CHECK)) {
     $env:RUSTGPU_SKIP_TOOLCHAIN_CHECK = "1"
 }
 
-[Environment]::SetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR", $ArtifactsDir)
+New-Item -ItemType Directory -Force -Path $resolvedArtifactsDir | Out-Null
+[Environment]::SetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR", $resolvedArtifactsDir)
 Write-Host "[shader] running build command: $BuildCommand"
 $buildStarted = Get-Date
-& ([scriptblock]::Create($BuildCommand))
+Push-Location $repoRoot
+try {
+    & ([scriptblock]::Create($BuildCommand))
+}
+finally {
+    Pop-Location
+}
 $buildElapsed = (Get-Date) - $buildStarted
 Write-Host ("[shader] build command completed in {0:N2}s" -f $buildElapsed.TotalSeconds)
 
 $validateScript = Join-Path $PSScriptRoot "validate_rust_gpu_artifacts.ps1"
-& $validateScript -Root $ArtifactsDir
+& $validateScript -Root $resolvedArtifactsDir
 
 $rows = @()
 foreach ($file in $required) {
-    $path = Join-Path $ArtifactsDir $file
+    $path = Join-Path $resolvedArtifactsDir $file
     $item = Get-Item -LiteralPath $path
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
     $rows += [PSCustomObject]@{
@@ -81,7 +103,7 @@ if (-not $SkipBashValidation) {
     }
     else {
         Write-Host "[shader] running bash parity validator"
-        & $bash.Source "scripts/shaders/validate_rust_gpu_artifacts.sh" $ArtifactsDir
+        & $bash.Source "scripts/shaders/validate_rust_gpu_artifacts.sh" $resolvedArtifactsDir
     }
 }
 
