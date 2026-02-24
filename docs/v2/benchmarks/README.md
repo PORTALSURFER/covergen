@@ -41,10 +41,32 @@ pwsh -File scripts/bench/tier_gate.ps1 validate laptop_integrated
 - Run `scripts/ci_local.sh validate laptop_integrated`.
 - Require both to pass before promoting runtime/preset changes.
 
+PowerShell full local CI equivalents:
+
+```powershell
+pwsh -File scripts/ci_local.ps1 validate desktop_mid
+pwsh -File scripts/ci_local.ps1 validate laptop_integrated
+```
+
+4. Store release handoff artifacts for both tiers:
+
+```powershell
+pwsh -File scripts/bench/store_handoff_artifacts.ps1 -Tier desktop_mid
+pwsh -File scripts/bench/store_handoff_artifacts.ps1 -Tier laptop_integrated
+```
+
+Or capture directly at the end of local CI:
+
+```powershell
+pwsh -File scripts/ci_local.ps1 validate desktop_mid -CaptureHandoff
+pwsh -File scripts/ci_local.ps1 validate laptop_integrated -CaptureHandoff
+```
+
 ## Artifact Notes
 
 - Runtime report: `target/bench/<tier-name>/benchmark_report.md`
 - Machine-readable metrics: `target/bench/<tier-name>/benchmark_metrics.ini`
+- Handoff evidence bundle: `docs/plans/handoffs/<stamp>/<tier-name>/`
 - Locked thresholds: `docs/v2/benchmarks/<tier-name>.thresholds.ini`
 - Legacy CI software thresholds (non-authoritative): `.github/bench/ci_software.thresholds.ini`
 

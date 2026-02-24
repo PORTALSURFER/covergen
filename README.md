@@ -86,11 +86,25 @@ scripts/ci_local.sh validate desktop_mid
 scripts/ci_local.sh validate laptop_integrated
 ```
 
+PowerShell equivalents:
+
+```powershell
+pwsh -File scripts/ci_local.ps1 validate desktop_mid
+pwsh -File scripts/ci_local.ps1 validate laptop_integrated
+```
+
 When refreshing thresholds from measured baselines:
 
 ```bash
 scripts/ci_local.sh lock desktop_mid
 scripts/ci_local.sh lock laptop_integrated
+```
+
+PowerShell lock equivalents:
+
+```powershell
+pwsh -File scripts/ci_local.ps1 lock desktop_mid
+pwsh -File scripts/ci_local.ps1 lock laptop_integrated
 ```
 
 ## V2 Design Docs
