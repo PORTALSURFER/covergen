@@ -311,10 +311,6 @@ fn module(
     ctx.modules.execute(
         key,
         &mut module_ctx,
-        ModuleRequest {
-            seed,
-            profile: ctx.config.profile,
-            inputs,
-        },
+        ModuleRequest::new(seed, ctx.config.profile, inputs),
     )
 }

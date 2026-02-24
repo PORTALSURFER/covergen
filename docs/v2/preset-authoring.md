@@ -32,6 +32,15 @@ TouchDesigner-focused presets use constrained CHOP/SOP/TOP wiring plus
 `SourceNoise`/`Mask` sub-branches so random graphs stay visually varied without
 devolving into unstructured flicker.
 
+Reusable subgraph modules live in `src/presets/subgraph_catalog.rs` and include:
+
+- core modules: `noise-mask`, `warp-tone`, `masked-blend`
+- parameterized motifs: `motif-ribbon`, `motif-echo`, `motif-dual-tone`
+
+Modules accept `ModuleRequest` plus optional `ModuleParams` (`intensity`,
+`variation`, `blend_bias`) so presets can reuse motif blocks with different
+style envelopes instead of duplicating wiring logic.
+
 ## Pattern
 
 1. Create builder with target render size and seed.

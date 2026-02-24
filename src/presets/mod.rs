@@ -10,10 +10,14 @@ use super::runtime_config::V2Config;
 mod families;
 mod grammar;
 mod graph_art_direction;
+mod module_invocation;
 pub mod node_catalog;
 pub mod preset_catalog;
 mod primitives;
 pub mod subgraph_catalog;
+#[cfg(test)]
+mod subgraph_catalog_tests;
+mod subgraph_motifs;
 mod touchdesigner;
 mod touchdesigner_cascade;
 #[cfg(test)]

@@ -16,3 +16,4 @@ Completed 2026-02-24:
 - Added benchmark/regression contract checks for primary+tap outputs and documented tap-output compositor strategy.
 - Added movie-quality visual regression gates for animation flicker/continuity drift.
 - Added high-level art-direction controls (`mood`, `energy`, `symmetry`, `chaos`, `palette`) and wired them through preset graph generation.
+- Expanded reusable subgraph catalog with parameterized motif blocks and integrated motif modules into graph-native presets.

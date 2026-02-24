@@ -8,7 +8,7 @@ use crate::node::OutputNode;
 use super::node_catalog::NodePayload;
 use super::preset_catalog::PresetContext;
 use super::primitives::{generate_layer_node, random_tonemap, render_size};
-use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest};
+use super::subgraph_catalog::{ModuleBuildContext, ModuleParams, ModuleRequest};
 use super::touchdesigner_stage_primitives::{
     add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
 };
@@ -40,16 +40,40 @@ pub(super) fn build_td_modular_network(
         };
 
         for (index, camera) in cameras.iter().enumerate() {
+            let motif_params = ModuleParams {
+                intensity: 0.85 + module_ctx.rng.next_f32() * 0.65,
+                variation: 0.25 + module_ctx.rng.next_f32() * 0.65,
+                blend_bias: 0.25 + module_ctx.rng.next_f32() * 0.70,
+            };
             let warped = ctx
                 .modules
                 .execute(
                     "warp-tone",
                     &mut module_ctx,
-                    ModuleRequest {
-                        seed: ctx.config.seed ^ (index as u32).wrapping_mul(0x91E1_2203),
-                        profile: ctx.config.profile,
-                        inputs: vec![*camera],
-                    },
+                    ModuleRequest::new(
+                        ctx.config.seed ^ (index as u32).wrapping_mul(0x91E1_2203),
+                        ctx.config.profile,
+                        vec![*camera],
+                    )
+                    .with_params(motif_params),
+                )?
+                .primary;
+            let motif_key = match index % 3 {
+                0 => "motif-ribbon",
+                1 => "motif-echo",
+                _ => "motif-dual-tone",
+            };
+            let motif = ctx
+                .modules
+                .execute(
+                    motif_key,
+                    &mut module_ctx,
+                    ModuleRequest::new(
+                        ctx.config.seed ^ (index as u32).wrapping_mul(0x4F11_8305),
+                        ctx.config.profile,
+                        vec![warped],
+                    )
+                    .with_params(motif_params),
                 )?
                 .primary;
 
@@ -59,11 +83,12 @@ pub(super) fn build_td_modular_network(
                 .execute(
                     "masked-blend",
                     &mut module_ctx,
-                    ModuleRequest {
-                        seed: ctx.config.seed ^ (index as u32).wrapping_mul(0xA35D_0011),
-                        profile: ctx.config.profile,
-                        inputs: vec![warped, layer],
-                    },
+                    ModuleRequest::new(
+                        ctx.config.seed ^ (index as u32).wrapping_mul(0xA35D_0011),
+                        ctx.config.profile,
+                        vec![motif, layer],
+                    )
+                    .with_params(motif_params),
                 )?
                 .primary;
             branches.push(mixed);
@@ -171,11 +196,11 @@ fn merge_branches_with_modules(
             .execute(
                 "masked-blend",
                 &mut module_ctx,
-                ModuleRequest {
-                    seed: ctx.config.seed ^ (index as u32).wrapping_mul(0xE91D_1007),
-                    profile: ctx.config.profile,
-                    inputs: vec![current, branch],
-                },
+                ModuleRequest::new(
+                    ctx.config.seed ^ (index as u32).wrapping_mul(0xE91D_1007),
+                    ctx.config.profile,
+                    vec![current, branch],
+                ),
             )?
             .primary;
     }

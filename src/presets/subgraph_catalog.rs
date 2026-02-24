@@ -13,6 +13,39 @@ use crate::runtime_config::V2Profile;
 
 use super::node_catalog::{NodeCatalog, NodePayload};
 use super::primitives::{random_blend, random_tonemap, random_warp};
+use super::subgraph_motifs;
+
+/// Generic parameter envelope for reusable module motifs.
+#[derive(Clone, Copy, Debug)]
+pub struct ModuleParams {
+    /// Main intensity scale for the motif output.
+    pub intensity: f32,
+    /// Variation amount used for random range spread.
+    pub variation: f32,
+    /// Blend bias controlling compositing emphasis.
+    pub blend_bias: f32,
+}
+
+impl Default for ModuleParams {
+    fn default() -> Self {
+        Self {
+            intensity: 1.0,
+            variation: 0.5,
+            blend_bias: 0.5,
+        }
+    }
+}
+
+impl ModuleParams {
+    /// Clamp all parameter channels into safe module ranges.
+    pub fn clamped(self) -> Self {
+        Self {
+            intensity: self.intensity.clamp(0.2, 2.0),
+            variation: self.variation.clamp(0.0, 1.0),
+            blend_bias: self.blend_bias.clamp(0.0, 1.0),
+        }
+    }
+}
 
 /// Inputs for invoking a reusable subgraph module.
 #[derive(Clone, Debug)]
@@ -20,6 +53,25 @@ pub struct ModuleRequest {
     pub seed: u32,
     pub profile: V2Profile,
     pub inputs: Vec<NodeId>,
+    pub params: ModuleParams,
+}
+
+impl ModuleRequest {
+    /// Construct one module request using default parameter envelopes.
+    pub fn new(seed: u32, profile: V2Profile, inputs: Vec<NodeId>) -> Self {
+        Self {
+            seed,
+            profile,
+            inputs,
+            params: ModuleParams::default(),
+        }
+    }
+
+    /// Attach parameter overrides to a module request.
+    pub fn with_params(mut self, params: ModuleParams) -> Self {
+        self.params = params.clamped();
+        self
+    }
 }
 
 /// Outputs produced by a reusable subgraph module.
@@ -143,6 +195,21 @@ fn register_builtin_modules(catalog: &mut SubgraphCatalog) -> Result<(), GraphBu
         aliases: &["blend-masked"],
         build: build_masked_blend,
     })?;
+    catalog.register(SubgraphTemplate {
+        key: "motif-ribbon",
+        aliases: &["motif-flow"],
+        build: subgraph_motifs::build_motif_ribbon,
+    })?;
+    catalog.register(SubgraphTemplate {
+        key: "motif-echo",
+        aliases: &["motif-feedback"],
+        build: subgraph_motifs::build_motif_echo,
+    })?;
+    catalog.register(SubgraphTemplate {
+        key: "motif-dual-tone",
+        aliases: &["motif-tone"],
+        build: subgraph_motifs::build_motif_dual_tone,
+    })?;
     Ok(())
 }
 
@@ -150,14 +217,15 @@ fn build_noise_mask(
     context: &mut ModuleBuildContext<'_>,
     request: ModuleRequest,
 ) -> Result<ModuleResult, GraphBuildError> {
+    let params = request.params.clamped();
     let source = context.nodes.create(
         context.builder,
         "source-noise",
         NodePayload::SourceNoise(crate::graph::SourceNoiseNode {
             seed: context.rng.next_u32() ^ request.seed,
-            scale: 1.4 + context.rng.next_f32() * 6.8,
+            scale: (1.1 + context.rng.next_f32() * 7.1) * (0.85 + 0.35 * params.intensity),
             octaves: 3 + (context.rng.next_u32() % 3),
-            amplitude: 0.65 + context.rng.next_f32() * 0.4,
+            amplitude: (0.45 + context.rng.next_f32() * 0.7) * (0.8 + 0.4 * params.intensity),
             output_port: PortType::LumaTexture,
             temporal: SourceNoiseTemporal::default(),
         }),
@@ -167,8 +235,10 @@ fn build_noise_mask(
         context.builder,
         "mask",
         NodePayload::Mask(crate::graph::MaskNode {
-            threshold: 0.33 + context.rng.next_f32() * 0.34,
-            softness: 0.04 + context.rng.next_f32() * 0.24,
+            threshold: (0.30 + context.rng.next_f32() * 0.38 + params.blend_bias * 0.08)
+                .clamp(0.05, 0.95),
+            softness: (0.03 + context.rng.next_f32() * 0.26 + params.variation * 0.06)
+                .clamp(0.01, 0.95),
             invert: matches!(request.profile, V2Profile::Performance),
             temporal: MaskTemporal::default(),
         }),
@@ -185,6 +255,7 @@ fn build_warp_tone(
     context: &mut ModuleBuildContext<'_>,
     request: ModuleRequest,
 ) -> Result<ModuleResult, GraphBuildError> {
+    let params = request.params.clamped();
     let input = request.inputs.first().copied().ok_or_else(|| {
         GraphBuildError::new("module 'warp-tone' expects one luma input in request.inputs[0]")
     })?;
@@ -192,15 +263,20 @@ fn build_warp_tone(
     let warp = context.nodes.create(
         context.builder,
         "warp",
-        NodePayload::WarpTransform(random_warp(context.rng, 1.0)),
+        NodePayload::WarpTransform(random_warp(
+            context.rng,
+            (0.7 + params.intensity * 0.7).clamp(0.2, 2.0),
+        )),
     )?;
     context.builder.connect_luma(input, warp);
 
-    let tone = context.nodes.create(
-        context.builder,
-        "tone",
-        NodePayload::ToneMap(random_tonemap(context.rng)),
-    )?;
+    let mut tone_node = random_tonemap(context.rng);
+    tone_node.contrast = (tone_node.contrast * (0.85 + params.intensity * 0.30)
+        + params.blend_bias * 0.2)
+        .clamp(0.8, 3.0);
+    let tone = context
+        .nodes
+        .create(context.builder, "tone", NodePayload::ToneMap(tone_node))?;
     context.builder.connect_luma(warp, tone);
 
     Ok(ModuleResult {
@@ -213,6 +289,7 @@ fn build_masked_blend(
     context: &mut ModuleBuildContext<'_>,
     request: ModuleRequest,
 ) -> Result<ModuleResult, GraphBuildError> {
+    let params = request.params.clamped();
     if request.inputs.len() < 2 {
         return Err(GraphBuildError::new(
             "module 'masked-blend' expects base/top inputs in request.inputs",
@@ -224,11 +301,9 @@ fn build_masked_blend(
     let mask = match request.inputs.get(2).copied() {
         Some(node) => node,
         None => {
-            let nested = ModuleRequest {
-                seed: request.seed ^ 0xA53E_19D1,
-                profile: request.profile,
-                inputs: Vec::new(),
-            };
+            let nested =
+                ModuleRequest::new(request.seed ^ 0xA53E_19D1, request.profile, Vec::new())
+                    .with_params(params);
             build_noise_mask(context, nested)?.primary
         }
     };
@@ -239,8 +314,8 @@ fn build_masked_blend(
         NodePayload::Blend(random_blend(
             context.rng,
             LayerBlendMode::Overlay,
-            0.35,
-            0.9,
+            (0.20 + 0.35 * params.blend_bias).clamp(0.15, 0.65),
+            (0.55 + 0.40 * params.intensity).clamp(0.55, 0.98),
         )),
     )?;
     context.builder.connect_luma_input(base, blend, 0);
@@ -304,11 +379,7 @@ mod tests {
                 .execute(
                     "masked-blend",
                     &mut context,
-                    ModuleRequest {
-                        seed: 11,
-                        profile: V2Profile::Quality,
-                        inputs: vec![base, top],
-                    },
+                    ModuleRequest::new(11, V2Profile::Quality, vec![base, top]),
                 )
                 .expect("module should build")
         };

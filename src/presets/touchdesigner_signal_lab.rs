@@ -258,11 +258,7 @@ fn module(
     seed: u32,
     inputs: Vec<NodeId>,
 ) -> Result<ModuleResult, GraphBuildError> {
-    let request = ModuleRequest {
-        seed,
-        profile: bx.ctx.config.profile,
-        inputs,
-    };
+    let request = ModuleRequest::new(seed, bx.ctx.config.profile, inputs);
     let mut module_ctx = ModuleBuildContext {
         builder: bx.builder,
         nodes: bx.ctx.nodes,

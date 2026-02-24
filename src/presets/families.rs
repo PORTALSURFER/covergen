@@ -2,10 +2,13 @@
 
 use crate::model::{LayerBlendMode, XorShift32};
 
+use super::module_invocation::{
+    module_masked_blend, module_motif, module_noise_mask, module_noise_mask_with_params,
+};
+use super::node_catalog::NodePayload;
 use super::preset_catalog::PresetContext;
 use super::primitives::{add_layers, random_blend, random_tonemap, random_warp, render_size};
-use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest};
-use super::{node_catalog::NodePayload, subgraph_catalog::ModuleResult};
+use super::subgraph_catalog::ModuleParams;
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
 use crate::node::OutputNode;
 
@@ -93,7 +96,18 @@ pub(super) fn build_field_weave(ctx: PresetContext<'_>) -> Result<GpuGraph, Grap
     builder.connect_mask_input(mask_a, blend_ab, 2);
 
     let tone = create_tone(&mut builder, ctx, &mut rng, blend_ab)?;
-    let mask_b = module_noise_mask(&mut builder, ctx, &mut rng, 0xA002)?.primary;
+    let mask_b = module_noise_mask_with_params(
+        &mut builder,
+        ctx,
+        &mut rng,
+        0xA002,
+        ModuleParams {
+            intensity: 0.95,
+            variation: 0.45,
+            blend_bias: 0.55,
+        },
+    )?
+    .primary;
     let blend_final = create_blend(
         &mut builder,
         ctx,
@@ -240,8 +254,23 @@ pub(super) fn build_warp_grid(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphB
     builder.connect_luma_input(tone, first_mix, 1);
 
     let warp_c = create_warp(&mut builder, ctx, &mut rng, 1.3, layers[2])?;
+    let motif_seed = rng.next_u32();
+    let motif = module_motif(
+        &mut builder,
+        ctx,
+        &mut rng,
+        "motif-ribbon",
+        vec![first_mix],
+        motif_seed,
+        ModuleParams {
+            intensity: 1.05,
+            variation: 0.50,
+            blend_bias: 0.62,
+        },
+    )?
+    .primary;
     let final_mix =
-        module_masked_blend(&mut builder, ctx, &mut rng, vec![first_mix, warp_c], 0xE001)?.primary;
+        module_masked_blend(&mut builder, ctx, &mut rng, vec![motif, warp_c], 0xE001)?.primary;
 
     wire_output(&mut builder, ctx, final_mix)?;
     builder.build()
@@ -319,53 +348,4 @@ fn wire_output(
     )?;
     builder.connect_luma(input, output);
     Ok(())
-}
-
-fn module_noise_mask(
-    builder: &mut GraphBuilder,
-    ctx: PresetContext<'_>,
-    rng: &mut XorShift32,
-    seed: u32,
-) -> Result<ModuleResult, GraphBuildError> {
-    let mut module_ctx = ModuleBuildContext {
-        builder,
-        nodes: ctx.nodes,
-        rng,
-    };
-    let result = ctx.modules.execute(
-        "noise-mask",
-        &mut module_ctx,
-        ModuleRequest {
-            seed,
-            profile: ctx.config.profile,
-            inputs: Vec::new(),
-        },
-    )?;
-    let _extra_count = result.extra_outputs.len();
-    Ok(result)
-}
-
-fn module_masked_blend(
-    builder: &mut GraphBuilder,
-    ctx: PresetContext<'_>,
-    rng: &mut XorShift32,
-    inputs: Vec<NodeId>,
-    seed: u32,
-) -> Result<ModuleResult, GraphBuildError> {
-    let mut module_ctx = ModuleBuildContext {
-        builder,
-        nodes: ctx.nodes,
-        rng,
-    };
-    let result = ctx.modules.execute(
-        "masked-blend",
-        &mut module_ctx,
-        ModuleRequest {
-            seed,
-            profile: ctx.config.profile,
-            inputs,
-        },
-    )?;
-    let _extra_count = result.extra_outputs.len();
-    Ok(result)
 }
