@@ -17,6 +17,10 @@ mod runtime_ops;
 pub mod temporal;
 #[cfg(test)]
 mod visual_regression;
+#[cfg(test)]
+mod visual_regression_fixtures;
+#[cfg(test)]
+mod visual_regression_gpu;
 
 use std::error::Error;
 

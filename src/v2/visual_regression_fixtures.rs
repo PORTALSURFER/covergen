@@ -18,6 +18,8 @@ pub(super) enum SnapshotGraphKind {
     Weave,
     MaskAtlas,
     WarpGrid,
+    ToneCascade,
+    BranchMosaic,
 }
 
 pub(super) fn build_cpu_only_compiled(
@@ -30,6 +32,8 @@ pub(super) fn build_cpu_only_compiled(
         SnapshotGraphKind::Weave => build_weave_graph(seed, width, height)?,
         SnapshotGraphKind::MaskAtlas => build_mask_atlas_graph(seed, width, height)?,
         SnapshotGraphKind::WarpGrid => build_warp_grid_graph(seed, width, height)?,
+        SnapshotGraphKind::ToneCascade => build_tone_cascade_graph(seed, width, height)?,
+        SnapshotGraphKind::BranchMosaic => build_branch_mosaic_graph(seed, width, height)?,
     };
     compile_graph(&graph).map_err(Into::into)
 }
@@ -114,6 +118,77 @@ fn build_warp_grid_graph(seed: u32, width: u32, height: u32) -> Result<GpuGraph,
     builder.connect_mask_input(mask, final_mix, 2);
 
     connect_output(&mut builder, final_mix);
+    builder.build().map_err(Into::into)
+}
+
+fn build_tone_cascade_graph(
+    seed: u32,
+    width: u32,
+    height: u32,
+) -> Result<GpuGraph, Box<dyn Error>> {
+    let mut builder = GraphBuilder::new(width, height, seed ^ 0x7134_11A5);
+    let a = add_luma_source(&mut builder, seed ^ 0xC101, 2.9, 4, 1.0);
+    let b = add_luma_source(&mut builder, seed ^ 0xC202, 5.1, 3, 0.86);
+    let c = add_luma_source(&mut builder, seed ^ 0xC303, 7.3, 2, 0.78);
+
+    let tone_a = builder.add_tonemap(tone_node(1.52, 0.018, 0.985));
+    builder.connect_luma(a, tone_a);
+    let warp_a = builder.add_warp_transform(warp_node(0.91, 2.0, 0.22));
+    builder.connect_luma(tone_a, warp_a);
+
+    let tone_b = builder.add_tonemap(tone_node(1.26, 0.012, 0.972));
+    builder.connect_luma(b, tone_b);
+    let warp_b = builder.add_warp_transform(warp_node(1.13, 2.8, 0.43));
+    builder.connect_luma(tone_b, warp_b);
+
+    let mask = add_mask_from(&mut builder, c, 0.47, 0.16, false);
+    let blend = builder.add_blend(blend_node(LayerBlendMode::Overlay, 0.63));
+    builder.connect_luma_input(warp_a, blend, 0);
+    builder.connect_luma_input(warp_b, blend, 1);
+    builder.connect_mask_input(mask, blend, 2);
+
+    let final_tone = builder.add_tonemap(tone_node(1.18, 0.01, 0.98));
+    builder.connect_luma(blend, final_tone);
+    connect_output(&mut builder, final_tone);
+    builder.build().map_err(Into::into)
+}
+
+fn build_branch_mosaic_graph(
+    seed: u32,
+    width: u32,
+    height: u32,
+) -> Result<GpuGraph, Box<dyn Error>> {
+    let mut builder = GraphBuilder::new(width, height, seed ^ 0xE44B_A551);
+    let a = add_luma_source(&mut builder, seed ^ 0xD101, 2.4, 5, 1.0);
+    let b = add_luma_source(&mut builder, seed ^ 0xD202, 4.8, 4, 0.92);
+    let c = add_luma_source(&mut builder, seed ^ 0xD303, 6.7, 3, 0.82);
+    let d = add_luma_source(&mut builder, seed ^ 0xD404, 8.6, 2, 0.74);
+
+    let mask_a = add_mask_from(&mut builder, c, 0.39, 0.21, false);
+    let mask_b = add_mask_from(&mut builder, d, 0.58, 0.18, true);
+
+    let left_warp = builder.add_warp_transform(warp_node(0.84, 1.7, 0.14));
+    builder.connect_luma(a, left_warp);
+    let right_warp = builder.add_warp_transform(warp_node(1.28, 3.0, 0.51));
+    builder.connect_luma(b, right_warp);
+
+    let left_mix = builder.add_blend(blend_node(LayerBlendMode::Lighten, 0.56));
+    builder.connect_luma_input(left_warp, left_mix, 0);
+    builder.connect_luma_input(c, left_mix, 1);
+    builder.connect_mask_input(mask_a, left_mix, 2);
+
+    let right_mix = builder.add_blend(blend_node(LayerBlendMode::Difference, 0.49));
+    builder.connect_luma_input(right_warp, right_mix, 0);
+    builder.connect_luma_input(d, right_mix, 1);
+    builder.connect_mask_input(mask_b, right_mix, 2);
+
+    let union = builder.add_blend(blend_node(LayerBlendMode::Screen, 0.61));
+    builder.connect_luma_input(left_mix, union, 0);
+    builder.connect_luma_input(right_mix, union, 1);
+
+    let final_warp = builder.add_warp_transform(warp_node(0.73, 1.2, 0.08));
+    builder.connect_luma(union, final_warp);
+    connect_output(&mut builder, final_warp);
     builder.build().map_err(Into::into)
 }
 

@@ -10,9 +10,7 @@ use super::cli::V2Profile;
 use super::node::GraphTimeInput;
 use super::runtime::finalize_luma_for_output_for_test;
 use super::runtime_eval::render_graph_luma;
-
-#[path = "visual_regression_fixtures.rs"]
-mod fixtures;
+use super::visual_regression_fixtures as fixtures;
 
 #[derive(Clone, Copy, Debug)]
 struct StillSnapshotCase {
@@ -66,10 +64,30 @@ const STILL_SNAPSHOTS: &[StillSnapshotCase] = &[
         graph: fixtures::SnapshotGraphKind::WarpGrid,
         expected_hash: 0x9248_7525_3c39_8c01,
     },
+    StillSnapshotCase {
+        name: "cpu-tone-cascade-still-512",
+        seed: 0xFACE_B00C,
+        width: 512,
+        height: 512,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::ToneCascade,
+        expected_hash: 0xa5d0_2050_5a18_8250,
+    },
+    StillSnapshotCase {
+        name: "cpu-branch-mosaic-still-640",
+        seed: 0x0BAD_C0DE,
+        width: 640,
+        height: 640,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::BranchMosaic,
+        expected_hash: 0x594e_857b_d61f_d5f7,
+    },
 ];
 
 const ANIMATION_WEAVE_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 31];
 const ANIMATION_MASK_ATLAS_INDICES: &[u32] = &[0, 5, 10, 15, 20, 25, 29];
+const ANIMATION_WARP_GRID_INDICES: &[u32] = &[0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 47];
+const ANIMATION_BRANCH_MOSAIC_INDICES: &[u32] = &[0, 3, 7, 11, 15, 19, 23, 27, 31, 35];
 
 const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
     AnimationSnapshotCase {
@@ -109,6 +127,52 @@ const ANIMATION_SNAPSHOTS: &[AnimationSnapshotCase] = &[
             0xa33e_aa03_9cbd_2a67,
             0x120d_adcc_07ec_19c8,
             0xada7_5900_384d_8617,
+        ],
+    },
+    AnimationSnapshotCase {
+        name: "cpu-warp-grid-animation-48f",
+        seed: 0xCAF3_FEED,
+        width: 384,
+        height: 384,
+        profile: V2Profile::Quality,
+        graph: fixtures::SnapshotGraphKind::WarpGrid,
+        frame_total: 48,
+        frame_indices: ANIMATION_WARP_GRID_INDICES,
+        expected_hashes: &[
+            0x7968_b7a1_961b_6c2c,
+            0x3324_dda0_193b_fda4,
+            0xdd44_f536_b168_446d,
+            0x0f68_f22c_a8b8_b8d5,
+            0x8647_f2b3_6623_2d35,
+            0x7641_6f3a_d52f_545a,
+            0xca9a_caab_99b1_3034,
+            0x5de6_3191_1a6f_9d84,
+            0x85bb_9645_bb79_29a4,
+            0x2dea_be12_ec45_acf4,
+            0xfbb8_265b_4bb8_4114,
+            0x251d_3dde_7566_d03d,
+        ],
+    },
+    AnimationSnapshotCase {
+        name: "cpu-branch-mosaic-animation-36f",
+        seed: 0x4A4A_7788,
+        width: 320,
+        height: 320,
+        profile: V2Profile::Performance,
+        graph: fixtures::SnapshotGraphKind::BranchMosaic,
+        frame_total: 36,
+        frame_indices: ANIMATION_BRANCH_MOSAIC_INDICES,
+        expected_hashes: &[
+            0x9b69_5711_ce38_a05b,
+            0x987e_f3cd_9068_4a24,
+            0x4c6f_e816_cabd_698e,
+            0xfd2b_b96b_e4a4_7b49,
+            0x5e94_979e_c560_2271,
+            0x3310_3b25_932b_e529,
+            0x85fa_d93d_7dd3_c0a1,
+            0x2e9c_dc73_90f2_ed80,
+            0xdb55_5fe9_dcc0_eb13,
+            0x4f9c_2c66_0864_1e80,
         ],
     },
 ];

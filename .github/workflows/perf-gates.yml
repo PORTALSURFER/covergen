@@ -118,3 +118,32 @@ jobs:
           path: |
             target/bench_${{ matrix.tier }}/benchmark_report.md
             target/bench_${{ matrix.tier }}/benchmark_metrics.ini
+
+  visual-regression-gpu:
+    name: V2 GPU Visual Regression (${{ matrix.tier }})
+    if: ${{ vars.COVERGEN_ENABLE_HARDWARE_TIER_GATES == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tier: desktop_mid
+            runner_label: covergen-desktop-mid
+          - tier: laptop_integrated
+            runner_label: covergen-laptop-integrated
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - ${{ matrix.runner_label }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run GPU-targeted visual regression tests
+        run: cargo test v2_gpu_
