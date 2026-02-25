@@ -14,7 +14,7 @@ use super::project::{
 };
 use super::state::{
     AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
-    MENU_INNER_PADDING, MENU_ITEM_HEIGHT, MENU_SEARCH_HEIGHT, MENU_TITLE_HEIGHT,
+    MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
