@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use winit::event::WindowEvent;
-use winit::window::Window;
+use winit::window::{CursorIcon, Window};
 
 use crate::runtime_config::V2Config;
 
@@ -33,6 +33,7 @@ pub(crate) struct GuiApp {
     config: V2Config,
     panel_width: usize,
     panel_resize_drag: Option<PanelResizeDrag>,
+    resize_cursor_active: bool,
     window: Arc<Window>,
     renderer: GuiRenderer,
     project: GuiProject,
@@ -79,6 +80,7 @@ impl GuiApp {
             config,
             panel_width,
             panel_resize_drag: None,
+            resize_cursor_active: false,
             window,
             renderer,
             project,
@@ -112,6 +114,18 @@ impl GuiApp {
             WindowEvent::Resized(size) => {
                 self.renderer.resize(size.width, size.height);
                 self.panel_width = clamp_panel_width(self.panel_width, self.renderer.width());
+                self.needs_redraw = true;
+                false
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.update_resize_cursor(Some((position.x as i32, position.y as i32)));
+                self.input.handle_event(event);
+                self.needs_redraw = true;
+                false
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.update_resize_cursor(None);
+                self.input.handle_event(event);
                 self.needs_redraw = true;
                 false
             }
@@ -279,6 +293,7 @@ impl GuiApp {
         consumed = true;
         if !input.left_down {
             self.panel_resize_drag = None;
+            self.update_resize_cursor(input.mouse_pos);
             return (changed, consumed);
         }
         let Some((mx, _)) = input.mouse_pos else {
@@ -307,6 +322,23 @@ impl GuiApp {
         self.state.drag = None;
         self.state.wire_drag = None;
         true
+    }
+
+    fn update_resize_cursor(&mut self, mouse_pos: Option<(i32, i32)>) {
+        let resize_active = self.panel_resize_drag.is_some()
+            || mouse_pos
+                .map(|(mx, my)| on_panel_divider(mx, my, self.panel_width, self.renderer.height()))
+                .unwrap_or(false);
+        if resize_active == self.resize_cursor_active {
+            return;
+        }
+        self.resize_cursor_active = resize_active;
+        let icon = if resize_active {
+            CursorIcon::EwResize
+        } else {
+            CursorIcon::Default
+        };
+        self.window.set_cursor_icon(icon);
     }
 
     fn update_loop_policy(&mut self) {
