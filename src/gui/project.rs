@@ -148,9 +148,9 @@ impl ProjectNodeKind {
         matches!(self, Self::CtlLfo)
     }
 
-    /// Return true when this node kind has any input pin.
+    /// Return true when this node kind has a typed graph input pin.
     pub(crate) const fn has_input_pin(self) -> bool {
-        self.input_resource_kind().is_some() || self.accepts_signal_bindings()
+        self.input_resource_kind().is_some()
     }
 
     /// Return true when this node kind has any output pin.
@@ -1799,11 +1799,15 @@ mod tests {
     fn pin_centers_follow_node_kind_capabilities() {
         let mut project = GuiProject::new_empty(640, 480);
         let top = project.add_node(ProjectNodeKind::TexSolid, 60, 70, 420, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 60, 140, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 70, 420, 480);
         let top_node = project.node(top).expect("top node must exist");
+        let lfo_node = project.node(lfo).expect("lfo node must exist");
         let out_node = project.node(out).expect("output node must exist");
         assert!(output_pin_center(top_node).is_some());
-        assert!(input_pin_center(top_node).is_some());
+        assert!(input_pin_center(top_node).is_none());
+        assert!(output_pin_center(lfo_node).is_some());
+        assert!(input_pin_center(lfo_node).is_none());
         assert!(output_pin_center(out_node).is_none());
         assert!(input_pin_center(out_node).is_some());
     }
