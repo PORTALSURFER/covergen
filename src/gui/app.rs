@@ -33,6 +33,10 @@ pub(crate) struct GuiApp {
     last_frame_start: Instant,
     frame_counter: u64,
     benchmark_node: Option<u32>,
+    needs_redraw: bool,
+    continuous_redraw: bool,
+    title_deadline: Instant,
+    last_title: String,
 }
 
 impl GuiApp {
@@ -72,6 +76,10 @@ impl GuiApp {
             last_frame_start: now,
             frame_counter: 0,
             benchmark_node,
+            needs_redraw: true,
+            continuous_redraw: true,
+            title_deadline: now,
+            last_title: String::new(),
         }
         .with_perf_trace())
     }
@@ -87,11 +95,13 @@ impl GuiApp {
             WindowEvent::CloseRequested => true,
             WindowEvent::Resized(size) => {
                 self.renderer.resize(size.width, size.height);
+                self.needs_redraw = true;
                 false
             }
             WindowEvent::ScaleFactorChanged { .. } => false,
             _ => {
                 self.input.handle_event(event);
+                self.needs_redraw = true;
                 false
             }
         }
@@ -99,6 +109,9 @@ impl GuiApp {
 
     /// Request redraw when the frame deadline has elapsed.
     pub(crate) fn request_redraw_if_due(&mut self) {
+        if !self.continuous_redraw && !self.needs_redraw {
+            return;
+        }
         let now = Instant::now();
         if now < self.frame_deadline {
             return;
@@ -122,7 +135,7 @@ impl GuiApp {
         let input_elapsed = input_start.elapsed();
 
         let update_start = Instant::now();
-        apply_preview_actions(
+        let mut scene_dirty = apply_preview_actions(
             &self.config,
             snapshot,
             &mut self.project,
@@ -131,25 +144,30 @@ impl GuiApp {
             &mut self.state,
         );
         if self.config.gui.benchmark_drag {
-            self.apply_synthetic_drag();
+            scene_dirty |= self.apply_synthetic_drag();
         }
-        step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
+        scene_dirty |=
+            step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         let update_elapsed = update_start.elapsed();
 
-        let scene_start = Instant::now();
-        let frame = self.scene.build(
-            &self.project,
-            &self.state,
-            self.renderer.width(),
-            self.renderer.height(),
-            self.panel_width,
-        );
-        let scene_elapsed = scene_start.elapsed();
+        let mut scene_elapsed = Duration::ZERO;
+        let mut render_elapsed = Duration::ZERO;
+        if scene_dirty || self.needs_redraw {
+            let scene_start = Instant::now();
+            let frame = self.scene.build(
+                &self.project,
+                &self.state,
+                self.renderer.width(),
+                self.renderer.height(),
+                self.panel_width,
+            );
+            scene_elapsed = scene_start.elapsed();
 
-        let render_start = Instant::now();
-        self.renderer.render(frame)?;
-        let render_elapsed = render_start.elapsed();
+            let render_start = Instant::now();
+            self.renderer.render(frame)?;
+            render_elapsed = render_start.elapsed();
+        }
 
         let total_elapsed = frame_start.elapsed();
         self.perf.record(
@@ -160,7 +178,9 @@ impl GuiApp {
             render_elapsed,
             total_elapsed,
         );
-        self.update_title();
+        self.update_loop_policy();
+        self.update_title(frame_start);
+        self.needs_redraw = false;
         self.frame_counter = self.frame_counter.wrapping_add(1);
         Ok(())
     }
@@ -170,7 +190,11 @@ impl GuiApp {
         self.perf.flush()
     }
 
-    fn update_title(&self) {
+    fn update_title(&mut self, now: Instant) {
+        if now < self.title_deadline {
+            return;
+        }
+        self.title_deadline = now + Duration::from_millis(250);
         let paused = if self.state.paused {
             "paused"
         } else {
@@ -188,12 +212,15 @@ impl GuiApp {
             self.state.avg_fps,
             paused
         );
-        self.window.set_title(&title);
+        if title != self.last_title {
+            self.window.set_title(&title);
+            self.last_title = title;
+        }
     }
 
-    fn apply_synthetic_drag(&mut self) {
+    fn apply_synthetic_drag(&mut self) -> bool {
         let Some(node_id) = self.benchmark_node else {
-            return;
+            return false;
         };
         let phase = self.frame_counter as f32 / self.config.gui.target_fps.max(1) as f32;
         let cx = (self.panel_width as f32 * 0.5) as i32;
@@ -201,13 +228,24 @@ impl GuiApp {
         let x = cx + (phase * 2.7).sin().mul_add(120.0, 0.0) as i32;
         let y = cy + (phase * 1.9).cos().mul_add(90.0, 0.0) as i32;
         self.project
-            .move_node(node_id, x, y, self.panel_width, self.renderer.height());
+            .move_node(node_id, x, y, self.panel_width, self.renderer.height())
     }
 
     fn with_perf_trace(mut self) -> Self {
         self.perf = GuiPerfRecorder::new(self.config.gui.perf_trace.clone());
         self
     }
+
+    fn update_loop_policy(&mut self) {
+        self.continuous_redraw = !self.state.paused || state_has_transient_ui(&self.state);
+        if self.config.gui.benchmark_drag {
+            self.continuous_redraw = true;
+        }
+    }
+}
+
+fn state_has_transient_ui(state: &PreviewState) -> bool {
+    state.drag.is_some() || state.menu.open
 }
 
 fn maybe_seed_benchmark_nodes(

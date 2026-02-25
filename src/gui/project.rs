@@ -74,6 +74,7 @@ pub(crate) struct GuiProject {
     pub(crate) preview_height: u32,
     nodes: Vec<ProjectNode>,
     next_node_id: u32,
+    edge_count: usize,
 }
 
 impl GuiProject {
@@ -85,6 +86,7 @@ impl GuiProject {
             preview_height,
             nodes: Vec::new(),
             next_node_id: 1,
+            edge_count: 0,
         }
     }
 
@@ -96,6 +98,11 @@ impl GuiProject {
     /// Return current node count.
     pub(crate) fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Return total input-edge count currently stored in this project.
+    pub(crate) fn edge_count(&self) -> usize {
+        self.edge_count
     }
 
     /// Return immutable node by id.
@@ -126,6 +133,8 @@ impl GuiProject {
     }
 
     /// Move one node while keeping it in canvas bounds.
+    ///
+    /// Returns `true` when the node position changed.
     pub(crate) fn move_node(
         &mut self,
         node_id: u32,
@@ -133,12 +142,17 @@ impl GuiProject {
         y: i32,
         panel_width: usize,
         panel_height: usize,
-    ) {
+    ) -> bool {
         let (x, y) = clamp_node_position(x, y, panel_width, panel_height);
         if let Some(node) = self.nodes.iter_mut().find(|node| node.id == node_id) {
+            if node.x == x && node.y == y {
+                return false;
+            }
             node.x = x;
             node.y = y;
+            return true;
         }
+        false
     }
 
     /// Return top-most node id at the given panel-space position.

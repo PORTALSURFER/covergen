@@ -33,6 +33,7 @@ pub(crate) struct GuiRenderer {
     line_capacity: usize,
     triangle_vertices: Vec<Vertex>,
     line_vertices: Vec<Vertex>,
+    uniform_dirty: bool,
 }
 
 impl GuiRenderer {
@@ -108,6 +109,7 @@ impl GuiRenderer {
             line_capacity,
             triangle_vertices: Vec::with_capacity(triangle_capacity),
             line_vertices: Vec::with_capacity(line_capacity),
+            uniform_dirty: false,
         })
     }
 
@@ -129,17 +131,21 @@ impl GuiRenderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+        self.uniform_dirty = true;
     }
 
     /// Render one scene frame to the GUI surface.
     pub(crate) fn render(&mut self, frame: &SceneFrame) -> Result<(), Box<dyn Error>> {
         self.rebuild_geometry(frame);
         self.ensure_vertex_capacity(self.triangle_vertices.len(), self.line_vertices.len());
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::bytes_of(&ViewportUniform::new(self.config.width, self.config.height)),
-        );
+        if self.uniform_dirty {
+            self.queue.write_buffer(
+                &self.uniform_buffer,
+                0,
+                bytemuck::bytes_of(&ViewportUniform::new(self.config.width, self.config.height)),
+            );
+            self.uniform_dirty = false;
+        }
         self.queue.write_buffer(
             &self.triangle_buffer,
             0,
@@ -213,6 +219,16 @@ impl GuiRenderer {
     fn rebuild_geometry(&mut self, frame: &SceneFrame) {
         self.triangle_vertices.clear();
         self.line_vertices.clear();
+        let triangle_target = frame.rects.len().saturating_mul(6);
+        if triangle_target > self.triangle_vertices.capacity() {
+            self.triangle_vertices
+                .reserve(triangle_target - self.triangle_vertices.capacity());
+        }
+        let line_target = frame.lines.len().saturating_mul(2);
+        if line_target > self.line_vertices.capacity() {
+            self.line_vertices
+                .reserve(line_target - self.line_vertices.capacity());
+        }
         for rect in &frame.rects {
             push_rect_triangles(&mut self.triangle_vertices, rect.rect, rect.color);
         }

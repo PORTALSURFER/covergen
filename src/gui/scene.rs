@@ -3,8 +3,6 @@
 //! The builder produces simple colored rectangles and line segments each frame.
 //! Rendering stays on GPU; only lightweight geometry lists are rebuilt.
 
-use std::collections::HashMap;
-
 use super::geometry::Rect;
 use super::project::{GuiProject, ProjectNode, ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH};
 use super::state::PreviewState;
@@ -71,6 +69,10 @@ pub(crate) struct SceneFrame {
 #[derive(Debug, Default)]
 pub(crate) struct SceneBuilder {
     frame: SceneFrame,
+    static_rects: Vec<ColoredRect>,
+    static_lines: Vec<ColoredLine>,
+    cached_static_key: Option<(usize, usize, usize)>,
+    edge_anchors: Vec<(u32, i32, i32)>,
 }
 
 impl SceneBuilder {
@@ -83,24 +85,39 @@ impl SceneBuilder {
         height: usize,
         panel_width: usize,
     ) -> &SceneFrame {
+        self.rebuild_static_if_needed(width, height, panel_width);
         self.frame.clear = Some(PREVIEW_BG);
         self.frame.rects.clear();
         self.frame.lines.clear();
+        self.frame.rects.extend_from_slice(&self.static_rects);
+        self.frame.lines.extend_from_slice(&self.static_lines);
 
-        self.push_rect(Rect::new(0, 0, panel_width as i32, height as i32), PANEL_BG);
-        self.push_grid(panel_width as i32, height as i32, 20);
-        self.push_preview_backdrop(width as i32, height as i32, panel_width as i32);
         self.push_header(project);
         self.push_edges(project);
         self.push_nodes(project, state);
         self.push_menu(state);
-        self.push_divider(panel_width as i32, height as i32);
         &self.frame
     }
 
-    fn push_preview_backdrop(&mut self, width: i32, height: i32, panel_width: i32) {
-        let w = (width - panel_width).max(0);
-        self.push_rect(Rect::new(panel_width, 0, w, height), PREVIEW_BG);
+    fn rebuild_static_if_needed(&mut self, width: usize, height: usize, panel_width: usize) {
+        let key = (width, height, panel_width);
+        if self.cached_static_key == Some(key) {
+            return;
+        }
+        self.cached_static_key = Some(key);
+        self.static_rects.clear();
+        self.static_lines.clear();
+        self.static_rects.push(ColoredRect {
+            rect: Rect::new(0, 0, panel_width as i32, height as i32),
+            color: PANEL_BG,
+        });
+        Self::push_grid_into(
+            &mut self.static_lines,
+            panel_width as i32,
+            height as i32,
+            20,
+        );
+        Self::push_divider_into(&mut self.static_lines, panel_width as i32, height as i32);
     }
 
     fn push_header(&mut self, project: &GuiProject) {
@@ -111,17 +128,23 @@ impl SceneBuilder {
     }
 
     fn push_edges(&mut self, project: &GuiProject) {
-        let anchors: HashMap<u32, (i32, i32)> = project
-            .nodes()
-            .iter()
-            .map(|node| (node.id(), center(node)))
-            .collect();
+        if project.edge_count() == 0 {
+            return;
+        }
+        self.edge_anchors.clear();
+        self.edge_anchors.extend(project.nodes().iter().map(|node| {
+            (
+                node.id(),
+                node.x() + NODE_WIDTH / 2,
+                node.y() + NODE_HEIGHT / 2,
+            )
+        }));
         for node in project.nodes() {
-            let Some((to_x, to_y)) = anchors.get(&node.id()).copied() else {
+            let Some((to_x, to_y)) = self.anchor_for(node.id()) else {
                 continue;
             };
             for input in node.inputs() {
-                let Some((from_x, from_y)) = anchors.get(input).copied() else {
+                let Some((from_x, from_y)) = self.anchor_for(*input) else {
                     continue;
                 };
                 self.push_line(from_x, from_y, to_x, to_y, EDGE_COLOR);
@@ -165,22 +188,40 @@ impl SceneBuilder {
         }
     }
 
-    fn push_grid(&mut self, panel_width: i32, panel_height: i32, step: i32) {
+    fn push_grid_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32, step: i32) {
         let mut x = 0;
         while x < panel_width {
-            self.push_line(x, 0, x, panel_height - 1, GRID_COLOR);
+            out.push(ColoredLine {
+                x0: x,
+                y0: 0,
+                x1: x,
+                y1: panel_height - 1,
+                color: GRID_COLOR,
+            });
             x += step;
         }
         let mut y = 0;
         while y < panel_height {
-            self.push_line(0, y, panel_width - 1, y, GRID_COLOR);
+            out.push(ColoredLine {
+                x0: 0,
+                y0: y,
+                x1: panel_width - 1,
+                y1: y,
+                color: GRID_COLOR,
+            });
             y += step;
         }
     }
 
-    fn push_divider(&mut self, panel_width: i32, panel_height: i32) {
+    fn push_divider_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32) {
         let x = panel_width - 1;
-        self.push_line(x, 0, x, panel_height - 1, BORDER_COLOR);
+        out.push(ColoredLine {
+            x0: x,
+            y0: 0,
+            x1: x,
+            y1: panel_height - 1,
+            color: BORDER_COLOR,
+        });
     }
 
     fn push_rect(&mut self, rect: Rect, color: Color) {
@@ -207,14 +248,17 @@ impl SceneBuilder {
             color,
         });
     }
+
+    fn anchor_for(&self, node_id: u32) -> Option<(i32, i32)> {
+        self.edge_anchors
+            .iter()
+            .find(|(id, _, _)| *id == node_id)
+            .map(|(_, x, y)| (*x, *y))
+    }
 }
 
 fn node_rect(node: &ProjectNode) -> Rect {
     Rect::new(node.x(), node.y(), NODE_WIDTH, NODE_HEIGHT)
-}
-
-fn center(node: &ProjectNode) -> (i32, i32) {
-    (node.x() + NODE_WIDTH / 2, node.y() + NODE_HEIGHT / 2)
 }
 
 fn node_top_color(kind: ProjectNodeKind) -> Color {

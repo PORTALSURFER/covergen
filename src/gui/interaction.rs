@@ -7,6 +7,8 @@ use super::project::GuiProject;
 use super::state::{menu_height, AddNodeMenuState, InputSnapshot, PreviewState, ADD_NODE_OPTIONS};
 
 /// Apply one frame of input actions to project/editor state.
+///
+/// Returns `true` when this frame changed visual/editor state and should be redrawn.
 pub(crate) fn apply_preview_actions(
     config: &V2Config,
     input: InputSnapshot,
@@ -14,9 +16,11 @@ pub(crate) fn apply_preview_actions(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
+    let mut changed = false;
     if input.toggle_pause {
         state.paused = !state.paused;
+        changed = true;
     }
     if input.new_project {
         *project = GuiProject::new_empty(config.width, config.height);
@@ -25,32 +29,39 @@ pub(crate) fn apply_preview_actions(
         state.menu = AddNodeMenuState::closed();
         state.hover_node = None;
         state.hover_menu_item = None;
+        changed = true;
     }
 
-    handle_add_menu_toggle(&input, panel_width, panel_height, state);
-    update_hover_state(input, project, panel_width, panel_height, state);
+    changed |= handle_add_menu_toggle(&input, panel_width, panel_height, state);
+    changed |= update_hover_state(input, project, panel_width, panel_height, state);
     if state.menu.open {
-        handle_add_menu_input(&input, project, panel_width, panel_height, state);
+        changed |= handle_add_menu_input(&input, project, panel_width, panel_height, state);
     } else {
-        handle_drag_input(&input, project, panel_width, panel_height, state);
+        changed |= handle_drag_input(&input, project, panel_width, panel_height, state);
     }
     state.prev_left_down = input.left_down;
+    changed
 }
 
 /// Advance timeline frame counter at the configured playback frame rate.
+///
+/// Returns `true` when at least one timeline tick advanced this frame.
 pub(crate) fn step_timeline_if_running(
     state: &mut PreviewState,
     frame_delta: Duration,
     timeline_fps: u32,
-) {
+) -> bool {
+    let mut advanced = false;
     if !state.paused {
         let tick_secs = 1.0 / timeline_fps.max(1) as f32;
         state.timeline_accum_secs += frame_delta.as_secs_f32();
         while state.timeline_accum_secs >= tick_secs {
             state.timeline_accum_secs -= tick_secs;
             state.frame_index = state.frame_index.wrapping_add(1);
+            advanced = true;
         }
     }
+    advanced
 }
 
 fn handle_add_menu_toggle(
@@ -58,19 +69,20 @@ fn handle_add_menu_toggle(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
     if !input.toggle_add_menu {
-        return;
+        return false;
     }
     if state.menu.open {
         state.menu = AddNodeMenuState::closed();
-        return;
+        return true;
     }
     let (x, y) = input
         .mouse_pos
         .unwrap_or((panel_width as i32 / 2, panel_height as i32 / 3));
     state.menu = AddNodeMenuState::open_at(x, y, panel_width, panel_height);
     state.drag = None;
+    true
 }
 
 fn handle_add_menu_input(
@@ -79,34 +91,49 @@ fn handle_add_menu_input(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
+    let mut changed = false;
     if let Some(hovered) = state.hover_menu_item {
-        state.menu.selected = hovered;
+        if state.menu.selected != hovered {
+            state.menu.selected = hovered;
+            changed = true;
+        }
     }
     if input.menu_up {
-        state.menu.selected = state.menu.selected.saturating_sub(1);
+        let next = state.menu.selected.saturating_sub(1);
+        if next != state.menu.selected {
+            state.menu.selected = next;
+            changed = true;
+        }
     }
     if input.menu_down {
         let max_index = ADD_NODE_OPTIONS.len().saturating_sub(1);
-        state.menu.selected = (state.menu.selected + 1).min(max_index);
+        let next = (state.menu.selected + 1).min(max_index);
+        if next != state.menu.selected {
+            state.menu.selected = next;
+            changed = true;
+        }
     }
     if input.menu_accept {
         add_menu_selected_node(project, panel_width, panel_height, state);
-        return;
+        return true;
     }
     if !input.left_clicked {
-        return;
+        return changed;
     }
     let Some((mx, my)) = input.mouse_pos else {
         state.menu = AddNodeMenuState::closed();
-        return;
+        return true;
     };
     if let Some(index) = state.menu.item_at(mx, my) {
         state.menu.selected = index;
         add_menu_selected_node(project, panel_width, panel_height, state);
+        return true;
     } else if !state.menu.rect().contains(mx, my) {
         state.menu = AddNodeMenuState::closed();
+        return true;
     }
+    changed
 }
 
 fn add_menu_selected_node(
@@ -131,26 +158,29 @@ fn handle_drag_input(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
+    let mut changed = false;
     if input.left_clicked {
-        begin_drag_if_node_hit(input, project, panel_width, panel_height, state);
+        changed |= begin_drag_if_node_hit(input, project, panel_width, panel_height, state);
     }
     if !input.left_down {
+        changed |= state.drag.is_some();
         state.drag = None;
-        return;
+        return changed;
     }
     let Some(drag) = state.drag else {
-        return;
+        return changed;
     };
     let Some((mx, my)) = input.mouse_pos else {
-        return;
+        return changed;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
-        return;
+        return changed;
     }
     let node_x = mx - drag.offset_x;
     let node_y = my - drag.offset_y;
-    project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
+    changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
+    changed
 }
 
 fn begin_drag_if_node_hit(
@@ -159,26 +189,32 @@ fn begin_drag_if_node_hit(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
     let Some((mx, my)) = input.mouse_pos else {
-        return;
+        return false;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
-        return;
+        return false;
     }
     let Some(node_id) = project.node_at(mx, my) else {
+        let changed = state.drag.is_some();
         state.drag = None;
-        return;
+        return changed;
     };
     let Some(node) = project.node(node_id) else {
+        let changed = state.drag.is_some();
         state.drag = None;
-        return;
+        return changed;
     };
+    if state.drag.map(|drag| drag.node_id) == Some(node_id) {
+        return false;
+    }
     state.drag = Some(super::state::DragState {
         node_id,
         offset_x: mx - node.x(),
         offset_y: my - node.y(),
     });
+    true
 }
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
@@ -191,19 +227,22 @@ fn update_hover_state(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
+) -> bool {
+    let prev_hover_node = state.hover_node;
+    let prev_hover_item = state.hover_menu_item;
     state.hover_node = None;
     state.hover_menu_item = None;
 
     let Some((mx, my)) = input.mouse_pos else {
-        return;
+        return prev_hover_node.is_some() || prev_hover_item.is_some();
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
-        return;
+        return prev_hover_node.is_some() || prev_hover_item.is_some();
     }
     if state.menu.open {
         state.hover_menu_item = state.menu.item_at(mx, my);
-        return;
+        return state.hover_menu_item != prev_hover_item || prev_hover_node.is_some();
     }
     state.hover_node = project.node_at(mx, my);
+    state.hover_node != prev_hover_node || prev_hover_item.is_some()
 }
