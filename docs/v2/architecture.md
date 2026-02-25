@@ -1,45 +1,68 @@
 # V2 Architecture
 
-## Goals
+## Purpose
 
-- Programmatic node-graph generation (no GUI).
-- GPU-first execution with retained buffers.
-- One readback per image at output boundary.
+Define the engine-centric architecture for a Windows-first, GPU-required node editor focused on real-time shader/video workflows.
 
-## Module Layout
+The canonical model is documented in [`engine-v1-playground.md`](./engine-v1-playground.md). This document maps that model to project implementation boundaries.
 
-- `src/graph.rs`: typed graph IR and validation.
-- `src/compiler.rs`: topological lowering to runtime plan.
-- `src/presets/mod.rs`: deterministic graph generators from seed.
-- `src/runtime.rs`: GPU executor and output encoding.
-- `src/runtime_config.rs`: runtime argument parsing.
-- `src/main.rs`: orchestration entrypoint.
-- `src/shaders.rs`: strict rust-gpu SPIR-V shader loader.
+## Product Constraints
 
-## Pipeline
+- Windows-first runtime support.
+- No CPU/software adapter fallback.
+- Real-time first: user-selected target FPS (60 FPS baseline), with meaningful idle headroom.
+- Export scope in this phase: H.264 and image sequences.
 
-1. Parse V2 CLI config.
-2. Build graph from preset generator.
-3. Validate and compile graph.
-4. Execute compiled layer steps on GPU retained path.
-5. Read back once to host memory.
-6. Final normalization/downsample/PNG encode.
+## Architectural Axes
 
-Animation path:
+The system uses three explicit classifications:
 
-1. Compile once per clip.
-2. For each frame, evaluate graph-time modulation on supported node params
-   using deterministic low-frequency functions.
-3. Execute retained GPU graph and read back once per frame.
-4. Encode PNG sequence and assemble MP4 with ffmpeg.
+- `ResourceKind`: typed payloads that flow over ports (`Texture2D`, `Struct` in V1).
+- `ExecutionKind`: node runtime behavior (`Render`, `Compute`, `Cpu`, `Io`, `Control`).
+- `ClockDomain`: scheduling cadence (`FrameClock`, `EventClock`).
 
-## Current Runtime Limits
+This replaces family-style operator taxonomy.
 
-- Graphs must be acyclic and type-correct per node port contracts.
-- Runtime supports DAG fan-out/fan-in across all current node kinds
-  (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`,
-  `Output`).
-- Graph must define exactly one primary output and may define additional tap
-  outputs with unique slots.
-- Default encode/finalization path reads back and encodes the primary output.
-- V2 requires a hardware GPU adapter; software adapters are rejected.
+## Planes
+
+### GPU Data Plane
+
+- Texture allocation/reuse.
+- Render/compute pass execution.
+- Shader compilation/pipeline management.
+- Swapchain presentation.
+
+### CPU Control Plane
+
+- Graph editing/validation.
+- Dirty/version propagation.
+- Scheduling and topological planning.
+- Parameter/event updates.
+
+Bridges between planes are explicit (`Struct -> ParamBlock`).
+
+## Runtime Pipeline
+
+1. Determine requested outputs (`io.window_out`, export sinks).
+2. Build pull-set of required upstream nodes.
+3. Resolve deterministic topological order.
+4. Execute nodes by dependency and `ExecutionKind`.
+5. Reuse transient textures via pool.
+6. Submit command buffer(s), then present/export.
+
+## Error and Stability Behavior
+
+- Shader compile errors never crash frame execution.
+- `tex.shader` keeps last known-good pipeline on compile failure.
+- Error state is surfaced in UI diagnostics.
+- Adapter policy is strict GPU-only fail-fast.
+
+## Migration Direction
+
+The repository still contains legacy graph/runtime naming from prior presets. Migration now prioritizes:
+
+1. Type-system migration from legacy port families to `ResourceKind`.
+2. Scheduler migration to explicit `ExecutionKind + ClockDomain`.
+3. Node registry migration to namespace IDs (`io.*`, `tex.*`, `ctl.*`, `data.*`).
+
+See [`graph-spec.md`](./graph-spec.md) and [`gpu-runtime.md`](./gpu-runtime.md) for concrete contracts.

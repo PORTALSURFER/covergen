@@ -10,6 +10,7 @@
 - `plans/active/todo.md`: immediate ordered next tasks.
 
 ## V2 Design Docs
+- `v2/engine-v1-playground.md` (canonical v1 engine model and node registry)
 - `v2/architecture.md`
 - `v2/graph-spec.md`
 - `v2/gpu-runtime.md`

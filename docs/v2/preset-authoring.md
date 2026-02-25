@@ -1,5 +1,7 @@
 # V2 Preset Authoring (No GUI)
 
+> Migration note: this file describes the current preset implementation, which still includes legacy family/node naming. The target contract for new work is the engine-centric model in `engine-v1-playground.md`, with gradual migration planned.
+
 ## Approach
 
 Presets are Rust functions that construct graphs with `GraphBuilder`.
@@ -44,7 +46,7 @@ style envelopes instead of duplicating wiring logic.
 ## Pattern
 
 1. Create builder with target render size and seed.
-2. Select node templates by `OperatorFamily` (`Top`/`Chop`/`Sop`/`Output`) as needed.
+2. Select node templates by resource and execution intent (legacy code may still route through `OperatorFamily` while migration is in progress).
 3. Generate base `GenerateLayerNode` sources from deterministic RNG.
 4. Add graph-native operator nodes (`SourceNoise`, `Mask`, `Blend`, `ToneMap`, `WarpTransform`).
 5. Build a DAG with fan-in/fan-out branches (avoid pure linear stacks).

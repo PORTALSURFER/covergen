@@ -1,158 +1,195 @@
 # V2 Graph Specification
 
-## Core Types
+## 1. Scope
+
+This specification defines the graph contracts for the engine-centric V1 model in [`engine-v1-playground.md`](./engine-v1-playground.md).
+
+## 2. Core Types
 
 - `NodeId`: stable node identifier.
-- `PortType`:
-  - `LumaTexture`
-  - `MaskTexture`
-  - `ChannelScalar`
-  - `SopPrimitive`
-- `NodeKind`:
-  - `GenerateLayer(GenerateLayerNode)`
-  - `SourceNoise(SourceNoiseNode)`
-  - `Mask(MaskNode)`
-  - `Blend(BlendNode)`
-  - `ToneMap(ToneMapNode)`
-  - `WarpTransform(WarpTransformNode)`
-  - `ChopLfo(ChopLfoNode)`
-  - `ChopMath(ChopMathNode)`
-  - `ChopRemap(ChopRemapNode)`
-  - `SopCircle(SopCircleNode)`
-  - `SopSphere(SopSphereNode)`
-  - `TopCameraRender(TopCameraRenderNode)`
-  - `Output(OutputNode)`
-- `OperatorFamily`:
-  - `Top`: texture/image operators
-  - `Chop`: channel/stream operators
-  - `Sop`: geometry operators
-  - `Output`: terminal output operators
-- `EdgeSpec`: typed directed edge between node ports.
-- `GpuGraph`: immutable validated graph payload.
+- `PortId`: stable local port identifier.
+- `ResourceKind`:
+  - `Texture2D`
+  - `Struct`
+  - `ParamBlock`
+- `ExecutionKind`:
+  - `Render`
+  - `Compute`
+  - `Cpu`
+  - `Io`
+  - `Control`
+- `ClockDomain`:
+  - `FrameClock`
+  - `EventClock`
+- `NodeSpec`: registry entry describing ports, params, execution, and clock behavior.
+- `EdgeSpec`: directed typed connection between source and destination ports.
+- `GraphSpec`: immutable validated graph payload.
 
-## Output Contract
+## 3. Graph-Level Contract
 
-`OutputNode` defines output semantics:
+- Graph must be acyclic in V1.
+- At least one output sink node must exist.
+- `io.window_out` is optional for headless/export-only runs, but required for interactive viewer output.
+- Each destination input port accepts at most one incoming edge.
+- Source and destination `ResourceKind` must match exactly.
+- No implicit conversions are allowed.
 
-- `role`:
-  - `Primary`: default final image target used by runtime encode/finalize.
-  - `Tap`: additional output product or module boundary output.
-- `slot`: stable output slot index (`u8`) for addressing outputs.
+## 4. Explicit Conversion Contract
 
-Graph contract requires:
+The only V1 bridge from control data to shader uniforms is:
 
-- At least one `Output` node is required.
-- Exactly one `Primary` output is required.
-- Output slots must be unique across all outputs.
+`Struct -> ParamBlock` through `data.params`.
 
-## Node Port Contracts
+Any shader node requiring uniforms must receive a `ParamBlock` input explicitly.
 
-Current built-in nodes span `Top`, `Chop`, `Sop`, and `Output` families.
+## 5. Node Registry (V1)
 
-- `GenerateLayer`:
-  - inputs: `0..=1` (`slot 0: LumaTexture`)
-  - output: `LumaTexture`
-- `SourceNoise`:
-  - inputs: `0`
-  - output: `LumaTexture` or `MaskTexture` (`output_port`)
-- `Mask`:
-  - inputs: exactly `1` (`slot 0: LumaTexture`)
-  - output: `MaskTexture`
-- `Blend`:
-  - inputs: `2..=3`
-  - `slot 0: LumaTexture` (base)
-  - `slot 1: LumaTexture` (top)
-  - `slot 2: MaskTexture` (optional mask)
-  - output: `LumaTexture`
-- `ToneMap`:
-  - inputs: `1..=2`
-  - `slot 0: LumaTexture`
-  - `slot 1: ChannelScalar` (optional contrast modulation)
-  - output: `LumaTexture`
-- `WarpTransform`:
-  - inputs: `1..=2`
-  - `slot 0: LumaTexture`
-  - `slot 1: ChannelScalar` (optional strength modulation)
-  - output: `LumaTexture`
-- `ChopLfo`:
-  - inputs: `0`
-  - output: `ChannelScalar`
-- `ChopMath`:
-  - inputs: `1..=2`
-  - `slot 0: ChannelScalar` (required)
-  - `slot 1: ChannelScalar` (optional)
-  - output: `ChannelScalar`
-- `ChopRemap`:
-  - inputs: exactly `1` (`slot 0: ChannelScalar`)
-  - output: `ChannelScalar`
-- `SopCircle` / `SopSphere`:
-  - inputs: `0`
-  - output: `SopPrimitive`
-- `TopCameraRender`:
-  - inputs: `1..=2`
-  - `slot 0: SopPrimitive` (required)
-  - `slot 1: ChannelScalar` (optional camera modulation)
-  - output: `LumaTexture`
-- `Output`:
-  - inputs: exactly `1` (`slot 0: LumaTexture`)
-  - output: none
+Stable IDs and typed signatures:
 
-## Temporal Modulation Contract
+### IO
 
-Node temporal channels are optional and evaluated once per frame through
-`GraphTimeInput` (`t` normalized clip position and global intensity `i`).
+- `io.window_out`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: none
+  - `ExecutionKind`: `Io`
+  - `ClockDomain`: `FrameClock`
+- `io.image_load`
+  - Inputs: none
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Io`
+  - `ClockDomain`: `EventClock`
+  - Params: `filepath`
+- `io.image_save`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: none
+  - `ExecutionKind`: `Io`
+  - `ClockDomain`: `EventClock`
+  - Params: `filepath`, `trigger`
 
-Runtime may additionally apply motion-profile constraints on sampled modulation:
+### Texture Sources
 
-- envelope clamp (`min..max`)
-- per-frame slew-rate limit (`max_delta_per_frame`)
+- `tex.solid`
+  - Inputs: none
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `tex.noise`
+  - Inputs: none
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
 
-These constraints are applied after DSL/curve evaluation so they layer on top
-of existing temporal expressions.
+### Texture Transforms
 
-Each temporal channel accepts either:
+- `tex.transform_2d`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `tex.blur_gauss`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+  - Note: separable 2-pass render implementation.
+- `tex.levels`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `tex.hsv`
+  - Inputs: `input0(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
 
-- `TemporalCurve` (legacy sine-curve modulation)
-- `TemporalModulation::Expr` (expression DSL program)
+### Compositing
 
-Expression DSL:
+- `tex.mix`
+  - Inputs: `a(Texture2D)`, `b(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `tex.mask`
+  - Inputs: `base(Texture2D)`, `layer(Texture2D)`, `mask(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `tex.compose_over`
+  - Inputs: `under(Texture2D)`, `over(Texture2D)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
 
-- Variables: `t`, `i`
-- Constants: `pi`, `tau`
-- Operators: `+`, `-`, `*`, `/`
-- Functions: `sin`, `cos`, `abs`, `fract`, `tri`, `saw`, `min`, `max`, `clamp`
+### Shader Core
 
-Example expression:
+- `tex.shader`
+  - Inputs: `input_textures[0..N](Texture2D)`, optional `params(ParamBlock)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+  - Failure behavior: retain last valid pipeline and mark node as error-state.
 
-`0.08 * sin((t * 0.9 + 0.2) * tau) * i`
+### Control/Data
 
-## Validation Rules
+- `ctl.time`
+  - Inputs: none
+  - Outputs: `out(Struct)`
+  - `ExecutionKind`: `Control`
+  - `ClockDomain`: `FrameClock`
+- `data.params`
+  - Inputs: optional `in(Struct)` for edits/overrides
+  - Outputs: `out(ParamBlock)`
+  - `ExecutionKind`: `Cpu`
+  - `ClockDomain`: `EventClock`
+- `ctl.switch`
+  - Inputs: `a(Texture2D)`, `b(Texture2D)`, `select(Struct|bool field)`
+  - Outputs: `out(Texture2D)`
+  - `ExecutionKind`: `Render`
+  - `ClockDomain`: `FrameClock`
+- `ctl.latch`
+  - Inputs: `value(Struct)`, `trigger(Struct|bool field)`
+  - Outputs: `out(Struct)`
+  - `ExecutionKind`: `Control`
+  - `ClockDomain`: `FrameClock`
 
-`GraphBuilder::build()` validates:
+## 6. Validation Rules
 
-- Graph dimensions must be non-zero.
-- Graph must contain at least one node.
-- Node IDs must be unique.
-- At least one output node exists.
-- Exactly one primary output exists.
-- Output slots are unique.
-- Each edge source/target node must exist.
-- Source and target port types must match node contracts.
-- A target input slot can have at most one incoming edge.
-- Every node input count must satisfy its min/max input range.
-- Required low-index input slots (`0..min_inputs-1`) must all be connected.
-- Graph must be acyclic.
+`GraphBuilder::build()` (or equivalent validator) must enforce:
 
-## Compilation Rules
+- non-zero graph dimensions for texture-domain graphs
+- non-empty node set
+- unique `NodeId`s
+- existing source and destination nodes for each edge
+- source output and destination input compatibility by exact `ResourceKind`
+- one inbound edge max per destination input port
+- required inputs connected for each node spec
+- acyclic graph
 
-`compile_graph()` performs:
+## 7. Compilation Rules
 
-- Topological ordering of validated DAG nodes.
-- Input ordering by destination slot (`to_input`) per step.
-- Output binding extraction for every output node.
-- Primary output node detection from output bindings.
-- GPU resource lifetime planning (alias slots + release schedule).
+Compilation must produce:
 
-Runtime resolves output bindings in an explicit final compositor stage:
-primary selects the base luma and tap outputs are composited in deterministic
-slot order before final image finalization.
+- deterministic topological node order
+- stable, per-node input ordering
+- executable plan entries carrying:
+  - `NodeId`
+  - `ExecutionKind`
+  - `ClockDomain`
+  - input/output resource handles
+- explicit output binding map for viewer/export sinks
+
+## 8. Caching and Re-execution
+
+Per output resource:
+
+- maintain version counter
+- maintain parameter hash per node
+
+Node re-executes when:
+
+- any input version changes
+- parameter hash changes
+- pipeline invalidation occurs (for shader recompiles)
+
+Otherwise reuse cached outputs.

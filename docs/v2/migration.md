@@ -4,6 +4,7 @@
 
 - `covergen` runs V2 (`src/*`) by default.
 - V1 runtime code and CLI mode are removed.
+- Current design baseline is `docs/v2/engine-v1-playground.md` and associated graph/runtime specs.
 
 ## Cutover + Deprecation Timeline
 

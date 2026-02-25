@@ -1,10 +1,12 @@
 # Plans Index
 
 ## Active
-- `active/todo.md` — immediate execution queue for Windows-first, GPU-only TouchDesigner-style core delivery.
+- `active/todo.md` — immediate execution queue for Windows-first, GPU-only core delivery under the engine-centric V1 model.
 
 ## Scope of Current Plan
-- Deliver a TouchDesigner-style GUI and node-graph workflow focused on generative art authoring.
+- Deliver a node-graph shader/video playground workflow focused on generative art authoring.
+- Keep UX and capability targets comparable to leading node tools while maintaining legal separation through original architecture and naming.
+- Adopt the engine-centric V1 model (`ResourceKind + ExecutionKind + ClockDomain`) as the architecture baseline.
 - Maintain Windows-first, GPU-only runtime and benchmark execution constraints.
 - Use RTX 2060 as the baseline perf tier while targeting high-tier gaming GPUs or better for production usage.
 - Hit a minimum interactive TOP-viewer target of 60 FPS at 1080p, maintain idle headroom above target, and preserve quality under growing graph complexity.

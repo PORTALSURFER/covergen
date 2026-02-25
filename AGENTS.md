@@ -11,7 +11,7 @@ This file is a stateless wake-up portal. It should stay minimal and point to the
 5. Use `docs/README.md` to find deeper technical docs.
 
 ## Active Mission
-Build a TouchDesigner-style GUI and node-graph generative art tool (Windows-first), optimized for high-performance real-time output and fast GPU-accelerated export.
+Build a Windows-first, GPU-only node-graph shader/video playground with high-performance real-time output and fast GPU-accelerated export, while keeping architecture and terminology legally distinct.
 
 ## Source of Truth
 - Current state: `MEMORY.md`

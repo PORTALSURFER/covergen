@@ -1,111 +1,107 @@
 # V2 GPU Runtime
 
-## Execution Model
+## Runtime Intent
 
-The V2 runtime executes graph-native presets through retained GPU buffers for
-all compiled node kinds:
-
-1. `begin_retained_image()` clears retained accumulation state.
-2. Graph nodes (`GenerateLayer`, `SourceNoise`, `Mask`, `Blend`, `ToneMap`,
-   `WarpTransform`) run on aliased GPU output slots.
-3. Final compositor stage resolves `Output` bindings:
-   - `Primary` selects the base luma slot.
-   - `Tap` outputs are sorted by slot and composited into the base with a
-     deterministic GPU blend policy.
-4. Composited result is staged into retained accumulation.
-5. `collect_retained_output_gray(...)` runs GPU finalize passes and performs
-   one image-end readback.
-
-This avoids per-node host readbacks in graph-native execution.
-
-Shader modules are loaded through `src/shaders.rs` and run from:
-
-- rust-gpu SPIR-V artifacts only (strict mode)
-
-## Animation Mode
-
-V2 supports clip rendering for social-video output:
-
-- `--animate --seconds <n> --fps <n>` enables frame sequence rendering.
-- `--reels` sets `1080x1920` and enables animation automatically.
-- `--motion <gentle|normal|wild>` controls temporal modulation intensity.
-
-For each frame, layer parameters are gently modulated (center offsets, zoom,
-mix, warp, contrast, opacity) using deterministic sinusoids. This produces slow
-morphing over the full clip duration.
-
-Motion profile behavior:
-
-- `gentle`: low modulation amplitude, stable per-clip seed (minimum flicker)
-- `normal`: moderate modulation amplitude, stable per-clip seed
-- `wild`: full modulation amplitude with per-frame seed jitter
-
-On top of DSL/curve temporal expressions, runtime applies profile constraints:
-
-- modulation envelope clamp
-- per-frame slew-rate cap
-
-This reduces abrupt frame-to-frame parameter jumps without removing the
-underlying modulation signal.
-
-Frame flow:
-
-1. Render all layers via retained GPU path.
-2. Single readback for final luma.
-3. Write PNG frame.
-4. Assemble MP4 with `ffmpeg` (`libx264`, `yuv420p`, `+faststart`).
-
-## Still Candidate Selection Mode
-
-For still-image runs, V2 can explore low-resolution candidates and keep only
-top-scoring seeds for final full-resolution rendering:
-
-- `--explore-candidates <n>` enables generate-score-select mode.
-- `--explore-size <n>` sets the max low-res exploration dimension.
-- Final output count remains `--count`; runtime renders the top `count` seeds.
-
-Score combines:
-
-- composition quality (contrast/edge/exposure balance)
-- novelty against previously explored candidates
-- temporal stability under a small modulation probe
+Execute typed node graphs in real time with deterministic scheduling, zero software-adapter fallback, and high-throughput GPU pipelines for both interactive viewing and export.
 
 ## Adapter Policy
 
-V2 targets hardware GPU execution. If a software adapter is selected
-(`llvmpipe`, `swiftshader`, WARP, etc.), runtime fails fast with a clear error.
+- Hardware GPU is mandatory.
+- Software adapters (llvmpipe/swiftshader/WARP) fail fast with explicit errors.
+- Baseline target hardware tier: RTX 2060-class or better.
 
-Animation mode additionally requires `ffmpeg` in `PATH` for MP4 assembly.
+## Evaluation Strategy
 
-## Post Boundary
+### Pull Scheduling
 
-After one readback, host-side finishing is applied:
+Each frame (or export step), runtime starts from requested sinks:
 
-- contrast adjustment
-- percentile stretch
-- optional downsampling (AA > 1)
-- PNG encoding under size cap
+- interactive: `io.window_out`
+- export: image-sequence and H.264 outputs
 
-## Tap Output Artifact Strategy
+Only required upstream nodes are executed.
 
-- Runtime encodes one artifact per still/frame (the composited primary output).
-- Tap outputs are still first-class graph surfaces and now directly feed the
-  explicit GPU compositor stage before finalization.
-- Bench and regression suites validate that benchmark/snapshot graphs compile
-  with one primary output and at least one tap output.
+### Dirty Propagation
 
-## Movie-Quality Regression Gates
+A node re-runs when:
 
-Animation visual regression includes temporal quality metrics in addition to
-sampled-frame hashes:
+- any input output-version changed, or
+- its parameter hash changed, or
+- shader pipeline changed.
 
-- flicker proxy: mean/p95 normalized frame-to-frame delta
-- continuity proxy: smoothness score from delta jerk over adjacent frame deltas
+Otherwise cached outputs are reused.
 
-These gates are enforced in local CI scripts and perf-gate CI workflow.
+### Determinism
 
-## Determinism
+- deterministic topological order
+- deterministic pass ordering and bind layout
+- deterministic hash/version updates
 
-- Preset generation is deterministic from CLI seed.
-- Per-image seed offsets are deterministic.
-- Layer uniforms are deterministic per node and image index.
+## FrameClock Pipeline
+
+1. Tick `ctl.time` (`t`, `dt`, `frame_index`).
+2. Build required node set for current sinks.
+3. Topologically order render plan.
+4. Acquire transient render targets from `TexturePool`.
+5. Execute render/compute passes.
+6. Submit command buffers.
+7. Present swapchain frame for viewer outputs.
+
+Goal is one primary submission path per frame.
+
+## EventClock Pipeline
+
+Runs on explicit events, not each frame:
+
+- file loads/saves
+- parameter edits
+- trigger actions
+
+Event results update cached resources/versions consumed by the next frame pull.
+
+## Shader Node Behavior
+
+`tex.shader` contract:
+
+- compile WGSL on source change
+- if compile succeeds: swap in new pipeline
+- if compile fails: keep previous valid pipeline active
+- publish diagnostics for UI display
+
+This keeps playback stable during live editing.
+
+## Resource Pooling
+
+`TexturePool` reuse key:
+
+- width
+- height
+- format
+- usage flags
+
+Transient targets are reused across passes. Persistent targets are reserved for explicit stateful nodes (for example, planned feedback nodes).
+
+## Export Runtime (V1 Scope)
+
+Supported outputs:
+
+- H.264
+- image sequences
+
+Policy:
+
+- keep export on GPU path as far as possible
+- prioritize throughput in export mode while preserving output correctness
+- maintain responsive viewer path in interactive mode
+
+Windows rollout order for H.264 backends:
+
+1. NVENC
+2. AMF
+
+## Known Limits (V1)
+
+- No arbitrary graph cycles.
+- No audio/stream domain.
+- No geometry domain.
+- No implicit `Struct -> GPU` conversion.
