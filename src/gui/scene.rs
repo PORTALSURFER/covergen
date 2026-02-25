@@ -253,7 +253,7 @@ impl SceneBuilder {
             return;
         }
         let mut label_scratch = std::mem::take(&mut self.label_scratch);
-        let mut fitted_label = std::mem::take(&mut self.fitted_label_scratch);
+        let mut fitted_label_scratch = std::mem::take(&mut self.fitted_label_scratch);
         for index in 0..node.param_count() {
             let Some(row) = node.param_view(index) else {
                 continue;
@@ -279,9 +279,14 @@ impl SceneBuilder {
             }
             let label_x = row_rect.x + 4;
             let label_max_w = (value_rect.x - label_x - 4).max(0);
-            self.fit_graph_text_into(label_scratch.as_str(), label_max_w, state, &mut fitted_label);
+            let fitted_label = self.fit_graph_text_into(
+                label_scratch.as_str(),
+                label_max_w,
+                state,
+                &mut fitted_label_scratch,
+            );
             let label_rect = Rect::new(label_x, row_rect.y, label_max_w, row_rect.h);
-            self.push_graph_text_in_rect(label_rect, 0, fitted_label.as_str(), NODE_TEXT, state);
+            self.push_graph_text_in_rect(label_rect, 0, fitted_label, NODE_TEXT, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
             let editing = state
                 .param_edit
@@ -306,7 +311,7 @@ impl SceneBuilder {
             );
         }
         self.label_scratch = label_scratch;
-        self.fitted_label_scratch = fitted_label;
+        self.fitted_label_scratch = fitted_label_scratch;
     }
 
     fn push_menu(&mut self, state: &PreviewState) {
@@ -507,49 +512,60 @@ impl SceneBuilder {
             }
         }
         let out = &mut self.frame.rects;
-        self.text_renderer
-            .push_text_scaled(out, text_x, text_y, text, PARAM_VALUE_TEXT, state.zoom);
+        self.text_renderer.push_text_scaled(
+            out,
+            text_x,
+            text_y,
+            text,
+            PARAM_VALUE_TEXT,
+            state.zoom,
+        );
         if let Some(edit_state) = edit {
             let caret_index = edit_state.cursor.min(text.len());
-            let caret_x = text_x + self.text_renderer.cursor_offset(text, caret_index, state.zoom);
+            let caret_x = text_x
+                + self
+                    .text_renderer
+                    .cursor_offset(text, caret_index, state.zoom);
             let caret_top = text_y;
             let caret_bottom = text_y + metrics.line_height_px.max(1) - 1;
             self.push_line(caret_x, caret_top, caret_x, caret_bottom, PARAM_VALUE_CARET);
         }
     }
 
-    fn fit_graph_text_into(
+    fn fit_graph_text_into<'a>(
         &self,
-        text: &str,
+        text: &'a str,
         max_width: i32,
         state: &PreviewState,
-        out: &mut String,
-    ) {
-        out.clear();
+        out: &'a mut String,
+    ) -> &'a str {
         if max_width <= 0 || text.is_empty() {
-            return;
+            return "";
         }
         let scale = state.zoom;
         let full_w = self.text_renderer.measure_text_width(text, scale);
         if full_w <= max_width {
-            out.push_str(text);
-            return;
+            return text;
         }
         let ellipsis = "...";
         let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
         if ellipsis_w > max_width {
-            return;
+            return "";
         }
         let mut width = 0;
-        for ch in text.chars() {
+        let mut end_byte = 0usize;
+        for (byte_index, ch) in text.char_indices() {
             let ch_w = self.text_renderer.measure_char_width(ch, scale);
             if width + ch_w + ellipsis_w > max_width {
                 break;
             }
-            out.push(ch);
+            end_byte = byte_index + ch.len_utf8();
             width += ch_w;
         }
+        out.clear();
+        out.push_str(&text[..end_byte]);
         out.push_str(ellipsis);
+        out.as_str()
     }
 }
 
