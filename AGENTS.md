@@ -11,7 +11,7 @@ This file is a stateless wake-up portal. It should stay minimal and point to the
 5. Use `docs/README.md` to find deeper technical docs.
 
 ## Active Mission
-Improve GUI node-editor responsiveness and keep handoff documentation synchronized.
+Build a TouchDesigner-style GUI and node-graph generative art tool (Windows-first), optimized for high-performance real-time output and fast GPU-accelerated export.
 
 ## Source of Truth
 - Current state: `MEMORY.md`
