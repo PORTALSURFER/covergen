@@ -195,6 +195,23 @@ mod tests {
     }
 
     #[test]
+    fn sphere_node_emits_sphere_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::TexSphere, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project.connect_image_link(sphere, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+    }
+
+    #[test]
     fn ui_only_state_changes_do_not_invalidate_preview_cache_key() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);

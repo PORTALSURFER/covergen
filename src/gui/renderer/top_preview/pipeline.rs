@@ -139,6 +139,36 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
+    let center = u_op.p0.xy;
+    let radius = max(u_op.p0.z, 0.01);
+    let edge_softness = max(u_op.p0.w, 0.0);
+    let dist = distance(v.uv, center);
+    let edge = smoothstep(radius + edge_softness, radius - edge_softness, dist);
+    if (edge <= 0.0001) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    let rel = (v.uv - center) / radius;
+    let rr = dot(rel, rel);
+    let z = sqrt(max(1.0 - rr, 0.0));
+    let n = normalize(vec3<f32>(rel.x, rel.y, z));
+    let l = normalize(vec3<f32>(u_op.p1.x, u_op.p1.y, max(u_op.p1.z, 0.001)));
+    let ambient = clamp(u_op.p1.w, 0.0, 1.0);
+    let ndotl = max(dot(n, l), 0.0);
+    let diffuse = ambient + (1.0 - ambient) * ndotl;
+
+    let vdir = vec3<f32>(0.0, 0.0, 1.0);
+    let h = normalize(l + vdir);
+    let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.2;
+
+    let base = clamp(u_op.p2.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
+    let lit = clamp(base * diffuse + vec3<f32>(spec), vec3<f32>(0.0), vec3<f32>(1.0));
+    let alpha = clamp(edge * clamp(u_op.p2.w, 0.0, 1.0), 0.0, 1.0);
+    return vec4<f32>(lit, alpha);
+}
+
+@fragment
 fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);
     let brightness = u_op.p0.x;

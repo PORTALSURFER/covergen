@@ -884,6 +884,7 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
     match kind {
         ProjectNodeKind::TexSolid => Color::argb(AGIO.node_header_tex_solid),
         ProjectNodeKind::TexCircle => Color::argb(AGIO.node_header_tex_circle),
+        ProjectNodeKind::TexSphere => Color::argb(AGIO.node_header_tex_sphere),
         ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
         ProjectNodeKind::CtlLfo => Color::argb(AGIO.node_header_ctl_lfo),
         ProjectNodeKind::IoWindowOut => Color::argb(AGIO.node_header_io_window_out),

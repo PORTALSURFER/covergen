@@ -67,6 +67,31 @@ impl TopOpUniform {
         }
     }
 
+    fn sphere(op: TopViewerOp) -> Self {
+        let TopViewerOp::Sphere {
+            center_x,
+            center_y,
+            radius,
+            edge_softness,
+            light_x,
+            light_y,
+            light_z,
+            ambient,
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [center_x, center_y, radius, edge_softness],
+            p1: [light_x, light_y, light_z, ambient],
+            p2: [color_r, color_g, color_b, alpha],
+        }
+    }
+
     fn transform(op: TopViewerOp) -> Self {
         let TopViewerOp::Transform {
             brightness,
@@ -111,6 +136,7 @@ pub(super) struct TopPreviewRenderer {
     op_uniform_bind_group: wgpu::BindGroup,
     op_solid_pipeline: wgpu::RenderPipeline,
     op_circle_pipeline: wgpu::RenderPipeline,
+    op_sphere_pipeline: wgpu::RenderPipeline,
     op_transform_pipeline: wgpu::RenderPipeline,
 
     dummy_texture: wgpu::Texture,
@@ -202,6 +228,13 @@ impl TopPreviewRenderer {
             "fs_circle",
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        let op_sphere_pipeline = create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_sphere",
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
         let op_transform_pipeline = create_op_pipeline(
             device,
             &op_shader,
@@ -247,6 +280,7 @@ impl TopPreviewRenderer {
             op_uniform_bind_group,
             op_solid_pipeline,
             op_circle_pipeline,
+            op_sphere_pipeline,
             op_transform_pipeline,
             dummy_texture,
             dummy_bind_group,

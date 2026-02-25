@@ -44,6 +44,8 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_tex_solid: u32,
     /// Header color for `tex.circle` nodes.
     pub(crate) node_header_tex_circle: u32,
+    /// Header color for `tex.sphere` nodes.
+    pub(crate) node_header_tex_sphere: u32,
     /// Header color for `tex.transform_2d` nodes.
     pub(crate) node_header_tex_transform_2d: u32,
     /// Header color for `ctl.lfo` nodes.
@@ -71,6 +73,7 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     highlight_accent: 0xFFA855F7,
     node_header_tex_solid: 0xFF355C7D,
     node_header_tex_circle: 0xFF2C4F6D,
+    node_header_tex_sphere: 0xFF5B4A78,
     node_header_tex_transform_2d: 0xFF2A9D8F,
     node_header_ctl_lfo: 0xFFB7791F,
     node_header_io_window_out: 0xFFB16286,

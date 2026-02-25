@@ -123,6 +123,18 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
                 }
+                TopViewerOp::Sphere { .. } => {
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
+                    queue.write_buffer(
+                        &self.op_uniform_buffer,
+                        0,
+                        bytemuck::bytes_of(&TopOpUniform::sphere(op)),
+                    );
+                    pass.set_pipeline(&self.op_sphere_pipeline);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(1, &self.dummy_bind_group, &[]);
+                }
                 TopViewerOp::Transform { .. } => {
                     let Some(src_target) = source_target else {
                         return None;

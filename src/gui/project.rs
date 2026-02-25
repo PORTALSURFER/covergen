@@ -57,6 +57,8 @@ pub(crate) enum ProjectNodeKind {
     TexSolid,
     /// `tex.circle` source node.
     TexCircle,
+    /// `tex.sphere` source node.
+    TexSphere,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
     /// `ctl.lfo` signal generator node.
@@ -71,6 +73,7 @@ impl ProjectNodeKind {
         match self {
             Self::TexSolid => "tex.solid",
             Self::TexCircle => "tex.circle",
+            Self::TexSphere => "tex.sphere",
             Self::TexTransform2D => "tex.transform_2d",
             Self::CtlLfo => "ctl.lfo",
             Self::IoWindowOut => "io.window_out",
@@ -83,6 +86,7 @@ impl ProjectNodeKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
             Self::TexCircle => ExecutionKind::Render,
+            Self::TexSphere => ExecutionKind::Render,
             Self::TexTransform2D => ExecutionKind::Render,
             Self::CtlLfo => ExecutionKind::Control,
             Self::IoWindowOut => ExecutionKind::Io,
@@ -103,13 +107,20 @@ impl ProjectNodeKind {
     pub(crate) const fn accepts_signal_bindings(self) -> bool {
         matches!(
             self,
-            Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::CtlLfo
+            Self::TexSolid
+                | Self::TexCircle
+                | Self::TexSphere
+                | Self::TexTransform2D
+                | Self::CtlLfo
         )
     }
 
     /// Return true when this node kind has a texture output pin.
     pub(crate) const fn produces_texture_output(self) -> bool {
-        matches!(self, Self::TexSolid | Self::TexCircle | Self::TexTransform2D)
+        matches!(
+            self,
+            Self::TexSolid | Self::TexCircle | Self::TexSphere | Self::TexTransform2D
+        )
     }
 
     /// Return true when this node kind has a scalar signal output pin.
@@ -1207,6 +1218,20 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("center_y", "center_y", 0.5, 0.0, 1.0, 0.01),
             param("radius", "radius", 0.24, 0.02, 0.5, 0.005),
             param("feather", "feather", 0.06, 0.0, 0.25, 0.005),
+            param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
+            param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
+            param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
+            param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+        ],
+        ProjectNodeKind::TexSphere => vec![
+            param("center_x", "center_x", 0.5, 0.0, 1.0, 0.01),
+            param("center_y", "center_y", 0.5, 0.0, 1.0, 0.01),
+            param("radius", "radius", 0.28, 0.02, 0.5, 0.005),
+            param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
+            param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
+            param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
+            param("light_z", "light_z", 1.0, 0.0, 2.0, 0.02),
+            param("ambient", "ambient", 0.2, 0.0, 1.0, 0.01),
             param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
             param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
             param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),

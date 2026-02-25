@@ -26,6 +26,21 @@ pub(crate) enum TopRuntimeOp {
         color_b: f32,
         alpha: f32,
     },
+    /// `tex.sphere` source operation.
+    Sphere {
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        edge_softness: f32,
+        light_x: f32,
+        light_y: f32,
+        light_z: f32,
+        ambient: f32,
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+        alpha: f32,
+    },
     /// `tex.transform_2d` operation.
     Transform {
         brightness: f32,
@@ -48,6 +63,7 @@ struct CompiledStep {
 enum CompiledStepKind {
     Solid,
     Circle,
+    Sphere,
     Transform,
 }
 
@@ -137,6 +153,46 @@ impl GuiCompiledRuntime {
                             .unwrap_or(1.0),
                     });
                 }
+                CompiledStepKind::Sphere => {
+                    out_ops.push(TopRuntimeOp::Sphere {
+                        center_x: project
+                            .node_param_value(step.node_id, "center_x", time_secs, eval_stack)
+                            .unwrap_or(0.5),
+                        center_y: project
+                            .node_param_value(step.node_id, "center_y", time_secs, eval_stack)
+                            .unwrap_or(0.5),
+                        radius: project
+                            .node_param_value(step.node_id, "radius", time_secs, eval_stack)
+                            .unwrap_or(0.28),
+                        edge_softness: project
+                            .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
+                            .unwrap_or(0.01),
+                        light_x: project
+                            .node_param_value(step.node_id, "light_x", time_secs, eval_stack)
+                            .unwrap_or(0.4),
+                        light_y: project
+                            .node_param_value(step.node_id, "light_y", time_secs, eval_stack)
+                            .unwrap_or(-0.5),
+                        light_z: project
+                            .node_param_value(step.node_id, "light_z", time_secs, eval_stack)
+                            .unwrap_or(1.0),
+                        ambient: project
+                            .node_param_value(step.node_id, "ambient", time_secs, eval_stack)
+                            .unwrap_or(0.2),
+                        color_r: project
+                            .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        color_g: project
+                            .node_param_value(step.node_id, "color_g", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        color_b: project
+                            .node_param_value(step.node_id, "color_b", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        alpha: project
+                            .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
+                            .unwrap_or(1.0),
+                    });
+                }
                 CompiledStepKind::Transform => {
                     out_ops.push(TopRuntimeOp::Transform {
                         brightness: project
@@ -190,6 +246,13 @@ fn compile_node(
             out_steps.push(CompiledStep {
                 node_id,
                 kind: CompiledStepKind::Circle,
+            });
+            true
+        }
+        ProjectNodeKind::TexSphere => {
+            out_steps.push(CompiledStep {
+                node_id,
+                kind: CompiledStepKind::Sphere,
             });
             true
         }
@@ -250,5 +313,20 @@ mod tests {
                 && gain_b == 1.0
                 && alpha_mul == 1.0
         ));
+    }
+
+    #[test]
+    fn sphere_node_compiles_to_sphere_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::TexSphere, 20, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 180, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopRuntimeOp::Sphere { .. }));
     }
 }
