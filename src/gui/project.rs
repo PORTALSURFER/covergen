@@ -9,6 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) const NODE_WIDTH: i32 = 128;
 /// Height of one graph node card in the editor canvas.
 pub(crate) const NODE_HEIGHT: i32 = 44;
+/// Diameter of one node pin in editor pixels.
+pub(crate) const NODE_PIN_SIZE: i32 = 8;
+const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 
 /// Minimal set of node kinds exposed by the Add Node menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +34,16 @@ impl ProjectNodeKind {
             Self::TopBasic => "TOP Basic",
             Self::Output => "Output",
         }
+    }
+
+    /// Return true when this node kind has an input pin.
+    pub(crate) const fn accepts_image_input(self) -> bool {
+        matches!(self, Self::Output)
+    }
+
+    /// Return true when this node kind has an output pin.
+    pub(crate) const fn produces_image_output(self) -> bool {
+        matches!(self, Self::TopBasic)
     }
 }
 
@@ -118,6 +131,11 @@ impl GuiProject {
         self.nodes.iter().find(|node| node.id == node_id)
     }
 
+    /// Return mutable node by id.
+    fn node_mut(&mut self, node_id: u32) -> Option<&mut ProjectNode> {
+        self.nodes.iter_mut().find(|node| node.id == node_id)
+    }
+
     /// Add one node at canvas position and return created id.
     pub(crate) fn add_node(
         &mut self,
@@ -173,12 +191,131 @@ impl GuiProject {
             })
             .map(|node| node.id)
     }
+
+    /// Return the node id whose output pin is hit by the cursor.
+    pub(crate) fn output_pin_at(&self, x: i32, y: i32, radius_px: i32) -> Option<u32> {
+        let radius_sq = radius_px.saturating_mul(radius_px);
+        self.nodes
+            .iter()
+            .rev()
+            .find(|node| {
+                let Some((px, py)) = output_pin_center(node) else {
+                    return false;
+                };
+                distance_sq(x, y, px, py) <= radius_sq
+            })
+            .map(ProjectNode::id)
+    }
+
+    /// Return the node id whose input pin is hit by the cursor.
+    pub(crate) fn input_pin_at(
+        &self,
+        x: i32,
+        y: i32,
+        radius_px: i32,
+        disallow_source: Option<u32>,
+    ) -> Option<u32> {
+        let radius_sq = radius_px.saturating_mul(radius_px);
+        self.nodes
+            .iter()
+            .rev()
+            .filter(|node| Some(node.id()) != disallow_source)
+            .find(|node| {
+                let Some((px, py)) = input_pin_center(node) else {
+                    return false;
+                };
+                distance_sq(x, y, px, py) <= radius_sq
+            })
+            .map(ProjectNode::id)
+    }
+
+    /// Connect one source node output pin to one target node input pin.
+    ///
+    /// The target uses one image input slot; connecting replaces its prior input.
+    /// Returns `true` when graph wiring changed.
+    pub(crate) fn connect_image_link(&mut self, source_id: u32, target_id: u32) -> bool {
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.node(source_id) else {
+            return false;
+        };
+        if !source.kind().produces_image_output() {
+            return false;
+        }
+        let Some(target) = self.node(target_id) else {
+            return false;
+        };
+        if !target.kind().accepts_image_input() {
+            return false;
+        }
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        if target.inputs.as_slice() == [source_id] {
+            return false;
+        }
+        target.inputs.clear();
+        target.inputs.push(source_id);
+        self.recount_edges();
+        true
+    }
+
+    /// Return the source kind wired into the first Output node, if any.
+    pub(crate) fn output_source_kind(&self) -> Option<ProjectNodeKind> {
+        let output = self
+            .nodes
+            .iter()
+            .find(|node| matches!(node.kind, ProjectNodeKind::Output))?;
+        let source_id = *output.inputs.first()?;
+        self.node(source_id).map(ProjectNode::kind)
+    }
+
+    fn recount_edges(&mut self) {
+        self.edge_count = self.nodes.iter().map(|node| node.inputs.len()).sum();
+    }
+}
+
+/// Return panel-space center of a node output pin.
+pub(crate) fn output_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
+    if !node.kind().produces_image_output() {
+        return None;
+    }
+    let x = node.x() + NODE_WIDTH - 1;
+    let y = node.y() + (NODE_HEIGHT / 2);
+    Some((x, y))
+}
+
+/// Return panel-space center of a node input pin.
+pub(crate) fn input_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
+    if !node.kind().accepts_image_input() {
+        return None;
+    }
+    let x = node.x();
+    let y = node.y() + (NODE_HEIGHT / 2);
+    Some((x, y))
+}
+
+/// Return one pin rectangle centered around a pin position.
+pub(crate) fn pin_rect(cx: i32, cy: i32) -> super::geometry::Rect {
+    super::geometry::Rect::new(
+        cx - NODE_PIN_HALF,
+        cy - NODE_PIN_HALF,
+        NODE_PIN_SIZE,
+        NODE_PIN_SIZE,
+    )
 }
 
 fn clamp_node_position(x: i32, y: i32, panel_width: usize, panel_height: usize) -> (i32, i32) {
     let max_x = (panel_width as i32 - NODE_WIDTH - 6).max(6);
     let max_y = (panel_height as i32 - NODE_HEIGHT - 6).max(6);
     (x.clamp(6, max_x), y.clamp(40, max_y))
+}
+
+fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }
 
 fn next_project_name() -> String {
@@ -191,7 +328,7 @@ fn next_project_name() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{GuiProject, ProjectNodeKind};
+    use super::{input_pin_center, output_pin_center, GuiProject, ProjectNodeKind};
 
     #[test]
     fn empty_project_has_no_nodes() {
@@ -215,5 +352,32 @@ mod tests {
         let b = project.add_node(ProjectNodeKind::Output, 80, 80, 420, 480);
         assert_eq!(project.node_at(90, 90), Some(b));
         assert_ne!(project.node_at(90, 90), Some(a));
+    }
+
+    #[test]
+    fn connect_image_link_wires_top_to_output() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let top = project.add_node(ProjectNodeKind::TopBasic, 80, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::Output, 220, 80, 420, 480);
+        assert!(project.connect_image_link(top, out));
+        assert_eq!(project.edge_count(), 1);
+        assert_eq!(
+            project.output_source_kind(),
+            Some(ProjectNodeKind::TopBasic)
+        );
+        assert!(!project.connect_image_link(top, out));
+    }
+
+    #[test]
+    fn pin_centers_follow_node_kind_capabilities() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let top = project.add_node(ProjectNodeKind::TopBasic, 60, 70, 420, 480);
+        let out = project.add_node(ProjectNodeKind::Output, 220, 70, 420, 480);
+        let top_node = project.node(top).expect("top node must exist");
+        let out_node = project.node(out).expect("output node must exist");
+        assert!(output_pin_center(top_node).is_some());
+        assert!(input_pin_center(top_node).is_none());
+        assert!(output_pin_center(out_node).is_none());
+        assert!(input_pin_center(out_node).is_some());
     }
 }

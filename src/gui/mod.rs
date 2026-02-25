@@ -14,6 +14,7 @@ mod scene;
 mod state;
 mod text;
 mod theme;
+mod top_view;
 
 use std::error::Error;
 use std::sync::Arc;

@@ -4,7 +4,10 @@
 //! Rendering stays on GPU; only lightweight geometry lists are rebuilt.
 
 use super::geometry::Rect;
-use super::project::{GuiProject, ProjectNode, ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH};
+use super::project::{
+    input_pin_center, output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind,
+    NODE_HEIGHT, NODE_WIDTH,
+};
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
@@ -23,6 +26,8 @@ const HEADER_BG: Color = Color::argb(AGIO.header_bg);
 const HEADER_TEXT: Color = Color::argb(AGIO.header_text);
 const NODE_TEXT: Color = Color::argb(AGIO.node_text);
 const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
+const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
+const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -75,7 +80,6 @@ pub(crate) struct SceneBuilder {
     static_rects: Vec<ColoredRect>,
     static_lines: Vec<ColoredLine>,
     cached_static_key: Option<(usize, usize, usize)>,
-    edge_anchors: Vec<(u32, i32, i32)>,
     text_renderer: GuiTextRenderer,
 }
 
@@ -86,7 +90,6 @@ impl Default for SceneBuilder {
             static_rects: Vec::new(),
             static_lines: Vec::new(),
             cached_static_key: None,
-            edge_anchors: Vec::new(),
             text_renderer: GuiTextRenderer::default(),
         }
     }
@@ -110,7 +113,7 @@ impl SceneBuilder {
         self.frame.lines.extend_from_slice(&self.static_lines);
 
         self.push_header(project);
-        self.push_edges(project);
+        self.push_edges(project, state);
         self.push_nodes(project, state);
         self.push_menu(state);
         &self.frame
@@ -139,29 +142,26 @@ impl SceneBuilder {
         self.push_text(rect.x + 8, rect.y + 7, project.name.as_str(), HEADER_TEXT);
     }
 
-    fn push_edges(&mut self, project: &GuiProject) {
+    fn push_edges(&mut self, project: &GuiProject, state: &PreviewState) {
         if project.edge_count() == 0 {
+            self.push_wire_drag(project, state);
             return;
         }
-        self.edge_anchors.clear();
-        self.edge_anchors.extend(project.nodes().iter().map(|node| {
-            (
-                node.id(),
-                node.x() + NODE_WIDTH / 2,
-                node.y() + NODE_HEIGHT / 2,
-            )
-        }));
-        for node in project.nodes() {
-            let Some((to_x, to_y)) = self.anchor_for(node.id()) else {
+        for target in project.nodes() {
+            let Some((to_x, to_y)) = input_pin_center(target) else {
                 continue;
             };
-            for input in node.inputs() {
-                let Some((from_x, from_y)) = self.anchor_for(*input) else {
+            for source_id in target.inputs() {
+                let Some(source) = project.node(*source_id) else {
+                    continue;
+                };
+                let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
                 self.push_line(from_x, from_y, to_x, to_y, EDGE_COLOR);
             }
         }
+        self.push_wire_drag(project, state);
     }
 
     fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState) {
@@ -181,6 +181,7 @@ impl SceneBuilder {
             };
             self.push_border(rect, border);
             self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
+            self.push_pins(node, state);
         }
     }
 
@@ -244,16 +245,52 @@ impl SceneBuilder {
         });
     }
 
+    fn push_pins(&mut self, node: &ProjectNode, state: &PreviewState) {
+        if let Some((cx, cy)) = output_pin_center(node) {
+            let color = if state.hover_output_pin == Some(node.id())
+                || state.wire_drag.map(|wire| wire.source_node_id) == Some(node.id())
+            {
+                PIN_HOVER
+            } else {
+                PIN_BODY
+            };
+            self.push_rect(pin_rect(cx, cy), color);
+        }
+        if let Some((cx, cy)) = input_pin_center(node) {
+            let color = if state.hover_input_pin == Some(node.id()) {
+                PIN_HOVER
+            } else {
+                PIN_BODY
+            };
+            self.push_rect(pin_rect(cx, cy), color);
+        }
+    }
+
+    fn push_wire_drag(&mut self, project: &GuiProject, state: &PreviewState) {
+        let Some(wire) = state.wire_drag else {
+            return;
+        };
+        let Some(source) = project.node(wire.source_node_id) else {
+            return;
+        };
+        let Some((x0, y0)) = output_pin_center(source) else {
+            return;
+        };
+        let (x1, y1) = if let Some(target_id) = state.hover_input_pin {
+            if let Some(target_node) = project.node(target_id) {
+                input_pin_center(target_node).unwrap_or((wire.cursor_x, wire.cursor_y))
+            } else {
+                (wire.cursor_x, wire.cursor_y)
+            }
+        } else {
+            (wire.cursor_x, wire.cursor_y)
+        };
+        self.push_line(x0, y0, x1, y1, PIN_HOVER);
+    }
+
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
         let out = &mut self.frame.rects;
         self.text_renderer.push_text(out, x, y, text, color);
-    }
-
-    fn anchor_for(&self, node_id: u32) -> Option<(i32, i32)> {
-        self.edge_anchors
-            .iter()
-            .find(|(id, _, _)| *id == node_id)
-            .map(|(_, x, y)| (*x, *y))
     }
 }
 

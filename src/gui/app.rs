@@ -16,6 +16,7 @@ use super::project::{GuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PreviewState};
+use super::top_view::TopViewerGenerator;
 
 const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
@@ -38,6 +39,7 @@ pub(crate) struct GuiApp {
     state: PreviewState,
     input: InputCollector,
     scene: SceneBuilder,
+    top_view: TopViewerGenerator,
     perf: GuiPerfRecorder,
     frame_budget: Duration,
     frame_deadline: Instant,
@@ -83,6 +85,7 @@ impl GuiApp {
             state,
             input: InputCollector::default(),
             scene: SceneBuilder::default(),
+            top_view: TopViewerGenerator::default(),
             perf: GuiPerfRecorder::new(None),
             frame_budget,
             frame_deadline: now,
@@ -153,6 +156,7 @@ impl GuiApp {
         let mut scene_dirty = resize_changed;
         if consume_editor_input {
             self.state.drag = None;
+            self.state.wire_drag = None;
             self.state.prev_left_down = snapshot.left_down;
         } else {
             scene_dirty |= apply_preview_actions(
@@ -175,6 +179,12 @@ impl GuiApp {
         let mut scene_elapsed = Duration::ZERO;
         let mut render_elapsed = Duration::ZERO;
         if scene_dirty || self.needs_redraw {
+            self.top_view.update(
+                &self.project,
+                self.renderer.width(),
+                self.renderer.height(),
+                self.panel_width,
+            );
             let scene_start = Instant::now();
             let frame = self.scene.build(
                 &self.project,
@@ -186,7 +196,7 @@ impl GuiApp {
             scene_elapsed = scene_start.elapsed();
 
             let render_start = Instant::now();
-            self.renderer.render(frame)?;
+            self.renderer.render(frame, self.top_view.frame())?;
             render_elapsed = render_start.elapsed();
         }
 
@@ -295,6 +305,7 @@ impl GuiApp {
             grab_offset_px: mx - divider_x,
         });
         self.state.drag = None;
+        self.state.wire_drag = None;
         true
     }
 
@@ -309,7 +320,7 @@ impl GuiApp {
 }
 
 fn state_has_transient_ui(state: &PreviewState) -> bool {
-    state.drag.is_some() || state.menu.open
+    state.drag.is_some() || state.wire_drag.is_some() || state.menu.open
 }
 
 fn maybe_seed_benchmark_nodes(

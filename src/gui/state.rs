@@ -58,6 +58,14 @@ pub(crate) struct DragState {
     pub(crate) offset_y: i32,
 }
 
+/// Active wire-drag state from a source output pin.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WireDragState {
+    pub(crate) source_node_id: u32,
+    pub(crate) cursor_x: i32,
+    pub(crate) cursor_y: i32,
+}
+
 /// Add-node popup menu state.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AddNodeMenuState {
@@ -133,8 +141,11 @@ pub(crate) struct PreviewState {
     pub(crate) avg_fps: f32,
     pub(crate) prev_left_down: bool,
     pub(crate) drag: Option<DragState>,
+    pub(crate) wire_drag: Option<WireDragState>,
     pub(crate) menu: AddNodeMenuState,
     pub(crate) hover_node: Option<u32>,
+    pub(crate) hover_output_pin: Option<u32>,
+    pub(crate) hover_input_pin: Option<u32>,
     pub(crate) hover_menu_item: Option<usize>,
 }
 
@@ -148,8 +159,11 @@ impl PreviewState {
             avg_fps: 0.0,
             prev_left_down: false,
             drag: None,
+            wire_drag: None,
             menu: AddNodeMenuState::closed(),
             hover_node: None,
+            hover_output_pin: None,
+            hover_input_pin: None,
             hover_menu_item: None,
         }
     }
