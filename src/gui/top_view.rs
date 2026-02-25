@@ -243,11 +243,17 @@ mod tests {
     }
 
     #[test]
-    fn sphere_node_emits_sphere_op() {
+    fn sphere_buffer_pipeline_emits_sphere_op() {
         let mut project = GuiProject::new_empty(640, 480);
-        let sphere = project.add_node(ProjectNodeKind::TexSphere, 60, 80, 420, 480);
-        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
-        assert!(project.connect_image_link(sphere, out));
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 220, 80, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 380, 80, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 540, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 700, 80, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
 
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);

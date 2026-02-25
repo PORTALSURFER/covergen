@@ -27,7 +27,7 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 6] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 9] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
     },
@@ -35,7 +35,16 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 6] = [
         kind: ProjectNodeKind::TexCircle,
     },
     AddNodeOption {
-        kind: ProjectNodeKind::TexSphere,
+        kind: ProjectNodeKind::BufSphere,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::SceneEntity,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::SceneBuild,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::RenderScenePass,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexTransform2D,

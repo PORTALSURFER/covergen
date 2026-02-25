@@ -32,6 +32,12 @@ const HIT_BIN_SIZE: i32 = 128;
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResourceKind {
+    /// GPU mesh buffer resource.
+    Buffer,
+    /// Scene entity resource (mesh + transform + material binding).
+    Entity,
+    /// Built scene resource ready for rendering.
+    Scene,
     /// GPU 2D texture resource.
     Texture2D,
     /// CPU-side scalar signal resource.
@@ -42,6 +48,8 @@ pub(crate) enum ResourceKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum ExecutionKind {
+    /// Node executes in CPU/data-prep domain.
+    Cpu,
     /// Node executes through a render pass.
     Render,
     /// Node executes in control domain.
@@ -57,10 +65,16 @@ pub(crate) enum ProjectNodeKind {
     TexSolid,
     /// `tex.circle` source node.
     TexCircle,
-    /// `tex.sphere` source node.
-    TexSphere,
+    /// `buf.sphere` mesh buffer source node.
+    BufSphere,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
+    /// `scene.entity` mesh + transform + material binding node.
+    SceneEntity,
+    /// `scene.build` scene aggregation node.
+    SceneBuild,
+    /// `render.scene_pass` scene-to-texture render node.
+    RenderScenePass,
     /// `ctl.lfo` signal generator node.
     CtlLfo,
     /// `io.window_out` sink node.
@@ -73,8 +87,11 @@ impl ProjectNodeKind {
         match self {
             Self::TexSolid => "tex.solid",
             Self::TexCircle => "tex.circle",
-            Self::TexSphere => "tex.sphere",
+            Self::BufSphere => "buf.sphere",
             Self::TexTransform2D => "tex.transform_2d",
+            Self::SceneEntity => "scene.entity",
+            Self::SceneBuild => "scene.build",
+            Self::RenderScenePass => "render.scene_pass",
             Self::CtlLfo => "ctl.lfo",
             Self::IoWindowOut => "io.window_out",
         }
@@ -86,8 +103,11 @@ impl ProjectNodeKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
             Self::TexCircle => ExecutionKind::Render,
-            Self::TexSphere => ExecutionKind::Render,
+            Self::BufSphere => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
+            Self::SceneEntity => ExecutionKind::Control,
+            Self::SceneBuild => ExecutionKind::Control,
+            Self::RenderScenePass => ExecutionKind::Render,
             Self::CtlLfo => ExecutionKind::Control,
             Self::IoWindowOut => ExecutionKind::Io,
         }
@@ -98,9 +118,15 @@ impl ProjectNodeKind {
         self.stable_id()
     }
 
-    /// Return true when this node kind accepts texture input.
-    pub(crate) const fn accepts_texture_input(self) -> bool {
-        matches!(self, Self::TexTransform2D | Self::IoWindowOut)
+    /// Return required primary input resource kind for this node, if any.
+    pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
+        match self {
+            Self::TexTransform2D | Self::IoWindowOut => Some(ResourceKind::Texture2D),
+            Self::SceneEntity => Some(ResourceKind::Buffer),
+            Self::SceneBuild => Some(ResourceKind::Entity),
+            Self::RenderScenePass => Some(ResourceKind::Scene),
+            _ => None,
+        }
     }
 
     /// Return true when this node kind can bind scalar signal parameters.
@@ -109,17 +135,11 @@ impl ProjectNodeKind {
             self,
             Self::TexSolid
                 | Self::TexCircle
-                | Self::TexSphere
+                | Self::BufSphere
                 | Self::TexTransform2D
+                | Self::SceneEntity
+                | Self::RenderScenePass
                 | Self::CtlLfo
-        )
-    }
-
-    /// Return true when this node kind has a texture output pin.
-    pub(crate) const fn produces_texture_output(self) -> bool {
-        matches!(
-            self,
-            Self::TexSolid | Self::TexCircle | Self::TexSphere | Self::TexTransform2D
         )
     }
 
@@ -130,23 +150,26 @@ impl ProjectNodeKind {
 
     /// Return true when this node kind has any input pin.
     pub(crate) const fn has_input_pin(self) -> bool {
-        self.accepts_texture_input() || self.accepts_signal_bindings()
+        self.input_resource_kind().is_some() || self.accepts_signal_bindings()
     }
 
     /// Return true when this node kind has any output pin.
     pub(crate) const fn has_output_pin(self) -> bool {
-        self.produces_texture_output() || self.produces_signal_output()
+        self.output_resource_kind().is_some()
     }
 
     /// Return output resource kind when this node publishes one.
     pub(crate) const fn output_resource_kind(self) -> Option<ResourceKind> {
-        if self.produces_texture_output() {
-            return Some(ResourceKind::Texture2D);
+        match self {
+            Self::BufSphere => Some(ResourceKind::Buffer),
+            Self::SceneEntity => Some(ResourceKind::Entity),
+            Self::SceneBuild => Some(ResourceKind::Scene),
+            Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::RenderScenePass => {
+                Some(ResourceKind::Texture2D)
+            }
+            Self::CtlLfo => Some(ResourceKind::Signal),
+            Self::IoWindowOut => None,
         }
-        if self.produces_signal_output() {
-            return Some(ResourceKind::Signal);
-        }
-        None
     }
 }
 
@@ -599,8 +622,9 @@ impl GuiProject {
 
     /// Connect one source node output pin to one target node input pin.
     ///
-    /// Texture links replace the target texture input. Signal links bind to the
-    /// target's currently selected parameter slot.
+    /// Data-plane links (`Buffer`, `Entity`, `Scene`, `Texture2D`) replace the
+    /// target primary input slot. Signal links bind to the target's currently
+    /// selected parameter slot.
     ///
     /// Returns `true` when graph wiring changed.
     pub(crate) fn connect_image_link(&mut self, source_id: u32, target_id: u32) -> bool {
@@ -624,8 +648,8 @@ impl GuiProject {
             return false;
         };
         let changed = match source_kind {
-            ResourceKind::Texture2D => {
-                if !target.kind.accepts_texture_input() {
+            ResourceKind::Buffer | ResourceKind::Entity | ResourceKind::Scene | ResourceKind::Texture2D => {
+                if target.kind.input_resource_kind() != Some(source_kind) {
                     return false;
                 }
                 if target.texture_input == Some(source_id) {
@@ -773,7 +797,8 @@ impl GuiProject {
     pub(crate) fn link_resource_kind(&self, source_id: u32, target_id: u32) -> Option<ResourceKind> {
         let target = self.node(target_id)?;
         if target.texture_input == Some(source_id) {
-            return Some(ResourceKind::Texture2D);
+            let source = self.node(source_id)?;
+            return source.kind().output_resource_kind();
         }
         if target
             .params
@@ -1254,19 +1279,10 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
             param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
-        ProjectNodeKind::TexSphere => vec![
-            param("center_x", "center_x", 0.5, 0.0, 1.0, 0.01),
-            param("center_y", "center_y", 0.5, 0.0, 1.0, 0.01),
+        ProjectNodeKind::BufSphere => vec![
             param("radius", "radius", 0.28, 0.02, 0.5, 0.005),
-            param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
-            param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
-            param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
-            param("light_z", "light_z", 1.0, 0.0, 2.0, 0.02),
-            param("ambient", "ambient", 0.2, 0.0, 1.0, 0.01),
-            param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
-            param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
-            param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
-            param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+            param("segments", "segments", 32.0, 3.0, 128.0, 1.0),
+            param("rings", "rings", 16.0, 2.0, 64.0, 1.0),
         ],
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
@@ -1276,6 +1292,23 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("gain_g", "gain_g", 1.0, 0.0, 2.0, 0.02),
             param("gain_b", "gain_b", 1.0, 0.0, 2.0, 0.02),
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 1.0, 0.01),
+        ],
+        ProjectNodeKind::SceneEntity => vec![
+            param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
+            param("pos_y", "pos_y", 0.5, 0.0, 1.0, 0.01),
+            param("scale", "scale", 1.0, 0.1, 2.0, 0.01),
+            param("ambient", "ambient", 0.2, 0.0, 1.0, 0.01),
+            param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
+            param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
+            param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
+            param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+        ],
+        ProjectNodeKind::SceneBuild => Vec::new(),
+        ProjectNodeKind::RenderScenePass => vec![
+            param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
+            param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
+            param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
+            param("light_z", "light_z", 1.0, 0.0, 2.0, 0.02),
         ],
         ProjectNodeKind::CtlLfo => vec![
             param("rate_hz", "rate_hz", 0.4, 0.0, 8.0, 0.05),
@@ -1501,6 +1534,28 @@ mod tests {
             .expect("window-out input must exist");
         let source = project.node(source_id).expect("source node must exist");
         assert_eq!(source.kind(), ProjectNodeKind::TexTransform2D);
+    }
+
+    #[test]
+    fn sphere_buffer_scene_chain_requires_typed_intermediate_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(!project.connect_image_link(sphere, out));
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert_eq!(project.link_resource_kind(sphere, entity), Some(ResourceKind::Buffer));
+        assert_eq!(project.link_resource_kind(entity, scene), Some(ResourceKind::Entity));
+        assert_eq!(project.link_resource_kind(scene, pass), Some(ResourceKind::Scene));
+        assert_eq!(
+            project.link_resource_kind(pass, out),
+            Some(ResourceKind::Texture2D)
+        );
     }
 
     #[test]
