@@ -27,6 +27,8 @@ const HUD_PAD_Y: i32 = 6;
 const HUD_BG: Color = Color::argb(0xCC000000);
 const HUD_BORDER: Color = Color::argb(0xFF3A3A3A);
 const HUD_TEXT: Color = Color::argb(0xFFE8E8E8);
+const HUD_TEXT_WARN: Color = Color::argb(0xFFFF4D4D);
+const HUD_TARGET_FPS: f32 = 60.0;
 
 /// Per-frame GUI renderer counters.
 #[derive(Clone, Copy, Debug, Default)]
@@ -508,11 +510,13 @@ impl GuiRenderer {
         self.hud_layer.lines.clear();
 
         self.hud_label.clear();
-        if avg_fps.is_finite() && avg_fps > 0.0 {
+        let hud_color = if avg_fps.is_finite() && avg_fps > 0.0 && avg_fps < HUD_TARGET_FPS {
             self.hud_label.push_str(&format!("FPS {:.1}", avg_fps));
+            HUD_TEXT_WARN
         } else {
-            self.hud_label.push_str("FPS --.-");
-        }
+            self.hud_label.push_str("FPS 60");
+            HUD_TEXT
+        };
 
         let text_w = self.hud_text.measure_text_width(self.hud_label.as_str(), 1.0);
         let metrics = self.hud_text.metrics_scaled(1.0);
@@ -530,7 +534,7 @@ impl GuiRenderer {
             x + HUD_PAD_X,
             y + HUD_PAD_Y,
             self.hud_label.as_str(),
-            HUD_TEXT,
+            hud_color,
         );
 
         self.hud_geometry

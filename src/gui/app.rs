@@ -23,6 +23,7 @@ use super::top_view::TopViewerGenerator;
 const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
 const DIVIDER_HIT_SLOP_PX: i32 = 6;
+const GUI_LOCKED_FPS: u32 = 60;
 
 /// Active divider drag metadata for panel resizing.
 #[derive(Clone, Copy, Debug)]
@@ -68,13 +69,13 @@ impl GuiApp {
         let benchmark_node =
             maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
         let state = PreviewState::new(&config);
-        let frame_budget = frame_budget(config.gui.target_fps);
+        let frame_budget = frame_budget(GUI_LOCKED_FPS);
         let now = Instant::now();
         println!(
-            "[gui] {}x{} @ {}hz ({:?})",
+            "[gui] {}x{} @ {}hz locked ({:?})",
             renderer.width(),
             renderer.height(),
-            config.gui.target_fps,
+            GUI_LOCKED_FPS,
             config.gui.vsync
         );
         println!(
@@ -330,7 +331,7 @@ impl GuiApp {
         let Some(node_id) = self.benchmark_node else {
             return false;
         };
-        let phase = self.frame_counter as f32 / self.config.gui.target_fps.max(1) as f32;
+        let phase = self.frame_counter as f32 / GUI_LOCKED_FPS as f32;
         let cx = (self.panel_width as f32 * 0.5) as i32;
         let cy = (self.renderer.height() as f32 * 0.5) as i32;
         let x = cx + (phase * 2.7).sin().mul_add(120.0, 0.0) as i32;
