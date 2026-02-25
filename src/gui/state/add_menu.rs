@@ -1,21 +1,14 @@
-//! Add-node popup menu model, filtering, and layout helpers.
+//! Add-node popup menu model, filtering, and staged category navigation.
 
 use crate::gui::geometry::Rect;
 use crate::gui::project::ProjectNodeKind;
 
-/// Width of add-node popup menu.
+/// Add-node popup geometry constants.
 pub(crate) const MENU_WIDTH: i32 = 340;
-/// Height of add-node menu title row.
 pub(crate) const MENU_TITLE_HEIGHT: i32 = 24;
-/// Height of add-node search row.
 pub(crate) const MENU_SEARCH_HEIGHT: i32 = 24;
-/// Height of one add-node category row.
-pub(crate) const MENU_CATEGORY_HEIGHT: i32 = 18;
-/// Inner menu padding from the outer frame.
 pub(crate) const MENU_INNER_PADDING: i32 = 6;
-/// Height of one add-node menu row.
 pub(crate) const MENU_ITEM_HEIGHT: i32 = 22;
-/// Vertical gap between title/search/content blocks.
 pub(crate) const MENU_BLOCK_GAP: i32 = 4;
 const MENU_BOTTOM_PAD: i32 = 8;
 
@@ -98,10 +91,11 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 9] = [
     },
 ];
 
-/// One visible row in the add-node popup content list.
+/// One visible row in the add-node popup list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AddNodeMenuRow {
+pub(crate) enum AddNodeMenuEntry {
     Category(AddNodeCategory),
+    Back,
     Option(usize),
 }
 
@@ -113,6 +107,7 @@ pub(crate) struct AddNodeMenuState {
     pub(crate) y: i32,
     pub(crate) selected: usize,
     pub(crate) query: String,
+    pub(crate) active_category: Option<AddNodeCategory>,
 }
 
 impl AddNodeMenuState {
@@ -124,6 +119,7 @@ impl AddNodeMenuState {
             y: 0,
             selected: 0,
             query: String::new(),
+            active_category: None,
         }
     }
 
@@ -138,7 +134,13 @@ impl AddNodeMenuState {
             y: y.clamp(8, max_y),
             selected: 0,
             query: String::new(),
+            active_category: None,
         }
+    }
+
+    /// Return true when the picker is in the top-level category stage.
+    pub(crate) const fn is_category_picker(&self) -> bool {
+        self.active_category.is_none()
     }
 
     /// Return menu rectangle in panel coordinates.
@@ -156,11 +158,52 @@ impl AddNodeMenuState {
         )
     }
 
-    /// Return currently visible option indices after query filtering.
+    /// Enter the secondary picker for a category.
+    pub(crate) fn open_category(&mut self, category: AddNodeCategory) -> bool {
+        if self.active_category == Some(category) && self.selected == 0 {
+            return false;
+        }
+        self.active_category = Some(category);
+        self.query.clear();
+        self.selected = 0;
+        true
+    }
+
+    /// Return from secondary picker back to category picker.
+    pub(crate) fn close_category(&mut self) -> bool {
+        if self.active_category.is_none() {
+            return false;
+        }
+        self.active_category = None;
+        self.query.clear();
+        self.selected = 0;
+        true
+    }
+
+    /// Return visible category list in menu order.
+    pub(crate) fn visible_categories(&self) -> Vec<AddNodeCategory> {
+        let mut out = Vec::new();
+        let mut previous = None;
+        for option in ADD_NODE_OPTIONS {
+            if previous != Some(option.category) {
+                out.push(option.category);
+                previous = Some(option.category);
+            }
+        }
+        out
+    }
+
+    /// Return currently visible option indices after category and query filtering.
     pub(crate) fn visible_option_indices(&self) -> Vec<usize> {
+        let Some(category) = self.active_category else {
+            return Vec::new();
+        };
         let query = self.query.trim().to_lowercase();
         let mut out = Vec::new();
         for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
+            if option.category != category {
+                continue;
+            }
             if query.is_empty() || option_matches_query(option, query.as_str()) {
                 out.push(index);
             }
@@ -168,59 +211,48 @@ impl AddNodeMenuState {
         out
     }
 
-    /// Return all visible content rows, including category separators.
-    pub(crate) fn visible_rows(&self) -> Vec<AddNodeMenuRow> {
-        let visible = self.visible_option_indices();
-        if visible.is_empty() {
-            return Vec::new();
+    /// Return all visible entries in current picker stage.
+    pub(crate) fn visible_entries(&self) -> Vec<AddNodeMenuEntry> {
+        if self.active_category.is_none() {
+            return self
+                .visible_categories()
+                .into_iter()
+                .map(AddNodeMenuEntry::Category)
+                .collect();
         }
-        if !self.query.trim().is_empty() {
-            return visible.into_iter().map(AddNodeMenuRow::Option).collect();
+        let mut out = Vec::new();
+        out.push(AddNodeMenuEntry::Back);
+        for index in self.visible_option_indices() {
+            out.push(AddNodeMenuEntry::Option(index));
         }
-        let mut rows = Vec::new();
-        let mut previous = None;
-        for index in visible {
-            let category = ADD_NODE_OPTIONS[index].category;
-            if previous != Some(category) {
-                rows.push(AddNodeMenuRow::Category(category));
-                previous = Some(category);
-            }
-            rows.push(AddNodeMenuRow::Option(index));
-        }
-        rows
+        out
     }
 
-    /// Return one option rectangle in panel coordinates.
-    pub(crate) fn item_rect(&self, option_index: usize) -> Option<Rect> {
-        let rows = self.visible_rows();
-        let mut y = self.y + MENU_TITLE_HEIGHT + MENU_BLOCK_GAP + MENU_SEARCH_HEIGHT + MENU_BLOCK_GAP;
-        for row in rows {
-            match row {
-                AddNodeMenuRow::Category(_) => y += MENU_CATEGORY_HEIGHT,
-                AddNodeMenuRow::Option(index) => {
-                    let rect = Rect::new(
-                        self.x + MENU_INNER_PADDING,
-                        y,
-                        MENU_WIDTH - (MENU_INNER_PADDING * 2),
-                        MENU_ITEM_HEIGHT - 2,
-                    );
-                    if index == option_index {
-                        return Some(rect);
-                    }
-                    y += MENU_ITEM_HEIGHT;
-                }
-            }
+    /// Return one entry rectangle in panel coordinates.
+    pub(crate) fn entry_rect(&self, entry_index: usize) -> Option<Rect> {
+        let entries = self.visible_entries();
+        if entry_index >= entries.len() {
+            return None;
         }
-        None
+        let y = self.y
+            + MENU_TITLE_HEIGHT
+            + MENU_BLOCK_GAP
+            + MENU_SEARCH_HEIGHT
+            + MENU_BLOCK_GAP
+            + entry_index as i32 * MENU_ITEM_HEIGHT;
+        Some(Rect::new(
+            self.x + MENU_INNER_PADDING,
+            y,
+            MENU_WIDTH - (MENU_INNER_PADDING * 2),
+            MENU_ITEM_HEIGHT - 2,
+        ))
     }
 
-    /// Return hovered option index for cursor position.
+    /// Return hovered entry index for cursor position.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        for row in self.visible_rows() {
-            let AddNodeMenuRow::Option(index) = row else {
-                continue;
-            };
-            let Some(rect) = self.item_rect(index) else {
+        let entries = self.visible_entries();
+        for index in 0..entries.len() {
+            let Some(rect) = self.entry_rect(index) else {
                 continue;
             };
             if rect.contains(x, y) {
@@ -230,26 +262,23 @@ impl AddNodeMenuState {
         None
     }
 
-    /// Return selected option index in `ADD_NODE_OPTIONS`, if any.
-    pub(crate) fn selected_option_index(&self) -> Option<usize> {
-        let visible = self.visible_option_indices();
-        if visible.is_empty() {
-            return None;
-        }
-        Some(visible[self.selected.min(visible.len() - 1)])
+    /// Return selected entry in current picker stage.
+    pub(crate) fn selected_entry(&self) -> Option<AddNodeMenuEntry> {
+        let entries = self.visible_entries();
+        entries.get(self.selected.min(entries.len().saturating_sub(1))).copied()
     }
 
-    /// Keep selected row inside current visible option range.
+    /// Keep selected row inside current visible entry range.
     pub(crate) fn clamp_selection(&mut self) -> bool {
-        let visible = self.visible_option_indices();
-        if visible.is_empty() {
+        let entries = self.visible_entries();
+        if entries.is_empty() {
             if self.selected != 0 {
                 self.selected = 0;
                 return true;
             }
             return false;
         }
-        let clamped = self.selected.min(visible.len() - 1);
+        let clamped = self.selected.min(entries.len() - 1);
         if clamped == self.selected {
             return false;
         }
@@ -257,39 +286,43 @@ impl AddNodeMenuState {
         true
     }
 
-    /// Select the previous visible option.
+    /// Select one row index in current visible entry range.
+    pub(crate) fn select_index(&mut self, index: usize) -> bool {
+        let entries = self.visible_entries();
+        if entries.is_empty() {
+            return false;
+        }
+        let next = index.min(entries.len() - 1);
+        if self.selected == next {
+            return false;
+        }
+        self.selected = next;
+        true
+    }
+
+    /// Select the previous visible entry.
     pub(crate) fn select_prev(&mut self) -> bool {
         let old = self.selected;
         self.selected = self.selected.saturating_sub(1);
         old != self.selected
     }
 
-    /// Select the next visible option.
+    /// Select the next visible entry.
     pub(crate) fn select_next(&mut self) -> bool {
-        let visible = self.visible_option_indices();
-        if visible.is_empty() {
+        let entries = self.visible_entries();
+        if entries.is_empty() {
             return false;
         }
         let old = self.selected;
-        self.selected = (self.selected + 1).min(visible.len() - 1);
+        self.selected = (self.selected + 1).min(entries.len() - 1);
         old != self.selected
     }
 
-    /// Select a visible option by concrete option index.
-    pub(crate) fn select_option_index(&mut self, option_index: usize) -> bool {
-        let visible = self.visible_option_indices();
-        let Some(position) = visible.iter().position(|index| *index == option_index) else {
-            return false;
-        };
-        if self.selected == position {
+    /// Append search text in secondary picker and optionally remove one char.
+    pub(crate) fn apply_query_input(&mut self, typed: &str, backspace: bool) -> bool {
+        if self.active_category.is_none() {
             return false;
         }
-        self.selected = position;
-        true
-    }
-
-    /// Append free-text query input and optionally remove one character.
-    pub(crate) fn apply_query_input(&mut self, typed: &str, backspace: bool) -> bool {
         let mut changed = false;
         if backspace && !self.query.is_empty() {
             self.query.pop();
@@ -309,21 +342,25 @@ impl AddNodeMenuState {
 
 /// Return full popup menu height.
 pub(crate) fn menu_height() -> i32 {
-    let mut categories = 0i32;
-    let mut previous = None;
-    for option in ADD_NODE_OPTIONS {
-        if previous != Some(option.category) {
-            categories += 1;
-            previous = Some(option.category);
-        }
-    }
+    let row_count = (ADD_NODE_OPTIONS.len() + 1).max(category_count()) as i32;
     MENU_TITLE_HEIGHT
         + MENU_BLOCK_GAP
         + MENU_SEARCH_HEIGHT
         + MENU_BLOCK_GAP
-        + (ADD_NODE_OPTIONS.len() as i32 * MENU_ITEM_HEIGHT)
-        + (categories * MENU_CATEGORY_HEIGHT)
+        + (row_count * MENU_ITEM_HEIGHT)
         + MENU_BOTTOM_PAD
+}
+
+fn category_count() -> usize {
+    let mut count = 0usize;
+    let mut previous = None;
+    for option in ADD_NODE_OPTIONS {
+        if previous != Some(option.category) {
+            count += 1;
+            previous = Some(option.category);
+        }
+    }
+    count
 }
 
 fn option_matches_query(option: AddNodeOption, query: &str) -> bool {
@@ -336,39 +373,24 @@ fn option_matches_query(option: AddNodeOption, query: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddNodeMenuRow, AddNodeMenuState};
+    use super::{AddNodeCategory, AddNodeMenuEntry, AddNodeMenuState};
     use crate::gui::project::ProjectNodeKind;
 
     #[test]
-    fn menu_item_hit_test_matches_item_rects() {
-        let menu = AddNodeMenuState::open_at(100, 100, 420, 400);
-        for index in menu.visible_option_indices() {
-            let rect = menu.item_rect(index).expect("item rect should exist");
-            let hit = menu.item_at(rect.x + 2, rect.y + 2);
-            assert_eq!(hit, Some(index));
-        }
-    }
-
-    #[test]
-    fn menu_rows_group_by_category_without_query() {
-        let menu = AddNodeMenuState::open_at(100, 100, 420, 400);
-        let rows = menu.visible_rows();
-        assert!(rows
-            .iter()
-            .any(|row| matches!(row, AddNodeMenuRow::Category(_))));
-    }
-
-    #[test]
-    fn query_filters_option_set_and_resets_selection() {
+    fn category_stage_transitions_and_query_filtering_work() {
         let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
-        menu.selected = 3;
+        assert!(menu.open_category(AddNodeCategory::Control));
+        assert!(matches!(menu.selected_entry(), Some(AddNodeMenuEntry::Back)));
         assert!(menu.apply_query_input("lfo", false));
-        let visible = menu.visible_option_indices();
-        assert_eq!(visible.len(), 1);
+        assert!(menu.select_next());
+        let Some(AddNodeMenuEntry::Option(option_index)) = menu.selected_entry() else {
+            panic!("selected option expected after filtering");
+        };
         assert_eq!(
-            super::ADD_NODE_OPTIONS[visible[0]].kind,
+            super::ADD_NODE_OPTIONS[option_index].kind,
             ProjectNodeKind::CtlLfo
         );
-        assert_eq!(menu.selected, 0);
+        assert!(menu.close_category());
+        assert!(menu.is_category_picker());
     }
 }

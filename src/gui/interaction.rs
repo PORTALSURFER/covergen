@@ -8,8 +8,8 @@ use super::project::{
     ResourceKind, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState, PanDragState,
-    ParamEditState, PreviewState, RightMarqueeState, WireDragState,
+    AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot,
+    LinkCutState, PanDragState, ParamEditState, PreviewState, RightMarqueeState, WireDragState,
     ADD_NODE_OPTIONS,
 };
 
@@ -954,12 +954,15 @@ fn handle_add_menu_input(
 ) -> bool {
     let mut changed = false;
     if let Some(hovered) = state.hover_menu_item {
-        changed |= state.menu.select_option_index(hovered);
+        changed |= state.menu.select_index(hovered);
     }
     changed |= state
         .menu
         .apply_query_input(input.typed_text.as_str(), input.param_backspace);
     if input.param_cancel {
+        if state.menu.close_category() {
+            return true;
+        }
         state.menu = AddNodeMenuState::closed();
         return true;
     }
@@ -971,7 +974,7 @@ fn handle_add_menu_input(
     }
     changed |= state.menu.clamp_selection();
     if input.menu_accept {
-        if add_menu_selected_node(project, panel_width, panel_height, state) {
+        if activate_add_menu_selection(project, panel_width, panel_height, state) {
             return true;
         }
         return changed;
@@ -984,8 +987,8 @@ fn handle_add_menu_input(
         return true;
     };
     if let Some(index) = state.menu.item_at(mx, my) {
-        let _ = state.menu.select_option_index(index);
-        return add_menu_selected_node(project, panel_width, panel_height, state);
+        let _ = state.menu.select_index(index);
+        return activate_add_menu_selection(project, panel_width, panel_height, state);
     } else if !state.menu.rect().contains(mx, my) {
         state.menu = AddNodeMenuState::closed();
         return true;
@@ -993,21 +996,36 @@ fn handle_add_menu_input(
     changed
 }
 
-fn add_menu_selected_node(
+fn activate_add_menu_selection(
     project: &mut GuiProject,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let Some(option_index) = state.menu.selected_option_index() else {
+    let Some(entry) = state.menu.selected_entry() else {
         return false;
     };
-    let option = ADD_NODE_OPTIONS[option_index];
-    let spawn_x = state.menu.x + 8;
-    let spawn_y = (state.menu.y + state.menu.rect().h + 8).min(panel_height as i32 - 32);
-    project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
-    state.menu = AddNodeMenuState::closed();
-    true
+    match entry {
+        AddNodeMenuEntry::Category(category) => {
+            let changed = state.menu.open_category(category);
+            state.hover_menu_item = None;
+            changed
+        }
+        AddNodeMenuEntry::Back => {
+            let changed = state.menu.close_category();
+            state.hover_menu_item = None;
+            changed
+        }
+        AddNodeMenuEntry::Option(option_index) => {
+            let option = ADD_NODE_OPTIONS[option_index];
+            let spawn_x = state.menu.x + 8;
+            let spawn_y = (state.menu.y + state.menu.rect().h + 8).min(panel_height as i32 - 32);
+            project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
+            state.menu = AddNodeMenuState::closed();
+            state.hover_menu_item = None;
+            true
+        }
+    }
 }
 
 fn handle_drag_input(
@@ -1468,7 +1486,7 @@ mod tests {
         handle_add_menu_input, handle_param_wheel_input,
         handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
         move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
-        RightMarqueeState,
+        AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::project::{node_param_value_rect, GuiProject, ProjectNodeKind};
     use crate::gui::state::{
@@ -1727,17 +1745,49 @@ mod tests {
     }
 
     #[test]
-    fn add_menu_query_and_accept_spawns_filtered_node() {
+    fn add_menu_category_then_secondary_picker_spawns_node() {
         let mut project = GuiProject::new_empty(640, 480);
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         state.menu = AddNodeMenuState::open_at(120, 100, 420, 480);
-        let input = InputSnapshot {
-            typed_text: "lfo".to_string(),
+        let entries = state.menu.visible_entries();
+        let control_index = entries
+            .iter()
+            .position(|entry| match entry {
+                AddNodeMenuEntry::Category(category) => category.label() == "Control",
+                _ => false,
+            })
+            .expect("control category should exist");
+        state.menu.selected = control_index;
+        let open_category = InputSnapshot {
             menu_accept: true,
             ..InputSnapshot::default()
         };
         assert!(handle_add_menu_input(
-            &input,
+            &open_category,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(state.menu.active_category.is_some());
+        let query = InputSnapshot {
+            typed_text: "lfo".to_string(),
+            ..InputSnapshot::default()
+        };
+        assert!(handle_add_menu_input(
+            &query,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        state.menu.selected = 1;
+        let spawn = InputSnapshot {
+            menu_accept: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_add_menu_input(
+            &spawn,
             &mut project,
             420,
             480,
