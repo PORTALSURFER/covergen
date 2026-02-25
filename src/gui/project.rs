@@ -1194,8 +1194,8 @@ fn next_project_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        input_pin_center, node_expand_toggle_rect, output_pin_center, GraphBounds, GuiProject,
-        ProjectNodeKind,
+        input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
+        GraphBounds, GuiProject, ProjectNodeKind, NODE_HEIGHT,
     };
 
     #[test]
@@ -1415,7 +1415,9 @@ mod tests {
         let row = super::node_param_row_rect(node, 2).expect("row rect");
         let hit = project.param_row_at(solid, row.x + 2, row.y + 2);
         assert_eq!(hit, Some(2));
-        let value_hit = project.param_value_box_contains(solid, 2, row.x + row.w - 4, row.y + 2);
+        let value_rect = node_param_value_rect(node, 2).expect("value rect");
+        let value_hit =
+            project.param_value_box_contains(solid, 2, value_rect.x + 2, value_rect.y + 2);
         assert!(value_hit);
     }
 

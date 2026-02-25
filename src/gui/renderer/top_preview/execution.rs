@@ -9,7 +9,7 @@ use super::super::viewer;
 
 impl TopPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
-    pub(super) fn prepare(
+    pub(in crate::gui::renderer) fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
