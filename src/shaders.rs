@@ -4,11 +4,13 @@
 //! SPIR-V binaries. Missing or invalid artifacts are treated as hard errors.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Shader programs used by the runtime.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum ShaderProgram {
     FractalMain,
     GraphOps,
@@ -17,6 +19,7 @@ pub(crate) enum ShaderProgram {
 }
 
 const SHADER_SPIRV_DIR_ENV: &str = "COVERGEN_RUST_GPU_SPIRV_DIR";
+static SPIRV_WORD_CACHE: OnceLock<Mutex<HashMap<ShaderProgram, Arc<[u32]>>>> = OnceLock::new();
 
 /// Create a shader module for one program using strict rust-gpu SPIR-V input.
 pub(crate) fn create_shader_module(
@@ -26,7 +29,7 @@ pub(crate) fn create_shader_module(
     let words = load_spirv_words(program)?;
     Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(program_label(program)),
-        source: wgpu::ShaderSource::SpirV(Cow::Owned(words)),
+        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(words.as_ref())),
     }))
 }
 
@@ -48,7 +51,17 @@ fn program_spirv_name(program: ShaderProgram) -> &'static str {
     }
 }
 
-fn load_spirv_words(program: ShaderProgram) -> Result<Vec<u32>, Box<dyn Error>> {
+fn load_spirv_words(program: ShaderProgram) -> Result<Arc<[u32]>, Box<dyn Error>> {
+    let cache = SPIRV_WORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(words) = cache
+        .lock()
+        .map_err(|_| "SPIR-V cache mutex was poisoned during read")?
+        .get(&program)
+        .cloned()
+    {
+        return Ok(words);
+    }
+
     let file = program_spirv_name(program);
     let path = spirv_root_dir().join(file);
     let bytes = std::fs::read(&path).map_err(|err| {
@@ -58,7 +71,12 @@ fn load_spirv_words(program: ShaderProgram) -> Result<Vec<u32>, Box<dyn Error>> 
             path.display()
         )
     })?;
-    parse_spirv_words(&bytes, &path)
+    let words: Arc<[u32]> = parse_spirv_words(&bytes, &path)?.into();
+    cache
+        .lock()
+        .map_err(|_| "SPIR-V cache mutex was poisoned during write")?
+        .insert(program, Arc::clone(&words));
+    Ok(words)
 }
 
 fn spirv_root_dir() -> PathBuf {
