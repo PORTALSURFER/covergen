@@ -682,7 +682,6 @@ impl SceneBuilder {
                     (exit_x, from_y),
                     (entry_x, to_y),
                     &obstacles,
-                    [Some(*source_id), Some(target.id())],
                 );
                 let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
                     || path_intersects_cut_line(state, &route)
@@ -957,7 +956,6 @@ fn collect_panel_node_obstacles(
     let mut out = Vec::new();
     for node in project.nodes() {
         out.push(wire_route::NodeObstacle {
-            node_id: node.id(),
             rect: node_rect(node, state),
         });
     }

@@ -14,7 +14,6 @@ const MAX_GRID_CELLS: usize = 12_000;
 /// One node obstacle in panel coordinates for pathfinding.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeObstacle {
-    pub(crate) node_id: u32,
     pub(crate) rect: Rect,
 }
 
@@ -32,9 +31,8 @@ pub(crate) fn route_param_path(
     start: (i32, i32),
     end: (i32, i32),
     obstacles: &[NodeObstacle],
-    ignored_nodes: [Option<u32>; 2],
 ) -> Vec<(i32, i32)> {
-    let blocked = collect_blocked_rects(obstacles, ignored_nodes);
+    let blocked = collect_blocked_rects(obstacles);
     if blocked.is_empty() {
         return vec![start, end];
     }
@@ -58,12 +56,9 @@ pub(crate) fn route_param_path(
     points
 }
 
-fn collect_blocked_rects(obstacles: &[NodeObstacle], ignored_nodes: [Option<u32>; 2]) -> Vec<Rect> {
+fn collect_blocked_rects(obstacles: &[NodeObstacle]) -> Vec<Rect> {
     let mut blocked = Vec::new();
     for obstacle in obstacles {
-        if ignored_nodes.contains(&Some(obstacle.node_id)) {
-            continue;
-        }
         blocked.push(inflate_rect(obstacle.rect, OBSTACLE_MARGIN_PX));
     }
     blocked
@@ -361,10 +356,9 @@ mod tests {
     #[test]
     fn route_avoids_middle_obstacle() {
         let obstacles = [NodeObstacle {
-            node_id: 99,
             rect: Rect::new(60, 30, 60, 60),
         }];
-        let path = route_param_path((10, 60), (180, 60), &obstacles, [None, None]);
+        let path = route_param_path((10, 60), (180, 60), &obstacles);
         assert!(path.len() >= 3);
         for segment in path.windows(2) {
             assert!(segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1);
@@ -375,13 +369,13 @@ mod tests {
     }
 
     #[test]
-    fn ignored_obstacle_allows_direct_route() {
+    fn route_avoids_obstacle_without_ignore_exceptions() {
         let obstacles = [NodeObstacle {
-            node_id: 7,
             rect: Rect::new(40, 30, 40, 40),
         }];
-        let path = route_param_path((10, 50), (110, 50), &obstacles, [Some(7), None]);
+        let path = route_param_path((10, 50), (110, 50), &obstacles);
         assert_eq!(path.first().copied(), Some((10, 50)));
         assert_eq!(path.last().copied(), Some((110, 50)));
+        assert!(path.len() >= 3);
     }
 }
