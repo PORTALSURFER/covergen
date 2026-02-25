@@ -40,6 +40,16 @@ pub(crate) struct GpuLayerRenderer {
     node_feedback_clear_buffer: wgpu::Buffer,
 }
 
+/// Frame-scoped command recording context for graph execution.
+///
+/// The context accumulates all graph node passes into one command encoder so
+/// the caller can submit once per frame.
+#[derive(Debug)]
+pub(crate) struct GraphFrameContext {
+    encoder: wgpu::CommandEncoder,
+    encoded_ops: u32,
+}
+
 impl GpuLayerRenderer {
     /// Build a compute renderer from an adapter and the configured shader backend.
     pub(crate) async fn new(

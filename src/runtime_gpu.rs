@@ -23,6 +23,7 @@ pub(crate) fn render_graph_luma_gpu(
     modulation: Option<GraphTimeInput>,
 ) -> Result<(), Box<dyn Error>> {
     renderer.begin_retained_image()?;
+    let mut frame = renderer.begin_graph_frame("v2 graph frame encoder");
 
     let mut scalar_values: HashMap<NodeId, f32> = HashMap::new();
     let mut sop_values: HashMap<NodeId, SopPrimitive> = HashMap::new();
@@ -37,6 +38,7 @@ pub(crate) fn render_graph_luma_gpu(
                 let output = output_luma_slot(compiled, step.node_id)?;
                 let gpu_start = Instant::now();
                 renderer.render_generate_layer_to_alias(
+                    &mut frame,
                     &params,
                     input,
                     output,
@@ -61,6 +63,7 @@ pub(crate) fn render_graph_luma_gpu(
                             output_luma_slot(compiled, step.node_id)?
                         };
                         renderer.render_source_noise_to_alias(
+                            &mut frame,
                             output_mask,
                             output,
                             effective_seed,
@@ -92,6 +95,7 @@ pub(crate) fn render_graph_luma_gpu(
                 let input = luma_input_slot(compiled, step, 0)?;
                 let output = output_mask_slot(compiled, step.node_id)?;
                 renderer.render_mask_to_alias(
+                    &mut frame,
                     input,
                     output,
                     effective.threshold,
@@ -110,6 +114,7 @@ pub(crate) fn render_graph_luma_gpu(
                 };
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_blend_to_alias(
+                    &mut frame,
                     base,
                     top,
                     mask,
@@ -127,6 +132,7 @@ pub(crate) fn render_graph_luma_gpu(
                 let input = luma_input_slot(compiled, step, 0)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_tone_map_to_alias(
+                    &mut frame,
                     input,
                     output,
                     effective.contrast,
@@ -143,6 +149,7 @@ pub(crate) fn render_graph_luma_gpu(
                 let input = luma_input_slot(compiled, step, 0)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_warp_to_alias(
+                    &mut frame,
                     input,
                     output,
                     effective.strength,
@@ -155,6 +162,7 @@ pub(crate) fn render_graph_luma_gpu(
                 let output = output_luma_slot(compiled, step.node_id)?;
                 let feedback_slot = stateful_feedback_slot(compiled, step.node_id)?;
                 renderer.render_stateful_feedback_to_alias(
+                    &mut frame,
                     input,
                     output,
                     feedback_slot,
@@ -188,7 +196,9 @@ pub(crate) fn render_graph_luma_gpu(
                 let primitive = require_sop_input(step, 0, &sop_values)?;
                 let channel = optional_scalar_input(step, 1, &scalar_values)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
-                renderer.render_top_camera_to_alias(primitive, spec, channel, output)?;
+                renderer.render_top_camera_to_alias(
+                    &mut frame, primitive, spec, channel, output,
+                )?;
             }
             CompiledOp::Output(output) => {
                 let _ = output;
@@ -201,7 +211,13 @@ pub(crate) fn render_graph_luma_gpu(
 
     let compositor_start = Instant::now();
     let compositor_plan = build_final_compositor_plan(compiled)?;
-    renderer.compose_outputs_to_retained(compositor_plan.primary_slot, &compositor_plan.taps)?;
+    renderer.compose_outputs_to_retained(
+        &mut frame,
+        compositor_plan.primary_slot,
+        &compositor_plan.taps,
+    )?;
+    let submit_count = renderer.submit_graph_frame(frame);
+    telemetry::record_timing_ms("v2.gpu.graph.submit_count", submit_count as f64);
     telemetry::record_timing("v2.gpu.final_compositor", compositor_start.elapsed());
 
     Ok(())

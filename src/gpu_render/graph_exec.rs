@@ -7,9 +7,30 @@ use crate::proc_graph::SopPrimitive;
 use crate::sop::TopCameraRenderNode;
 
 use super::graph_ops::{DecodeBuffers, GraphBuffers, GraphOpUniforms};
-use super::GpuLayerRenderer;
+use super::{GpuLayerRenderer, GraphFrameContext};
 
 impl GpuLayerRenderer {
+    /// Start one frame-scoped graph execution context.
+    pub(crate) fn begin_graph_frame(&self, label: &'static str) -> GraphFrameContext {
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
+        GraphFrameContext {
+            encoder,
+            encoded_ops: 0,
+        }
+    }
+
+    /// Submit one recorded graph frame and return submit count (0 or 1).
+    pub(crate) fn submit_graph_frame(&self, frame: GraphFrameContext) -> u32 {
+        if frame.encoded_ops == 0 {
+            return 0;
+        }
+        let mut encoder = frame.encoder;
+        self.queue.submit(Some(encoder.finish()));
+        1
+    }
+
     /// Ensure aliased node-output buffers are allocated once for the active graph.
     pub(crate) fn ensure_node_alias_buffers(
         &mut self,
@@ -96,6 +117,7 @@ impl GpuLayerRenderer {
     /// Dispatch one fractal layer and write normalized luma into an alias output slot.
     pub(crate) fn render_generate_layer_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         params: &Params,
         input_base_slot: Option<usize>,
         output_slot: usize,
@@ -105,15 +127,10 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
         let output = self.alias_luma(output_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph generate encoder"),
-            });
 
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
-        self.dispatch_main_pass(&mut encoder, params);
+        self.dispatch_main_pass(&mut frame.encoder, params);
         let decode_buffers = DecodeBuffers {
             src_u32: &self.out_buffer,
             dst: &self.node_layer_temp_buffer,
@@ -121,7 +138,7 @@ impl GpuLayerRenderer {
         self.graph_ops.encode_decode_layer(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             decode_buffers,
             self.width,
             self.height,
@@ -142,7 +159,7 @@ impl GpuLayerRenderer {
             self.graph_ops.encode_blend(
                 &self.device,
                 &self.queue,
-                &mut encoder,
+                &mut frame.encoder,
                 blend_buffers,
                 uniforms,
             );
@@ -156,20 +173,21 @@ impl GpuLayerRenderer {
             self.graph_ops.encode_copy(
                 &self.device,
                 &self.queue,
-                &mut encoder,
+                &mut frame.encoder,
                 copy_buffers,
                 self.width,
                 self.height,
             );
         }
 
-        self.queue.submit(Some(encoder.finish()));
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Render a deterministic value-noise source map into an alias slot.
     pub(crate) fn render_source_noise_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         output_mask: bool,
         output_slot: usize,
         seed: u32,
@@ -182,11 +200,6 @@ impl GpuLayerRenderer {
         } else {
             self.alias_luma(output_slot)?
         };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph source noise encoder"),
-            });
         // `source_noise` writes only `dst`, but the shared bind layout also exposes
         // read-only sources. Keep those bindings on a distinct scratch buffer so
         // `dst` is never bound as both STORAGE_READ and STORAGE_READ_WRITE.
@@ -204,17 +217,18 @@ impl GpuLayerRenderer {
         self.graph_ops.encode_source_noise(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             buffers,
             uniforms,
         );
-        self.queue.submit(Some(encoder.finish()));
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Convert luma alias input into a mask alias output.
     pub(crate) fn render_mask_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         input_luma_slot: usize,
         output_mask_slot: usize,
         threshold: f32,
@@ -223,11 +237,6 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         let src = self.alias_luma(input_luma_slot)?;
         let dst = self.alias_mask(output_mask_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph mask encoder"),
-            });
         let buffers = GraphBuffers {
             src0: src,
             src1: src,
@@ -239,14 +248,15 @@ impl GpuLayerRenderer {
         uniforms.p1 = softness;
         uniforms.flags = if invert { 0x2 } else { 0 };
         self.graph_ops
-            .encode_mask(&self.device, &self.queue, &mut encoder, buffers, uniforms);
-        self.queue.submit(Some(encoder.finish()));
+            .encode_mask(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Blend two luma alias inputs into a destination luma alias output.
     pub(crate) fn render_blend_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         base_slot: usize,
         top_slot: usize,
         mask_slot: Option<usize>,
@@ -261,11 +271,6 @@ impl GpuLayerRenderer {
             None => top,
         };
         let out = self.alias_luma(output_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph blend encoder"),
-            });
         let buffers = GraphBuffers {
             src0: base,
             src1: top,
@@ -277,14 +282,15 @@ impl GpuLayerRenderer {
         uniforms.flags = u32::from(mask_slot.is_some());
         uniforms.p0 = opacity;
         self.graph_ops
-            .encode_blend(&self.device, &self.queue, &mut encoder, buffers, uniforms);
-        self.queue.submit(Some(encoder.finish()));
+            .encode_blend(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Apply tone mapping to one luma alias slot and write to output luma slot.
     pub(crate) fn render_tone_map_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         input_slot: usize,
         output_slot: usize,
         contrast: f32,
@@ -293,11 +299,6 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         let src = self.alias_luma(input_slot)?;
         let dst = self.alias_luma(output_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph tone map encoder"),
-            });
         let buffers = GraphBuffers {
             src0: src,
             src1: src,
@@ -309,14 +310,15 @@ impl GpuLayerRenderer {
         uniforms.p1 = low;
         uniforms.p2 = high;
         self.graph_ops
-            .encode_tone_map(&self.device, &self.queue, &mut encoder, buffers, uniforms);
-        self.queue.submit(Some(encoder.finish()));
+            .encode_tone_map(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Apply warp/transform from one luma alias slot into another.
     pub(crate) fn render_warp_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         input_slot: usize,
         output_slot: usize,
         strength: f32,
@@ -325,11 +327,6 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         let src = self.alias_luma(input_slot)?;
         let dst = self.alias_luma(output_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph warp encoder"),
-            });
         let buffers = GraphBuffers {
             src0: src,
             src1: src,
@@ -341,14 +338,15 @@ impl GpuLayerRenderer {
         uniforms.p1 = frequency;
         uniforms.p2 = phase;
         self.graph_ops
-            .encode_warp(&self.device, &self.queue, &mut encoder, buffers, uniforms);
-        self.queue.submit(Some(encoder.finish()));
+            .encode_warp(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Blend current input with persistent feedback state and update feedback memory.
     pub(crate) fn render_stateful_feedback_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         input_slot: usize,
         output_slot: usize,
         feedback_slot: usize,
@@ -357,17 +355,12 @@ impl GpuLayerRenderer {
         let input = self.alias_luma(input_slot)?;
         let output = self.alias_luma(output_slot)?;
         let feedback = self.alias_feedback(feedback_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph stateful feedback encoder"),
-            });
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
         uniforms.p0 = mix.clamp(0.0, 1.0);
         self.graph_ops.encode_feedback_mix(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             GraphBuffers {
                 src0: input,
                 src1: feedback,
@@ -379,7 +372,7 @@ impl GpuLayerRenderer {
         self.graph_ops.encode_copy(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             GraphBuffers {
                 src0: output,
                 src1: output,
@@ -389,24 +382,20 @@ impl GpuLayerRenderer {
             self.width,
             self.height,
         );
-        self.queue.submit(Some(encoder.finish()));
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Render a SOP primitive with camera controls directly into a luma alias slot.
     pub(crate) fn render_top_camera_to_alias(
         &mut self,
+        frame: &mut GraphFrameContext,
         primitive: SopPrimitive,
         camera: TopCameraRenderNode,
         channel_mod: Option<f32>,
         output_slot: usize,
     ) -> Result<(), Box<dyn Error>> {
         let output = self.alias_luma(output_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph top camera encoder"),
-            });
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
         uniforms.p0 = camera.exposure;
         uniforms.p1 = camera.gamma;
@@ -440,7 +429,7 @@ impl GpuLayerRenderer {
         self.graph_ops.encode_top_camera(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             GraphBuffers {
                 src0: &self.node_layer_temp_buffer,
                 src1: &self.node_layer_temp_buffer,
@@ -449,46 +438,38 @@ impl GpuLayerRenderer {
             },
             uniforms,
         );
-        self.queue.submit(Some(encoder.finish()));
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Stage one luma alias slot as retained finalization input.
     pub(crate) fn stage_luma_alias_for_retained(
         &mut self,
+        frame: &mut GraphFrameContext,
         luma_slot: usize,
     ) -> Result<(), Box<dyn Error>> {
         let src = self.alias_luma(luma_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph output stage encoder"),
-            });
-        self.retained.encode_copy_from_luma(&mut encoder, src);
-        self.queue.submit(Some(encoder.finish()));
+        self.retained.encode_copy_from_luma(&mut frame.encoder, src);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
     /// Explicitly composite primary and tap outputs before retained finalization.
     pub(crate) fn compose_outputs_to_retained(
         &mut self,
+        frame: &mut GraphFrameContext,
         primary_slot: usize,
         tap_slots: &[(u8, usize)],
     ) -> Result<(), Box<dyn Error>> {
         if tap_slots.is_empty() {
-            return self.stage_luma_alias_for_retained(primary_slot);
+            return self.stage_luma_alias_for_retained(frame, primary_slot);
         }
 
         let primary = self.alias_luma(primary_slot)?;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("v2 graph output compositor encoder"),
-            });
         self.graph_ops.encode_copy(
             &self.device,
             &self.queue,
-            &mut encoder,
+            &mut frame.encoder,
             GraphBuffers {
                 src0: primary,
                 src1: primary,
@@ -509,7 +490,7 @@ impl GpuLayerRenderer {
             self.graph_ops.encode_blend(
                 &self.device,
                 &self.queue,
-                &mut encoder,
+                &mut frame.encoder,
                 GraphBuffers {
                     src0: active,
                     src1: tap,
@@ -521,8 +502,8 @@ impl GpuLayerRenderer {
             std::mem::swap(&mut active, &mut scratch);
         }
 
-        self.retained.encode_copy_from_luma(&mut encoder, active);
-        self.queue.submit(Some(encoder.finish()));
+        self.retained.encode_copy_from_luma(&mut frame.encoder, active);
+        frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
 
