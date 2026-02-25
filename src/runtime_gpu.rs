@@ -196,9 +196,8 @@ pub(crate) fn render_graph_luma_gpu(
                 let primitive = require_sop_input(step, 0, &sop_values)?;
                 let channel = optional_scalar_input(step, 1, &scalar_values)?;
                 let output = output_luma_slot(compiled, step.node_id)?;
-                renderer.render_top_camera_to_alias(
-                    &mut frame, primitive, spec, channel, output,
-                )?;
+                renderer
+                    .render_top_camera_to_alias(&mut frame, primitive, spec, channel, output)?;
             }
             CompiledOp::Output(output) => {
                 let _ = output;
@@ -216,8 +215,12 @@ pub(crate) fn render_graph_luma_gpu(
         compositor_plan.primary_slot,
         &compositor_plan.taps,
     )?;
-    let submit_count = renderer.submit_graph_frame(frame);
-    telemetry::record_timing_ms("v2.gpu.graph.submit_count", submit_count as f64);
+    let submit = renderer.submit_graph_frame(frame);
+    telemetry::record_counter_u64(
+        "v2.gpu.graph.submit_count_per_frame",
+        submit.submit_count as u64,
+    );
+    telemetry::record_counter_u64("v2.gpu.graph.upload_bytes_per_frame", submit.upload_bytes);
     telemetry::record_timing("v2.gpu.final_compositor", compositor_start.elapsed());
 
     Ok(())

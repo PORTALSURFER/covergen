@@ -93,6 +93,7 @@ pub(crate) struct SceneFrame {
     pub(crate) nodes: SceneLayer,
     pub(crate) overlays: SceneLayer,
     pub(crate) dirty: SceneLayerDirty,
+    pub(crate) ui_alloc_bytes: u64,
 }
 
 /// One retained GUI geometry layer.
@@ -138,6 +139,7 @@ pub(crate) struct SceneBuilder {
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
+    frame_alloc_bytes: u64,
 }
 
 impl Default for SceneBuilder {
@@ -152,6 +154,7 @@ impl Default for SceneBuilder {
             text_renderer: GuiTextRenderer::default(),
             label_scratch: String::new(),
             fitted_label_scratch: String::new(),
+            frame_alloc_bytes: 0,
         }
     }
 }
@@ -168,6 +171,7 @@ impl SceneBuilder {
     ) -> &SceneFrame {
         self.frame.clear = Some(PREVIEW_BG);
         self.frame.dirty = SceneLayerDirty::default();
+        self.frame_alloc_bytes = 0;
 
         self.rebuild_static_if_needed(width, height, panel_width);
 
@@ -191,6 +195,7 @@ impl SceneBuilder {
             self.frame.dirty.overlays = true;
             self.rebuild_overlays_layer(project, state);
         }
+        self.frame.ui_alloc_bytes = self.frame_alloc_bytes;
         &self.frame
     }
 
@@ -201,33 +206,41 @@ impl SceneBuilder {
         }
         self.cached_static_key = Some(key);
         self.frame.dirty.static_panel = true;
+        let before = self.layer_capacity(ActiveLayer::StaticPanel);
         self.set_active_layer(ActiveLayer::StaticPanel);
         self.clear_active_layer();
         self.push_rect(Rect::new(0, 0, panel_width as i32, height as i32), PANEL_BG);
         let x = panel_width as i32 - 1;
         self.push_line(x, 0, x, height as i32 - 1, BORDER_COLOR);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::StaticPanel));
     }
 
     fn rebuild_nodes_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        let before = self.layer_capacity(ActiveLayer::Nodes);
         self.set_active_layer(ActiveLayer::Nodes);
         self.clear_active_layer();
         self.push_header(project);
         self.push_nodes(project, state);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
     }
 
     fn rebuild_edges_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        let before = self.layer_capacity(ActiveLayer::Edges);
         self.set_active_layer(ActiveLayer::Edges);
         self.clear_active_layer();
         self.push_edges(project, state);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
     }
 
     fn rebuild_overlays_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
         self.clear_active_layer();
         self.push_wire_drag(project, state);
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
     }
 
     fn set_active_layer(&mut self, layer: ActiveLayer) {
@@ -461,12 +474,12 @@ impl SceneBuilder {
         active_scene_layer_mut(&mut self.frame, self.active_layer)
             .lines
             .push(ColoredLine {
-            x0,
-            y0,
-            x1,
-            y1,
-            color,
-        });
+                x0,
+                y0,
+                x1,
+                y1,
+                color,
+            });
     }
 
     fn push_pins(&mut self, node: &ProjectNode, state: &PreviewState) {
@@ -637,6 +650,30 @@ impl SceneBuilder {
         out.push_str(&text[..end_byte]);
         out.push_str(ellipsis);
         out.as_str()
+    }
+
+    fn layer_capacity(&self, layer: ActiveLayer) -> (usize, usize) {
+        let data = match layer {
+            ActiveLayer::StaticPanel => &self.frame.static_panel,
+            ActiveLayer::Edges => &self.frame.edges,
+            ActiveLayer::Nodes => &self.frame.nodes,
+            ActiveLayer::Overlays => &self.frame.overlays,
+        };
+        (data.rects.capacity(), data.lines.capacity())
+    }
+
+    fn bump_layer_alloc_growth(&mut self, before: (usize, usize), after: (usize, usize)) {
+        let rect_growth = after
+            .0
+            .saturating_sub(before.0)
+            .saturating_mul(std::mem::size_of::<ColoredRect>());
+        let line_growth = after
+            .1
+            .saturating_sub(before.1)
+            .saturating_mul(std::mem::size_of::<ColoredLine>());
+        self.frame_alloc_bytes = self
+            .frame_alloc_bytes
+            .saturating_add((rect_growth + line_growth) as u64);
     }
 }
 

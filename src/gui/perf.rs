@@ -6,7 +6,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const TRACE_HEADER: &[u8] = b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms\n";
+const TRACE_HEADER: &[u8] = b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms,submit_count,upload_bytes,hit_test_scans,ui_alloc_bytes\n";
 const TRACE_RING_CAPACITY: usize = 8_192;
 
 /// Per-frame timing sample written to GUI trace output.
@@ -18,6 +18,10 @@ pub(crate) struct GuiFrameSample {
     pub(crate) scene_ms: f64,
     pub(crate) render_ms: f64,
     pub(crate) total_ms: f64,
+    pub(crate) submit_count: u32,
+    pub(crate) upload_bytes: u64,
+    pub(crate) hit_test_scans: u64,
+    pub(crate) ui_alloc_bytes: u64,
 }
 
 /// Optional trace recorder for GUI stage timings.
@@ -53,6 +57,10 @@ impl GuiPerfRecorder {
         scene: Duration,
         render: Duration,
         total: Duration,
+        submit_count: u32,
+        upload_bytes: u64,
+        hit_test_scans: u64,
+        ui_alloc_bytes: u64,
     ) {
         if self.output_path.is_none() {
             return;
@@ -64,6 +72,10 @@ impl GuiPerfRecorder {
             scene_ms: millis(scene),
             render_ms: millis(render),
             total_ms: millis(total),
+            submit_count,
+            upload_bytes,
+            hit_test_scans,
+            ui_alloc_bytes,
         };
         if self.writer.is_none() {
             self.ensure_writer_open();
@@ -164,13 +176,17 @@ fn write_sample_line<W: Write>(
 ) -> Result<(), std::io::Error> {
     writeln!(
         writer,
-        "{},{:.4},{:.4},{:.4},{:.4},{:.4}",
+        "{},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{},{}",
         sample.frame_index,
         sample.input_ms,
         sample.update_ms,
         sample.scene_ms,
         sample.render_ms,
-        sample.total_ms
+        sample.total_ms,
+        sample.submit_count,
+        sample.upload_bytes,
+        sample.hit_test_scans,
+        sample.ui_alloc_bytes
     )
 }
 
@@ -186,9 +202,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after unix epoch")
             .as_nanos();
-        let trace_path = std::env::temp_dir().join(format!(
-            "covergen-missing-{unique}/gui_perf_trace.csv"
-        ));
+        let trace_path =
+            std::env::temp_dir().join(format!("covergen-missing-{unique}/gui_perf_trace.csv"));
         let mut recorder = GuiPerfRecorder::new(Some(trace_path.to_string_lossy().into_owned()));
         let sample_count = TRACE_RING_CAPACITY as u64 + 32;
         for frame in 0..sample_count {
@@ -199,6 +214,10 @@ mod tests {
                 Duration::from_millis(1),
                 Duration::from_millis(1),
                 Duration::from_millis(1),
+                1,
+                128,
+                32,
+                0,
             );
         }
         assert_eq!(recorder.fallback_samples.len(), TRACE_RING_CAPACITY);
@@ -224,6 +243,10 @@ mod tests {
             Duration::from_millis(4),
             Duration::from_millis(5),
             Duration::from_millis(6),
+            1,
+            256,
+            64,
+            1024,
         );
         recorder.record(
             1,
@@ -232,12 +255,16 @@ mod tests {
             Duration::from_millis(1),
             Duration::from_millis(1),
             Duration::from_millis(1),
+            1,
+            128,
+            16,
+            0,
         );
         assert!(recorder.fallback_samples.is_empty());
         recorder.flush().expect("trace flush should succeed");
 
-        let content =
-            std::fs::read_to_string(&trace_path).expect("trace file should be readable for assertions");
+        let content = std::fs::read_to_string(&trace_path)
+            .expect("trace file should be readable for assertions");
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 3);
         assert!(lines[1].starts_with("0,"));

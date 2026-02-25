@@ -31,6 +31,16 @@ pub(super) struct NodeTimingSummary {
     pub(super) p95_ms: f64,
 }
 
+/// Aggregated scalar counter summary for one telemetry scope.
+#[derive(Clone, Debug)]
+pub(super) struct CounterSummary {
+    pub(super) scope: String,
+    pub(super) sample_count: usize,
+    pub(super) total: f64,
+    pub(super) p50: f64,
+    pub(super) p95: f64,
+}
+
 /// Build one scenario summary from raw benchmark samples.
 pub(super) fn summarize_scenario(
     name: &'static str,
@@ -103,6 +113,43 @@ pub(super) fn summarize_node_timings(
         right
             .total_ms
             .partial_cmp(&left.total_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    rows
+}
+
+/// Aggregate per-scope scalar counters across benchmark scenarios.
+pub(super) fn summarize_counters(scenarios: &[&[ScenarioSample]]) -> Vec<CounterSummary> {
+    let mut grouped: HashMap<String, Vec<f64>> = HashMap::new();
+    for scenario in scenarios {
+        for sample in scenario.iter() {
+            for counter in &sample.capture.counters {
+                grouped
+                    .entry(counter.scope.clone())
+                    .or_default()
+                    .push(counter.value);
+            }
+        }
+    }
+
+    let mut rows = Vec::with_capacity(grouped.len());
+    for (scope, mut values) in grouped {
+        let sample_count = values.len();
+        let total: f64 = values.iter().sum();
+        let p50 = percentile(&mut values, 0.50);
+        let p95 = percentile(&mut values, 0.95);
+        rows.push(CounterSummary {
+            scope,
+            sample_count,
+            total,
+            p50,
+            p95,
+        });
+    }
+    rows.sort_by(|left, right| {
+        right
+            .total
+            .partial_cmp(&left.total)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     rows

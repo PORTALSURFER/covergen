@@ -2,7 +2,7 @@
 
 use crate::runtime_config::V2Profile;
 
-use super::stats::{NodeTimingSummary, ScenarioSummary};
+use super::stats::{CounterSummary, NodeTimingSummary, ScenarioSummary};
 use super::BenchConfig;
 
 /// Render benchmark summaries into a markdown report.
@@ -10,6 +10,7 @@ pub(super) fn render_report(
     config: &BenchConfig,
     summaries: &[ScenarioSummary],
     node_timing: &[NodeTimingSummary],
+    counters: &[CounterSummary],
     skip_notes: &[String],
     cutover_notes: &[String],
 ) -> String {
@@ -57,6 +58,20 @@ pub(super) fn render_report(
             out.push_str(&format!(
                 "| `{}` | {} | {:.2} | {:.2} | {:.2} |\n",
                 row.scope, row.sample_count, row.total_ms, row.p50_ms, row.p95_ms,
+            ));
+        }
+    }
+
+    out.push_str("\n## telemetry counters\n\n");
+    out.push_str("| counter scope | samples | total | p50 | p95 |\n");
+    out.push_str("|---|---:|---:|---:|---:|\n");
+    if counters.is_empty() {
+        out.push_str("| none | 0 | 0.00 | 0.00 | 0.00 |\n");
+    } else {
+        for row in counters {
+            out.push_str(&format!(
+                "| `{}` | {} | {:.2} | {:.2} | {:.2} |\n",
+                row.scope, row.sample_count, row.total, row.p50, row.p95,
             ));
         }
     }

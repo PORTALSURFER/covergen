@@ -286,6 +286,7 @@ pub(crate) struct GuiProject {
     edge_count: usize,
     hit_test_cache: RefCell<HitTestCache>,
     hit_test_dirty: Cell<bool>,
+    hit_test_scan_count: Cell<u64>,
 }
 
 /// Cached spatial/index structures for fast graph hit-testing.
@@ -315,6 +316,7 @@ impl GuiProject {
             edge_count: 0,
             hit_test_cache: RefCell::new(HitTestCache::default()),
             hit_test_dirty: Cell::new(false),
+            hit_test_scan_count: Cell::new(0),
         }
     }
 
@@ -326,6 +328,13 @@ impl GuiProject {
     /// Return current node count.
     pub(crate) fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Return and reset accumulated hit-test scan count since last call.
+    pub(crate) fn take_hit_test_scan_count(&self) -> u64 {
+        let count = self.hit_test_scan_count.get();
+        self.hit_test_scan_count.set(0);
+        count
     }
 
     /// Return total input-edge count currently stored in this project.
@@ -365,7 +374,13 @@ impl GuiProject {
         let mut cache = HitTestCache::default();
         for (index, node) in self.nodes.iter().enumerate() {
             cache.node_index_by_id.insert(node.id(), index);
-            cache_node_rect_bins(&mut cache.node_bins, node.id(), node.x(), node.y(), node.card_height());
+            cache_node_rect_bins(
+                &mut cache.node_bins,
+                node.id(),
+                node.x(),
+                node.y(),
+                node.card_height(),
+            );
             if let Some((x, y)) = output_pin_center(node) {
                 cache_pin_bin(&mut cache.output_pin_bins, node.id(), x, y);
             }
@@ -444,13 +459,18 @@ impl GuiProject {
         let cache = self.hit_test_cache.borrow();
         let candidates = cache.node_bins.get(&key)?;
         for node_id in candidates.iter().rev() {
+            self.bump_hit_test_scan_count(1);
             let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
                 continue;
             };
             let Some(node) = self.nodes.get(index) else {
                 continue;
             };
-            if x >= node.x() && x < node.x() + NODE_WIDTH && y >= node.y() && y < node.y() + node.card_height() {
+            if x >= node.x()
+                && x < node.x() + NODE_WIDTH
+                && y >= node.y()
+                && y < node.y() + node.card_height()
+            {
                 return Some(*node_id);
             }
         }
@@ -532,6 +552,7 @@ impl GuiProject {
                     continue;
                 };
                 for node_id in candidates.iter().rev() {
+                    self.bump_hit_test_scan_count(1);
                     if Some(*node_id) == disallow_source || seen.contains(node_id) {
                         continue;
                     }
@@ -597,7 +618,9 @@ impl GuiProject {
                 if !target.kind.accepts_signal_bindings() || target.params.is_empty() {
                     return false;
                 }
-                let param_index = target.selected_param.min(target.params.len().saturating_sub(1));
+                let param_index = target
+                    .selected_param
+                    .min(target.params.len().saturating_sub(1));
                 let slot = &mut target.params[param_index];
                 if slot.signal_source == Some(source_id) {
                     false
@@ -850,7 +873,9 @@ impl GuiProject {
 
     /// Return true when a node is currently expanded.
     pub(crate) fn node_expanded(&self, node_id: u32) -> bool {
-        self.node(node_id).map(ProjectNode::expanded).unwrap_or(false)
+        self.node(node_id)
+            .map(ProjectNode::expanded)
+            .unwrap_or(false)
     }
 
     /// Return effective parameter value, resolving optional signal binding.
@@ -988,6 +1013,11 @@ impl GuiProject {
     fn recount_edges(&mut self) {
         self.edge_count = self.nodes.iter().map(|node| node.inputs.len()).sum();
     }
+
+    fn bump_hit_test_scan_count(&self, delta: u64) {
+        let next = self.hit_test_scan_count.get().saturating_add(delta);
+        self.hit_test_scan_count.set(next);
+    }
 }
 
 /// Return panel-space center of a node output pin.
@@ -1034,7 +1064,10 @@ pub(crate) fn node_expand_toggle_rect(node: &ProjectNode) -> Option<super::geome
 }
 
 /// Return one parameter row rectangle in graph-space coordinates.
-pub(crate) fn node_param_row_rect(node: &ProjectNode, param_index: usize) -> Option<super::geometry::Rect> {
+pub(crate) fn node_param_row_rect(
+    node: &ProjectNode,
+    param_index: usize,
+) -> Option<super::geometry::Rect> {
     if !node.expanded() || param_index >= node.params.len() {
         return None;
     }
@@ -1053,9 +1086,16 @@ pub(crate) fn node_param_value_rect(
     param_index: usize,
 ) -> Option<super::geometry::Rect> {
     let row = node_param_row_rect(node, param_index)?;
-    let width = NODE_PARAM_VALUE_BOX_WIDTH.min(row.w.saturating_sub(8)).max(20);
+    let width = NODE_PARAM_VALUE_BOX_WIDTH
+        .min(row.w.saturating_sub(8))
+        .max(20);
     let x = row.x + row.w - width - NODE_PARAM_VALUE_BOX_RIGHT_PAD;
-    Some(super::geometry::Rect::new(x, row.y + 1, width, row.h.saturating_sub(2)))
+    Some(super::geometry::Rect::new(
+        x,
+        row.y + 1,
+        width,
+        row.h.saturating_sub(2),
+    ))
 }
 
 fn clamp_node_position(

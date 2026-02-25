@@ -8,6 +8,7 @@ use winit::event::WindowEvent;
 use winit::window::{CursorIcon, Window};
 
 use crate::runtime_config::V2Config;
+use crate::telemetry;
 
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
@@ -191,9 +192,13 @@ impl GuiApp {
             step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         let update_elapsed = update_start.elapsed();
+        let hit_test_scans = self.project.take_hit_test_scan_count();
 
         let mut scene_elapsed = Duration::ZERO;
         let mut render_elapsed = Duration::ZERO;
+        let mut submit_count = 0u32;
+        let mut upload_bytes = 0u64;
+        let mut ui_alloc_bytes = 0u64;
         if scene_dirty || self.needs_redraw {
             self.top_view.update(
                 &self.project,
@@ -212,14 +217,30 @@ impl GuiApp {
                 self.panel_width,
             );
             scene_elapsed = scene_start.elapsed();
+            ui_alloc_bytes = frame.ui_alloc_bytes;
 
             let render_start = Instant::now();
             self.renderer
                 .render(frame, self.top_view.frame(), self.panel_width)?;
             render_elapsed = render_start.elapsed();
+            let render_perf = self.renderer.take_perf_counters();
+            submit_count = render_perf.submit_count;
+            upload_bytes = render_perf.upload_bytes;
+            ui_alloc_bytes = ui_alloc_bytes.saturating_add(render_perf.alloc_bytes);
         }
 
         let total_elapsed = frame_start.elapsed();
+        telemetry::record_counter_u64("gui.gpu.submit_count_per_frame", submit_count as u64);
+        telemetry::record_counter_u64("gui.gpu.upload_bytes_per_frame", upload_bytes);
+        telemetry::record_counter_u64("gui.hit_test.scan_count_per_frame", hit_test_scans);
+        telemetry::record_counter_u64("gui.ui.alloc_bytes_per_frame", ui_alloc_bytes);
+        let total_secs = total_elapsed.as_secs_f64();
+        if total_secs > 0.0 {
+            telemetry::record_counter(
+                "gui.ui.alloc_bytes_per_second",
+                ui_alloc_bytes as f64 / total_secs,
+            );
+        }
         self.perf.record(
             self.frame_counter,
             input_elapsed,
@@ -227,6 +248,10 @@ impl GuiApp {
             scene_elapsed,
             render_elapsed,
             total_elapsed,
+            submit_count,
+            upload_bytes,
+            hit_test_scans,
+            ui_alloc_bytes,
         );
         self.update_loop_policy();
         self.update_title(frame_start);

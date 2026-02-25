@@ -56,6 +56,14 @@ struct ReadbackSlot {
 pub(crate) struct GraphFrameContext {
     encoder: wgpu::CommandEncoder,
     encoded_ops: u32,
+    upload_bytes: u64,
+}
+
+/// Submission metrics for one frame-scoped graph execution.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct GraphSubmitStats {
+    pub(crate) submit_count: u32,
+    pub(crate) upload_bytes: u64,
 }
 
 impl GpuLayerRenderer {

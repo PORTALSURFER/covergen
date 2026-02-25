@@ -20,6 +20,20 @@ use setup::{
 };
 use top_preview::TopPreviewRenderer;
 
+/// Per-frame GUI renderer counters.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct GuiRenderPerfCounters {
+    pub(crate) submit_count: u32,
+    pub(crate) upload_bytes: u64,
+    pub(crate) alloc_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct LayerRebuildStats {
+    upload_bytes: u64,
+    alloc_bytes: u64,
+}
+
 /// Retained GPU buffers/vertices for one scene layer.
 #[derive(Debug)]
 struct LayerGpuGeometry {
@@ -61,7 +75,9 @@ impl LayerGpuGeometry {
         queue: &wgpu::Queue,
         layer: &SceneLayer,
         label_prefix: &str,
-    ) {
+    ) -> LayerRebuildStats {
+        let tri_capacity_before = self.triangle_vertices.capacity();
+        let line_capacity_before = self.line_vertices.capacity();
         self.triangle_vertices.clear();
         self.line_vertices.clear();
 
@@ -92,8 +108,25 @@ impl LayerGpuGeometry {
             self.line_vertices.len(),
             label_prefix,
         );
+        let mut stats = LayerRebuildStats::default();
+        stats.alloc_bytes = self
+            .triangle_vertices
+            .capacity()
+            .saturating_sub(tri_capacity_before)
+            .saturating_mul(std::mem::size_of::<Vertex>())
+            .saturating_add(
+                self.line_vertices
+                    .capacity()
+                    .saturating_sub(line_capacity_before)
+                    .saturating_mul(std::mem::size_of::<Vertex>()),
+            ) as u64;
 
         if !self.triangle_vertices.is_empty() {
+            stats.upload_bytes = stats.upload_bytes.saturating_add(
+                self.triangle_vertices
+                    .len()
+                    .saturating_mul(std::mem::size_of::<Vertex>()) as u64,
+            );
             queue.write_buffer(
                 &self.triangle_buffer,
                 0,
@@ -101,6 +134,11 @@ impl LayerGpuGeometry {
             );
         }
         if !self.line_vertices.is_empty() {
+            stats.upload_bytes = stats.upload_bytes.saturating_add(
+                self.line_vertices
+                    .len()
+                    .saturating_mul(std::mem::size_of::<Vertex>()) as u64,
+            );
             queue.write_buffer(
                 &self.line_buffer,
                 0,
@@ -110,6 +148,7 @@ impl LayerGpuGeometry {
 
         self.triangle_count = self.triangle_vertices.len() as u32;
         self.line_count = self.line_vertices.len() as u32;
+        stats
     }
 
     fn ensure_capacity(
@@ -155,6 +194,7 @@ pub(crate) struct GuiRenderer {
     nodes_geometry: LayerGpuGeometry,
     overlays_geometry: LayerGpuGeometry,
     uniform_dirty: bool,
+    frame_perf: GuiRenderPerfCounters,
 }
 
 impl GuiRenderer {
@@ -234,6 +274,7 @@ impl GuiRenderer {
             nodes_geometry,
             overlays_geometry,
             uniform_dirty: false,
+            frame_perf: GuiRenderPerfCounters::default(),
         })
     }
 
@@ -268,8 +309,21 @@ impl GuiRenderer {
         top_view: Option<TopViewerFrame<'_>>,
         panel_width: usize,
     ) -> Result<(), Box<dyn Error>> {
-        self.rebuild_dirty_layers(frame);
+        self.frame_perf = GuiRenderPerfCounters::default();
+        let rebuild = self.rebuild_dirty_layers(frame);
+        self.frame_perf.upload_bytes = self
+            .frame_perf
+            .upload_bytes
+            .saturating_add(rebuild.upload_bytes);
+        self.frame_perf.alloc_bytes = self
+            .frame_perf
+            .alloc_bytes
+            .saturating_add(rebuild.alloc_bytes);
         if self.uniform_dirty {
+            self.frame_perf.upload_bytes = self
+                .frame_perf
+                .upload_bytes
+                .saturating_add(std::mem::size_of::<ViewportUniform>() as u64);
             self.queue.write_buffer(
                 &self.uniform_buffer,
                 0,
@@ -277,37 +331,66 @@ impl GuiRenderer {
             );
             self.uniform_dirty = false;
         }
-        self.render_surface(
+        let top_preview_upload_bytes = self.render_surface(
             frame.clear.unwrap_or(Color::argb(0xFF000000)),
             panel_width,
             top_view,
-        )
+        )?;
+        self.frame_perf.upload_bytes = self
+            .frame_perf
+            .upload_bytes
+            .saturating_add(top_preview_upload_bytes);
+        self.frame_perf.submit_count = 1;
+        Ok(())
     }
 
-    fn rebuild_dirty_layers(&mut self, frame: &SceneFrame) {
+    /// Return and reset renderer counters from the most recent frame.
+    pub(crate) fn take_perf_counters(&mut self) -> GuiRenderPerfCounters {
+        let counters = self.frame_perf;
+        self.frame_perf = GuiRenderPerfCounters::default();
+        counters
+    }
+
+    fn rebuild_dirty_layers(&mut self, frame: &SceneFrame) -> LayerRebuildStats {
+        let mut stats = LayerRebuildStats::default();
         if !frame.dirty.any() {
-            return;
+            return stats;
         }
         if frame.dirty.static_panel {
-            self.static_panel_geometry.rebuild(
+            let layer = self.static_panel_geometry.rebuild(
                 &self.device,
                 &self.queue,
                 &frame.static_panel,
                 "static-panel",
             );
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
         if frame.dirty.edges {
-            self.edges_geometry
-                .rebuild(&self.device, &self.queue, &frame.edges, "edges");
+            let layer =
+                self.edges_geometry
+                    .rebuild(&self.device, &self.queue, &frame.edges, "edges");
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
         if frame.dirty.nodes {
-            self.nodes_geometry
-                .rebuild(&self.device, &self.queue, &frame.nodes, "nodes");
+            let layer =
+                self.nodes_geometry
+                    .rebuild(&self.device, &self.queue, &frame.nodes, "nodes");
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
         if frame.dirty.overlays {
-            self.overlays_geometry
-                .rebuild(&self.device, &self.queue, &frame.overlays, "overlays");
+            let layer = self.overlays_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.overlays,
+                "overlays",
+            );
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
+        stats
     }
 
     fn render_surface(
@@ -315,7 +398,7 @@ impl GuiRenderer {
         clear: Color,
         panel_width: usize,
         top_view: Option<TopViewerFrame<'_>>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<u64, Box<dyn Error>> {
         let surface_tex = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -335,8 +418,9 @@ impl GuiRenderer {
                 label: Some("gui-render-encoder"),
             });
 
-        self.top_preview
-            .prepare(&self.device, &self.queue, top_view, &mut encoder);
+        let top_preview_upload_bytes =
+            self.top_preview
+                .prepare(&self.device, &self.queue, top_view, &mut encoder);
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -371,7 +455,7 @@ impl GuiRenderer {
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_tex.present();
-        Ok(())
+        Ok(top_preview_upload_bytes)
     }
 
     fn draw_layer<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, layer: &'a LayerGpuGeometry) {

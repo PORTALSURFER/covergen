@@ -15,15 +15,16 @@ impl TopPreviewRenderer {
         queue: &wgpu::Queue,
         top_view: Option<TopViewerFrame<'_>>,
         encoder: &mut wgpu::CommandEncoder,
-    ) {
+    ) -> u64 {
         let Some(top_view) = top_view else {
             self.viewer_visible = false;
-            return;
+            return 0;
         };
         if top_view.width == 0 || top_view.height == 0 {
             self.viewer_visible = false;
-            return;
+            return 0;
         }
+        let mut upload_bytes = 0u64;
         self.ensure_viewer_texture(device, top_view.width, top_view.height);
         let rect = Rect::new(
             top_view.x,
@@ -32,22 +33,21 @@ impl TopPreviewRenderer {
             top_view.height as i32,
         );
         let quad = viewer::quad_vertices(rect);
+        upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
         queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
 
         let ops = match top_view.payload {
             TopViewerPayload::GpuOps(ops) => ops,
         };
-        if !self.encode_gpu_ops(
-            device,
-            queue,
-            encoder,
-            ops,
-            top_view.width,
-            top_view.height,
-        ) {
+        if let Some(op_upload_bytes) =
+            self.encode_gpu_ops(device, queue, encoder, ops, top_view.width, top_view.height)
+        {
+            upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
+        } else {
             self.clear_viewer_target(encoder);
         }
         self.viewer_visible = true;
+        upload_bytes
     }
 
     fn encode_gpu_ops(
@@ -58,10 +58,11 @@ impl TopPreviewRenderer {
         ops: &[TopViewerOp],
         width: u32,
         height: u32,
-    ) -> bool {
+    ) -> Option<u64> {
         if ops.is_empty() {
-            return false;
+            return None;
         }
+        let mut upload_bytes = 0u64;
         if ops.len() > 1 {
             self.ensure_scratch_textures(device, width, height);
         }
@@ -79,7 +80,7 @@ impl TopPreviewRenderer {
                 RenderTargetRef::ScratchA
             };
             let Some(target_view) = self.target_view(target) else {
-                return false;
+                return None;
             };
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -99,6 +100,8 @@ impl TopPreviewRenderer {
 
             match op {
                 TopViewerOp::Solid { .. } => {
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
                         0,
@@ -110,11 +113,13 @@ impl TopPreviewRenderer {
                 }
                 TopViewerOp::Transform { .. } => {
                     let Some(src_target) = source_target else {
-                        return false;
+                        return None;
                     };
                     let Some(src_bind_group) = self.target_bind_group(src_target) else {
-                        return false;
+                        return None;
                     };
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
                         0,
@@ -128,7 +133,7 @@ impl TopPreviewRenderer {
             pass.draw(0..6, 0..1);
             source_target = Some(target);
         }
-        true
+        Some(upload_bytes)
     }
 
     fn clear_viewer_target(&mut self, encoder: &mut wgpu::CommandEncoder) {

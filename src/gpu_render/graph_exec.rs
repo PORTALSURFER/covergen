@@ -7,7 +7,7 @@ use crate::proc_graph::SopPrimitive;
 use crate::sop::TopCameraRenderNode;
 
 use super::graph_ops::{DecodeBuffers, GraphBuffers, GraphOpUniforms};
-use super::{GpuLayerRenderer, GraphFrameContext};
+use super::{GpuLayerRenderer, GraphFrameContext, GraphSubmitStats};
 
 impl GpuLayerRenderer {
     /// Start one frame-scoped graph execution context.
@@ -18,17 +18,24 @@ impl GpuLayerRenderer {
         GraphFrameContext {
             encoder,
             encoded_ops: 0,
+            upload_bytes: 0,
         }
     }
 
     /// Submit one recorded graph frame and return submit count (0 or 1).
-    pub(crate) fn submit_graph_frame(&self, frame: GraphFrameContext) -> u32 {
+    pub(crate) fn submit_graph_frame(&self, frame: GraphFrameContext) -> GraphSubmitStats {
         if frame.encoded_ops == 0 {
-            return 0;
+            return GraphSubmitStats {
+                submit_count: 0,
+                upload_bytes: frame.upload_bytes,
+            };
         }
-        let mut encoder = frame.encoder;
+        let encoder = frame.encoder;
         self.queue.submit(Some(encoder.finish()));
-        1
+        GraphSubmitStats {
+            submit_count: 1,
+            upload_bytes: frame.upload_bytes,
+        }
     }
 
     /// Ensure aliased node-output buffers are allocated once for the active graph.
@@ -130,20 +137,25 @@ impl GpuLayerRenderer {
 
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(std::mem::size_of::<Params>() as u64);
         self.dispatch_main_pass(&mut frame.encoder, params);
         let decode_buffers = DecodeBuffers {
             src_u32: &self.out_buffer,
             dst: &self.node_layer_temp_buffer,
         };
-        self.graph_ops.encode_decode_layer(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            decode_buffers,
-            self.width,
-            self.height,
-            contrast,
-        );
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_decode_layer(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                decode_buffers,
+                self.width,
+                self.height,
+                contrast,
+            ));
 
         if let Some(base_slot) = input_base_slot {
             let base = self.alias_luma(base_slot)?;
@@ -156,13 +168,15 @@ impl GpuLayerRenderer {
             let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
             uniforms.mode = blend_mode % 10;
             uniforms.p0 = opacity.clamp(0.0, 1.0);
-            self.graph_ops.encode_blend(
-                &self.device,
-                &self.queue,
-                &mut frame.encoder,
-                blend_buffers,
-                uniforms,
-            );
+            frame.upload_bytes = frame
+                .upload_bytes
+                .saturating_add(self.graph_ops.encode_blend(
+                    &self.device,
+                    &self.queue,
+                    &mut frame.encoder,
+                    blend_buffers,
+                    uniforms,
+                ));
         } else {
             let copy_buffers = GraphBuffers {
                 src0: &self.node_layer_temp_buffer,
@@ -170,14 +184,16 @@ impl GpuLayerRenderer {
                 src2: &self.node_layer_temp_buffer,
                 dst: output,
             };
-            self.graph_ops.encode_copy(
-                &self.device,
-                &self.queue,
-                &mut frame.encoder,
-                copy_buffers,
-                self.width,
-                self.height,
-            );
+            frame.upload_bytes = frame
+                .upload_bytes
+                .saturating_add(self.graph_ops.encode_copy(
+                    &self.device,
+                    &self.queue,
+                    &mut frame.encoder,
+                    copy_buffers,
+                    self.width,
+                    self.height,
+                ));
         }
 
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
@@ -214,13 +230,15 @@ impl GpuLayerRenderer {
         uniforms.octaves = octaves.max(1).min(8);
         uniforms.p0 = scale;
         uniforms.p1 = amplitude;
-        self.graph_ops.encode_source_noise(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            buffers,
-            uniforms,
-        );
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_source_noise(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                buffers,
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -247,8 +265,15 @@ impl GpuLayerRenderer {
         uniforms.p0 = threshold;
         uniforms.p1 = softness;
         uniforms.flags = if invert { 0x2 } else { 0 };
-        self.graph_ops
-            .encode_mask(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_mask(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                buffers,
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -281,8 +306,15 @@ impl GpuLayerRenderer {
         uniforms.mode = mode % 10;
         uniforms.flags = u32::from(mask_slot.is_some());
         uniforms.p0 = opacity;
-        self.graph_ops
-            .encode_blend(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_blend(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                buffers,
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -309,8 +341,15 @@ impl GpuLayerRenderer {
         uniforms.p0 = contrast;
         uniforms.p1 = low;
         uniforms.p2 = high;
-        self.graph_ops
-            .encode_tone_map(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_tone_map(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                buffers,
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -337,8 +376,15 @@ impl GpuLayerRenderer {
         uniforms.p0 = strength;
         uniforms.p1 = frequency;
         uniforms.p2 = phase;
-        self.graph_ops
-            .encode_warp(&self.device, &self.queue, &mut frame.encoder, buffers, uniforms);
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_warp(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                buffers,
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -357,31 +403,35 @@ impl GpuLayerRenderer {
         let feedback = self.alias_feedback(feedback_slot)?;
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
         uniforms.p0 = mix.clamp(0.0, 1.0);
-        self.graph_ops.encode_feedback_mix(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            GraphBuffers {
-                src0: input,
-                src1: feedback,
-                src2: feedback,
-                dst: output,
-            },
-            uniforms,
-        );
-        self.graph_ops.encode_copy(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            GraphBuffers {
-                src0: output,
-                src1: output,
-                src2: output,
-                dst: feedback,
-            },
-            self.width,
-            self.height,
-        );
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_feedback_mix(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                GraphBuffers {
+                    src0: input,
+                    src1: feedback,
+                    src2: feedback,
+                    dst: output,
+                },
+                uniforms,
+            ));
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_copy(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                GraphBuffers {
+                    src0: output,
+                    src1: output,
+                    src2: output,
+                    dst: feedback,
+                },
+                self.width,
+                self.height,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -426,18 +476,20 @@ impl GpuLayerRenderer {
                 uniforms.octaves = sphere.ambient.to_bits();
             }
         }
-        self.graph_ops.encode_top_camera(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            GraphBuffers {
-                src0: &self.node_layer_temp_buffer,
-                src1: &self.node_layer_temp_buffer,
-                src2: &self.node_layer_temp_buffer,
-                dst: output,
-            },
-            uniforms,
-        );
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_top_camera(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                GraphBuffers {
+                    src0: &self.node_layer_temp_buffer,
+                    src1: &self.node_layer_temp_buffer,
+                    src2: &self.node_layer_temp_buffer,
+                    dst: output,
+                },
+                uniforms,
+            ));
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }
@@ -466,19 +518,21 @@ impl GpuLayerRenderer {
         }
 
         let primary = self.alias_luma(primary_slot)?;
-        self.graph_ops.encode_copy(
-            &self.device,
-            &self.queue,
-            &mut frame.encoder,
-            GraphBuffers {
-                src0: primary,
-                src1: primary,
-                src2: primary,
-                dst: &self.node_layer_temp_buffer,
-            },
-            self.width,
-            self.height,
-        );
+        frame.upload_bytes = frame
+            .upload_bytes
+            .saturating_add(self.graph_ops.encode_copy(
+                &self.device,
+                &self.queue,
+                &mut frame.encoder,
+                GraphBuffers {
+                    src0: primary,
+                    src1: primary,
+                    src2: primary,
+                    dst: &self.node_layer_temp_buffer,
+                },
+                self.width,
+                self.height,
+            ));
 
         let mut active = &self.node_layer_temp_buffer;
         let mut scratch = &self.node_composite_temp_buffer;
@@ -487,22 +541,25 @@ impl GpuLayerRenderer {
             let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
             uniforms.mode = 3; // Screen blend keeps taps additive but avoids hard clipping.
             uniforms.p0 = compositor_tap_opacity(index, *tap_slot);
-            self.graph_ops.encode_blend(
-                &self.device,
-                &self.queue,
-                &mut frame.encoder,
-                GraphBuffers {
-                    src0: active,
-                    src1: tap,
-                    src2: tap,
-                    dst: scratch,
-                },
-                uniforms,
-            );
+            frame.upload_bytes = frame
+                .upload_bytes
+                .saturating_add(self.graph_ops.encode_blend(
+                    &self.device,
+                    &self.queue,
+                    &mut frame.encoder,
+                    GraphBuffers {
+                        src0: active,
+                        src1: tap,
+                        src2: tap,
+                        dst: scratch,
+                    },
+                    uniforms,
+                ));
             std::mem::swap(&mut active, &mut scratch);
         }
 
-        self.retained.encode_copy_from_luma(&mut frame.encoder, active);
+        self.retained
+            .encode_copy_from_luma(&mut frame.encoder, active);
         frame.encoded_ops = frame.encoded_ops.saturating_add(1);
         Ok(())
     }

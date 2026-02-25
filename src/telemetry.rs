@@ -37,6 +37,15 @@ pub(crate) struct MemorySample {
     pub(crate) hwm_bytes: u64,
 }
 
+/// One named scalar counter sample.
+#[derive(Clone, Debug)]
+pub(crate) struct CounterSample {
+    /// Fully qualified counter scope, for example `v2.gpu.upload_bytes.frame`.
+    pub(crate) scope: String,
+    /// Recorded counter value.
+    pub(crate) value: f64,
+}
+
 /// Completed telemetry capture for one benchmark sample.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CaptureReport {
@@ -48,6 +57,8 @@ pub(crate) struct CaptureReport {
     pub(crate) frames: Vec<FrameSample>,
     /// Recorded memory snapshots.
     pub(crate) memory: Vec<MemorySample>,
+    /// Recorded scalar counters.
+    pub(crate) counters: Vec<CounterSample>,
 }
 
 #[derive(Default)]
@@ -158,6 +169,30 @@ pub(crate) fn snapshot_memory(label: impl Into<String>) {
     });
 }
 
+/// Record one scalar counter sample.
+pub(crate) fn record_counter(scope: impl Into<String>, value: f64) {
+    if !is_capture_active() {
+        return;
+    }
+    if !value.is_finite() {
+        return;
+    }
+    let scope = scope.into();
+    with_state_mut(|state| {
+        if let Some(active) = state.active.as_mut() {
+            active.counters.push(CounterSample { scope, value });
+        }
+    });
+}
+
+/// Record one scalar counter sample from an integer value.
+pub(crate) fn record_counter_u64(scope: impl Into<String>, value: u64) {
+    if !is_capture_active() {
+        return;
+    }
+    record_counter(scope, value as f64);
+}
+
 fn read_memory_bytes() -> Option<(u64, u64)> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let mut rss_bytes = None;
@@ -187,10 +222,12 @@ mod tests {
         begin_capture("sample");
         record_timing_ms("scope", 4.0);
         record_frame("frame", Duration::from_millis(8));
+        record_counter_u64("counter", 7);
         let report = end_capture().expect("capture should exist");
         assert_eq!(report.run_label, "sample");
         assert_eq!(report.timings.len(), 1);
         assert_eq!(report.frames.len(), 1);
+        assert_eq!(report.counters.len(), 1);
     }
 
     #[test]
@@ -209,11 +246,13 @@ mod tests {
         record_timing_ms("inactive.timing", 1.0);
         record_frame("inactive.frame", Duration::from_millis(1));
         snapshot_memory("inactive.memory");
+        record_counter_u64("inactive.counter", 1);
         begin_capture("post-inactive");
         let report = end_capture().expect("capture should exist");
         assert!(report.timings.is_empty());
         assert!(report.frames.is_empty());
         assert!(report.memory.is_empty());
+        assert!(report.counters.is_empty());
     }
 
     #[test]

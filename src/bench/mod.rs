@@ -27,7 +27,7 @@ use crate::telemetry::{self, CaptureReport};
 use baseline::{validate_thresholds, write_locked_thresholds, write_metrics_snapshot};
 use contracts::validate_output_contract_for_bench;
 use report::render_report;
-use stats::{summarize_node_timings, summarize_scenario};
+use stats::{summarize_counters, summarize_node_timings, summarize_scenario};
 
 /// Parsed CLI options for `covergen bench`.
 #[derive(Clone, Debug)]
@@ -141,10 +141,16 @@ pub(crate) async fn run_with_config(config: BenchConfig) -> Result<(), Box<dyn E
     }
 
     let node_timing = summarize_node_timings(&v2_still_samples, &v2_animation_samples);
+    let counter_summary = summarize_counters(&[
+        v2_compile_samples.as_slice(),
+        v2_still_samples.as_slice(),
+        v2_animation_samples.as_slice(),
+    ]);
     let report = render_report(
         &config,
         &summaries,
         &node_timing,
+        &counter_summary,
         &skip_notes,
         &cutover_notes,
     );
