@@ -87,6 +87,7 @@ Realtime GUI controls:
 - `Esc`: quit
 - `Space`: pause/resume timeline
 - `Tab`: open/close Add Node menu
+- `Delete`: remove selected nodes
 - `Up` / `Down`: change Add Node selection
 - `Enter` or left click in menu: place selected node
 - Left click + drag on node: move node in graph editor

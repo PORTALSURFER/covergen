@@ -473,6 +473,31 @@ impl GuiProject {
         true
     }
 
+    /// Delete all nodes in `node_ids` and remove any links that referenced them.
+    ///
+    /// Returns `true` when at least one node was removed.
+    pub(crate) fn delete_nodes(&mut self, node_ids: &[u32]) -> bool {
+        if node_ids.is_empty() {
+            return false;
+        }
+        let mut removed_ids = node_ids.to_vec();
+        removed_ids.sort_unstable();
+        removed_ids.dedup();
+        let before_len = self.nodes.len();
+        self.nodes
+            .retain(|node| !contains_sorted_id(removed_ids.as_slice(), node.id()));
+        let removed_any = self.nodes.len() != before_len;
+        let mut links_changed = false;
+        for node in &mut self.nodes {
+            links_changed |= clear_deleted_links(node, removed_ids.as_slice());
+        }
+        if !removed_any && !links_changed {
+            return false;
+        }
+        self.recount_edges();
+        true
+    }
+
     /// Return source node id wired into the first `io.window_out` node, if any.
     pub(crate) fn window_out_input_node_id(&self) -> Option<u32> {
         let output = self
@@ -922,6 +947,32 @@ fn rebuild_node_inputs(node: &mut ProjectNode) {
     }
 }
 
+fn clear_deleted_links(node: &mut ProjectNode, removed_ids: &[u32]) -> bool {
+    let mut changed = false;
+    if let Some(source) = node.texture_input {
+        if contains_sorted_id(removed_ids, source) {
+            node.texture_input = None;
+            changed = true;
+        }
+    }
+    for slot in &mut node.params {
+        if let Some(source) = slot.signal_source {
+            if contains_sorted_id(removed_ids, source) {
+                slot.signal_source = None;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        rebuild_node_inputs(node);
+    }
+    changed
+}
+
+fn contains_sorted_id(ids: &[u32], id: u32) -> bool {
+    ids.binary_search(&id).is_ok()
+}
+
 fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     let dx = ax - bx;
     let dy = ay - by;
@@ -1025,6 +1076,23 @@ mod tests {
         assert!(project.disconnect_link(lfo, solid));
         assert!(project.disconnect_link(solid, out));
         assert_eq!(project.edge_count(), 0);
+    }
+
+    #[test]
+    fn delete_nodes_removes_nodes_and_clears_referenced_links() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 160, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 40, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        assert!(project.select_next_param(solid));
+        assert!(project.connect_image_link(lfo, solid));
+        assert!(project.edge_count() >= 2);
+        assert!(project.delete_nodes(&[solid]));
+        assert!(project.node(solid).is_none());
+        assert_eq!(project.edge_count(), 0);
+        assert!(project.window_out_input_node_id().is_none());
     }
 
     #[test]

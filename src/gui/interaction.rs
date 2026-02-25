@@ -102,6 +102,7 @@ pub(crate) fn apply_preview_actions(
     if state.menu.open {
         changed |= handle_add_menu_input(&input, project, panel_width, panel_height, state);
     } else {
+        changed |= handle_delete_selected_nodes(&input, project, state);
         changed |= handle_parameter_shortcuts(&input, project, state);
         changed |= handle_wire_input(&input, project, panel_width, panel_height, state);
         if state.wire_drag.is_none() {
@@ -263,6 +264,30 @@ fn handle_parameter_shortcuts(
         changed |= project.adjust_selected_param(node_id, 1.0);
     }
     changed
+}
+
+fn handle_delete_selected_nodes(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    state: &mut PreviewState,
+) -> bool {
+    if !input.param_delete || state.selected_nodes.is_empty() {
+        return false;
+    }
+    if !project.delete_nodes(state.selected_nodes.as_slice()) {
+        return false;
+    }
+    state.selected_nodes.clear();
+    state.active_node = None;
+    state.hover_node = None;
+    state.hover_output_pin = None;
+    state.hover_input_pin = None;
+    state.drag = None;
+    state.wire_drag = None;
+    state.right_marquee = None;
+    state.link_cut = None;
+    state.param_edit = None;
+    true
 }
 
 fn handle_right_selection(
@@ -1232,11 +1257,13 @@ fn focus_bounds(
 #[cfg(test)]
 mod tests {
     use super::{
-        backspace_param_text, can_append_param_char, insert_param_char, marquee_moved,
-        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
-        RightMarqueeState,
+        backspace_param_text, can_append_param_char, handle_delete_selected_nodes, insert_param_char,
+        marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
+        segments_intersect, RightMarqueeState,
     };
-    use crate::gui::state::ParamEditState;
+    use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::state::{InputSnapshot, ParamEditState, PreviewState};
+    use crate::runtime_config::V2Config;
 
     #[test]
     fn segments_intersect_detects_crossing_lines() {
@@ -1325,5 +1352,25 @@ mod tests {
         assert!(move_param_cursor_right(&mut edit, false));
         assert_eq!(edit.cursor, 2);
         assert_eq!(edit.anchor, 2);
+    }
+
+    #[test]
+    fn delete_hotkey_removes_selected_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project.connect_image_link(top, out));
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.selected_nodes.push(top);
+        state.active_node = Some(top);
+        let input = InputSnapshot {
+            param_delete: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_delete_selected_nodes(&input, &mut project, &mut state));
+        assert!(project.node(top).is_none());
+        assert_eq!(project.edge_count(), 0);
+        assert!(state.selected_nodes.is_empty());
+        assert!(state.active_node.is_none());
     }
 }
