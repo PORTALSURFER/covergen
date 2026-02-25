@@ -15,6 +15,7 @@ mod state;
 mod text;
 mod theme;
 mod top_view;
+mod top_view_cpu;
 
 use std::error::Error;
 use std::sync::Arc;

@@ -1,23 +1,51 @@
-//! CPU-side TOP viewer buffer generation for GUI preview.
+//! GUI TOP preview planning with GPU-first evaluation.
 //!
-//! The preview evaluator currently supports a small typed subset:
-//!
-//! - `tex.solid`: generates a circle texture.
-//! - `tex.transform_2d`: mutates incoming texture color and alpha.
-//! - `ctl.lfo`: generates scalar signals used by parameter bindings.
-//! - `io.window_out`: output sink.
-//!
-//! Evaluation is pull-based from `io.window_out`.
+//! The generator produces a cached per-frame preview payload. For supported
+//! node chains, the payload is a GPU operation list executed directly in the
+//! renderer. Unsupported chains fall back to CPU rasterization.
 
 use super::project::{GuiProject, ProjectNodeKind};
+use super::top_view_cpu::generate_output_pixels;
 
-/// Borrowed output buffer view consumed by the GUI renderer.
+/// One GPU-evaluable preview operation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum TopViewerOp {
+    /// `tex.solid` operation.
+    Solid {
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        feather: f32,
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+        alpha: f32,
+    },
+    /// `tex.transform_2d` operation.
+    Transform {
+        brightness: f32,
+        gain_r: f32,
+        gain_g: f32,
+        gain_b: f32,
+        alpha_mul: f32,
+    },
+}
+
+/// TOP viewer payload consumed by the GUI renderer.
+pub(crate) enum TopViewerPayload<'a> {
+    /// CPU-generated RGBA8 pixels.
+    CpuRgba8(&'a [u8]),
+    /// GPU operation chain executed into the viewer target.
+    GpuOps(&'a [TopViewerOp]),
+}
+
+/// Borrowed frame payload for one TOP viewer render.
 pub(crate) struct TopViewerFrame<'a> {
     pub(crate) x: i32,
     pub(crate) y: i32,
     pub(crate) width: u32,
     pub(crate) height: u32,
-    pub(crate) rgba8: &'a [u8],
+    pub(crate) payload: TopViewerPayload<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,21 +56,46 @@ struct ViewerCacheKey {
     frame_index: u32,
 }
 
-/// Cached TOP preview buffer producer.
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewerContentMode {
+    Cpu,
+    Gpu,
+}
+
+/// Cached TOP preview payload producer.
+#[derive(Debug)]
 pub(crate) struct TopViewerGenerator {
     key: Option<ViewerCacheKey>,
     width: u32,
     height: u32,
     x: i32,
     y: i32,
+    content_mode: ViewerContentMode,
     pixels: Vec<u8>,
     scratch: Vec<u8>,
+    ops: Vec<TopViewerOp>,
     eval_stack: Vec<u32>,
 }
 
+impl Default for TopViewerGenerator {
+    fn default() -> Self {
+        Self {
+            key: None,
+            width: 0,
+            height: 0,
+            x: 0,
+            y: 0,
+            content_mode: ViewerContentMode::Cpu,
+            pixels: Vec::new(),
+            scratch: Vec::new(),
+            ops: Vec::new(),
+            eval_stack: Vec::new(),
+        }
+    }
+}
+
 impl TopViewerGenerator {
-    /// Update cached viewer buffer for current panel split and project wiring.
+    /// Update cached viewer payload for current panel split and graph state.
     pub(crate) fn update(
         &mut self,
         project: &GuiProject,
@@ -74,6 +127,13 @@ impl TopViewerGenerator {
         self.key = Some(key);
         self.width = width;
         self.height = height;
+        let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
+        if self.build_gpu_ops(project, time_secs) {
+            self.content_mode = ViewerContentMode::Gpu;
+            return;
+        }
+
+        self.content_mode = ViewerContentMode::Cpu;
         let pixel_count = width.saturating_mul(height).saturating_mul(4) as usize;
         self.pixels.resize(pixel_count, 0);
         self.scratch.resize(pixel_count, 0);
@@ -84,118 +144,60 @@ impl TopViewerGenerator {
             width,
             height,
             project,
-            frame_index as f32 / timeline_fps.max(1) as f32,
+            time_secs,
             &mut self.eval_stack,
         );
     }
 
-    /// Return current frame view, if viewer dimensions are valid.
+    /// Return current frame payload, if viewer dimensions are valid.
     pub(crate) fn frame(&self) -> Option<TopViewerFrame<'_>> {
-        if self.width == 0 || self.height == 0 || self.pixels.is_empty() {
+        if self.width == 0 || self.height == 0 {
             return None;
         }
+        let payload = match self.content_mode {
+            ViewerContentMode::Cpu => {
+                if self.pixels.is_empty() {
+                    return None;
+                }
+                TopViewerPayload::CpuRgba8(self.pixels.as_slice())
+            }
+            ViewerContentMode::Gpu => {
+                if self.ops.is_empty() {
+                    return None;
+                }
+                TopViewerPayload::GpuOps(self.ops.as_slice())
+            }
+        };
         Some(TopViewerFrame {
             x: self.x,
             y: self.y,
             width: self.width,
             height: self.height,
-            rgba8: self.pixels.as_slice(),
+            payload,
         })
     }
-}
 
-fn generate_output_pixels(
-    out: &mut [u8],
-    scratch: &mut [u8],
-    width: u32,
-    height: u32,
-    project: &GuiProject,
-    time_secs: f32,
-    eval_stack: &mut Vec<u32>,
-) {
-    fill_rgba(out, 8, 8, 8, 255);
-    if width == 0 || height == 0 {
-        return;
-    }
-    let Some(output_source_id) = project.window_out_input_node_id() else {
-        return;
-    };
-    let rendered = render_node(
-        project,
-        output_source_id,
-        width,
-        height,
-        out,
-        scratch,
-        time_secs,
-        eval_stack,
-    );
-    if !rendered {
-        fill_rgba(out, 8, 8, 8, 255);
+    fn build_gpu_ops(&mut self, project: &GuiProject, time_secs: f32) -> bool {
+        self.ops.clear();
+        self.eval_stack.clear();
+        let Some(output_source_id) = project.window_out_input_node_id() else {
+            return false;
+        };
+        collect_gpu_ops(
+            project,
+            output_source_id,
+            time_secs,
+            &mut self.ops,
+            &mut self.eval_stack,
+        )
     }
 }
 
-fn fill_rgba(out: &mut [u8], r: u8, g: u8, b: u8, a: u8) {
-    for px in out.chunks_exact_mut(4) {
-        px[0] = r;
-        px[1] = g;
-        px[2] = b;
-        px[3] = a;
-    }
-}
-
-fn draw_circle(
-    out: &mut [u8],
-    width: u32,
-    height: u32,
-    center_x: f32,
-    center_y: f32,
-    radius_norm: f32,
-    feather_norm: f32,
-    color_r: f32,
-    color_g: f32,
-    color_b: f32,
-    alpha_mul: f32,
-) {
-    let cx = (width as f32) * center_x.clamp(0.0, 1.0);
-    let cy = (height as f32) * center_y.clamp(0.0, 1.0);
-    let radius = (width.min(height) as f32) * radius_norm.clamp(0.01, 1.0);
-    let feather = (width.min(height) as f32) * feather_norm.clamp(0.0, 0.5);
-    if radius <= 1.0 {
-        return;
-    }
-    for y in 0..height {
-        for x in 0..width {
-            let dx = x as f32 - cx;
-            let dy = y as f32 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let alpha = smoothstep(radius + feather, radius - feather, dist);
-            if alpha <= 0.0 {
-                continue;
-            }
-            let idx = ((y * width + x) * 4) as usize;
-            let blend = (alpha * alpha_mul.clamp(0.0, 1.0)).clamp(0.0, 1.0);
-            let tr = color_r.clamp(0.0, 1.0) * 255.0;
-            let tg = color_g.clamp(0.0, 1.0) * 255.0;
-            let tb = color_b.clamp(0.0, 1.0) * 255.0;
-            out[idx] = ((out[idx] as f32) * (1.0 - blend) + tr * blend).clamp(0.0, 255.0) as u8;
-            out[idx + 1] =
-                ((out[idx + 1] as f32) * (1.0 - blend) + tg * blend).clamp(0.0, 255.0) as u8;
-            out[idx + 2] =
-                ((out[idx + 2] as f32) * (1.0 - blend) + tb * blend).clamp(0.0, 255.0) as u8;
-            out[idx + 3] = 255;
-        }
-    }
-}
-
-fn render_node(
+fn collect_gpu_ops(
     project: &GuiProject,
     node_id: u32,
-    width: u32,
-    height: u32,
-    out: &mut [u8],
-    scratch: &mut [u8],
     time_secs: f32,
+    out_ops: &mut Vec<TopViewerOp>,
     eval_stack: &mut Vec<u32>,
 ) -> bool {
     if eval_stack.contains(&node_id) {
@@ -205,122 +207,96 @@ fn render_node(
         return false;
     };
     eval_stack.push(node_id);
-    let rendered = match node.kind() {
+    let ok = match node.kind() {
         ProjectNodeKind::TexSolid => {
-            fill_rgba(out, 8, 8, 8, 255);
-            let center_x = project
-                .node_param_value(node_id, "center_x", time_secs, eval_stack)
-                .unwrap_or(0.5);
-            let center_y = project
-                .node_param_value(node_id, "center_y", time_secs, eval_stack)
-                .unwrap_or(0.5);
-            let radius = project
-                .node_param_value(node_id, "radius", time_secs, eval_stack)
-                .unwrap_or(0.24);
-            let feather = project
-                .node_param_value(node_id, "feather", time_secs, eval_stack)
-                .unwrap_or(0.06);
-            let color_r = project
-                .node_param_value(node_id, "color_r", time_secs, eval_stack)
-                .unwrap_or(0.9);
-            let color_g = project
-                .node_param_value(node_id, "color_g", time_secs, eval_stack)
-                .unwrap_or(0.9);
-            let color_b = project
-                .node_param_value(node_id, "color_b", time_secs, eval_stack)
-                .unwrap_or(0.9);
-            let alpha = project
-                .node_param_value(node_id, "alpha", time_secs, eval_stack)
-                .unwrap_or(1.0);
-            draw_circle(
-                out, width, height, center_x, center_y, radius, feather, color_r, color_g, color_b,
-                alpha,
-            );
+            out_ops.push(TopViewerOp::Solid {
+                center_x: project
+                    .node_param_value(node_id, "center_x", time_secs, eval_stack)
+                    .unwrap_or(0.5),
+                center_y: project
+                    .node_param_value(node_id, "center_y", time_secs, eval_stack)
+                    .unwrap_or(0.5),
+                radius: project
+                    .node_param_value(node_id, "radius", time_secs, eval_stack)
+                    .unwrap_or(0.24),
+                feather: project
+                    .node_param_value(node_id, "feather", time_secs, eval_stack)
+                    .unwrap_or(0.06),
+                color_r: project
+                    .node_param_value(node_id, "color_r", time_secs, eval_stack)
+                    .unwrap_or(0.9),
+                color_g: project
+                    .node_param_value(node_id, "color_g", time_secs, eval_stack)
+                    .unwrap_or(0.9),
+                color_b: project
+                    .node_param_value(node_id, "color_b", time_secs, eval_stack)
+                    .unwrap_or(0.9),
+                alpha: project
+                    .node_param_value(node_id, "alpha", time_secs, eval_stack)
+                    .unwrap_or(1.0),
+            });
             true
         }
         ProjectNodeKind::TexTransform2D => {
             if let Some(source_id) = project.input_source_node_id(node_id) {
-                if !render_node(
-                    project, source_id, width, height, scratch, out, time_secs, eval_stack,
-                ) {
+                if !collect_gpu_ops(project, source_id, time_secs, out_ops, eval_stack) {
                     false
                 } else {
-                    out.copy_from_slice(scratch);
-                    let brightness = project
-                        .node_param_value(node_id, "brightness", time_secs, eval_stack)
-                        .unwrap_or(1.08);
-                    let gain_r = project
-                        .node_param_value(node_id, "gain_r", time_secs, eval_stack)
-                        .unwrap_or(0.45);
-                    let gain_g = project
-                        .node_param_value(node_id, "gain_g", time_secs, eval_stack)
-                        .unwrap_or(0.8);
-                    let gain_b = project
-                        .node_param_value(node_id, "gain_b", time_secs, eval_stack)
-                        .unwrap_or(1.0);
-                    let alpha_mul = project
-                        .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
-                        .unwrap_or(0.8);
-                    apply_tex_transform(out, brightness, gain_r, gain_g, gain_b, alpha_mul);
+                    out_ops.push(TopViewerOp::Transform {
+                        brightness: project
+                            .node_param_value(node_id, "brightness", time_secs, eval_stack)
+                            .unwrap_or(1.08),
+                        gain_r: project
+                            .node_param_value(node_id, "gain_r", time_secs, eval_stack)
+                            .unwrap_or(0.45),
+                        gain_g: project
+                            .node_param_value(node_id, "gain_g", time_secs, eval_stack)
+                            .unwrap_or(0.8),
+                        gain_b: project
+                            .node_param_value(node_id, "gain_b", time_secs, eval_stack)
+                            .unwrap_or(1.0),
+                        alpha_mul: project
+                            .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
+                            .unwrap_or(0.8),
+                    });
                     true
                 }
             } else {
                 false
             }
         }
-        ProjectNodeKind::CtlLfo => false,
-        ProjectNodeKind::IoWindowOut => false,
+        ProjectNodeKind::CtlLfo | ProjectNodeKind::IoWindowOut => false,
     };
     eval_stack.pop();
-    rendered
-}
-
-fn apply_tex_transform(
-    out: &mut [u8],
-    brightness: f32,
-    gain_r: f32,
-    gain_g: f32,
-    gain_b: f32,
-    alpha_mul: f32,
-) {
-    for px in out.chunks_exact_mut(4) {
-        let r = ((px[0] as f32) * gain_r * brightness).clamp(0.0, 255.0);
-        let g = ((px[1] as f32) * gain_g * brightness).clamp(0.0, 255.0);
-        let b = ((px[2] as f32) * gain_b * brightness).clamp(0.0, 255.0);
-        let a = ((px[3] as f32) * alpha_mul).clamp(0.0, 255.0);
-        px[0] = r as u8;
-        px[1] = g as u8;
-        px[2] = b as u8;
-        px[3] = a as u8;
-    }
-}
-
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+    ok
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TopViewerGenerator;
+    use super::{TopViewerGenerator, TopViewerOp, TopViewerPayload};
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
     #[test]
-    fn viewer_generates_pixels_when_solid_is_connected_to_window_out() {
+    fn supported_graph_emits_gpu_ops_payload() {
         let mut project = GuiProject::new_empty(640, 480);
         let top = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(top, out));
+
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
-        assert_eq!(frame.width, 540);
-        assert_eq!(frame.height, 540);
-        assert!(!frame.rgba8.is_empty());
+        match frame.payload {
+            TopViewerPayload::GpuOps(ops) => {
+                assert_eq!(ops.len(), 1);
+                assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
+            }
+            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
+        }
     }
 
     #[test]
-    fn transform_node_mutates_color_and_alpha() {
+    fn transform_chain_produces_solid_then_transform_ops() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
         let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 80, 420, 480);
@@ -331,19 +307,17 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
-        let cx = frame.width / 2;
-        let cy = frame.height / 2;
-        let idx = ((cy * frame.width + cx) * 4) as usize;
-        let r = frame.rgba8[idx];
-        let g = frame.rgba8[idx + 1];
-        let b = frame.rgba8[idx + 2];
-        let a = frame.rgba8[idx + 3];
-        assert!(r != g || g != b);
-        assert!(a < 255);
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
+        };
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TopViewerOp::Transform { .. }));
     }
 
     #[test]
-    fn lfo_can_bind_solid_color_parameter() {
+    fn lfo_binding_changes_gpu_op_parameter_over_time() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 180, 80, 420, 480);
@@ -358,12 +332,33 @@ mod tests {
 
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);
-        let frame0 = viewer.frame().expect("frame0");
-        let i = ((frame0.height / 2 * frame0.width + frame0.width / 2) * 4) as usize;
-        let r0 = frame0.rgba8[i];
+        let r0 = match viewer.frame().expect("frame0").payload {
+            TopViewerPayload::GpuOps(ops) => match ops[0] {
+                TopViewerOp::Solid { color_r, .. } => color_r,
+                _ => panic!("first op should be solid"),
+            },
+            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
+        };
         viewer.update(&project, 960, 540, 420, 60, 60);
-        let frame1 = viewer.frame().expect("frame1");
-        let r1 = frame1.rgba8[i];
+        let r1 = match viewer.frame().expect("frame1").payload {
+            TopViewerPayload::GpuOps(ops) => match ops[0] {
+                TopViewerOp::Solid { color_r, .. } => color_r,
+                _ => panic!("first op should be solid"),
+            },
+            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
+        };
         assert_ne!(r0, r1);
+    }
+
+    #[test]
+    fn disconnected_graph_uses_cpu_fallback_payload() {
+        let project = GuiProject::new_empty(640, 480);
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        match frame.payload {
+            TopViewerPayload::CpuRgba8(bytes) => assert!(!bytes.is_empty()),
+            TopViewerPayload::GpuOps(_) => panic!("expected CPU fallback payload"),
+        }
     }
 }
