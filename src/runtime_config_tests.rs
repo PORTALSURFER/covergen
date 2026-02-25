@@ -52,6 +52,12 @@ fn omitted_seed_generates_runtime_seed() {
 }
 
 #[test]
+fn gui_target_fps_defaults_to_sixty() {
+    let cfg = V2Config::parse(Vec::new()).expect("default configuration");
+    assert_eq!(cfg.gui.target_fps, 60);
+}
+
+#[test]
 fn parse_exploration_flags() {
     let cfg = V2Config::parse(vec![
         "--explore-candidates".to_string(),

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::art_direction::{ArtDirectionArgs, ArtDirectionConfig};
 
+const DEFAULT_GUI_TARGET_FPS: u32 = 60;
+
 /// Runtime profile used by graph execution and preset generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum V2Profile {
@@ -144,7 +146,7 @@ pub struct V2Args {
     #[command(flatten)]
     art_direction: ArtDirectionArgs,
     /// Target GUI interaction refresh rate.
-    #[arg(long, default_value_t = 144)]
+    #[arg(long, default_value_t = DEFAULT_GUI_TARGET_FPS)]
     gui_target_fps: u32,
     /// GUI swapchain synchronization mode.
     #[arg(long, default_value = "on")]
@@ -179,7 +181,7 @@ pub struct GuiConfig {
 impl Default for GuiConfig {
     fn default() -> Self {
         Self {
-            target_fps: 144,
+            target_fps: DEFAULT_GUI_TARGET_FPS,
             vsync: GuiVsync::On,
             perf_trace: None,
             benchmark_drag: false,
