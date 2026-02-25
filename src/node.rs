@@ -320,6 +320,7 @@ pub enum NodeKind {
 
 impl NodeKind {
     /// Return the TouchDesigner-style family for this node.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub const fn operator_family(self) -> OperatorFamily {
         match self {
             Self::GenerateLayer(_)

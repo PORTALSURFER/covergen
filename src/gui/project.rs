@@ -40,6 +40,7 @@ pub(crate) enum ResourceKind {
 
 /// Execution kinds currently represented by GUI nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum ExecutionKind {
     /// Node executes through a render pass.
     Render,
@@ -74,6 +75,7 @@ impl ProjectNodeKind {
     }
 
     /// Return execution kind for this node.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn execution_kind(self) -> ExecutionKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
@@ -260,6 +262,7 @@ impl ProjectNode {
     }
 
     /// Return read-only parameter row data for one index.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn param_view(&self, param_index: usize) -> Option<NodeParamView<'_>> {
         let slot = self.params.get(param_index)?;
         let selected = param_index == self.selected_param.min(self.params.len().saturating_sub(1));
@@ -593,9 +596,9 @@ impl GuiProject {
         let Some(source) = self.node(source_id) else {
             return false;
         };
-        let Some(target) = self.node(target_id) else {
+        if self.node(target_id).is_none() {
             return false;
-        };
+        }
         let Some(source_kind) = source.kind().output_resource_kind() else {
             return false;
         };
@@ -799,6 +802,7 @@ impl GuiProject {
     }
 
     /// Return raw parameter value at one index for one node.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn node_param_raw_value(&self, node_id: u32, param_index: usize) -> Option<f32> {
         let node = self.node(node_id)?;
         if node.params.is_empty() {

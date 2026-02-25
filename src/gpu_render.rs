@@ -26,11 +26,13 @@ pub(crate) struct GpuLayerRenderer {
     bind_group: wgpu::BindGroup,
     out_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
+    #[cfg_attr(not(test), allow(dead_code))]
     readback_slots: Vec<ReadbackSlot>,
     width: u32,
     height: u32,
     output_size: u64,
     pending_readbacks: VecDeque<usize>,
+    #[cfg_attr(not(test), allow(dead_code))]
     next_readback_slot: usize,
     retained: RetainedGpuPost,
     graph_ops: GpuGraphOps,
@@ -43,6 +45,7 @@ pub(crate) struct GpuLayerRenderer {
 }
 
 #[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 struct ReadbackSlot {
     staging_buffer: wgpu::Buffer,
     pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
@@ -68,6 +71,7 @@ pub(crate) struct GraphSubmitStats {
 
 impl GpuLayerRenderer {
     /// Build a compute renderer from an adapter and the configured shader backend.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) async fn new(
         adapter: &wgpu::Adapter,
         width: u32,
@@ -290,6 +294,7 @@ impl GpuLayerRenderer {
     }
 
     /// Submit one layer into retained GPU post-processing accumulation.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn submit_retained_layer(
         &mut self,
         params: &Params,
@@ -317,6 +322,7 @@ impl GpuLayerRenderer {
     }
 
     /// Read the retained accumulation into `out` using a single map/readback.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn collect_retained_image(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
         let receiver = self.retained.begin_readback(&self.device, &self.queue);
         self.wait_for_map(receiver)?;
@@ -324,6 +330,7 @@ impl GpuLayerRenderer {
     }
 
     /// Submit one GPU layer render and stage it for asynchronous readback.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn submit_layer(&mut self, params: &Params) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
         if self.pending_readbacks.len() >= self.readback_slots.len() {
@@ -363,6 +370,7 @@ impl GpuLayerRenderer {
     }
 
     /// Complete a previously submitted GPU layer render and decode into `out`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn collect_layer(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
         if out.len() != self.expected_pixels()? {
             return Err("output buffer length does not match render dimensions".into());
@@ -392,6 +400,7 @@ impl GpuLayerRenderer {
     }
 
     /// Render one layer into a grayscale float buffer.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn render_layer(
         &mut self,
         params: &Params,
@@ -438,6 +447,7 @@ impl GpuLayerRenderer {
         !self.pending_readbacks.is_empty()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn expected_pixels(&self) -> Result<usize, Box<dyn Error>> {
         self.width
             .checked_mul(self.height)

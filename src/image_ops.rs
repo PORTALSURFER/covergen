@@ -1,4 +1,5 @@
 //! Image buffer manipulation and output helpers.
+#![allow(dead_code)]
 
 use std::cmp::Ordering as CmpOrdering;
 use std::error::Error;

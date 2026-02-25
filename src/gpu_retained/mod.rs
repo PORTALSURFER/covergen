@@ -38,6 +38,7 @@ pub(super) struct RetainedFinalizeParams {
 #[derive(Debug)]
 pub(crate) struct RetainedGpuPost {
     clear_pipeline: wgpu::ComputePipeline,
+    #[cfg_attr(not(test), allow(dead_code))]
     blend_pipeline: wgpu::ComputePipeline,
     clear_hist_pipeline: wgpu::ComputePipeline,
     histogram_pipeline: wgpu::ComputePipeline,
@@ -48,6 +49,7 @@ pub(crate) struct RetainedGpuPost {
     post_uniform: wgpu::Buffer,
     finalize_uniform: wgpu::Buffer,
     final_output_buffer: wgpu::Buffer,
+    #[cfg_attr(not(test), allow(dead_code))]
     staging_buffer: wgpu::Buffer,
     final_staging_buffer: wgpu::Buffer,
     width: u32,
@@ -149,6 +151,7 @@ impl RetainedGpuPost {
     }
 
     /// Encode one retained blend pass after the main fractal pass has populated source pixels.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn encode_blend_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -179,6 +182,7 @@ impl RetainedGpuPost {
     }
 
     /// Map retained accumulation for legacy host-side processing.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn begin_readback(
         &self,
         device: &wgpu::Device,
@@ -199,6 +203,7 @@ impl RetainedGpuPost {
     }
 
     /// Copy mapped retained accumulation into `out`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn finish_readback(&self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
         if out.len() != self.expected_pixels() {
             return Err("output buffer length does not match render dimensions".into());

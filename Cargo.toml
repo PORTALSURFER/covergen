@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [lints.rust]
-warnings = "forbid"
+warnings = "deny"
 missing_docs = "forbid"
+non_local_definitions = "allow"
 
 [lints.clippy]
 missing_docs_in_private_items = "forbid"

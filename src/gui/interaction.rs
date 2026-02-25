@@ -290,6 +290,7 @@ fn handle_delete_selected_nodes(
     true
 }
 
+#[allow(unused_assignments)]
 fn handle_right_selection(
     input: &InputSnapshot,
     project: &GuiProject,

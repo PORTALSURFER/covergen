@@ -34,6 +34,7 @@ pub enum NodePayload {
 pub struct NodeTemplate {
     pub key: &'static str,
     pub aliases: &'static [&'static str],
+    #[cfg_attr(not(test), allow(dead_code))]
     pub family: OperatorFamily,
     constructor: NodeConstructor,
 }
@@ -82,6 +83,7 @@ impl NodeCatalog {
         keys
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn keys_for_family(&self, family: OperatorFamily) -> Vec<&'static str> {
         let mut keys: Vec<&'static str> = self
             .templates

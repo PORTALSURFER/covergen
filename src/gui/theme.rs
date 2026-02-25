@@ -29,8 +29,10 @@ pub(crate) struct GuiTheme {
     /// Highlight for warning and drag states.
     pub(crate) highlight_warning: u32,
     /// Highlight for error-critical states.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) highlight_error: u32,
     /// Highlight for success and healthy status.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) highlight_success: u32,
     /// Highlight for active selection.
     pub(crate) highlight_selection: u32,

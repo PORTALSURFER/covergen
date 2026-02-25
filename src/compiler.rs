@@ -107,6 +107,7 @@ pub struct CompiledGraph {
     pub height: u32,
     pub seed: u32,
     pub steps: Vec<CompiledNodeStep>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub primary_output_node: NodeId,
     pub output_bindings: Vec<CompiledOutputBinding>,
     /// Persistent GPU feedback slot index for each stateful feedback node.
