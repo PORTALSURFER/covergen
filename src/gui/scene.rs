@@ -4,6 +4,8 @@
 //! changed layers dirty each update (`static_panel`, `edges`, `nodes`,
 //! `overlays`). Rendering stays on GPU and unchanged layers are reused.
 
+mod wire_route;
+
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_row_rect, node_param_value_rect,
@@ -592,6 +594,7 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
+        let obstacles = collect_panel_node_obstacles(project, state);
         for target in project.nodes() {
             for source_id in target.inputs() {
                 let Some(source) = project.node(*source_id) else {
@@ -606,14 +609,38 @@ impl SceneBuilder {
                 let (gx, gy) = signal_target_graph_point(project, target, *source_id);
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
-                let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
+                let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
+                let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
+                let route = wire_route::route_param_path(
+                    (exit_x, from_y),
+                    (entry_x, to_y),
+                    &obstacles,
+                    [Some(*source_id), Some(target.id())],
+                );
+                let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
+                    || path_intersects_cut_line(state, &route)
+                    || edge_intersects_cut_line(state, entry_x, to_y, to_x, to_y)
+                {
                     CUT_EDGE_COLOR
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_signal_wire_right_exit_entry(from_x, from_y, to_x, to_y, color);
+                self.push_line(from_x, from_y, exit_x, from_y, color);
+                self.push_path_lines(&route, color);
+                self.push_line(entry_x, to_y, to_x, to_y, color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
+        }
+    }
+
+    fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
+        if points.len() < 2 {
+            return;
+        }
+        for segment in points.windows(2) {
+            let (x0, y0) = segment[0];
+            let (x1, y1) = segment[1];
+            self.push_line(x0, y0, x1, y1, color);
         }
     }
 
@@ -856,6 +883,20 @@ fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
     )
 }
 
+fn collect_panel_node_obstacles(
+    project: &GuiProject,
+    state: &PreviewState,
+) -> Vec<wire_route::NodeObstacle> {
+    let mut out = Vec::new();
+    for node in project.nodes() {
+        out.push(wire_route::NodeObstacle {
+            node_id: node.id(),
+            rect: node_rect(node, state),
+        });
+    }
+    out
+}
+
 fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
     let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
     let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
@@ -1075,6 +1116,24 @@ fn edge_intersects_cut_line(state: &PreviewState, x0: i32, y0: i32, x1: i32, y1:
         x1,
         y1,
     )
+}
+
+fn path_intersects_cut_line(state: &PreviewState, points: &[(i32, i32)]) -> bool {
+    if points.len() < 2 {
+        return false;
+    }
+    for segment in points.windows(2) {
+        if edge_intersects_cut_line(
+            state,
+            segment[0].0,
+            segment[0].1,
+            segment[1].0,
+            segment[1].1,
+        ) {
+            return true;
+        }
+    }
+    false
 }
 
 fn segments_intersect(
