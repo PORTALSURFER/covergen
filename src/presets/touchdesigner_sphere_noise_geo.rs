@@ -23,8 +23,8 @@ pub(super) fn build_td_sphere_noise_geo(
         "sop-sphere",
         NodePayload::SopSphere(SopSphereNode {
             radius: 0.22 + rng.next_f32() * 0.22,
-            center_x: (rng.next_f32() - 0.5) * 0.28,
-            center_y: (rng.next_f32() - 0.5) * 0.28,
+            center_x: 0.0,
+            center_y: 0.0,
             light_x: (rng.next_f32() - 0.5) * 1.8,
             light_y: (rng.next_f32() - 0.5) * 1.8,
             ambient: 0.15 + rng.next_f32() * 0.3,
@@ -47,9 +47,9 @@ pub(super) fn build_td_sphere_noise_geo(
         "sop-geometry",
         NodePayload::SopGeometry(SopGeometryNode {
             radius_response: 0.55 + rng.next_f32() * 0.65,
-            center_response: 0.25 + rng.next_f32() * 0.45,
+            center_response: 0.0,
             light_response: 0.4 + rng.next_f32() * 0.8,
-            bias: (rng.next_f32() - 0.5) * 0.4,
+            bias: 0.0,
         }),
     )?;
     let camera = ctx.nodes.create(
@@ -59,8 +59,8 @@ pub(super) fn build_td_sphere_noise_geo(
             exposure: 0.95 + rng.next_f32() * 0.65,
             gamma: 0.9 + rng.next_f32() * 0.35,
             zoom: 0.88 + rng.next_f32() * 0.55,
-            pan_x: (rng.next_f32() - 0.5) * 0.14,
-            pan_y: (rng.next_f32() - 0.5) * 0.14,
+            pan_x: 0.0,
+            pan_y: 0.0,
             rotate: (rng.next_f32() - 0.5) * 0.45,
             invert: false,
         }),
