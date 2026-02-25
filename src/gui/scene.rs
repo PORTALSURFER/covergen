@@ -6,7 +6,7 @@
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, output_pin_center, pin_rect, ExecutionKind, GuiProject, ProjectNode,
-    ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH,
+    ProjectNodeKind, NODE_HEIGHT, NODE_PARAM_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
@@ -28,6 +28,7 @@ const NODE_TEXT: Color = Color::argb(AGIO.node_text);
 const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
+const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -184,7 +185,36 @@ impl SceneBuilder {
             };
             self.push_border(rect, border);
             self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
+            if node.expanded() {
+                self.push_node_params(project, node, rect, state);
+            }
             self.push_pins(node, state);
+        }
+    }
+
+    fn push_node_params(
+        &mut self,
+        project: &GuiProject,
+        node: &ProjectNode,
+        node_rect: Rect,
+        state: &PreviewState,
+    ) {
+        let Some(rows) = project.node_param_views(node.id()) else {
+            return;
+        };
+        if rows.is_empty() {
+            return;
+        }
+        let base_h = (NODE_HEIGHT as f32 * state.zoom).round().max(1.0) as i32;
+        let row_h = (NODE_PARAM_ROW_HEIGHT as f32 * state.zoom).round().max(1.0) as i32;
+        for (index, row) in rows.iter().enumerate() {
+            let y = node_rect.y + base_h + index as i32 * row_h;
+            if row.selected {
+                self.push_rect(Rect::new(node_rect.x + 2, y, node_rect.w - 4, row_h), PARAM_SELECTED);
+            }
+            let bound = if row.bound { " [bound]" } else { "" };
+            let line = format!("{}: {:.3}{}", row.label, row.value, bound);
+            self.push_text(node_rect.x + 8, y + row_h.saturating_sub(6), line.as_str(), NODE_TEXT);
         }
     }
 
@@ -304,7 +334,7 @@ impl SceneBuilder {
 
 fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
     graph_rect_to_panel(
-        Rect::new(node.x(), node.y(), NODE_WIDTH, NODE_HEIGHT),
+        Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
         state,
     )
 }
@@ -326,6 +356,7 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
 fn node_top_color(kind: ProjectNodeKind) -> Color {
     match kind.execution_kind() {
         ExecutionKind::Render => Color::argb(AGIO.highlight_success),
+        ExecutionKind::Control => Color::argb(AGIO.highlight_focus),
         ExecutionKind::Io => Color::argb(AGIO.highlight_accent),
     }
 }

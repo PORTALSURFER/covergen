@@ -75,7 +75,9 @@ impl GuiApp {
             config.gui.target_fps,
             config.gui.vsync
         );
-        println!("[gui] controls: Esc=quit, Space=add node menu, Tab=pause, R=new project");
+        println!(
+            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, Arrows=param select/adjust, P=pause, R=new project"
+        );
         Ok(Self {
             config,
             panel_width,
@@ -198,6 +200,8 @@ impl GuiApp {
                 self.renderer.width(),
                 self.renderer.height(),
                 self.panel_width,
+                self.state.frame_index,
+                self.config.animation.fps,
             );
             let scene_start = Instant::now();
             let frame = self.scene.build(

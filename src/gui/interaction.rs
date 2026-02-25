@@ -41,6 +41,7 @@ pub(crate) fn apply_preview_actions(
         state.pan_y = 0.0;
         state.zoom = 1.0;
         state.menu = AddNodeMenuState::closed();
+        state.active_node = None;
         state.hover_node = None;
         state.hover_output_pin = None;
         state.hover_input_pin = None;
@@ -58,9 +59,11 @@ pub(crate) fn apply_preview_actions(
 
     changed |= handle_add_menu_toggle(&input, panel_width, panel_height, state);
     changed |= update_hover_state(input, project, panel_width, panel_height, state);
+    changed |= handle_node_open_toggle(&input, project, panel_width, panel_height, state);
     if state.menu.open {
         changed |= handle_add_menu_input(&input, project, panel_width, panel_height, state);
     } else {
+        changed |= handle_parameter_shortcuts(&input, project, state);
         changed |= handle_wire_input(&input, project, panel_width, panel_height, state);
         if state.wire_drag.is_none() {
             changed |= handle_drag_input(&input, project, panel_width, panel_height, state);
@@ -166,6 +169,56 @@ fn handle_add_menu_toggle(
     state.drag = None;
     state.wire_drag = None;
     true
+}
+
+fn handle_node_open_toggle(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    if !input.toggle_node_open || state.menu.open {
+        return false;
+    }
+    let target = state
+        .hover_node
+        .or(state.active_node)
+        .or(state.hover_input_pin)
+        .or(state.hover_output_pin);
+    let Some(node_id) = target else {
+        return false;
+    };
+    project.toggle_node_expanded(node_id, panel_width, panel_height)
+}
+
+fn handle_parameter_shortcuts(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    state: &mut PreviewState,
+) -> bool {
+    let target = state.hover_node.or(state.active_node);
+    let Some(node_id) = target else {
+        return false;
+    };
+    if !project.node_expanded(node_id) {
+        return false;
+    }
+    state.active_node = Some(node_id);
+    let mut changed = false;
+    if input.menu_up {
+        changed |= project.select_prev_param(node_id);
+    }
+    if input.menu_down {
+        changed |= project.select_next_param(node_id);
+    }
+    if input.param_dec {
+        changed |= project.adjust_selected_param(node_id, -1.0);
+    }
+    if input.param_inc {
+        changed |= project.adjust_selected_param(node_id, 1.0);
+    }
+    changed
 }
 
 fn handle_add_menu_input(
@@ -287,7 +340,7 @@ fn handle_wire_input(
     }
     if !input.left_down {
         if let Some(target_id) = state.hover_input_pin {
-            project.connect_image_link(wire.source_node_id, target_id);
+            changed |= project.connect_image_link(wire.source_node_id, target_id);
         }
         state.wire_drag = None;
         return true;
@@ -317,6 +370,7 @@ fn begin_wire_drag_if_pin_hit(
         return false;
     };
     state.drag = None;
+    state.active_node = Some(source_node_id);
     state.wire_drag = Some(WireDragState {
         source_node_id,
         cursor_x: mx,
@@ -357,6 +411,7 @@ fn begin_drag_if_node_hit(
         offset_x: graph_x - node.x(),
         offset_y: graph_y - node.y(),
     });
+    state.active_node = Some(node_id);
     true
 }
 
@@ -411,6 +466,9 @@ fn update_hover_state(
             || prev_hover_item.is_some();
     }
     state.hover_node = project.node_at(graph_x, graph_y);
+    if state.hover_node.is_some() {
+        state.active_node = state.hover_node;
+    }
     state.hover_node != prev_hover_node
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()

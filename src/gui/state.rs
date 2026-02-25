@@ -27,12 +27,15 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 3] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 4] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexTransform2D,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::CtlLfo,
     },
     AddNodeOption {
         kind: ProjectNodeKind::IoWindowOut,
@@ -51,9 +54,12 @@ pub(crate) struct InputSnapshot {
     pub(crate) toggle_pause: bool,
     pub(crate) new_project: bool,
     pub(crate) focus_all: bool,
+    pub(crate) toggle_node_open: bool,
     pub(crate) toggle_add_menu: bool,
     pub(crate) menu_up: bool,
     pub(crate) menu_down: bool,
+    pub(crate) param_dec: bool,
+    pub(crate) param_inc: bool,
     pub(crate) menu_accept: bool,
 }
 
@@ -161,6 +167,7 @@ pub(crate) struct PreviewState {
     pub(crate) pan_y: f32,
     pub(crate) zoom: f32,
     pub(crate) menu: AddNodeMenuState,
+    pub(crate) active_node: Option<u32>,
     pub(crate) hover_node: Option<u32>,
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
@@ -183,6 +190,7 @@ impl PreviewState {
             pan_y: 0.0,
             zoom: 1.0,
             menu: AddNodeMenuState::closed(),
+            active_node: None,
             hover_node: None,
             hover_output_pin: None,
             hover_input_pin: None,

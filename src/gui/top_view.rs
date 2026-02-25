@@ -4,6 +4,7 @@
 //!
 //! - `tex.solid`: generates a circle texture.
 //! - `tex.transform_2d`: mutates incoming texture color and alpha.
+//! - `ctl.lfo`: generates scalar signals used by parameter bindings.
 //! - `io.window_out`: output sink.
 //!
 //! Evaluation is pull-based from `io.window_out`.
@@ -24,6 +25,7 @@ struct ViewerCacheKey {
     width: u32,
     height: u32,
     graph_signature: u64,
+    frame_index: u32,
 }
 
 /// Cached TOP preview buffer producer.
@@ -47,6 +49,8 @@ impl TopViewerGenerator {
         viewport_width: usize,
         viewport_height: usize,
         panel_width: usize,
+        frame_index: u32,
+        timeline_fps: u32,
     ) {
         let width = viewport_width.saturating_sub(panel_width) as u32;
         let height = viewport_height as u32;
@@ -55,6 +59,7 @@ impl TopViewerGenerator {
             width,
             height,
             graph_signature,
+            frame_index,
         };
         self.x = panel_width as i32;
         self.y = 0;
@@ -74,6 +79,7 @@ impl TopViewerGenerator {
             width,
             height,
             project,
+            frame_index as f32 / timeline_fps.max(1) as f32,
             &mut self.eval_stack,
         );
     }
@@ -99,6 +105,7 @@ fn generate_output_pixels(
     width: u32,
     height: u32,
     project: &GuiProject,
+    time_secs: f32,
     eval_stack: &mut Vec<u32>,
 ) {
     fill_rgba(out, 8, 8, 8, 255);
@@ -115,6 +122,7 @@ fn generate_output_pixels(
         height,
         out,
         scratch,
+        time_secs,
         eval_stack,
     );
     if !rendered {
@@ -131,11 +139,23 @@ fn fill_rgba(out: &mut [u8], r: u8, g: u8, b: u8, a: u8) {
     }
 }
 
-fn draw_circle(out: &mut [u8], width: u32, height: u32) {
-    let cx = (width as f32) * 0.5;
-    let cy = (height as f32) * 0.5;
-    let radius = (width.min(height) as f32) * 0.24;
-    let feather = radius * 0.06;
+fn draw_circle(
+    out: &mut [u8],
+    width: u32,
+    height: u32,
+    center_x: f32,
+    center_y: f32,
+    radius_norm: f32,
+    feather_norm: f32,
+    color_r: f32,
+    color_g: f32,
+    color_b: f32,
+    alpha_mul: f32,
+) {
+    let cx = (width as f32) * center_x.clamp(0.0, 1.0);
+    let cy = (height as f32) * center_y.clamp(0.0, 1.0);
+    let radius = (width.min(height) as f32) * radius_norm.clamp(0.01, 1.0);
+    let feather = (width.min(height) as f32) * feather_norm.clamp(0.0, 0.5);
     if radius <= 1.0 {
         return;
     }
@@ -149,12 +169,15 @@ fn draw_circle(out: &mut [u8], width: u32, height: u32) {
                 continue;
             }
             let idx = ((y * width + x) * 4) as usize;
-            let base = out[idx] as f32;
-            let lit = base + alpha * 228.0;
-            let c = lit.clamp(0.0, 255.0) as u8;
-            out[idx] = c;
-            out[idx + 1] = c;
-            out[idx + 2] = c;
+            let blend = (alpha * alpha_mul.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+            let tr = color_r.clamp(0.0, 1.0) * 255.0;
+            let tg = color_g.clamp(0.0, 1.0) * 255.0;
+            let tb = color_b.clamp(0.0, 1.0) * 255.0;
+            out[idx] = ((out[idx] as f32) * (1.0 - blend) + tr * blend).clamp(0.0, 255.0) as u8;
+            out[idx + 1] =
+                ((out[idx + 1] as f32) * (1.0 - blend) + tg * blend).clamp(0.0, 255.0) as u8;
+            out[idx + 2] =
+                ((out[idx + 2] as f32) * (1.0 - blend) + tb * blend).clamp(0.0, 255.0) as u8;
             out[idx + 3] = 255;
         }
     }
@@ -167,6 +190,7 @@ fn render_node(
     height: u32,
     out: &mut [u8],
     scratch: &mut [u8],
+    time_secs: f32,
     eval_stack: &mut Vec<u32>,
 ) -> bool {
     if eval_stack.contains(&node_id) {
@@ -179,38 +203,84 @@ fn render_node(
     let rendered = match node.kind() {
         ProjectNodeKind::TexSolid => {
             fill_rgba(out, 8, 8, 8, 255);
-            draw_circle(out, width, height);
+            let center_x = project
+                .node_param_value(node_id, "center_x", time_secs, eval_stack)
+                .unwrap_or(0.5);
+            let center_y = project
+                .node_param_value(node_id, "center_y", time_secs, eval_stack)
+                .unwrap_or(0.5);
+            let radius = project
+                .node_param_value(node_id, "radius", time_secs, eval_stack)
+                .unwrap_or(0.24);
+            let feather = project
+                .node_param_value(node_id, "feather", time_secs, eval_stack)
+                .unwrap_or(0.06);
+            let color_r = project
+                .node_param_value(node_id, "color_r", time_secs, eval_stack)
+                .unwrap_or(0.9);
+            let color_g = project
+                .node_param_value(node_id, "color_g", time_secs, eval_stack)
+                .unwrap_or(0.9);
+            let color_b = project
+                .node_param_value(node_id, "color_b", time_secs, eval_stack)
+                .unwrap_or(0.9);
+            let alpha = project
+                .node_param_value(node_id, "alpha", time_secs, eval_stack)
+                .unwrap_or(1.0);
+            draw_circle(
+                out, width, height, center_x, center_y, radius, feather, color_r, color_g, color_b,
+                alpha,
+            );
             true
         }
         ProjectNodeKind::TexTransform2D => {
             let Some(source_id) = project.input_source_node_id(node_id) else {
                 false
-            } else if !render_node(project, source_id, width, height, scratch, out, eval_stack) {
+            } else if !render_node(
+                project, source_id, width, height, scratch, out, time_secs, eval_stack,
+            ) {
                 false
             } else {
                 out.copy_from_slice(scratch);
-                apply_tex_transform(out);
+                let brightness = project
+                    .node_param_value(node_id, "brightness", time_secs, eval_stack)
+                    .unwrap_or(1.08);
+                let gain_r = project
+                    .node_param_value(node_id, "gain_r", time_secs, eval_stack)
+                    .unwrap_or(0.45);
+                let gain_g = project
+                    .node_param_value(node_id, "gain_g", time_secs, eval_stack)
+                    .unwrap_or(0.8);
+                let gain_b = project
+                    .node_param_value(node_id, "gain_b", time_secs, eval_stack)
+                    .unwrap_or(1.0);
+                let alpha_mul = project
+                    .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
+                    .unwrap_or(0.8);
+                apply_tex_transform(out, brightness, gain_r, gain_g, gain_b, alpha_mul);
                 true
             }
         }
+        ProjectNodeKind::CtlLfo => false,
         ProjectNodeKind::IoWindowOut => false,
     };
     eval_stack.pop();
     rendered
 }
 
-fn apply_tex_transform(out: &mut [u8]) {
-    const TINT_R: f32 = 0.45;
-    const TINT_G: f32 = 0.8;
-    const TINT_B: f32 = 1.0;
-    const BRIGHTNESS: f32 = 1.08;
-    const ALPHA_MUL: f32 = 0.8;
-
+fn apply_tex_transform(
+    out: &mut [u8],
+    brightness: f32,
+    gain_r: f32,
+    gain_g: f32,
+    gain_b: f32,
+    alpha_mul: f32,
+) {
     for px in out.chunks_exact_mut(4) {
-        let r = ((px[0] as f32) * TINT_R * BRIGHTNESS).clamp(0.0, 255.0);
-        let g = ((px[1] as f32) * TINT_G * BRIGHTNESS).clamp(0.0, 255.0);
-        let b = ((px[2] as f32) * TINT_B * BRIGHTNESS).clamp(0.0, 255.0);
-        let a = ((px[3] as f32) * ALPHA_MUL).clamp(0.0, 255.0);
+        let r = ((px[0] as f32) * gain_r * brightness).clamp(0.0, 255.0);
+        let g = ((px[1] as f32) * gain_g * brightness).clamp(0.0, 255.0);
+        let b = ((px[2] as f32) * gain_b * brightness).clamp(0.0, 255.0);
+        let a = ((px[3] as f32) * alpha_mul).clamp(0.0, 255.0);
         px[0] = r as u8;
         px[1] = g as u8;
         px[2] = b as u8;
@@ -235,7 +305,7 @@ mod tests {
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(top, out));
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420);
+        viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
         assert_eq!(frame.width, 540);
         assert_eq!(frame.height, 540);
@@ -252,7 +322,7 @@ mod tests {
         assert!(project.connect_image_link(xform, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420);
+        viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
         let cx = frame.width / 2;
         let cy = frame.height / 2;
@@ -263,5 +333,30 @@ mod tests {
         let a = frame.rgba8[idx + 3];
         assert!(r != g || g != b);
         assert!(a < 255);
+    }
+
+    #[test]
+    fn lfo_can_bind_solid_color_parameter() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 180, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        assert!(project.select_next_param(solid));
+        assert!(project.select_next_param(solid));
+        assert!(project.select_next_param(solid));
+        assert!(project.select_next_param(solid));
+        assert!(project.connect_image_link(lfo, solid));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let frame0 = viewer.frame().expect("frame0");
+        let i = ((frame0.height / 2 * frame0.width + frame0.width / 2) * 4) as usize;
+        let r0 = frame0.rgba8[i];
+        viewer.update(&project, 960, 540, 420, 60, 60);
+        let frame1 = viewer.frame().expect("frame1");
+        let r1 = frame1.rgba8[i];
+        assert_ne!(r0, r1);
     }
 }

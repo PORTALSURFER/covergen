@@ -17,9 +17,12 @@ pub(crate) struct InputCollector {
     toggle_pause: bool,
     new_project: bool,
     focus_all: bool,
+    toggle_node_open: bool,
     toggle_add_menu: bool,
     menu_up: bool,
     menu_down: bool,
+    param_dec: bool,
+    param_inc: bool,
     menu_accept: bool,
 }
 
@@ -70,9 +73,12 @@ impl InputCollector {
             toggle_pause: self.toggle_pause,
             new_project: self.new_project,
             focus_all: self.focus_all,
+            toggle_node_open: self.toggle_node_open,
             toggle_add_menu: self.toggle_add_menu,
             menu_up: self.menu_up,
             menu_down: self.menu_down,
+            param_dec: self.param_dec,
+            param_inc: self.param_inc,
             menu_accept: self.menu_accept,
         };
         self.left_clicked = false;
@@ -81,9 +87,12 @@ impl InputCollector {
         self.toggle_pause = false;
         self.new_project = false;
         self.focus_all = false;
+        self.toggle_node_open = false;
         self.toggle_add_menu = false;
         self.menu_up = false;
         self.menu_down = false;
+        self.param_dec = false;
+        self.param_inc = false;
         self.menu_accept = false;
         snapshot
     }
@@ -111,11 +120,14 @@ impl InputCollector {
         };
         match code {
             KeyCode::Space => self.toggle_add_menu = true,
+            KeyCode::Tab => self.toggle_node_open = true,
+            KeyCode::KeyP => self.toggle_pause = true,
             KeyCode::KeyF => self.focus_all = true,
             KeyCode::KeyR => self.new_project = true,
-            KeyCode::Tab => self.toggle_pause = true,
             KeyCode::ArrowUp => self.menu_up = true,
             KeyCode::ArrowDown => self.menu_down = true,
+            KeyCode::ArrowLeft => self.param_dec = true,
+            KeyCode::ArrowRight => self.param_inc = true,
             KeyCode::Enter => self.menu_accept = true,
             _ => {}
         }
