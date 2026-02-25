@@ -431,6 +431,33 @@ impl GuiProject {
         true
     }
 
+    /// Disconnect one explicit source -> target link.
+    ///
+    /// Removes both texture-input and signal-parameter bindings that match the
+    /// source/target pair.
+    pub(crate) fn disconnect_link(&mut self, source_id: u32, target_id: u32) -> bool {
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        let mut changed = false;
+        if target.texture_input == Some(source_id) {
+            target.texture_input = None;
+            changed = true;
+        }
+        for slot in &mut target.params {
+            if slot.signal_source == Some(source_id) {
+                slot.signal_source = None;
+                changed = true;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        rebuild_node_inputs(target);
+        self.recount_edges();
+        true
+    }
+
     /// Return source node id wired into the first `io.window_out` node, if any.
     pub(crate) fn window_out_input_node_id(&self) -> Option<u32> {
         let output = self
@@ -620,6 +647,13 @@ impl GuiProject {
             hash = fnv1a_u64(hash, 0xfe);
         }
         hash
+    }
+
+    /// Return true when at least one parameter has a live signal binding.
+    pub(crate) fn has_signal_bindings(&self) -> bool {
+        self.nodes
+            .iter()
+            .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()))
     }
 
     fn depends_on(&self, start_node_id: u32, target_node_id: u32) -> bool {
@@ -841,6 +875,22 @@ mod tests {
         let b = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
         assert!(project.connect_image_link(a, b));
         assert!(!project.connect_image_link(b, a));
+    }
+
+    #[test]
+    fn disconnect_link_removes_texture_and_signal_bindings() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 160, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 40, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        assert!(project.select_next_param(solid));
+        assert!(project.connect_image_link(lfo, solid));
+        assert!(project.edge_count() >= 2);
+        assert!(project.disconnect_link(lfo, solid));
+        assert!(project.disconnect_link(solid, out));
+        assert_eq!(project.edge_count(), 0);
     }
 
     #[test]

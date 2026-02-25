@@ -29,6 +29,8 @@ const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
+const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
+const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -116,6 +118,7 @@ impl SceneBuilder {
         self.push_header(project);
         self.push_edges(project, state);
         self.push_nodes(project, state);
+        self.push_link_cut(state);
         self.push_menu(state);
         &self.frame
     }
@@ -161,7 +164,12 @@ impl SceneBuilder {
                     continue;
                 };
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-                self.push_line(from_x, from_y, to_x, to_y, EDGE_COLOR);
+                let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
+                    CUT_EDGE_COLOR
+                } else {
+                    EDGE_COLOR
+                };
+                self.push_line(from_x, from_y, to_x, to_y, color);
             }
         }
         self.push_wire_drag(project, state);
@@ -240,6 +248,19 @@ impl SceneBuilder {
             }
             self.push_text(item.x + 6, item.y + 8, option.label(), MENU_TEXT);
         }
+    }
+
+    fn push_link_cut(&mut self, state: &PreviewState) {
+        let Some(cut) = state.link_cut else {
+            return;
+        };
+        self.push_line(
+            cut.start_x,
+            cut.start_y,
+            cut.cursor_x,
+            cut.cursor_y,
+            CUT_LINE_COLOR,
+        );
     }
 
     fn push_divider_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32) {
@@ -359,4 +380,61 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
         ExecutionKind::Control => Color::argb(AGIO.highlight_focus),
         ExecutionKind::Io => Color::argb(AGIO.highlight_accent),
     }
+}
+
+fn edge_intersects_cut_line(state: &PreviewState, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
+    let Some(cut) = state.link_cut else {
+        return false;
+    };
+    segments_intersect(
+        cut.start_x,
+        cut.start_y,
+        cut.cursor_x,
+        cut.cursor_y,
+        x0,
+        y0,
+        x1,
+        y1,
+    )
+}
+
+fn segments_intersect(
+    ax: i32,
+    ay: i32,
+    bx: i32,
+    by: i32,
+    cx: i32,
+    cy: i32,
+    dx: i32,
+    dy: i32,
+) -> bool {
+    let o1 = orient(ax, ay, bx, by, cx, cy);
+    let o2 = orient(ax, ay, bx, by, dx, dy);
+    let o3 = orient(cx, cy, dx, dy, ax, ay);
+    let o4 = orient(cx, cy, dx, dy, bx, by);
+    if o1 == 0 && on_segment(ax, ay, bx, by, cx, cy) {
+        return true;
+    }
+    if o2 == 0 && on_segment(ax, ay, bx, by, dx, dy) {
+        return true;
+    }
+    if o3 == 0 && on_segment(cx, cy, dx, dy, ax, ay) {
+        return true;
+    }
+    if o4 == 0 && on_segment(cx, cy, dx, dy, bx, by) {
+        return true;
+    }
+    (o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0)
+}
+
+fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
+    let abx = (bx - ax) as i64;
+    let aby = (by - ay) as i64;
+    let acx = (cx - ax) as i64;
+    let acy = (cy - ay) as i64;
+    abx * acy - aby * acx
+}
+
+fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
+    px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
 }

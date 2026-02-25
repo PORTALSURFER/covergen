@@ -55,11 +55,16 @@ impl TopViewerGenerator {
         let width = viewport_width.saturating_sub(panel_width) as u32;
         let height = viewport_height as u32;
         let graph_signature = project.graph_signature();
+        let dynamic_frame = if project.has_signal_bindings() {
+            frame_index
+        } else {
+            0
+        };
         let key = ViewerCacheKey {
             width,
             height,
             graph_signature,
-            frame_index,
+            frame_index: dynamic_frame,
         };
         self.x = panel_width as i32;
         self.y = 0;

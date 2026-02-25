@@ -3,9 +3,10 @@
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
-use super::project::{GraphBounds, GuiProject};
+use super::project::{input_pin_center, output_pin_center, GraphBounds, GuiProject};
 use super::state::{
-    menu_height, AddNodeMenuState, InputSnapshot, PanDragState, PreviewState, WireDragState,
+    menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, PreviewState,
+    WireDragState,
     ADD_NODE_OPTIONS,
 };
 
@@ -36,6 +37,7 @@ pub(crate) fn apply_preview_actions(
         state.frame_index = 0;
         state.drag = None;
         state.wire_drag = None;
+        state.link_cut = None;
         state.pan_drag = None;
         state.pan_x = 0.0;
         state.pan_y = 0.0;
@@ -51,6 +53,14 @@ pub(crate) fn apply_preview_actions(
 
     changed |= handle_pan_zoom_and_focus(&input, project, panel_width, panel_height, state);
     if state.pan_drag.is_some() {
+        state.drag = None;
+        state.wire_drag = None;
+        state.prev_left_down = input.left_down;
+        return true;
+    }
+
+    changed |= handle_link_cut(&input, project, panel_width, panel_height, state);
+    if state.link_cut.is_some() {
         state.drag = None;
         state.wire_drag = None;
         state.prev_left_down = input.left_down;
@@ -221,6 +231,89 @@ fn handle_parameter_shortcuts(
     changed
 }
 
+fn handle_link_cut(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let mut changed = false;
+    if input.alt_down && input.left_clicked && !state.menu.open {
+        if let Some((mx, my)) = input.mouse_pos {
+            if inside_panel(mx, my, panel_width, panel_height) {
+                state.link_cut = Some(LinkCutState {
+                    start_x: mx,
+                    start_y: my,
+                    cursor_x: mx,
+                    cursor_y: my,
+                });
+                state.drag = None;
+                state.wire_drag = None;
+                return true;
+            }
+        }
+    }
+    let Some(mut cut) = state.link_cut else {
+        return false;
+    };
+    if let Some((mx, my)) = input.mouse_pos {
+        if cut.cursor_x != mx || cut.cursor_y != my {
+            cut.cursor_x = mx;
+            cut.cursor_y = my;
+            changed = true;
+        }
+    }
+    if !input.left_down {
+        let cut_links = collect_cut_links(project, state, cut);
+        for (source_id, target_id) in cut_links {
+            let _ = project.disconnect_link(source_id, target_id);
+        }
+        state.link_cut = None;
+        return true;
+    }
+    state.link_cut = Some(cut);
+    changed
+}
+
+fn collect_cut_links(
+    project: &GuiProject,
+    state: &PreviewState,
+    cut: LinkCutState,
+) -> Vec<(u32, u32)> {
+    let mut links = Vec::new();
+    for target in project.nodes() {
+        let Some((to_x, to_y)) = input_pin_center(target) else {
+            continue;
+        };
+        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+        for source_id in target.inputs() {
+            let Some(source) = project.node(*source_id) else {
+                continue;
+            };
+            let Some((from_x, from_y)) = output_pin_center(source) else {
+                continue;
+            };
+            let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+            if segments_intersect(
+                cut.start_x,
+                cut.start_y,
+                cut.cursor_x,
+                cut.cursor_y,
+                from_x,
+                from_y,
+                to_x,
+                to_y,
+            ) {
+                links.push((*source_id, target.id()));
+            }
+        }
+    }
+    links.sort_unstable();
+    links.dedup();
+    links
+}
+
 fn handle_add_menu_input(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -340,7 +433,7 @@ fn handle_wire_input(
     }
     if !input.left_down {
         if let Some(target_id) = state.hover_input_pin {
-            changed |= project.connect_image_link(wire.source_node_id, target_id);
+            let _ = project.connect_image_link(wire.source_node_id, target_id);
         }
         state.wire_drag = None;
         return true;
@@ -482,6 +575,53 @@ fn screen_to_graph(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     (gx, gy)
 }
 
+fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
+    let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
+    let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
+    (sx, sy)
+}
+
+fn segments_intersect(
+    ax: i32,
+    ay: i32,
+    bx: i32,
+    by: i32,
+    cx: i32,
+    cy: i32,
+    dx: i32,
+    dy: i32,
+) -> bool {
+    let o1 = orient(ax, ay, bx, by, cx, cy);
+    let o2 = orient(ax, ay, bx, by, dx, dy);
+    let o3 = orient(cx, cy, dx, dy, ax, ay);
+    let o4 = orient(cx, cy, dx, dy, bx, by);
+    if o1 == 0 && on_segment(ax, ay, bx, by, cx, cy) {
+        return true;
+    }
+    if o2 == 0 && on_segment(ax, ay, bx, by, dx, dy) {
+        return true;
+    }
+    if o3 == 0 && on_segment(cx, cy, dx, dy, ax, ay) {
+        return true;
+    }
+    if o4 == 0 && on_segment(cx, cy, dx, dy, bx, by) {
+        return true;
+    }
+    (o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0)
+}
+
+fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
+    let abx = (bx - ax) as i64;
+    let aby = (by - ay) as i64;
+    let acx = (cx - ax) as i64;
+    let acy = (cy - ay) as i64;
+    abx * acy - aby * acx
+}
+
+fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
+    px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
+}
+
 fn pin_hit_radius_world(state: &PreviewState) -> i32 {
     ((PIN_HIT_RADIUS_PX as f32) / state.zoom.max(0.001))
         .round()
@@ -539,4 +679,19 @@ fn focus_bounds(
     state.pan_x = pan_x;
     state.pan_y = pan_y;
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::segments_intersect;
+
+    #[test]
+    fn segments_intersect_detects_crossing_lines() {
+        assert!(segments_intersect(0, 0, 10, 10, 0, 10, 10, 0));
+    }
+
+    #[test]
+    fn segments_intersect_detects_non_crossing_lines() {
+        assert!(!segments_intersect(0, 0, 10, 0, 0, 5, 10, 5));
+    }
 }

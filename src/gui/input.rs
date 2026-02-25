@@ -11,6 +11,8 @@ pub(crate) struct InputCollector {
     mouse_pos: Option<(f64, f64)>,
     left_down: bool,
     left_clicked: bool,
+    left_alt_down: bool,
+    right_alt_down: bool,
     middle_down: bool,
     middle_clicked: bool,
     wheel_lines_y: f32,
@@ -67,6 +69,7 @@ impl InputCollector {
             mouse_pos,
             left_down: self.left_down,
             left_clicked: self.left_clicked,
+            alt_down: self.left_alt_down || self.right_alt_down,
             middle_down: self.middle_down,
             middle_clicked: self.middle_clicked,
             wheel_lines_y: self.wheel_lines_y,
@@ -112,12 +115,23 @@ impl InputCollector {
     }
 
     fn handle_key(&mut self, key: PhysicalKey, state: ElementState, repeat: bool) {
-        if state != ElementState::Pressed || repeat {
-            return;
-        }
         let PhysicalKey::Code(code) = key else {
             return;
         };
+        match code {
+            KeyCode::AltLeft => {
+                self.left_alt_down = state == ElementState::Pressed;
+                return;
+            }
+            KeyCode::AltRight => {
+                self.right_alt_down = state == ElementState::Pressed;
+                return;
+            }
+            _ => {}
+        }
+        if state != ElementState::Pressed || repeat {
+            return;
+        }
         match code {
             KeyCode::Space => self.toggle_add_menu = true,
             KeyCode::Tab => self.toggle_node_open = true,

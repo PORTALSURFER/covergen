@@ -48,6 +48,7 @@ pub(crate) struct InputSnapshot {
     pub(crate) mouse_pos: Option<(i32, i32)>,
     pub(crate) left_down: bool,
     pub(crate) left_clicked: bool,
+    pub(crate) alt_down: bool,
     pub(crate) middle_down: bool,
     pub(crate) middle_clicked: bool,
     pub(crate) wheel_lines_y: f32,
@@ -75,6 +76,15 @@ pub(crate) struct DragState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WireDragState {
     pub(crate) source_node_id: u32,
+    pub(crate) cursor_x: i32,
+    pub(crate) cursor_y: i32,
+}
+
+/// Active alt-drag line used to cut links that intersect it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LinkCutState {
+    pub(crate) start_x: i32,
+    pub(crate) start_y: i32,
     pub(crate) cursor_x: i32,
     pub(crate) cursor_y: i32,
 }
@@ -162,6 +172,7 @@ pub(crate) struct PreviewState {
     pub(crate) prev_left_down: bool,
     pub(crate) drag: Option<DragState>,
     pub(crate) wire_drag: Option<WireDragState>,
+    pub(crate) link_cut: Option<LinkCutState>,
     pub(crate) pan_drag: Option<PanDragState>,
     pub(crate) pan_x: f32,
     pub(crate) pan_y: f32,
@@ -185,6 +196,7 @@ impl PreviewState {
             prev_left_down: false,
             drag: None,
             wire_drag: None,
+            link_cut: None,
             pan_drag: None,
             pan_x: 0.0,
             pan_y: 0.0,

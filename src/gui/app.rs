@@ -76,7 +76,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, Arrows=param select/adjust, P=pause, R=new project"
+            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, R=new project"
         );
         Ok(Self {
             config,
@@ -357,7 +357,11 @@ impl GuiApp {
 }
 
 fn state_has_transient_ui(state: &PreviewState) -> bool {
-    state.drag.is_some() || state.wire_drag.is_some() || state.pan_drag.is_some() || state.menu.open
+    state.drag.is_some()
+        || state.wire_drag.is_some()
+        || state.link_cut.is_some()
+        || state.pan_drag.is_some()
+        || state.menu.open
 }
 
 fn maybe_seed_benchmark_nodes(
