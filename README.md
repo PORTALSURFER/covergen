@@ -120,6 +120,13 @@ Run V2 benchmark + telemetry report:
 cargo run --bin covergen -- bench
 ```
 
+If `cargo` is installed but not available on shell `PATH`, use the script
+entrypoint (it auto-detects `~/.cargo/bin`):
+
+```bash
+scripts/bench/run.sh
+```
+
 Report output:
 
 - `target/bench/benchmark_report.md`

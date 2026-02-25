@@ -3,6 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
+# shellcheck source=../lib/rust_tooling.sh
+source "${repo_root}/scripts/lib/rust_tooling.sh"
+ensure_rust_command cargo
+ensure_rust_command rustup
 
 root="${1:-${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}}"
 toolchain="${COVERGEN_RUST_GPU_TOOLCHAIN:-nightly-2023-05-27}"

@@ -9,6 +9,12 @@ Tracked tiers:
 
 ## Workflow
 
+Ad-hoc benchmark run (auto-resolves `cargo` from `~/.cargo/bin` when needed):
+
+```bash
+scripts/bench/run.sh
+```
+
 1. Capture baseline and lock thresholds on each target tier host:
 
 ```bash
