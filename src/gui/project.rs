@@ -3,6 +3,8 @@
 //! The GUI currently starts with an empty project and supports adding and
 //! moving nodes directly on the graph canvas.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Width of one graph node card in the editor canvas.
@@ -25,6 +27,7 @@ pub(crate) const NODE_PARAM_VALUE_BOX_RIGHT_PAD: i32 = 6;
 pub(crate) const NODE_PARAM_VALUE_BOX_WIDTH: i32 = 52;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
+const HIT_BIN_SIZE: i32 = 128;
 
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -228,6 +231,23 @@ pub(crate) struct GuiProject {
     nodes: Vec<ProjectNode>,
     next_node_id: u32,
     edge_count: usize,
+    hit_test_cache: RefCell<HitTestCache>,
+    hit_test_dirty: Cell<bool>,
+}
+
+/// Cached spatial/index structures for fast graph hit-testing.
+#[derive(Clone, Debug, Default)]
+struct HitTestCache {
+    node_index_by_id: HashMap<u32, usize>,
+    node_bins: HashMap<i64, Vec<u32>>,
+    output_pin_bins: HashMap<i64, Vec<u32>>,
+    input_pin_bins: HashMap<i64, Vec<u32>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PinHitKind {
+    Output,
+    Input,
 }
 
 impl GuiProject {
@@ -240,6 +260,8 @@ impl GuiProject {
             nodes: Vec::new(),
             next_node_id: 1,
             edge_count: 0,
+            hit_test_cache: RefCell::new(HitTestCache::default()),
+            hit_test_dirty: Cell::new(false),
         }
     }
 
@@ -260,12 +282,46 @@ impl GuiProject {
 
     /// Return immutable node by id.
     pub(crate) fn node(&self, node_id: u32) -> Option<&ProjectNode> {
-        self.nodes.iter().find(|node| node.id == node_id)
+        let index = self.node_index(node_id)?;
+        self.nodes.get(index)
     }
 
     /// Return mutable node by id.
     fn node_mut(&mut self, node_id: u32) -> Option<&mut ProjectNode> {
-        self.nodes.iter_mut().find(|node| node.id == node_id)
+        let index = self.node_index(node_id)?;
+        self.nodes.get_mut(index)
+    }
+
+    fn node_index(&self, node_id: u32) -> Option<usize> {
+        self.ensure_hit_test_cache();
+        self.hit_test_cache
+            .borrow()
+            .node_index_by_id
+            .get(&node_id)
+            .copied()
+    }
+
+    fn invalidate_hit_test_cache(&self) {
+        self.hit_test_dirty.set(true);
+    }
+
+    fn ensure_hit_test_cache(&self) {
+        if !self.hit_test_dirty.get() {
+            return;
+        }
+        let mut cache = HitTestCache::default();
+        for (index, node) in self.nodes.iter().enumerate() {
+            cache.node_index_by_id.insert(node.id(), index);
+            cache_node_rect_bins(&mut cache.node_bins, node.id(), node.x(), node.y(), node.card_height());
+            if let Some((x, y)) = output_pin_center(node) {
+                cache_pin_bin(&mut cache.output_pin_bins, node.id(), x, y);
+            }
+            if let Some((x, y)) = input_pin_center(node) {
+                cache_pin_bin(&mut cache.input_pin_bins, node.id(), x, y);
+            }
+        }
+        *self.hit_test_cache.borrow_mut() = cache;
+        self.hit_test_dirty.set(false);
     }
 
     /// Add one node at canvas position and return created id.
@@ -293,6 +349,7 @@ impl GuiProject {
             selected_param: 0,
             expanded: false,
         });
+        self.invalidate_hit_test_cache();
         node_id
     }
 
@@ -307,25 +364,44 @@ impl GuiProject {
         panel_width: usize,
         panel_height: usize,
     ) -> bool {
-        if let Some(node) = self.nodes.iter_mut().find(|node| node.id == node_id) {
+        let Some(index) = self.node_index(node_id) else {
+            return false;
+        };
+        let changed = {
+            let node = &mut self.nodes[index];
             let (x, y) = clamp_node_position(x, y, panel_width, panel_height, node.card_height());
             if node.x == x && node.y == y {
-                return false;
+                false
+            } else {
+                node.x = x;
+                node.y = y;
+                true
             }
-            node.x = x;
-            node.y = y;
-            return true;
+        };
+        if changed {
+            self.invalidate_hit_test_cache();
         }
-        false
+        changed
     }
 
     /// Return top-most node id at the given panel-space position.
     pub(crate) fn node_at(&self, x: i32, y: i32) -> Option<u32> {
-        self.nodes
-            .iter()
-            .rev()
-            .find(|node| x >= node.x && x < node.x + NODE_WIDTH && y >= node.y && y < node.y + node.card_height())
-            .map(|node| node.id)
+        self.ensure_hit_test_cache();
+        let key = hit_bin_key_for_point(x, y);
+        let cache = self.hit_test_cache.borrow();
+        let candidates = cache.node_bins.get(&key)?;
+        for node_id in candidates.iter().rev() {
+            let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
+                continue;
+            };
+            let Some(node) = self.nodes.get(index) else {
+                continue;
+            };
+            if x >= node.x() && x < node.x() + NODE_WIDTH && y >= node.y() && y < node.y() + node.card_height() {
+                return Some(*node_id);
+            }
+        }
+        None
     }
 
     /// Return world-space graph bounds for all current nodes.
@@ -351,17 +427,7 @@ impl GuiProject {
 
     /// Return the node id whose output pin is hit by the cursor.
     pub(crate) fn output_pin_at(&self, x: i32, y: i32, radius_px: i32) -> Option<u32> {
-        let radius_sq = radius_px.saturating_mul(radius_px);
-        self.nodes
-            .iter()
-            .rev()
-            .find(|node| {
-                let Some((px, py)) = output_pin_center(node) else {
-                    return false;
-                };
-                distance_sq(x, y, px, py) <= radius_sq
-            })
-            .map(ProjectNode::id)
+        self.pin_at(x, y, radius_px, None, output_pin_center, PinHitKind::Output)
     }
 
     /// Return the node id whose input pin is hit by the cursor.
@@ -372,18 +438,68 @@ impl GuiProject {
         radius_px: i32,
         disallow_source: Option<u32>,
     ) -> Option<u32> {
+        self.pin_at(
+            x,
+            y,
+            radius_px,
+            disallow_source,
+            input_pin_center,
+            PinHitKind::Input,
+        )
+    }
+
+    fn pin_at(
+        &self,
+        x: i32,
+        y: i32,
+        radius_px: i32,
+        disallow_source: Option<u32>,
+        center_for_node: fn(&ProjectNode) -> Option<(i32, i32)>,
+        pin_kind: PinHitKind,
+    ) -> Option<u32> {
+        self.ensure_hit_test_cache();
         let radius_sq = radius_px.saturating_mul(radius_px);
-        self.nodes
-            .iter()
-            .rev()
-            .filter(|node| Some(node.id()) != disallow_source)
-            .find(|node| {
-                let Some((px, py)) = input_pin_center(node) else {
-                    return false;
+        let min_x = x.saturating_sub(radius_px);
+        let max_x = x.saturating_add(radius_px);
+        let min_y = y.saturating_sub(radius_px);
+        let max_y = y.saturating_add(radius_px);
+        let mut seen = Vec::new();
+        let mut hit = None;
+        let mut hit_z = 0_usize;
+
+        let cache = self.hit_test_cache.borrow();
+        let bins = match pin_kind {
+            PinHitKind::Output => &cache.output_pin_bins,
+            PinHitKind::Input => &cache.input_pin_bins,
+        };
+        for by in hit_bin_coord(min_y)..=hit_bin_coord(max_y) {
+            for bx in hit_bin_coord(min_x)..=hit_bin_coord(max_x) {
+                let key = hit_bin_key(bx, by);
+                let Some(candidates) = bins.get(&key) else {
+                    continue;
                 };
-                distance_sq(x, y, px, py) <= radius_sq
-            })
-            .map(ProjectNode::id)
+                for node_id in candidates.iter().rev() {
+                    if Some(*node_id) == disallow_source || seen.contains(node_id) {
+                        continue;
+                    }
+                    seen.push(*node_id);
+                    let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
+                        continue;
+                    };
+                    let Some(node) = self.nodes.get(index) else {
+                        continue;
+                    };
+                    let Some((px, py)) = center_for_node(node) else {
+                        continue;
+                    };
+                    if distance_sq(x, y, px, py) <= radius_sq && (hit.is_none() || index >= hit_z) {
+                        hit = Some(*node_id);
+                        hit_z = index;
+                    }
+                }
+            }
+        }
+        hit
     }
 
     /// Connect one source node output pin to one target node input pin.
@@ -494,6 +610,9 @@ impl GuiProject {
         if !removed_any && !links_changed {
             return false;
         }
+        if removed_any {
+            self.invalidate_hit_test_cache();
+        }
         self.recount_edges();
         true
     }
@@ -521,17 +640,21 @@ impl GuiProject {
         panel_width: usize,
         panel_height: usize,
     ) -> bool {
-        let Some(node) = self.node_mut(node_id) else {
+        let Some(index) = self.node_index(node_id) else {
             return false;
         };
-        if node.params.is_empty() {
-            return false;
+        {
+            let node = &mut self.nodes[index];
+            if node.params.is_empty() {
+                return false;
+            }
+            node.expanded = !node.expanded;
+            let card_h = node.card_height();
+            let (x, y) = clamp_node_position(node.x, node.y, panel_width, panel_height, card_h);
+            node.x = x;
+            node.y = y;
         }
-        node.expanded = !node.expanded;
-        let card_h = node.card_height();
-        let (x, y) = clamp_node_position(node.x, node.y, panel_width, panel_height, card_h);
-        node.x = x;
-        node.y = y;
+        self.invalidate_hit_test_cache();
         true
     }
 
@@ -1003,6 +1126,43 @@ fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }
 
+fn cache_node_rect_bins(
+    bins: &mut HashMap<i64, Vec<u32>>,
+    node_id: u32,
+    x: i32,
+    y: i32,
+    card_height: i32,
+) {
+    if card_height <= 0 {
+        return;
+    }
+    let max_x = x.saturating_add(NODE_WIDTH.saturating_sub(1));
+    let max_y = y.saturating_add(card_height.saturating_sub(1));
+    for by in hit_bin_coord(y)..=hit_bin_coord(max_y) {
+        for bx in hit_bin_coord(x)..=hit_bin_coord(max_x) {
+            bins.entry(hit_bin_key(bx, by)).or_default().push(node_id);
+        }
+    }
+}
+
+fn cache_pin_bin(bins: &mut HashMap<i64, Vec<u32>>, node_id: u32, x: i32, y: i32) {
+    bins.entry(hit_bin_key_for_point(x, y))
+        .or_default()
+        .push(node_id);
+}
+
+fn hit_bin_coord(value: i32) -> i32 {
+    value.div_euclid(HIT_BIN_SIZE)
+}
+
+fn hit_bin_key_for_point(x: i32, y: i32) -> i64 {
+    hit_bin_key(hit_bin_coord(x), hit_bin_coord(y))
+}
+
+fn hit_bin_key(x: i32, y: i32) -> i64 {
+    ((x as i64) << 32) | ((y as u32) as i64)
+}
+
 fn fnv1a_u64(hash: u64, data: u64) -> u64 {
     (hash ^ data).wrapping_mul(0x100000001b3)
 }
@@ -1044,6 +1204,40 @@ mod tests {
         let b = project.add_node(ProjectNodeKind::IoWindowOut, 80, 80, 420, 480);
         assert_eq!(project.node_at(90, 90), Some(b));
         assert_ne!(project.node_at(90, 90), Some(a));
+    }
+
+    #[test]
+    fn node_hit_test_updates_after_move_without_full_scan_state_drift() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let node = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        assert_eq!(project.node_at(90, 90), Some(node));
+        assert!(project.move_node(node, 260, 220, 420, 480));
+        assert_eq!(project.node_at(90, 90), None);
+        assert_eq!(project.node_at(270, 230), Some(node));
+    }
+
+    #[test]
+    fn expanded_node_hit_bounds_update_after_toggle() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let node = project.add_node(ProjectNodeKind::TexSolid, 60, 60, 420, 480);
+        let base_miss_y = 60 + NODE_HEIGHT + 4;
+        assert_eq!(project.node_at(72, base_miss_y), None);
+        assert!(project.toggle_node_expanded(node, 420, 480));
+        assert_eq!(project.node_at(72, base_miss_y), Some(node));
+    }
+
+    #[test]
+    fn pin_hit_tests_work_through_spatial_bins() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 240, 80, 420, 480);
+        let solid_node = project.node(solid).expect("solid node");
+        let out_node = project.node(out).expect("output node");
+        let (ox, oy) = output_pin_center(solid_node).expect("solid output");
+        let (ix, iy) = input_pin_center(out_node).expect("output input");
+        assert_eq!(project.output_pin_at(ox, oy, 10), Some(solid));
+        assert_eq!(project.input_pin_at(ix, iy, 10, None), Some(out));
+        assert_eq!(project.input_pin_at(ix, iy, 10, Some(out)), None);
     }
 
     #[test]
