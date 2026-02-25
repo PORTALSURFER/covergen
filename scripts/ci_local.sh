@@ -5,24 +5,32 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/ci_local.sh <validate|lock> <desktop_mid|laptop_integrated>
+  scripts/ci_local.sh
 
 Description:
   Runs the full local CI gate for one hardware tier host.
   - validate: checks against existing locked thresholds
   - lock: regenerates and locks thresholds from this host's measurements
+  - with no args: defaults to validate laptop_integrated
 
 Environment overrides:
   COVERGEN_RUST_GPU_SPIRV_DIR  default: target/rust-gpu
 EOF
 }
 
-if [[ $# -ne 2 ]]; then
+allow_missing_gpu=0
+if [[ $# -eq 0 ]]; then
+  mode="validate"
+  tier="laptop_integrated"
+  allow_missing_gpu=1
+  echo "[ci_local] no args provided; defaulting to mode=${mode} tier=${tier}"
+elif [[ $# -eq 2 ]]; then
+  mode="$1"
+  tier="$2"
+else
   usage
   exit 1
 fi
-
-mode="$1"
-tier="$2"
 
 case "${mode}" in
   validate|lock) ;;
@@ -73,6 +81,18 @@ echo "[ci_local] gpu animation confidence regression"
 cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available
 
 echo "[ci_local] benchmark thresholds (${mode}) for tier=${tier}"
-scripts/bench/tier_gate.sh "${mode}" "${tier}"
+bench_log="$(mktemp)"
+if scripts/bench/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${bench_log}"; then
+  rm -f "${bench_log}"
+else
+  if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter" "${bench_log}"; then
+    echo "[ci_local] warning: skipping tier benchmark threshold enforcement in no-arg mode because no hardware GPU was detected"
+    echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host for authoritative benchmark gating"
+    rm -f "${bench_log}"
+  else
+    rm -f "${bench_log}"
+    exit 1
+  fi
+fi
 
 echo "[ci_local] completed mode=${mode} tier=${tier}"

@@ -1,19 +1,11 @@
 # Active TODO (Ordered)
 
-1. [ ] Provision local hardware-tier hosts (`desktop_mid`, `laptop_integrated`) as the authoritative CI environments.
-2. [ ] Lock real hardware thresholds on each tier host via `scripts/ci_local.sh lock <tier>` (PowerShell: `scripts/ci_local.ps1 lock <tier>`).
-3. [ ] Run full local CI validation on both tiers via `scripts/ci_local.sh validate <tier>` (PowerShell: `scripts/ci_local.ps1 validate <tier>`).
-4. [ ] Capture and store local CI evidence artifacts (`benchmark_report.md`, `benchmark_metrics.ini`) for both tiers in the release handoff (PowerShell: `scripts/bench/store_handoff_artifacts.ps1 -Tier <tier>` or `scripts/ci_local.ps1 validate <tier> -CaptureHandoff`).
-5. [x] Continue rust-gpu shader backend hardening for production-default parity.
+1. [ ] Lock `laptop_integrated` hardware thresholds on the laptop host (`scripts/ci_local.sh lock laptop_integrated`).
+2. [ ] Run full local CI validation on the laptop host and capture handoff artifacts (`scripts/ci_local.sh validate laptop_integrated`, then `scripts/bench/store_handoff_artifacts.ps1 -Tier laptop_integrated` on Windows hosts as needed).
+3. [ ] Keep `desktop_mid` tier marked deferred until a desktop host is available; once provisioned, run lock + validate + handoff capture.
+4. [ ] Reduce dead-code warning surface in core runtime modules so CI logs stay signal-heavy for regressions.
 
-Status notes (2026-02-24):
-- Items 1-4 are blocked on external infrastructure: required local tier hosts are not yet available and hardware-tier threshold files are still placeholder `LOCK REQUIRED` files.
-- Local CI now auto-builds SPIR-V artifacts when missing via `scripts/shaders/build_rust_gpu_artifacts.sh` or `scripts/shaders/build_rust_gpu_artifacts.ps1`.
-- Item 5 is complete for current scope: runtime is strict SPIR-V only (`src/shaders.rs`) and runtime/bench enforce a hardware-GPU requirement (`src/runtime.rs`, `src/bench/mod.rs`).
-
-Completed 2026-02-24:
-- Expanded visual regression coverage with larger still outputs, additional animation sampling, and stronger GPU-path confidence checks.
-- Added benchmark/regression contract checks for primary+tap outputs and documented tap-output compositor strategy.
-- Added movie-quality visual regression gates for animation flicker/continuity drift.
-- Added high-level art-direction controls (`mood`, `energy`, `symmetry`, `chaos`, `palette`) and wired them through preset graph generation.
-- Expanded reusable subgraph catalog with parameterized motif blocks and integrated motif modules into graph-native presets.
+Status notes (2026-02-25):
+- `covergen` is V2-only and requires hardware GPU adapters at runtime.
+- Local CI is the authoritative gate; GitHub-hosted perf gates are non-authoritative.
+- `scripts/run_agent_request.sh` is the mandatory preflight entrypoint for agent housekeeping requests.

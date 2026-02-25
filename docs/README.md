@@ -1,6 +1,7 @@
 # Docs Index
 
 ## Start Here
+- `../scripts/run_agent_request.sh`: mandatory preflight for agent-request housekeeping.
 - `../AGENTS.md`: stateless wake-up portal.
 - `../MEMORY.md`: current present-tense project status.
 - `plans/index.md`: active plan map.
@@ -18,5 +19,6 @@
 - `v2/rust-gpu.md`
 
 ## CI and Validation
+- Preflight entrypoint: `../scripts/run_agent_request.sh`
 - Local CI entrypoint: `../scripts/ci_local.sh`
 - Tier benchmark lock/validate: `../scripts/bench/tier_gate.sh`
