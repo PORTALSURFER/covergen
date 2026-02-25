@@ -41,7 +41,6 @@ const TOGGLE_ICON: Color = Color::argb(AGIO.menu_text);
 const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
 const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
-const PARAM_VALUE_TEXT: Color = Color::argb(AGIO.menu_text);
 const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
 const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
@@ -406,7 +405,8 @@ impl SceneBuilder {
                 &mut fitted_label_scratch,
             );
             let label_rect = Rect::new(label_x, row_rect.y, label_max_w, row_rect.h);
-            self.push_graph_text_in_rect(label_rect, 0, fitted_label, NODE_TEXT, state);
+            let bound_color = if row.bound { PARAM_EDGE_COLOR } else { NODE_TEXT };
+            self.push_graph_text_in_rect(label_rect, 0, fitted_label, bound_color, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
             let editing = state
                 .param_edit
@@ -420,11 +420,13 @@ impl SceneBuilder {
             let value_text = active_edit
                 .map(|edit| edit.buffer.as_str())
                 .unwrap_or(row.value_text);
-            self.push_value_editor_text(value_rect, value_text, active_edit, state);
+            self.push_value_editor_text(value_rect, value_text, active_edit, bound_color, state);
             self.push_border(
                 value_rect,
                 if editing {
                     PARAM_VALUE_ACTIVE
+                } else if row.bound {
+                    PARAM_EDGE_COLOR
                 } else {
                     PARAM_VALUE_BORDER
                 },
@@ -668,6 +670,7 @@ impl SceneBuilder {
         value_rect: Rect,
         text: &str,
         edit: Option<&super::state::ParamEditState>,
+        color: Color,
         state: &PreviewState,
     ) {
         if state.zoom < GRAPH_TEXT_HIDE_ZOOM {
@@ -701,7 +704,7 @@ impl SceneBuilder {
             text_x,
             text_y,
             text,
-            PARAM_VALUE_TEXT,
+            color,
             state.zoom,
         );
         if let Some(edit_state) = edit {
