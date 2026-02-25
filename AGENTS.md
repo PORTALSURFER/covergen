@@ -11,7 +11,7 @@ This file is a stateless wake-up portal. It should stay minimal and point to the
 5. Use `docs/README.md` to find deeper technical docs.
 
 ## Active Mission
-Operate and harden the V2-only runtime (GPU-required), local CI/perf baselines, and GUI node-editor responsiveness.
+Improve GUI node-editor responsiveness and keep handoff documentation synchronized.
 
 ## Source of Truth
 - Current state: `MEMORY.md`
