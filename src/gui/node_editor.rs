@@ -1,11 +1,9 @@
-//! Left-panel node editor visualization for compiled graph topology.
+//! Left-panel node editor visualization for GUI project topology.
 
 use std::collections::HashMap;
 
-use crate::compiler::{CompiledGraph, CompiledOp};
-use crate::graph::NodeId;
-
 use super::draw::{draw_line, draw_text, fill_rect, stroke_rect, Rect};
+use super::project::{GuiProject, ProjectNode, ProjectNodeFamily, ALL_NODE_FAMILIES};
 
 const LANE_COUNT: usize = 5;
 const PANEL_BG: u32 = 0xFF111318;
@@ -14,7 +12,7 @@ const BORDER_COLOR: u32 = 0xFF2A313A;
 const EDGE_COLOR: u32 = 0xFF4A5564;
 const TEXT_COLOR: u32 = 0xFFE5E7EB;
 
-/// Precomputed node-editor draw data for one compiled graph.
+/// Precomputed node-editor draw data for one GUI project.
 pub(crate) struct NodeEditorLayout {
     panel_width: usize,
     headers: Vec<LaneHeader>,
@@ -23,12 +21,16 @@ pub(crate) struct NodeEditorLayout {
 }
 
 impl NodeEditorLayout {
-    /// Build one static layout from compiled graph topology.
-    pub(crate) fn build(compiled: &CompiledGraph, panel_width: usize, panel_height: usize) -> Self {
+    /// Build one static node-editor layout from project topology.
+    pub(crate) fn from_project(
+        project: &GuiProject,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> Self {
         let lane_width = lane_width(panel_width);
-        let lane_steps = bucket_steps_by_lane(compiled);
-        let (nodes, anchors) = place_nodes(compiled, &lane_steps, lane_width, panel_height);
-        let edges = build_edges(compiled, &anchors);
+        let lane_nodes = bucket_nodes_by_lane(project);
+        let (nodes, anchors) = place_nodes(&lane_nodes, lane_width, panel_height);
+        let edges = build_edges(project, &anchors);
         let headers = lane_headers(lane_width);
         Self {
             panel_width,
@@ -38,7 +40,7 @@ impl NodeEditorLayout {
         }
     }
 
-    /// Draw the entire node-editor panel into the target frame.
+    /// Draw the node-editor panel into the target frame.
     pub(crate) fn draw(&self, frame: &mut [u32], width: usize, height: usize) {
         fill_rect(
             frame,
@@ -82,10 +84,10 @@ struct LaneHeader {
     rect: Rect,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct NodeVisual {
-    id: NodeId,
-    label: &'static str,
+    id: u32,
+    label: String,
     color: u32,
     rect: Rect,
 }
@@ -103,48 +105,47 @@ struct NodeAnchor {
     output: (i32, i32),
 }
 
-fn bucket_steps_by_lane(compiled: &CompiledGraph) -> Vec<Vec<usize>> {
-    let mut lanes = vec![Vec::<usize>::new(); LANE_COUNT];
-    for (index, step) in compiled.steps.iter().enumerate() {
-        lanes[op_lane(step.op)].push(index);
+fn bucket_nodes_by_lane(project: &GuiProject) -> Vec<Vec<ProjectNode>> {
+    let mut lanes = vec![Vec::<ProjectNode>::new(); LANE_COUNT];
+    for node in &project.nodes {
+        lanes[family_lane(node.family)].push(node.clone());
     }
     lanes
 }
 
 fn place_nodes(
-    compiled: &CompiledGraph,
-    lane_steps: &[Vec<usize>],
+    lane_nodes: &[Vec<ProjectNode>],
     lane_width: i32,
     panel_height: usize,
-) -> (Vec<NodeVisual>, HashMap<NodeId, NodeAnchor>) {
-    let mut nodes = Vec::with_capacity(compiled.steps.len());
-    let mut anchors = HashMap::with_capacity(compiled.steps.len());
+) -> (Vec<NodeVisual>, HashMap<u32, NodeAnchor>) {
+    let total = lane_nodes.iter().map(|lane| lane.len()).sum();
+    let mut nodes = Vec::with_capacity(total);
+    let mut anchors = HashMap::with_capacity(total);
 
-    for (lane, steps) in lane_steps.iter().enumerate() {
-        for (order, step_index) in steps.iter().enumerate() {
-            let step = &compiled.steps[*step_index];
-            let rect = layout_node_rect(lane, order, steps.len(), lane_width, panel_height);
-            let (label, color) = op_style(step.op);
+    for (lane, lane_nodes) in lane_nodes.iter().enumerate() {
+        for (order, node) in lane_nodes.iter().enumerate() {
+            let rect = layout_node_rect(lane, order, lane_nodes.len(), lane_width, panel_height);
+            let color = family_color(node.family);
             nodes.push(NodeVisual {
-                id: step.node_id,
-                label,
+                id: node.id,
+                label: node.label.clone(),
                 color,
                 rect,
             });
-            anchors.insert(step.node_id, node_anchor(rect));
+            anchors.insert(node.id, node_anchor(rect));
         }
     }
 
     (nodes, anchors)
 }
 
-fn build_edges(compiled: &CompiledGraph, anchors: &HashMap<NodeId, NodeAnchor>) -> Vec<EdgeVisual> {
+fn build_edges(project: &GuiProject, anchors: &HashMap<u32, NodeAnchor>) -> Vec<EdgeVisual> {
     let mut edges = Vec::new();
-    for step in &compiled.steps {
-        let Some(target) = anchors.get(&step.node_id).copied() else {
+    for node in &project.nodes {
+        let Some(target) = anchors.get(&node.id).copied() else {
             continue;
         };
-        for source_id in &step.inputs {
+        for source_id in &node.inputs {
             let Some(source) = anchors.get(source_id).copied() else {
                 continue;
             };
@@ -208,10 +209,10 @@ fn draw_node(frame: &mut [u32], width: usize, height: usize, node: &NodeVisual) 
         height,
         node.rect.x + 6,
         node.rect.y + 13,
-        node.label,
+        &node.label,
         TEXT_COLOR,
     );
-    let id_text = format!("#{}", node.id.0);
+    let id_text = format!("#{}", node.id);
     draw_text(
         frame,
         width,
@@ -224,12 +225,11 @@ fn draw_node(frame: &mut [u32], width: usize, height: usize, node: &NodeVisual) 
 }
 
 fn lane_headers(lane_width: i32) -> Vec<LaneHeader> {
-    let titles = ["GEN/FX", "CHOP", "SOP", "TOP", "OUT"];
     let mut headers = Vec::with_capacity(LANE_COUNT);
-    for (lane, title) in titles.into_iter().enumerate() {
+    for (lane, family) in ALL_NODE_FAMILIES.into_iter().enumerate() {
         let x = lane_x(lane, lane_width);
         headers.push(LaneHeader {
-            title,
+            title: family_title(family),
             rect: Rect::new(x, 8, lane_width, 28),
         });
     }
@@ -275,38 +275,32 @@ fn lane_x(lane: usize, lane_width: i32) -> i32 {
     gap + lane as i32 * (lane_width + gap)
 }
 
-fn op_lane(op: CompiledOp) -> usize {
-    match op {
-        CompiledOp::GenerateLayer(_)
-        | CompiledOp::SourceNoise(_)
-        | CompiledOp::Mask(_)
-        | CompiledOp::Blend(_)
-        | CompiledOp::ToneMap(_)
-        | CompiledOp::WarpTransform(_)
-        | CompiledOp::StatefulFeedback(_) => 0,
-        CompiledOp::ChopLfo(_) | CompiledOp::ChopMath(_) | CompiledOp::ChopRemap(_) => 1,
-        CompiledOp::SopCircle(_) | CompiledOp::SopSphere(_) | CompiledOp::SopGeometry(_) => 2,
-        CompiledOp::TopCameraRender(_) => 3,
-        CompiledOp::Output(_) => 4,
+fn family_lane(family: ProjectNodeFamily) -> usize {
+    match family {
+        ProjectNodeFamily::GenFx => 0,
+        ProjectNodeFamily::Chop => 1,
+        ProjectNodeFamily::Sop => 2,
+        ProjectNodeFamily::Top => 3,
+        ProjectNodeFamily::Output => 4,
     }
 }
 
-fn op_style(op: CompiledOp) -> (&'static str, u32) {
-    match op {
-        CompiledOp::GenerateLayer(_) => ("generate", 0xFF3B82F6),
-        CompiledOp::SourceNoise(_) => ("noise", 0xFF2563EB),
-        CompiledOp::Mask(_) => ("mask", 0xFF334155),
-        CompiledOp::Blend(_) => ("blend", 0xFF0EA5E9),
-        CompiledOp::ToneMap(_) => ("tone-map", 0xFF7C3AED),
-        CompiledOp::WarpTransform(_) => ("warp", 0xFF8B5CF6),
-        CompiledOp::StatefulFeedback(_) => ("feedback", 0xFF9333EA),
-        CompiledOp::ChopLfo(_) => ("chop-lfo", 0xFFF97316),
-        CompiledOp::ChopMath(_) => ("chop-math", 0xFFEA580C),
-        CompiledOp::ChopRemap(_) => ("chop-remap", 0xFFFB923C),
-        CompiledOp::SopCircle(_) => ("sop-circle", 0xFF10B981),
-        CompiledOp::SopSphere(_) => ("sop-sphere", 0xFF059669),
-        CompiledOp::SopGeometry(_) => ("sop-geo", 0xFF34D399),
-        CompiledOp::TopCameraRender(_) => ("camera", 0xFFEF4444),
-        CompiledOp::Output(_) => ("output", 0xFFE5E7EB),
+fn family_color(family: ProjectNodeFamily) -> u32 {
+    match family {
+        ProjectNodeFamily::GenFx => 0xFF3B82F6,
+        ProjectNodeFamily::Chop => 0xFFF97316,
+        ProjectNodeFamily::Sop => 0xFF10B981,
+        ProjectNodeFamily::Top => 0xFFEF4444,
+        ProjectNodeFamily::Output => 0xFFE5E7EB,
+    }
+}
+
+fn family_title(family: ProjectNodeFamily) -> &'static str {
+    match family {
+        ProjectNodeFamily::GenFx => "GEN/FX",
+        ProjectNodeFamily::Chop => "CHOP",
+        ProjectNodeFamily::Sop => "SOP",
+        ProjectNodeFamily::Top => "TOP",
+        ProjectNodeFamily::Output => "OUT",
     }
 }

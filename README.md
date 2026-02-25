@@ -19,7 +19,7 @@ V1 runtime support was removed on **February 24, 2026**. Migration and cutover s
 
 ## V2 Quick Start
 
-Default launch (GUI split view: left node editor + right TOP preview):
+Default launch (GUI split view: left node editor + right TOP preview, starts with a new empty project):
 
 ```bash
 cargo run --bin covergen
@@ -78,10 +78,16 @@ Sphere-noise-geometry network command:
 cargo run --bin covergen -- render --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
 ```
 
-Realtime TOP preview window (Esc quit, Space pause, R reseed):
+Realtime GUI controls:
+
+- `Esc`: quit
+- `Space`: pause/resume timeline
+- `R`: create a fresh empty project
+
+Launch command:
 
 ```bash
-cargo run --bin covergen -- gui --preset td-sphere-noise-geo --size 1024 --motion gentle
+cargo run --bin covergen -- gui --size 1024
 ```
 
 Operator-family model (TouchDesigner-style):
