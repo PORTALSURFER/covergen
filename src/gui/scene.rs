@@ -49,6 +49,35 @@ const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
 const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
+const EXEC_WIRE_GRID_CELL_PX: i32 = 24;
+const EXEC_WIRE_OBSTACLE_PAD_PX: i32 = 10;
+const EXEC_WIRE_BOUNDS_PAD_PX: i32 = 120;
+const EXEC_WIRE_MAX_GRID_SIDE: i32 = 196;
+const EXEC_WIRE_ASTAR_LIMIT: usize = 20_000;
+const EXEC_WIRE_CORNER_MAX_RADIUS: f32 = 12.0;
+const EXEC_WIRE_CURVE_STEPS: usize = 4;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PanelPoint {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GridPoint {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Debug)]
+struct ExecutionPathfinder {
+    cell_px: i32,
+    origin_x: i32,
+    origin_y: i32,
+    width: i32,
+    height: i32,
+    blocked: Vec<bool>,
+}
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -268,11 +297,13 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
+        let execution_pathfinder = ExecutionPathfinder::new(project, state);
         for target in project.nodes() {
             let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
                 continue;
             };
-            let (default_to_x, default_to_y) = graph_point_to_panel(default_to_x, default_to_y, state);
+            let (default_to_x, default_to_y) =
+                graph_point_to_panel(default_to_x, default_to_y, state);
             for source_id in target.inputs() {
                 let Some(source) = project.node(*source_id) else {
                     continue;
@@ -299,7 +330,17 @@ impl SceneBuilder {
                 if signal_path {
                     self.push_rounded_signal_wire(from_x, from_y, to_x, to_y, color);
                 } else {
-                    self.push_line(from_x, from_y, to_x, to_y, color);
+                    let fallback = [(from_x, from_y), (to_x, to_y)];
+                    let path = execution_pathfinder
+                        .as_ref()
+                        .and_then(|pathfinder| pathfinder.find_path((from_x, from_y), (to_x, to_y)))
+                        .unwrap_or_else(|| fallback.to_vec());
+                    let path_color = if edge_path_intersects_cut_line(state, path.as_slice()) {
+                        CUT_EDGE_COLOR
+                    } else {
+                        color
+                    };
+                    self.push_execution_wire_path(path.as_slice(), path_color);
                 }
             }
         }
@@ -601,6 +642,59 @@ impl SceneBuilder {
         self.push_line(ex, ey, x1, y1, color);
     }
 
+    fn push_execution_wire_path(&mut self, points: &[(i32, i32)], color: Color) {
+        if points.len() < 2 {
+            return;
+        }
+        let mut cursor = panel_point(points[0].0, points[0].1);
+        for index in 1..points.len().saturating_sub(1) {
+            let prev = panel_point(points[index - 1].0, points[index - 1].1);
+            let corner = panel_point(points[index].0, points[index].1);
+            let next = panel_point(points[index + 1].0, points[index + 1].1);
+            let radius = execution_corner_radius(prev, corner, next);
+            if radius <= 0.5 {
+                self.push_line_panel(cursor, corner, color);
+                cursor = corner;
+                continue;
+            }
+            let in_pt = move_towards(corner, prev, radius);
+            let out_pt = move_towards(corner, next, radius);
+            self.push_line_panel(cursor, in_pt, color);
+            self.push_quadratic_corner(in_pt, corner, out_pt, color);
+            cursor = out_pt;
+        }
+        if let Some(last) = points.last().copied() {
+            self.push_line_panel(cursor, panel_point(last.0, last.1), color);
+        }
+    }
+
+    fn push_line_panel(&mut self, from: PanelPoint, to: PanelPoint, color: Color) {
+        let x0 = from.x.round() as i32;
+        let y0 = from.y.round() as i32;
+        let x1 = to.x.round() as i32;
+        let y1 = to.y.round() as i32;
+        if x0 == x1 && y0 == y1 {
+            return;
+        }
+        self.push_line(x0, y0, x1, y1, color);
+    }
+
+    fn push_quadratic_corner(
+        &mut self,
+        start: PanelPoint,
+        control: PanelPoint,
+        end: PanelPoint,
+        color: Color,
+    ) {
+        let mut last = start;
+        for step in 1..=EXEC_WIRE_CURVE_STEPS {
+            let t = step as f32 / EXEC_WIRE_CURVE_STEPS as f32;
+            let p = quadratic_point(start, control, end, t);
+            self.push_line_panel(last, p, color);
+            last = p;
+        }
+    }
+
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
         self.text_renderer.push_text(out, x, y, text, color);
@@ -776,6 +870,324 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
         ActiveLayer::Nodes => &mut frame.nodes,
         ActiveLayer::Overlays => &mut frame.overlays,
     }
+}
+
+impl ExecutionPathfinder {
+    fn new(project: &GuiProject, state: &PreviewState) -> Option<Self> {
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        let mut obstacles = Vec::new();
+        for node in project.nodes() {
+            let inflated = inflate_rect(node_rect(node, state), EXEC_WIRE_OBSTACLE_PAD_PX);
+            min_x = min_x.min(inflated.x);
+            min_y = min_y.min(inflated.y);
+            max_x = max_x.max(inflated.x + inflated.w - 1);
+            max_y = max_y.max(inflated.y + inflated.h - 1);
+            obstacles.push(inflated);
+        }
+        if obstacles.is_empty() {
+            return None;
+        }
+        min_x = min_x.saturating_sub(EXEC_WIRE_BOUNDS_PAD_PX);
+        min_y = min_y.saturating_sub(EXEC_WIRE_BOUNDS_PAD_PX);
+        max_x = max_x.saturating_add(EXEC_WIRE_BOUNDS_PAD_PX);
+        max_y = max_y.saturating_add(EXEC_WIRE_BOUNDS_PAD_PX);
+        let width = ((max_x - min_x + 1) / EXEC_WIRE_GRID_CELL_PX).max(1);
+        let height = ((max_y - min_y + 1) / EXEC_WIRE_GRID_CELL_PX).max(1);
+        if width > EXEC_WIRE_MAX_GRID_SIDE || height > EXEC_WIRE_MAX_GRID_SIDE {
+            return None;
+        }
+        let mut blocked = vec![false; (width * height) as usize];
+        let mut pathfinder = Self {
+            cell_px: EXEC_WIRE_GRID_CELL_PX,
+            origin_x: min_x,
+            origin_y: min_y,
+            width,
+            height,
+            blocked: std::mem::take(&mut blocked),
+        };
+        for rect in obstacles {
+            pathfinder.mark_blocked(rect);
+        }
+        Some(pathfinder)
+    }
+
+    fn find_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        let start_cell = self.panel_to_cell(start.0, start.1)?;
+        let end_cell = self.panel_to_cell(end.0, end.1)?;
+        let cell_path = self.a_star(start_cell, end_cell)?;
+        if cell_path.is_empty() {
+            return None;
+        }
+        let mut points = Vec::with_capacity(cell_path.len() + 2);
+        points.push(start);
+        for cell in cell_path
+            .iter()
+            .copied()
+            .skip(1)
+            .take(cell_path.len().saturating_sub(2))
+        {
+            points.push(self.cell_center(cell));
+        }
+        points.push(end);
+        Some(simplify_polyline(points.as_slice()))
+    }
+
+    fn panel_to_cell(&self, x: i32, y: i32) -> Option<GridPoint> {
+        let gx = (x - self.origin_x).div_euclid(self.cell_px);
+        let gy = (y - self.origin_y).div_euclid(self.cell_px);
+        if gx < 0 || gy < 0 || gx >= self.width || gy >= self.height {
+            return None;
+        }
+        Some(GridPoint { x: gx, y: gy })
+    }
+
+    fn cell_center(&self, cell: GridPoint) -> (i32, i32) {
+        (
+            self.origin_x + cell.x * self.cell_px + self.cell_px / 2,
+            self.origin_y + cell.y * self.cell_px + self.cell_px / 2,
+        )
+    }
+
+    fn a_star(&self, start: GridPoint, end: GridPoint) -> Option<Vec<GridPoint>> {
+        let start_idx = self.idx(start)?;
+        let end_idx = self.idx(end)?;
+        let len = self.blocked.len();
+        let mut g_score = vec![i32::MAX; len];
+        let mut f_score = vec![i32::MAX; len];
+        let mut came_from = vec![usize::MAX; len];
+        let mut open = Vec::new();
+        let mut in_open = vec![false; len];
+        let mut closed = vec![false; len];
+        g_score[start_idx] = 0;
+        f_score[start_idx] = octile_heuristic(start, end);
+        open.push(start_idx);
+        in_open[start_idx] = true;
+
+        let mut iterations = 0usize;
+        while !open.is_empty() && iterations < EXEC_WIRE_ASTAR_LIMIT {
+            iterations += 1;
+            let current_slot = lowest_f_index(open.as_slice(), f_score.as_slice());
+            let current_idx = open.swap_remove(current_slot);
+            in_open[current_idx] = false;
+            if current_idx == end_idx {
+                return Some(rebuild_cell_path(came_from.as_slice(), start_idx, end_idx, self));
+            }
+            closed[current_idx] = true;
+            let current = self.cell_at(current_idx);
+            for (dx, dy, step_cost) in neighbors_8() {
+                let next = GridPoint {
+                    x: current.x + dx,
+                    y: current.y + dy,
+                };
+                let Some(next_idx) = self.idx(next) else {
+                    continue;
+                };
+                if closed[next_idx] || self.blocked_cell(next, start, end) {
+                    continue;
+                }
+                let tentative = g_score[current_idx].saturating_add(step_cost);
+                if tentative >= g_score[next_idx] {
+                    continue;
+                }
+                came_from[next_idx] = current_idx;
+                g_score[next_idx] = tentative;
+                f_score[next_idx] = tentative.saturating_add(octile_heuristic(next, end));
+                if !in_open[next_idx] {
+                    open.push(next_idx);
+                    in_open[next_idx] = true;
+                }
+            }
+        }
+        None
+    }
+
+    fn blocked_cell(&self, cell: GridPoint, start: GridPoint, end: GridPoint) -> bool {
+        if cell == start || cell == end {
+            return false;
+        }
+        self.idx(cell)
+            .and_then(|idx| self.blocked.get(idx))
+            .copied()
+            .unwrap_or(true)
+    }
+
+    fn mark_blocked(&mut self, rect: Rect) {
+        let left = ((rect.x - self.origin_x).div_euclid(self.cell_px)).max(0);
+        let top = ((rect.y - self.origin_y).div_euclid(self.cell_px)).max(0);
+        let right = ((rect.x + rect.w - 1 - self.origin_x).div_euclid(self.cell_px))
+            .min(self.width - 1);
+        let bottom = ((rect.y + rect.h - 1 - self.origin_y).div_euclid(self.cell_px))
+            .min(self.height - 1);
+        for y in top..=bottom {
+            for x in left..=right {
+                if let Some(idx) = self.idx(GridPoint { x, y }) {
+                    self.blocked[idx] = true;
+                }
+            }
+        }
+    }
+
+    fn idx(&self, point: GridPoint) -> Option<usize> {
+        if point.x < 0 || point.y < 0 || point.x >= self.width || point.y >= self.height {
+            return None;
+        }
+        Some((point.y * self.width + point.x) as usize)
+    }
+
+    fn cell_at(&self, idx: usize) -> GridPoint {
+        let x = (idx as i32).rem_euclid(self.width);
+        let y = (idx as i32).div_euclid(self.width);
+        GridPoint { x, y }
+    }
+}
+
+fn inflate_rect(rect: Rect, pad: i32) -> Rect {
+    Rect::new(
+        rect.x - pad,
+        rect.y - pad,
+        rect.w + pad.saturating_mul(2),
+        rect.h + pad.saturating_mul(2),
+    )
+}
+
+fn simplify_polyline(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
+    if points.len() <= 2 {
+        return points.to_vec();
+    }
+    let mut out = Vec::with_capacity(points.len());
+    out.push(points[0]);
+    let mut prev_dir = direction(points[0], points[1]);
+    for index in 1..points.len().saturating_sub(1) {
+        let dir = direction(points[index], points[index + 1]);
+        if dir != prev_dir {
+            out.push(points[index]);
+            prev_dir = dir;
+        }
+    }
+    out.push(points[points.len() - 1]);
+    out
+}
+
+fn direction(a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    ((b.0 - a.0).signum(), (b.1 - a.1).signum())
+}
+
+fn octile_heuristic(a: GridPoint, b: GridPoint) -> i32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
+    let diag = dx.min(dy);
+    let straight = dx.max(dy) - diag;
+    diag * 14 + straight * 10
+}
+
+fn lowest_f_index(open: &[usize], f_score: &[i32]) -> usize {
+    let mut best = 0usize;
+    for index in 1..open.len() {
+        if f_score[open[index]] < f_score[open[best]] {
+            best = index;
+        }
+    }
+    best
+}
+
+fn rebuild_cell_path(
+    came_from: &[usize],
+    start_idx: usize,
+    end_idx: usize,
+    grid: &ExecutionPathfinder,
+) -> Vec<GridPoint> {
+    let mut path = Vec::new();
+    let mut current = end_idx;
+    path.push(grid.cell_at(current));
+    while current != start_idx {
+        let Some(next) = came_from.get(current).copied() else {
+            break;
+        };
+        if next == usize::MAX {
+            break;
+        }
+        current = next;
+        path.push(grid.cell_at(current));
+    }
+    path.reverse();
+    path
+}
+
+const fn neighbors_8() -> [(i32, i32, i32); 8] {
+    [
+        (1, 0, 10),
+        (-1, 0, 10),
+        (0, 1, 10),
+        (0, -1, 10),
+        (1, 1, 14),
+        (1, -1, 14),
+        (-1, 1, 14),
+        (-1, -1, 14),
+    ]
+}
+
+fn panel_point(x: i32, y: i32) -> PanelPoint {
+    PanelPoint {
+        x: x as f32,
+        y: y as f32,
+    }
+}
+
+fn quadratic_point(a: PanelPoint, b: PanelPoint, c: PanelPoint, t: f32) -> PanelPoint {
+    let u = 1.0 - t;
+    let x = u * u * a.x + 2.0 * u * t * b.x + t * t * c.x;
+    let y = u * u * a.y + 2.0 * u * t * b.y + t * t * c.y;
+    PanelPoint { x, y }
+}
+
+fn move_towards(from: PanelPoint, to: PanelPoint, amount: f32) -> PanelPoint {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist <= 1e-4 {
+        return from;
+    }
+    let t = (amount / dist).clamp(0.0, 1.0);
+    PanelPoint {
+        x: from.x + dx * t,
+        y: from.y + dy * t,
+    }
+}
+
+fn execution_corner_radius(prev: PanelPoint, corner: PanelPoint, next: PanelPoint) -> f32 {
+    let v0x = corner.x - prev.x;
+    let v0y = corner.y - prev.y;
+    let v1x = next.x - corner.x;
+    let v1y = next.y - corner.y;
+    let len0 = (v0x * v0x + v0y * v0y).sqrt();
+    let len1 = (v1x * v1x + v1y * v1y).sqrt();
+    if len0 <= 1.0 || len1 <= 1.0 {
+        return 0.0;
+    }
+    let dot = (v0x * v1x + v0y * v1y) / (len0 * len1);
+    if dot > 0.995 {
+        return 0.0;
+    }
+    len0.min(len1)
+        .mul_add(0.45, 0.0)
+        .min(EXEC_WIRE_CORNER_MAX_RADIUS)
+}
+
+fn edge_path_intersects_cut_line(state: &PreviewState, path: &[(i32, i32)]) -> bool {
+    if path.len() < 2 {
+        return false;
+    }
+    for index in 0..path.len().saturating_sub(1) {
+        let (x0, y0) = path[index];
+        let (x1, y1) = path[index + 1];
+        if edge_intersects_cut_line(state, x0, y0, x1, y1) {
+            return true;
+        }
+    }
+    false
 }
 
 fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
@@ -1011,4 +1423,60 @@ fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
 
 fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
     px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        simplify_polyline, ExecutionPathfinder, GridPoint, Rect, EXEC_WIRE_GRID_CELL_PX,
+    };
+
+    #[test]
+    fn simplify_polyline_drops_collinear_waypoints() {
+        let points = vec![(0, 0), (10, 0), (20, 0), (30, 10), (40, 20), (50, 20)];
+        let simplified = simplify_polyline(points.as_slice());
+        assert_eq!(simplified, vec![(0, 0), (20, 0), (40, 20), (50, 20)]);
+    }
+
+    #[test]
+    fn execution_pathfinder_routes_around_blocked_cells() {
+        let width = 8;
+        let height = 8;
+        let mut blocked = vec![false; (width * height) as usize];
+        for y in 0..height {
+            let idx = (y * width + 3) as usize;
+            blocked[idx] = true;
+        }
+        blocked[(4 * width + 3) as usize] = false;
+        let pathfinder = ExecutionPathfinder {
+            cell_px: EXEC_WIRE_GRID_CELL_PX,
+            origin_x: 0,
+            origin_y: 0,
+            width,
+            height,
+            blocked,
+        };
+        let path = pathfinder
+            .find_path((8, 8), (150, 150))
+            .expect("path should exist through the gap");
+        assert!(path.len() >= 3);
+    }
+
+    #[test]
+    fn mark_blocked_fills_obstacle_cells() {
+        let mut pathfinder = ExecutionPathfinder {
+            cell_px: 10,
+            origin_x: 0,
+            origin_y: 0,
+            width: 6,
+            height: 6,
+            blocked: vec![false; 36],
+        };
+        pathfinder.mark_blocked(Rect::new(10, 10, 20, 20));
+        let filled = pathfinder
+            .idx(GridPoint { x: 2, y: 2 })
+            .and_then(|idx| pathfinder.blocked.get(idx).copied())
+            .unwrap_or(false);
+        assert!(filled);
+    }
 }
