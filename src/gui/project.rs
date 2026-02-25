@@ -24,6 +24,14 @@ impl ProjectNodeKind {
     pub(crate) const fn is_top_like(self) -> bool {
         matches!(self, Self::TopBasic)
     }
+
+    /// Return short display label used by node and menu UI.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::TopBasic => "TOP Basic",
+            Self::Output => "Output",
+        }
+    }
 }
 
 /// One user-editable graph node instance in a GUI project.

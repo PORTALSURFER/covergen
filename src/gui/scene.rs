@@ -5,7 +5,8 @@
 
 use super::geometry::Rect;
 use super::project::{GuiProject, ProjectNode, ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH};
-use super::state::PreviewState;
+use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
+use super::text::GuiTextRenderer;
 
 const PREVIEW_BG: Color = Color::argb(0xFF0A0D12);
 const PANEL_BG: Color = Color::argb(0xFF111318);
@@ -19,6 +20,9 @@ const MENU_BG: Color = Color::argb(0xFF1D2430);
 const MENU_SELECTED: Color = Color::argb(0xFF334155);
 const MENU_BORDER: Color = Color::argb(0xFF475569);
 const HEADER_BG: Color = Color::argb(0xFF202631);
+const HEADER_TEXT: Color = Color::argb(0xFFE2E8F0);
+const NODE_TEXT: Color = Color::argb(0xFFCBD5E1);
+const MENU_TEXT: Color = Color::argb(0xFFF1F5F9);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,13 +70,26 @@ pub(crate) struct SceneFrame {
 }
 
 /// Stateful scene builder that reuses allocation capacity across frames.
-#[derive(Debug, Default)]
 pub(crate) struct SceneBuilder {
     frame: SceneFrame,
     static_rects: Vec<ColoredRect>,
     static_lines: Vec<ColoredLine>,
     cached_static_key: Option<(usize, usize, usize)>,
     edge_anchors: Vec<(u32, i32, i32)>,
+    text_renderer: GuiTextRenderer,
+}
+
+impl Default for SceneBuilder {
+    fn default() -> Self {
+        Self {
+            frame: SceneFrame::default(),
+            static_rects: Vec::new(),
+            static_lines: Vec::new(),
+            cached_static_key: None,
+            edge_anchors: Vec::new(),
+            text_renderer: GuiTextRenderer::default(),
+        }
+    }
 }
 
 impl SceneBuilder {
@@ -121,10 +138,11 @@ impl SceneBuilder {
     }
 
     fn push_header(&mut self, project: &GuiProject) {
-        let w = if project.node_count() > 99 { 380 } else { 340 };
+        let w = 380;
         let rect = Rect::new(8, 8, w, 24);
         self.push_rect(rect, HEADER_BG);
         self.push_border(rect, BORDER_COLOR);
+        self.push_text(rect.x + 8, rect.y + 7, project.name.as_str(), HEADER_TEXT);
     }
 
     fn push_edges(&mut self, project: &GuiProject) {
@@ -168,6 +186,7 @@ impl SceneBuilder {
                 BORDER_COLOR
             };
             self.push_border(rect, border);
+            self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
         }
     }
 
@@ -178,13 +197,15 @@ impl SceneBuilder {
         let rect = state.menu.rect();
         self.push_rect(rect, MENU_BG);
         self.push_border(rect, MENU_BORDER);
-        for index in 0..super::state::ADD_NODE_OPTIONS.len() {
+        self.push_text(rect.x + MENU_INNER_PADDING + 6, rect.y + 7, "Add Node", MENU_TEXT);
+        for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
             let Some(item) = state.menu.item_rect(index) else {
                 continue;
             };
             if index == state.menu.selected || state.hover_menu_item == Some(index) {
                 self.push_rect(item, MENU_SELECTED);
             }
+            self.push_text(item.x + 6, item.y + 8, option.label(), MENU_TEXT);
         }
     }
 
@@ -247,6 +268,11 @@ impl SceneBuilder {
             y1,
             color,
         });
+    }
+
+    fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
+        let out = &mut self.frame.rects;
+        self.text_renderer.push_text(out, x, y, text, color);
     }
 
     fn anchor_for(&self, node_id: u32) -> Option<(i32, i32)> {

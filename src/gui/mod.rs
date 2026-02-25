@@ -12,6 +12,7 @@ mod project;
 mod renderer;
 mod scene;
 mod state;
+mod text;
 
 use std::error::Error;
 use std::sync::Arc;

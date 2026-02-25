@@ -19,6 +19,13 @@ pub(crate) struct AddNodeOption {
     pub(crate) kind: ProjectNodeKind,
 }
 
+impl AddNodeOption {
+    /// Return display label used by the add-node popup list.
+    pub(crate) const fn label(self) -> &'static str {
+        self.kind.label()
+    }
+}
+
 /// Menu entries currently exposed in the graph editor.
 pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 2] = [
     AddNodeOption {
