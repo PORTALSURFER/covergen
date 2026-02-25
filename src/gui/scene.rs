@@ -18,6 +18,7 @@ const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
 const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
 const BORDER_COLOR: Color = Color::argb(AGIO.border);
 const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
+const PARAM_EDGE_COLOR: Color = Color::argb(AGIO.highlight_error);
 const NODE_BODY: Color = Color::argb(AGIO.node_body);
 const NODE_DRAG: Color = Color::argb(AGIO.highlight_warning);
 const NODE_HOVER: Color = Color::argb(AGIO.highlight_focus);
@@ -268,10 +269,10 @@ impl SceneBuilder {
             return;
         }
         for target in project.nodes() {
-            let Some((to_x, to_y)) = input_pin_center(target) else {
+            let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
                 continue;
             };
-            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+            let (default_to_x, default_to_y) = graph_point_to_panel(default_to_x, default_to_y, state);
             for source_id in target.inputs() {
                 let Some(source) = project.node(*source_id) else {
                     continue;
@@ -280,12 +281,26 @@ impl SceneBuilder {
                     continue;
                 };
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+                let link_kind = project.link_resource_kind(*source_id, target.id());
+                let (to_x, to_y, signal_path) = if link_kind == Some(ResourceKind::Signal) {
+                    let (gx, gy) = signal_target_graph_point(project, target, *source_id);
+                    let (px, py) = graph_point_to_panel(gx, gy, state);
+                    (px, py, true)
+                } else {
+                    (default_to_x, default_to_y, false)
+                };
                 let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
                     CUT_EDGE_COLOR
+                } else if signal_path {
+                    PARAM_EDGE_COLOR
                 } else {
                     EDGE_COLOR
                 };
-                self.push_line(from_x, from_y, to_x, to_y, color);
+                if signal_path {
+                    self.push_rounded_signal_wire(from_x, from_y, to_x, to_y, color);
+                } else {
+                    self.push_line(from_x, from_y, to_x, to_y, color);
+                }
             }
         }
     }
@@ -553,7 +568,37 @@ impl SceneBuilder {
         } else {
             (wire.cursor_x, wire.cursor_y)
         };
-        self.push_line(x0, y0, x1, y1, PIN_HOVER);
+        if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
+            self.push_rounded_signal_wire(x0, y0, x1, y1, PARAM_EDGE_COLOR);
+        } else {
+            self.push_line(x0, y0, x1, y1, PIN_HOVER);
+        }
+    }
+
+    fn push_rounded_signal_wire(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        if dx.abs() < 8 || dy.abs() < 8 {
+            self.push_line(x0, y0, x1, y1, color);
+            return;
+        }
+        let step = (dx.abs() / 2).max(24);
+        let bend_x = if dx >= 0 { x0 + step } else { x0 - step };
+        let r1 = rounded_corner_radius(x0, y0, bend_x, y0, bend_x, y1);
+        let r2 = rounded_corner_radius(bend_x, y0, bend_x, y1, x1, y1);
+        let sx = bend_x - dx.signum() * r1;
+        let sy = y0;
+        let cx1 = bend_x;
+        let cy1 = y0 + dy.signum() * r1;
+        let cx2 = bend_x;
+        let cy2 = y1 - dy.signum() * r2;
+        let ex = bend_x + (x1 - bend_x).signum() * r2;
+        let ey = y1;
+        self.push_line(x0, y0, sx, sy, color);
+        self.push_line(sx, sy, cx1, cy1, color);
+        self.push_line(cx1, cy1, cx2, cy2, color);
+        self.push_line(cx2, cy2, ex, ey, color);
+        self.push_line(ex, ey, x1, y1, color);
     }
 
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
@@ -765,6 +810,8 @@ fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
 
 fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     let mut hash = hash_start();
+    hash = hash_u64(hash, project.render_signature());
+    hash = hash_u64(hash, project.ui_signature());
     hash = hash_f32(hash, state.pan_x);
     hash = hash_f32(hash, state.pan_y);
     hash = hash_f32(hash, state.zoom);
@@ -889,6 +936,24 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::CtlLfo => Color::argb(AGIO.node_header_ctl_lfo),
         ProjectNodeKind::IoWindowOut => Color::argb(AGIO.node_header_io_window_out),
     }
+}
+
+fn signal_target_graph_point(project: &GuiProject, target: &ProjectNode, source_id: u32) -> (i32, i32) {
+    if let Some(index) = project.signal_param_index_for_source(source_id, target.id()) {
+        if let Some(row) = node_param_row_rect(target, index) {
+            return (row.x + row.w - 4, row.y + row.h / 2);
+        }
+    }
+    (target.x() + NODE_WIDTH - 4, target.y() + target.card_height() / 2)
+}
+
+fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i32 {
+    let in_len = (bx - ax).abs() + (by - ay).abs();
+    let out_len = (cx - bx).abs() + (cy - by).abs();
+    if in_len < 2 || out_len < 2 {
+        return 0;
+    }
+    (in_len.min(out_len) / 2).clamp(2, 12)
 }
 
 fn edge_intersects_cut_line(state: &PreviewState, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {

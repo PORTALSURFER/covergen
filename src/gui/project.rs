@@ -767,6 +767,37 @@ impl GuiProject {
         self.node(node_id)?.texture_input
     }
 
+    /// Return resource kind for one explicit source -> target link.
+    ///
+    /// Returns `None` when no such link exists.
+    pub(crate) fn link_resource_kind(&self, source_id: u32, target_id: u32) -> Option<ResourceKind> {
+        let target = self.node(target_id)?;
+        if target.texture_input == Some(source_id) {
+            return Some(ResourceKind::Texture2D);
+        }
+        if target
+            .params
+            .iter()
+            .any(|slot| slot.signal_source == Some(source_id))
+        {
+            return Some(ResourceKind::Signal);
+        }
+        None
+    }
+
+    /// Return parameter index bound from `source_id` into `target_id`, if any.
+    pub(crate) fn signal_param_index_for_source(
+        &self,
+        source_id: u32,
+        target_id: u32,
+    ) -> Option<usize> {
+        let target = self.node(target_id)?;
+        target
+            .params
+            .iter()
+            .position(|slot| slot.signal_source == Some(source_id))
+    }
+
     /// Toggle one node expanded/collapsed state.
     ///
     /// Returns `true` when expanded state changed.
@@ -1380,7 +1411,7 @@ fn next_project_name() -> String {
 mod tests {
     use super::{
         input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
-        GraphBounds, GuiProject, ProjectNodeKind, NODE_HEIGHT,
+        GraphBounds, GuiProject, ProjectNodeKind, ResourceKind, NODE_HEIGHT,
     };
 
     #[test]
@@ -1507,6 +1538,25 @@ mod tests {
         let value = project.node_param_value(circle, "color_g", 0.25, &mut Vec::new());
         assert_eq!(source, value);
         assert!(!project.connect_signal_link_to_param(lfo, circle, 5));
+    }
+
+    #[test]
+    fn link_resource_kind_reports_texture_and_signal_links() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 120, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 200, 40, 420, 480);
+        assert!(project.connect_image_link(solid, circle));
+        assert!(project.connect_signal_link_to_param(lfo, circle, 3));
+        assert_eq!(
+            project.link_resource_kind(solid, circle),
+            Some(ResourceKind::Texture2D)
+        );
+        assert_eq!(
+            project.link_resource_kind(lfo, circle),
+            Some(ResourceKind::Signal)
+        );
+        assert_eq!(project.signal_param_index_for_source(lfo, circle), Some(3));
     }
 
     #[test]
