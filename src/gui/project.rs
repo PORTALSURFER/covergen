@@ -1360,7 +1360,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
         ],
         ProjectNodeKind::CtlLfo => vec![
             param("rate_hz", "rate_hz", 0.4, 0.0, 8.0, 0.05),
-            param("amplitude", "amplitude", 0.5, 0.0, 1.0, 0.02),
+            param("amplitude", "amplitude", 0.5, 0.0, 64.0, 0.1),
             param("phase", "phase", 0.0, -1.0, 1.0, 0.02),
             param("bias", "bias", 0.5, -1.0, 1.0, 0.02),
         ],
@@ -1692,6 +1692,17 @@ mod tests {
             .node_param_raw_text(solid, 0)
             .expect("param text should exist");
         assert_eq!(value_text, "1.000");
+    }
+
+    #[test]
+    fn lfo_amplitude_accepts_higher_values() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+        assert!(project.set_param_value(lfo, 1, 12.5));
+        let value = project
+            .node_param_raw_value(lfo, 1)
+            .expect("param value should exist");
+        assert_eq!(value, 12.5);
     }
 
     #[test]
