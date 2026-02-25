@@ -61,6 +61,9 @@ catch {
     }
 }
 Invoke-CheckedCommand -Label "rustfmt check" -Command { & cargo fmt --check }
+Invoke-CheckedCommand -Label "clippy (warnings + private docs denied)" -Command {
+    & cargo clippy --all-targets --all-features -- -D warnings -D clippy::missing_docs_in_private_items
+}
 Invoke-CheckedCommand -Label "full test suite" -Command { & cargo test -q }
 Invoke-CheckedCommand -Label "still snapshot regression" -Command {
     & cargo test v2_still_fixed_seed_snapshots_match
