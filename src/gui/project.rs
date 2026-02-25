@@ -136,6 +136,7 @@ pub(crate) struct NodeParamSlot {
     key: &'static str,
     label: &'static str,
     value: f32,
+    value_text: String,
     min: f32,
     max: f32,
     step: f32,
@@ -143,10 +144,10 @@ pub(crate) struct NodeParamSlot {
 }
 
 /// Read-only parameter view for rendering node UI.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct NodeParamView {
-    pub(crate) label: &'static str,
-    pub(crate) value: f32,
+#[derive(Clone, Debug)]
+pub(crate) struct NodeParamView<'a> {
+    pub(crate) label: &'a str,
+    pub(crate) value_text: &'a str,
     pub(crate) bound: bool,
     pub(crate) selected: bool,
 }
@@ -216,6 +217,23 @@ impl ProjectNode {
             return NODE_HEIGHT;
         }
         NODE_HEIGHT + (self.params.len() as i32 * NODE_PARAM_ROW_HEIGHT) + NODE_PARAM_FOOTER_PAD
+    }
+
+    /// Return number of editable parameters for this node.
+    pub(crate) fn param_count(&self) -> usize {
+        self.params.len()
+    }
+
+    /// Return read-only parameter row data for one index.
+    pub(crate) fn param_view(&self, param_index: usize) -> Option<NodeParamView<'_>> {
+        let slot = self.params.get(param_index)?;
+        let selected = param_index == self.selected_param.min(self.params.len().saturating_sub(1));
+        Some(NodeParamView {
+            label: slot.label,
+            value_text: slot.value_text.as_str(),
+            bound: slot.signal_source.is_some(),
+            selected,
+        })
     }
 }
 
@@ -718,6 +736,7 @@ impl GuiProject {
             return false;
         }
         slot.value = next;
+        slot.value_text = format_param_value_text(next);
         true
     }
 
@@ -746,6 +765,7 @@ impl GuiProject {
             return false;
         }
         slot.value = clamped;
+        slot.value_text = format_param_value_text(clamped);
         true
     }
 
@@ -783,23 +803,14 @@ impl GuiProject {
         rect.contains(x, y)
     }
 
-    /// Return rendered parameter rows for one node.
-    pub(crate) fn node_param_views(&self, node_id: u32) -> Option<Vec<NodeParamView>> {
+    /// Return cached formatted parameter text at one index for one node.
+    pub(crate) fn node_param_raw_text(&self, node_id: u32, param_index: usize) -> Option<&str> {
         let node = self.node(node_id)?;
         if node.params.is_empty() {
-            return Some(Vec::new());
+            return None;
         }
-        let selected = node.selected_param.min(node.params.len().saturating_sub(1));
-        let mut out = Vec::with_capacity(node.params.len());
-        for (idx, slot) in node.params.iter().enumerate() {
-            out.push(NodeParamView {
-                label: slot.label,
-                value: slot.value,
-                bound: slot.signal_source.is_some(),
-                selected: idx == selected,
-            });
-        }
-        Some(out)
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        node.params.get(index).map(|slot| slot.value_text.as_str())
     }
 
     /// Return true when a node is currently expanded.
@@ -1072,11 +1083,16 @@ fn param(
         key,
         label,
         value,
+        value_text: format_param_value_text(value),
         min,
         max,
         step,
         signal_source: None,
     }
+}
+
+fn format_param_value_text(value: f32) -> String {
+    format!("{value:.3}")
 }
 
 fn rebuild_node_inputs(node: &mut ProjectNode) {
@@ -1322,6 +1338,33 @@ mod tests {
             .node_param_raw_value(solid, 0)
             .expect("param value should exist");
         assert_eq!(value, 1.0);
+        let value_text = project
+            .node_param_raw_text(solid, 0)
+            .expect("param text should exist");
+        assert_eq!(value_text, "1.000");
+    }
+
+    #[test]
+    fn cached_param_text_updates_when_value_changes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let initial = project
+            .node_param_raw_text(solid, 0)
+            .expect("param text should exist")
+            .to_string();
+        assert_eq!(initial, "0.500");
+
+        assert!(project.set_param_value(solid, 0, 0.25));
+        let after_set = project
+            .node_param_raw_text(solid, 0)
+            .expect("param text should exist");
+        assert_eq!(after_set, "0.250");
+
+        assert!(project.adjust_selected_param(solid, 1.0));
+        let after_adjust = project
+            .node_param_raw_text(solid, 0)
+            .expect("param text should exist");
+        assert_eq!(after_adjust, "0.260");
     }
 
     #[test]

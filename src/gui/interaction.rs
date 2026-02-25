@@ -561,13 +561,13 @@ fn start_param_edit(
     {
         return false;
     }
-    let Some(value) = project.node_param_raw_value(node_id, param_index) else {
+    let Some(value_text) = project.node_param_raw_text(node_id, param_index) else {
         return false;
     };
     state.param_edit = Some(ParamEditState {
         node_id,
         param_index,
-        buffer: format!("{value:.3}"),
+        buffer: value_text.to_owned(),
         cursor: 0,
         anchor: 0,
     });

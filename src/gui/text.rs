@@ -128,6 +128,18 @@ impl GuiTextRenderer {
         max_width.max(line_width)
     }
 
+    /// Return measured width for one character at the provided scale.
+    pub(crate) fn measure_char_width(&self, ch: char, scale: f32) -> i32 {
+        let size_key = quantized_font_size(scale);
+        if ch == '\n' {
+            return 0;
+        }
+        if ch == '\t' {
+            return TAB_SPACES * self.space_advance(size_key);
+        }
+        self.glyph_advance(ch, size_key)
+    }
+
     fn space_advance(&self, size_key: u16) -> i32 {
         self.glyph_advance(' ', size_key).max(1)
     }

@@ -98,6 +98,8 @@ pub(crate) struct SceneBuilder {
     static_lines: Vec<ColoredLine>,
     cached_static_key: Option<(usize, usize, usize)>,
     text_renderer: GuiTextRenderer,
+    label_scratch: String,
+    fitted_label_scratch: String,
 }
 
 impl Default for SceneBuilder {
@@ -108,6 +110,8 @@ impl Default for SceneBuilder {
             static_lines: Vec::new(),
             cached_static_key: None,
             text_renderer: GuiTextRenderer::default(),
+            label_scratch: String::new(),
+            fitted_label_scratch: String::new(),
         }
     }
 }
@@ -215,7 +219,7 @@ impl SceneBuilder {
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.expanded() {
-                self.push_node_params(project, node, state);
+                self.push_node_params(node, state);
             }
             self.push_pins(node, state);
         }
@@ -244,19 +248,16 @@ impl SceneBuilder {
         }
     }
 
-    fn push_node_params(
-        &mut self,
-        project: &GuiProject,
-        node: &ProjectNode,
-        state: &PreviewState,
-    ) {
-        let Some(rows) = project.node_param_views(node.id()) else {
-            return;
-        };
-        if rows.is_empty() {
+    fn push_node_params(&mut self, node: &ProjectNode, state: &PreviewState) {
+        if node.param_count() == 0 {
             return;
         }
-        for (index, row) in rows.iter().enumerate() {
+        let mut label_scratch = std::mem::take(&mut self.label_scratch);
+        let mut fitted_label = std::mem::take(&mut self.fitted_label_scratch);
+        for index in 0..node.param_count() {
+            let Some(row) = node.param_view(index) else {
+                continue;
+            };
             let Some(row_world) = node_param_row_rect(node, index) else {
                 continue;
             };
@@ -271,14 +272,14 @@ impl SceneBuilder {
                     PARAM_SELECTED,
                 );
             }
-            let label = if row.bound {
-                format!("{} *", row.label)
-            } else {
-                row.label.to_string()
-            };
+            label_scratch.clear();
+            label_scratch.push_str(row.label);
+            if row.bound {
+                label_scratch.push_str(" *");
+            }
             let label_x = row_rect.x + 4;
             let label_max_w = (value_rect.x - label_x - 4).max(0);
-            let fitted_label = self.fit_graph_text(label.as_str(), label_max_w, state);
+            self.fit_graph_text_into(label_scratch.as_str(), label_max_w, state, &mut fitted_label);
             let label_rect = Rect::new(label_x, row_rect.y, label_max_w, row_rect.h);
             self.push_graph_text_in_rect(label_rect, 0, fitted_label.as_str(), NODE_TEXT, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
@@ -287,20 +288,14 @@ impl SceneBuilder {
                 .as_ref()
                 .map(|edit| edit.node_id == node.id() && edit.param_index == index)
                 .unwrap_or(false);
-            let value_text = if let Some(edit) = state.param_edit.as_ref() {
-                if edit.node_id == node.id() && edit.param_index == index {
-                    edit.buffer.clone()
-                } else {
-                    format!("{:.3}", row.value)
-                }
-            } else {
-                format!("{:.3}", row.value)
-            };
             let active_edit = state
                 .param_edit
                 .as_ref()
                 .filter(|edit| edit.node_id == node.id() && edit.param_index == index);
-            self.push_value_editor_text(value_rect, value_text.as_str(), active_edit, state);
+            let value_text = active_edit
+                .map(|edit| edit.buffer.as_str())
+                .unwrap_or(row.value_text);
+            self.push_value_editor_text(value_rect, value_text, active_edit, state);
             self.push_border(
                 value_rect,
                 if editing {
@@ -310,6 +305,8 @@ impl SceneBuilder {
                 },
             );
         }
+        self.label_scratch = label_scratch;
+        self.fitted_label_scratch = fitted_label;
     }
 
     fn push_menu(&mut self, state: &PreviewState) {
@@ -521,32 +518,38 @@ impl SceneBuilder {
         }
     }
 
-    fn fit_graph_text(&self, text: &str, max_width: i32, state: &PreviewState) -> String {
+    fn fit_graph_text_into(
+        &self,
+        text: &str,
+        max_width: i32,
+        state: &PreviewState,
+        out: &mut String,
+    ) {
+        out.clear();
         if max_width <= 0 || text.is_empty() {
-            return String::new();
+            return;
         }
         let scale = state.zoom;
         let full_w = self.text_renderer.measure_text_width(text, scale);
         if full_w <= max_width {
-            return text.to_string();
+            out.push_str(text);
+            return;
         }
         let ellipsis = "...";
         let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
         if ellipsis_w > max_width {
-            return String::new();
+            return;
         }
-        let mut out = String::new();
+        let mut width = 0;
         for ch in text.chars() {
-            out.push(ch);
-            let mut candidate = out.clone();
-            candidate.push_str(ellipsis);
-            if self.text_renderer.measure_text_width(candidate.as_str(), scale) > max_width {
-                out.pop();
+            let ch_w = self.text_renderer.measure_char_width(ch, scale);
+            if width + ch_w + ellipsis_w > max_width {
                 break;
             }
+            out.push(ch);
+            width += ch_w;
         }
         out.push_str(ellipsis);
-        out
     }
 }
 
