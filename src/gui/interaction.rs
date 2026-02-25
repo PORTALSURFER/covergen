@@ -1,6 +1,7 @@
 //! GUI input handling and graph-editor interaction logic.
 
 use crate::runtime_config::V2Config;
+use std::time::Duration;
 
 use super::project::GuiProject;
 use super::state::{menu_height, AddNodeMenuState, InputSnapshot, PreviewState, ADD_NODE_OPTIONS};
@@ -36,10 +37,19 @@ pub(crate) fn apply_preview_actions(
     state.prev_left_down = input.left_down;
 }
 
-/// Advance timeline frame counter when unpaused.
-pub(crate) fn step_timeline_if_running(state: &mut PreviewState) {
+/// Advance timeline frame counter at the configured playback frame rate.
+pub(crate) fn step_timeline_if_running(
+    state: &mut PreviewState,
+    frame_delta: Duration,
+    timeline_fps: u32,
+) {
     if !state.paused {
-        state.frame_index = state.frame_index.wrapping_add(1);
+        let tick_secs = 1.0 / timeline_fps.max(1) as f32;
+        state.timeline_accum_secs += frame_delta.as_secs_f32();
+        while state.timeline_accum_secs >= tick_secs {
+            state.timeline_accum_secs -= tick_secs;
+            state.frame_index = state.frame_index.wrapping_add(1);
+        }
     }
 }
 

@@ -21,13 +21,18 @@ use project::GuiProject;
 use state::PreviewState;
 use window::TopPreviewWindow;
 
+const GUI_TARGET_FPS: u32 = 120;
+const GUI_MAX_PREVIEW_DIM: u32 = 900;
 const PANEL_WIDTH: usize = 420;
 
 /// Launch the realtime split-panel GUI using standard runtime arguments.
 pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> {
     let config = V2Config::from_args(args)?;
     let project = GuiProject::new_empty(config.width, config.height);
-    let mut window = TopPreviewWindow::new(config.width, config.height, PANEL_WIDTH)?;
+    let (preview_width, preview_height) =
+        gui_preview_size(config.width, config.height, GUI_MAX_PREVIEW_DIM);
+    let mut window =
+        TopPreviewWindow::new(preview_width, preview_height, PANEL_WIDTH, GUI_TARGET_FPS)?;
     run_preview_loop(&config, project, &mut window)
 }
 
@@ -36,12 +41,15 @@ fn run_preview_loop(
     mut project: GuiProject,
     window: &mut TopPreviewWindow,
 ) -> Result<(), Box<dyn Error>> {
-    let frame_budget = target_frame_budget(config.animation.fps);
+    let frame_budget = target_frame_budget(GUI_TARGET_FPS);
     let mut state = PreviewState::new(config);
+    let mut last_frame_start = Instant::now();
     print_controls_once(config, &project);
 
     while window.is_open() {
         let frame_start = Instant::now();
+        let frame_delta = frame_start.saturating_duration_since(last_frame_start);
+        last_frame_start = frame_start;
         let input = window.capture_input(state.prev_left_down);
         apply_preview_actions(
             config,
@@ -51,8 +59,8 @@ fn run_preview_loop(
             window.height(),
             &mut state,
         );
-        step_timeline_if_running(&mut state);
-        state.avg_fps = smoothed_fps(state.avg_fps, frame_start.elapsed());
+        step_timeline_if_running(&mut state, frame_delta, config.animation.fps);
+        state.avg_fps = smoothed_fps(state.avg_fps, frame_delta);
         window.present(&project, &state)?;
         window.set_title(&window_title(config, &project, &state));
         sleep_to_frame_budget(frame_start, frame_budget);
@@ -62,6 +70,19 @@ fn run_preview_loop(
 
 fn target_frame_budget(target_fps: u32) -> Duration {
     Duration::from_secs_f64(1.0 / target_fps.max(1) as f64)
+}
+
+fn gui_preview_size(width: u32, height: u32, max_dim: u32) -> (u32, u32) {
+    let width = width.max(64);
+    let height = height.max(64);
+    let longest = width.max(height);
+    if longest <= max_dim {
+        return (width, height);
+    }
+    let scale = max_dim as f32 / longest as f32;
+    let scaled_w = ((width as f32 * scale).round() as u32).max(64);
+    let scaled_h = ((height as f32 * scale).round() as u32).max(64);
+    (scaled_w, scaled_h)
 }
 
 fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
@@ -96,6 +117,11 @@ fn print_controls_once(config: &V2Config, project: &GuiProject) {
     println!(
         "[gui] new empty project loaded | {} | {}x{}",
         project.name, config.width, config.height
+    );
+    let (display_w, display_h) = gui_preview_size(config.width, config.height, GUI_MAX_PREVIEW_DIM);
+    println!(
+        "[gui] editor preview buffer: {}x{} @ {}hz",
+        display_w, display_h, GUI_TARGET_FPS
     );
     println!("[gui] controls: Esc=quit, Space=pause, Tab=add node menu, R=new project");
 }

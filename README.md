@@ -88,6 +88,11 @@ Realtime GUI controls:
 - Left click + drag on node: move node in graph editor
 - `R`: create a fresh empty project
 
+GUI responsiveness notes:
+
+- Editor interaction runs at a fixed high refresh rate (independent of animation FPS).
+- The right preview panel is auto-scaled for interactive performance; render/export output resolution is unchanged.
+
 Launch command:
 
 ```bash

@@ -35,6 +35,7 @@ impl TopPreviewWindow {
         preview_width: u32,
         preview_height: u32,
         panel_width: usize,
+        target_fps: u32,
     ) -> Result<Self, Box<dyn Error>> {
         let preview_width = usize::try_from(preview_width).map_err(|_| "invalid preview width")?;
         let preview_height =
@@ -53,7 +54,7 @@ impl TopPreviewWindow {
                 ..WindowOptions::default()
             },
         )?;
-        window.set_target_fps(60);
+        window.set_target_fps(target_fps as usize);
 
         let editor = NodeEditorLayout::new(panel_width);
         let rgb = vec![

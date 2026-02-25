@@ -124,6 +124,7 @@ impl AddNodeMenuState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PreviewState {
     pub(crate) frame_index: u32,
+    pub(crate) timeline_accum_secs: f32,
     pub(crate) paused: bool,
     pub(crate) avg_fps: f32,
     pub(crate) prev_left_down: bool,
@@ -138,6 +139,7 @@ impl PreviewState {
     pub(crate) fn new(_config: &V2Config) -> Self {
         Self {
             frame_index: 0,
+            timeline_accum_secs: 0.0,
             paused: false,
             avg_fps: 0.0,
             prev_left_down: false,
