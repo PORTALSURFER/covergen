@@ -67,6 +67,8 @@ pub(crate) enum ProjectNodeKind {
     TexCircle,
     /// `buf.sphere` mesh buffer source node.
     BufSphere,
+    /// `buf.circle_nurbs` curve buffer source node.
+    BufCircleNurbs,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
     /// `scene.entity` mesh + transform + material binding node.
@@ -88,6 +90,7 @@ impl ProjectNodeKind {
             Self::TexSolid => "tex.solid",
             Self::TexCircle => "tex.circle",
             Self::BufSphere => "buf.sphere",
+            Self::BufCircleNurbs => "buf.circle_nurbs",
             Self::TexTransform2D => "tex.transform_2d",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
@@ -104,6 +107,7 @@ impl ProjectNodeKind {
             Self::TexSolid => ExecutionKind::Render,
             Self::TexCircle => ExecutionKind::Render,
             Self::BufSphere => ExecutionKind::Cpu,
+            Self::BufCircleNurbs => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
@@ -136,6 +140,7 @@ impl ProjectNodeKind {
             Self::TexSolid
                 | Self::TexCircle
                 | Self::BufSphere
+                | Self::BufCircleNurbs
                 | Self::TexTransform2D
                 | Self::SceneEntity
                 | Self::RenderScenePass
@@ -161,7 +166,7 @@ impl ProjectNodeKind {
     /// Return output resource kind when this node publishes one.
     pub(crate) const fn output_resource_kind(self) -> Option<ResourceKind> {
         match self {
-            Self::BufSphere => Some(ResourceKind::Buffer),
+            Self::BufSphere | Self::BufCircleNurbs => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Entity),
             Self::SceneBuild => Some(ResourceKind::Scene),
             Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::RenderScenePass => {
@@ -1332,6 +1337,13 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("segments", "segments", 32.0, 3.0, 128.0, 1.0),
             param("rings", "rings", 16.0, 2.0, 64.0, 1.0),
         ],
+        ProjectNodeKind::BufCircleNurbs => vec![
+            param("radius", "radius", 0.28, 0.02, 0.95, 0.005),
+            param("arc_start", "arc_start", 0.0, 0.0, 360.0, 1.0),
+            param("arc_end", "arc_end", 360.0, 0.0, 360.0, 1.0),
+            param("order", "order", 3.0, 2.0, 5.0, 1.0),
+            param("divisions", "divisions", 64.0, 8.0, 512.0, 1.0),
+        ],
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
             // never changes output until the user edits parameters.
@@ -1598,6 +1610,28 @@ mod tests {
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
         assert_eq!(project.link_resource_kind(sphere, entity), Some(ResourceKind::Buffer));
+        assert_eq!(project.link_resource_kind(entity, scene), Some(ResourceKind::Entity));
+        assert_eq!(project.link_resource_kind(scene, pass), Some(ResourceKind::Scene));
+        assert_eq!(
+            project.link_resource_kind(pass, out),
+            Some(ResourceKind::Texture2D)
+        );
+    }
+
+    #[test]
+    fn circle_nurbs_buffer_scene_chain_requires_typed_intermediate_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(!project.connect_image_link(circle, out));
+        assert!(project.connect_image_link(circle, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert_eq!(project.link_resource_kind(circle, entity), Some(ResourceKind::Buffer));
         assert_eq!(project.link_resource_kind(entity, scene), Some(ResourceKind::Entity));
         assert_eq!(project.link_resource_kind(scene, pass), Some(ResourceKind::Scene));
         assert_eq!(

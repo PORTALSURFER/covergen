@@ -64,6 +64,7 @@ enum CompiledStepKind {
     Solid,
     Circle,
     SphereBuffer,
+    CircleNurbsBuffer,
     SceneEntity,
     SceneBuild,
     ScenePass,
@@ -80,6 +81,12 @@ struct SceneEntityState {
     color_g: f32,
     color_b: f32,
     alpha: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SceneMeshProfile {
+    Sphere,
+    CircleNurbs,
 }
 
 /// Compiled GUI runtime graph rooted at `io.window_out`.
@@ -122,7 +129,8 @@ impl GuiCompiledRuntime {
     ) {
         out_ops.clear();
         eval_stack.clear();
-        let mut sphere_radius = None;
+        let mut mesh_radius = None;
+        let mut mesh_profile = SceneMeshProfile::Sphere;
         let mut entity = None;
         let mut scene_ready = false;
         for step in &self.steps {
@@ -176,7 +184,17 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "radius", time_secs, eval_stack)
                         .unwrap_or(0.28)
                         .max(0.01);
-                    sphere_radius = Some(radius);
+                    mesh_radius = Some(radius);
+                    mesh_profile = SceneMeshProfile::Sphere;
+                    scene_ready = false;
+                }
+                CompiledStepKind::CircleNurbsBuffer => {
+                    let radius = project
+                        .node_param_value(step.node_id, "radius", time_secs, eval_stack)
+                        .unwrap_or(0.28)
+                        .max(0.01);
+                    mesh_radius = Some(radius);
+                    mesh_profile = SceneMeshProfile::CircleNurbs;
                     scene_ready = false;
                 }
                 CompiledStepKind::SceneEntity => {
@@ -210,37 +228,51 @@ impl GuiCompiledRuntime {
                     scene_ready = false;
                 }
                 CompiledStepKind::SceneBuild => {
-                    scene_ready = sphere_radius.is_some() && entity.is_some();
+                    scene_ready = mesh_radius.is_some() && entity.is_some();
                 }
                 CompiledStepKind::ScenePass => {
                     if !scene_ready {
                         continue;
                     }
-                    let (Some(mesh_radius), Some(entity_state)) = (sphere_radius, entity) else {
+                    let (Some(mesh_radius), Some(entity_state)) = (mesh_radius, entity) else {
                         continue;
                     };
-                    out_ops.push(TopRuntimeOp::Sphere {
-                        center_x: entity_state.pos_x,
-                        center_y: entity_state.pos_y,
-                        radius: (mesh_radius * entity_state.scale).max(0.01),
-                        edge_softness: project
-                            .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
-                            .unwrap_or(0.01),
-                        light_x: project
-                            .node_param_value(step.node_id, "light_x", time_secs, eval_stack)
-                            .unwrap_or(0.4),
-                        light_y: project
-                            .node_param_value(step.node_id, "light_y", time_secs, eval_stack)
-                            .unwrap_or(-0.5),
-                        light_z: project
-                            .node_param_value(step.node_id, "light_z", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        ambient: entity_state.ambient,
-                        color_r: entity_state.color_r,
-                        color_g: entity_state.color_g,
-                        color_b: entity_state.color_b,
-                        alpha: entity_state.alpha,
-                    });
+                    match mesh_profile {
+                        SceneMeshProfile::Sphere => out_ops.push(TopRuntimeOp::Sphere {
+                            center_x: entity_state.pos_x,
+                            center_y: entity_state.pos_y,
+                            radius: (mesh_radius * entity_state.scale).max(0.01),
+                            edge_softness: project
+                                .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
+                                .unwrap_or(0.01),
+                            light_x: project
+                                .node_param_value(step.node_id, "light_x", time_secs, eval_stack)
+                                .unwrap_or(0.4),
+                            light_y: project
+                                .node_param_value(step.node_id, "light_y", time_secs, eval_stack)
+                                .unwrap_or(-0.5),
+                            light_z: project
+                                .node_param_value(step.node_id, "light_z", time_secs, eval_stack)
+                                .unwrap_or(1.0),
+                            ambient: entity_state.ambient,
+                            color_r: entity_state.color_r,
+                            color_g: entity_state.color_g,
+                            color_b: entity_state.color_b,
+                            alpha: entity_state.alpha,
+                        }),
+                        SceneMeshProfile::CircleNurbs => out_ops.push(TopRuntimeOp::Circle {
+                            center_x: entity_state.pos_x,
+                            center_y: entity_state.pos_y,
+                            radius: (mesh_radius * entity_state.scale).max(0.01),
+                            feather: project
+                                .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
+                                .unwrap_or(0.01),
+                            color_r: entity_state.color_r,
+                            color_g: entity_state.color_g,
+                            color_b: entity_state.color_b,
+                            alpha: entity_state.alpha,
+                        }),
+                    }
                 }
                 CompiledStepKind::Transform => {
                     out_ops.push(TopRuntimeOp::Transform {
@@ -302,6 +334,13 @@ fn compile_node(
             out_steps.push(CompiledStep {
                 node_id,
                 kind: CompiledStepKind::SphereBuffer,
+            });
+            true
+        }
+        ProjectNodeKind::BufCircleNurbs => {
+            out_steps.push(CompiledStep {
+                node_id,
+                kind: CompiledStepKind::CircleNurbsBuffer,
             });
             true
         }
@@ -428,5 +467,26 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopRuntimeOp::Sphere { .. }));
+    }
+
+    #[test]
+    fn circle_nurbs_buffer_pipeline_compiles_to_circle_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(project.connect_image_link(circle, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
     }
 }
