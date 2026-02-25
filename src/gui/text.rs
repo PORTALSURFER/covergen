@@ -162,13 +162,7 @@ fn has_renderable_glyph(font: &Font<'_>, ch: char) -> bool {
     ch == ' ' || font.glyph(ch).id().0 != 0
 }
 
-fn push_glyph_runs(
-    out: &mut Vec<ColoredRect>,
-    x: i32,
-    y: i32,
-    glyph: &GlyphBitmap,
-    color: Color,
-) {
+fn push_glyph_runs(out: &mut Vec<ColoredRect>, x: i32, y: i32, glyph: &GlyphBitmap, color: Color) {
     if glyph.width_px <= 0 || glyph.height_px <= 0 {
         return;
     }

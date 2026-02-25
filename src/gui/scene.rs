@@ -7,22 +7,23 @@ use super::geometry::Rect;
 use super::project::{GuiProject, ProjectNode, ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH};
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
+use super::theme::AGIO;
 
-const PREVIEW_BG: Color = Color::argb(0xFF0A0D12);
-const PANEL_BG: Color = Color::argb(0xFF111318);
-const GRID_COLOR: Color = Color::argb(0xFF1B2028);
-const BORDER_COLOR: Color = Color::argb(0xFF2A313A);
-const EDGE_COLOR: Color = Color::argb(0xFF4A5564);
-const NODE_BODY: Color = Color::argb(0xFF151A22);
-const NODE_DRAG: Color = Color::argb(0xFFF59E0B);
-const NODE_HOVER: Color = Color::argb(0xFF22D3EE);
-const MENU_BG: Color = Color::argb(0xFF1D2430);
-const MENU_SELECTED: Color = Color::argb(0xFF334155);
-const MENU_BORDER: Color = Color::argb(0xFF475569);
-const HEADER_BG: Color = Color::argb(0xFF202631);
-const HEADER_TEXT: Color = Color::argb(0xFFE2E8F0);
-const NODE_TEXT: Color = Color::argb(0xFFCBD5E1);
-const MENU_TEXT: Color = Color::argb(0xFFF1F5F9);
+const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
+const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
+const GRID_COLOR: Color = Color::argb(AGIO.grid);
+const BORDER_COLOR: Color = Color::argb(AGIO.border);
+const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
+const NODE_BODY: Color = Color::argb(AGIO.node_body);
+const NODE_DRAG: Color = Color::argb(AGIO.highlight_warning);
+const NODE_HOVER: Color = Color::argb(AGIO.highlight_focus);
+const MENU_BG: Color = Color::argb(AGIO.menu_bg);
+const MENU_SELECTED: Color = Color::argb(AGIO.highlight_selection);
+const MENU_BORDER: Color = Color::argb(AGIO.border);
+const HEADER_BG: Color = Color::argb(AGIO.header_bg);
+const HEADER_TEXT: Color = Color::argb(AGIO.header_text);
+const NODE_TEXT: Color = Color::argb(AGIO.node_text);
+const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -197,7 +198,12 @@ impl SceneBuilder {
         let rect = state.menu.rect();
         self.push_rect(rect, MENU_BG);
         self.push_border(rect, MENU_BORDER);
-        self.push_text(rect.x + MENU_INNER_PADDING + 6, rect.y + 7, "Add Node", MENU_TEXT);
+        self.push_text(
+            rect.x + MENU_INNER_PADDING + 6,
+            rect.y + 7,
+            "Add Node",
+            MENU_TEXT,
+        );
         for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
             let Some(item) = state.menu.item_rect(index) else {
                 continue;
@@ -289,8 +295,8 @@ fn node_rect(node: &ProjectNode) -> Rect {
 
 fn node_top_color(kind: ProjectNodeKind) -> Color {
     if kind.is_top_like() {
-        Color::argb(0xFF3B82F6)
+        Color::argb(AGIO.highlight_success)
     } else {
-        Color::argb(0xFFEF4444)
+        Color::argb(AGIO.highlight_error)
     }
 }
