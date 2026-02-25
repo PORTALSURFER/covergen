@@ -11,6 +11,56 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::runtime_config::AnimationConfig;
 
+/// Optional environment override for H.264 encoder selection.
+///
+/// Supported values:
+/// - `auto` (default)
+/// - `nvenc` / `h264_nvenc`
+/// - `libx264` / `x264`
+const H264_ENCODER_ENV: &str = "COVERGEN_H264_ENCODER";
+
+/// Concrete ffmpeg encoder backend for H.264 export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum H264Encoder {
+    Nvenc,
+    Libx264,
+}
+
+impl H264Encoder {
+    fn codec_name(self) -> &'static str {
+        match self {
+            Self::Nvenc => "h264_nvenc",
+            Self::Libx264 => "libx264",
+        }
+    }
+
+    fn output_pixel_format(self) -> &'static str {
+        match self {
+            // NVENC performs best with NV12 input surfaces.
+            Self::Nvenc => "nv12",
+            Self::Libx264 => "yuv420p",
+        }
+    }
+
+    fn extra_args(self) -> &'static [&'static str] {
+        match self {
+            // Favor high-quality VBR CQ defaults for export while keeping
+            // encoding fully on the GPU when NVENC is available.
+            Self::Nvenc => &[
+                "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0",
+            ],
+            Self::Libx264 => &[],
+        }
+    }
+}
+
+/// Encoder selection outcome for one export request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EncoderSelection {
+    preferred: H264Encoder,
+    allow_nvenc_fallback: bool,
+}
+
 /// Returns the number of frames to render for one animation clip.
 pub fn total_frames(config: &AnimationConfig) -> u32 {
     config.seconds.saturating_mul(config.fps).max(1)
@@ -75,34 +125,21 @@ pub fn encode_frames_to_mp4(
     output_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
     ensure_ffmpeg_available()?;
-
-    let status = Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-framerate")
-        .arg(fps.to_string())
-        .arg("-i")
-        .arg("frame_%06d.png")
-        .arg("-c:v")
-        .arg("libx264")
-        .arg("-pix_fmt")
-        .arg("yuv420p")
-        .arg("-movflags")
-        .arg("+faststart")
-        .arg(output_path)
-        .current_dir(frame_dir)
-        .status()?;
-
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg failed to encode MP4 from frames in {}",
-            frame_dir.display()
-        )
-        .into());
+    let selection = select_encoder()?;
+    let first_try =
+        encode_frames_to_mp4_with_encoder(frame_dir, fps, output_path, selection.preferred);
+    if let Err(err) = first_try {
+        if selection.allow_nvenc_fallback {
+            eprintln!(
+                "[v2] {} export unavailable ({}); falling back to libx264",
+                selection.preferred.codec_name(),
+                err
+            );
+            encode_frames_to_mp4_with_encoder(frame_dir, fps, output_path, H264Encoder::Libx264)?;
+        } else {
+            return Err(err);
+        }
     }
-
     Ok(())
 }
 
@@ -111,6 +148,7 @@ pub struct RawVideoEncoder {
     child: Child,
     stdin: Option<ChildStdin>,
     expected_frame_bytes: usize,
+    encoder: H264Encoder,
 }
 
 impl RawVideoEncoder {
@@ -125,46 +163,34 @@ impl RawVideoEncoder {
         let expected_frame_bytes = (width as usize)
             .checked_mul(height as usize)
             .ok_or("invalid frame dimensions for streaming encoder")?;
-
-        let mut child = Command::new("ffmpeg")
-            .arg("-y")
-            .arg("-hide_banner")
-            .arg("-loglevel")
-            .arg("error")
-            .arg("-f")
-            .arg("rawvideo")
-            .arg("-pix_fmt")
-            .arg("gray")
-            .arg("-s:v")
-            .arg(format!("{}x{}", width, height))
-            .arg("-r")
-            .arg(fps.to_string())
-            .arg("-i")
-            .arg("pipe:0")
-            .arg("-an")
-            .arg("-c:v")
-            .arg("libx264")
-            .arg("-pix_fmt")
-            .arg("yuv420p")
-            .arg("-movflags")
-            .arg("+faststart")
-            .arg(output_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|err| format!("failed to start ffmpeg rawvideo encoder: {err}"))?;
-
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or("failed to open ffmpeg stdin for rawvideo stream")?;
-
-        Ok(Self {
-            child,
-            stdin: Some(stdin),
+        let selection = select_encoder()?;
+        let first_try = spawn_rawvideo_encoder(
+            width,
+            height,
+            fps,
+            output_path,
             expected_frame_bytes,
-        })
+            selection.preferred,
+        );
+        match first_try {
+            Ok(encoder) => Ok(encoder),
+            Err(err) if selection.allow_nvenc_fallback => {
+                eprintln!(
+                    "[v2] {} stream export unavailable ({}); falling back to libx264",
+                    selection.preferred.codec_name(),
+                    err
+                );
+                spawn_rawvideo_encoder(
+                    width,
+                    height,
+                    fps,
+                    output_path,
+                    expected_frame_bytes,
+                    H264Encoder::Libx264,
+                )
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Push one grayscale frame into ffmpeg stdin.
@@ -194,10 +220,178 @@ impl RawVideoEncoder {
         let output = self.child.wait_with_output()?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("ffmpeg failed while streaming rawvideo: {stderr}").into());
+            return Err(format!(
+                "ffmpeg {} failed while streaming rawvideo: {}",
+                self.encoder.codec_name(),
+                stderr.trim()
+            )
+            .into());
         }
         Ok(())
     }
+}
+
+fn spawn_rawvideo_encoder(
+    width: u32,
+    height: u32,
+    fps: u32,
+    output_path: &Path,
+    expected_frame_bytes: usize,
+    encoder: H264Encoder,
+) -> Result<RawVideoEncoder, Box<dyn Error>> {
+    let mut command = Command::new("ffmpeg");
+    command
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-pix_fmt")
+        .arg("gray")
+        .arg("-s:v")
+        .arg(format!("{}x{}", width, height))
+        .arg("-r")
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg("pipe:0")
+        .arg("-an");
+    append_h264_encoder_args(&mut command, encoder);
+    command
+        .arg(output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(|err| {
+        format!(
+            "failed to start ffmpeg {} encoder: {err}",
+            encoder.codec_name()
+        )
+    })?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or("failed to open ffmpeg stdin for rawvideo stream")?;
+    Ok(RawVideoEncoder {
+        child,
+        stdin: Some(stdin),
+        expected_frame_bytes,
+        encoder,
+    })
+}
+
+fn append_h264_encoder_args(command: &mut Command, encoder: H264Encoder) {
+    command.arg("-c:v").arg(encoder.codec_name());
+    for arg in encoder.extra_args() {
+        command.arg(arg);
+    }
+    command
+        .arg("-pix_fmt")
+        .arg(encoder.output_pixel_format())
+        .arg("-movflags")
+        .arg("+faststart");
+}
+
+fn encode_frames_to_mp4_with_encoder(
+    frame_dir: &Path,
+    fps: u32,
+    output_path: &Path,
+    encoder: H264Encoder,
+) -> Result<(), Box<dyn Error>> {
+    let mut command = Command::new("ffmpeg");
+    command
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-framerate")
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg("frame_%06d.png");
+    append_h264_encoder_args(&mut command, encoder);
+    let output = command.arg(output_path).current_dir(frame_dir).output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "ffmpeg {} failed to encode MP4 from frames in {}: {}",
+            encoder.codec_name(),
+            frame_dir.display(),
+            stderr.trim()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn select_encoder() -> Result<EncoderSelection, Box<dyn Error>> {
+    if let Some(forced) = forced_encoder_from_env()? {
+        return Ok(EncoderSelection {
+            preferred: forced,
+            allow_nvenc_fallback: false,
+        });
+    }
+    if cfg!(windows) && probe_nvenc_encoder() {
+        return Ok(EncoderSelection {
+            preferred: H264Encoder::Nvenc,
+            allow_nvenc_fallback: true,
+        });
+    }
+    Ok(EncoderSelection {
+        preferred: H264Encoder::Libx264,
+        allow_nvenc_fallback: false,
+    })
+}
+
+fn forced_encoder_from_env() -> Result<Option<H264Encoder>, Box<dyn Error>> {
+    let raw = match std::env::var(H264_ENCODER_ENV) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(err) => {
+            return Err(format!(
+                "failed to read {H264_ENCODER_ENV} override for H.264 encoder selection: {err}"
+            )
+            .into())
+        }
+    };
+    parse_encoder_override(&raw).map_err(|err| err.into())
+}
+
+fn parse_encoder_override(raw: &str) -> Result<Option<H264Encoder>, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" | "auto" => Ok(None),
+        "nvenc" | "h264_nvenc" => Ok(Some(H264Encoder::Nvenc)),
+        "x264" | "libx264" => Ok(Some(H264Encoder::Libx264)),
+        _ => Err(format!(
+            "invalid {H264_ENCODER_ENV} value '{}'; expected auto|nvenc|h264_nvenc|libx264|x264",
+            raw
+        )),
+    }
+}
+
+fn probe_nvenc_encoder() -> bool {
+    let output = Command::new("ffmpeg")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-f")
+        .arg("lavfi")
+        .arg("-i")
+        .arg("color=c=black:s=16x16:d=0.04")
+        .arg("-frames:v")
+        .arg("1")
+        .arg("-an")
+        .arg("-c:v")
+        .arg(H264Encoder::Nvenc.codec_name())
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .output();
+    output
+        .map(|result| result.status.success())
+        .unwrap_or(false)
 }
 
 fn ensure_ffmpeg_available() -> Result<(), Box<dyn Error>> {
@@ -227,5 +421,33 @@ mod tests {
             motion: crate::runtime_config::AnimationMotion::Normal,
         };
         assert_eq!(total_frames(&cfg), 1);
+    }
+
+    #[test]
+    fn parse_encoder_override_accepts_auto_and_known_aliases() {
+        assert_eq!(parse_encoder_override("auto"), Ok(None));
+        assert_eq!(parse_encoder_override(""), Ok(None));
+        assert_eq!(
+            parse_encoder_override("h264_nvenc"),
+            Ok(Some(H264Encoder::Nvenc))
+        );
+        assert_eq!(
+            parse_encoder_override("nvenc"),
+            Ok(Some(H264Encoder::Nvenc))
+        );
+        assert_eq!(
+            parse_encoder_override("libx264"),
+            Ok(Some(H264Encoder::Libx264))
+        );
+        assert_eq!(
+            parse_encoder_override("x264"),
+            Ok(Some(H264Encoder::Libx264))
+        );
+    }
+
+    #[test]
+    fn parse_encoder_override_rejects_unknown_value() {
+        let err = parse_encoder_override("vp9").expect_err("unknown encoder should fail");
+        assert!(err.contains(H264_ENCODER_ENV));
     }
 }
