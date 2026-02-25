@@ -50,6 +50,7 @@ const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
+const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -575,9 +576,11 @@ impl SceneBuilder {
             (wire.cursor_x, wire.cursor_y)
         };
         if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
-            self.push_rounded_signal_wire(x0, y0, x1, y1, PARAM_EDGE_COLOR);
             if state.hover_param_target.is_some() {
+                self.push_signal_wire_right_entry(x0, y0, x1, y1, PARAM_EDGE_COLOR);
                 self.push_param_target_marker(x1, y1, PARAM_EDGE_COLOR);
+            } else {
+                self.push_rounded_signal_wire(x0, y0, x1, y1, PARAM_EDGE_COLOR);
             }
         } else {
             self.push_straight_wire_with_round_caps(x0, y0, x1, y1, PIN_HOVER);
@@ -607,10 +610,16 @@ impl SceneBuilder {
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_rounded_signal_wire(from_x, from_y, to_x, to_y, color);
+                self.push_signal_wire_right_entry(from_x, from_y, to_x, to_y, color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
+    }
+
+    fn push_signal_wire_right_entry(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
+        let entry_x = x1.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
+        self.push_rounded_signal_wire(x0, y0, entry_x, y1, color);
+        self.push_line(entry_x, y1, x1, y1, color);
     }
 
     fn push_rounded_signal_wire(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
