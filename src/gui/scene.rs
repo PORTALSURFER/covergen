@@ -36,6 +36,8 @@ const HEADER_TEXT: Color = Color::argb(AGIO.header_text);
 const NODE_TEXT: Color = Color::argb(AGIO.node_text);
 const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const MENU_CATEGORY_TEXT: Color = Color::argb(0xFFBEBEBE);
+const MENU_CATEGORY_CHIP_TEXT: Color = Color::argb(0xFF111111);
+const MENU_CATEGORY_CHIP_BORDER: Color = Color::argb(0xFF0A0A0A);
 const MENU_SEARCH_BG: Color = Color::argb(0xFF121212);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
@@ -505,13 +507,20 @@ impl SceneBuilder {
                     );
                     self.push_rect(chip, category_menu_color(category));
                     if state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index) {
-                        self.push_border(chip, MENU_SELECTED);
-                    } else {
-                        self.push_border(chip, MENU_BORDER);
+                        self.push_border(
+                            Rect::new(chip.x - 1, chip.y - 1, chip.w + 2, chip.h + 2),
+                            MENU_SELECTED,
+                        );
                     }
+                    self.push_border(chip, MENU_CATEGORY_CHIP_BORDER);
                     menu_label_scratch.clear();
                     menu_label_scratch.push_str(category.label());
-                    self.push_text(chip.x + 8, chip.y + 2, menu_label_scratch.as_str(), MENU_TEXT);
+                    self.push_text(
+                        chip.x + 8,
+                        chip.y + 2,
+                        menu_label_scratch.as_str(),
+                        MENU_CATEGORY_CHIP_TEXT,
+                    );
                     (menu_label_scratch.as_str(), MENU_CATEGORY_TEXT)
                 }
                 AddNodeMenuEntry::Back => ("< Categories", MENU_CATEGORY_TEXT),
@@ -1173,7 +1182,7 @@ fn category_menu_color(category: AddNodeCategory) -> Color {
 }
 
 fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
-    let chip_w = (text_width + 20).clamp(86, item.w);
+    let chip_w = (text_width + 20).clamp(46, item.w);
     let chip_h = (item.h - 4).max(14);
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }

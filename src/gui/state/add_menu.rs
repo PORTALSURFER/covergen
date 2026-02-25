@@ -4,7 +4,7 @@ use crate::gui::geometry::Rect;
 use crate::gui::project::ProjectNodeKind;
 
 /// Add-node popup geometry constants.
-pub(crate) const MENU_WIDTH: i32 = 340;
+pub(crate) const MENU_WIDTH: i32 = 260;
 pub(crate) const MENU_TITLE_HEIGHT: i32 = 24;
 pub(crate) const MENU_SEARCH_HEIGHT: i32 = 24;
 pub(crate) const MENU_INNER_PADDING: i32 = 6;
@@ -182,15 +182,7 @@ impl AddNodeMenuState {
 
     /// Return visible category list in menu order.
     pub(crate) fn visible_categories(&self) -> Vec<AddNodeCategory> {
-        let mut out = Vec::new();
-        let mut previous = None;
-        for option in ADD_NODE_OPTIONS {
-            if previous != Some(option.category) {
-                out.push(option.category);
-                previous = Some(option.category);
-            }
-        }
-        out
+        unique_category_order()
     }
 
     /// Return currently visible option indices after category and query filtering.
@@ -352,15 +344,17 @@ pub(crate) fn menu_height() -> i32 {
 }
 
 fn category_count() -> usize {
-    let mut count = 0usize;
-    let mut previous = None;
+    unique_category_order().len()
+}
+
+fn unique_category_order() -> Vec<AddNodeCategory> {
+    let mut out = Vec::new();
     for option in ADD_NODE_OPTIONS {
-        if previous != Some(option.category) {
-            count += 1;
-            previous = Some(option.category);
+        if !out.contains(&option.category) {
+            out.push(option.category);
         }
     }
-    count
+    out
 }
 
 fn option_matches_query(option: AddNodeOption, query: &str) -> bool {
