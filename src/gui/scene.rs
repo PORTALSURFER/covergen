@@ -1182,8 +1182,8 @@ fn category_menu_color(category: AddNodeCategory) -> Color {
 }
 
 fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
-    let chip_w = (text_width + 20).clamp(46, item.w);
-    let chip_h = (item.h - 4).max(14);
+    let chip_w = (text_width + 26).clamp(58, item.w);
+    let chip_h = (item.h - 2).max(16);
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
 
