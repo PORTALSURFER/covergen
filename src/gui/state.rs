@@ -6,7 +6,6 @@ mod add_menu;
 
 pub(crate) use add_menu::{
     AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
-    MENU_ITEM_HEIGHT, MENU_SEARCH_HEIGHT, MENU_TITLE_HEIGHT,
 };
 
 /// Snapshot of one frame's input state.
