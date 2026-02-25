@@ -4,8 +4,9 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use winit::event::WindowEvent;
-use winit::window::{CursorIcon, Window};
+use winit::event::{ElementState, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{CursorIcon, Fullscreen, Window};
 
 use crate::runtime_config::V2Config;
 use crate::telemetry;
@@ -77,7 +78,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, R=new project"
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, R=new project"
         );
         Ok(Self {
             config,
@@ -112,6 +113,10 @@ impl GuiApp {
 
     /// Return true when this event should terminate the GUI loop.
     pub(crate) fn handle_window_event(&mut self, event: &WindowEvent) -> bool {
+        if self.toggle_fullscreen_if_requested(event) {
+            self.needs_redraw = true;
+            return false;
+        }
         match event {
             WindowEvent::CloseRequested => true,
             WindowEvent::Resized(size) => {
@@ -139,6 +144,26 @@ impl GuiApp {
                 false
             }
         }
+    }
+
+    /// Toggle window fullscreen mode on `F11` key press.
+    fn toggle_fullscreen_if_requested(&mut self, event: &WindowEvent) -> bool {
+        let WindowEvent::KeyboardInput { event, .. } = event else {
+            return false;
+        };
+        if event.state != ElementState::Pressed || event.repeat {
+            return false;
+        }
+        if !matches!(event.physical_key, PhysicalKey::Code(KeyCode::F11)) {
+            return false;
+        }
+        if self.window.fullscreen().is_some() {
+            self.window.set_fullscreen(None);
+        } else {
+            self.window
+                .set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+        true
     }
 
     /// Request redraw when the frame deadline has elapsed.
