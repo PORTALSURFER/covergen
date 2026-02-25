@@ -431,6 +431,9 @@ impl GpuLayerRenderer {
                 uniforms.p9 = sphere.center_y;
                 uniforms.p10 = sphere.light_x;
                 uniforms.p11 = sphere.light_y;
+                uniforms.p12 = sphere.deform;
+                uniforms.p13 = sphere.deform_freq;
+                uniforms.p14 = sphere.deform_phase;
                 uniforms.octaves = sphere.ambient.to_bits();
             }
         }

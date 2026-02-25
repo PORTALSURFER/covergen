@@ -25,6 +25,10 @@ pub struct GraphOpUniforms {
     p9: f32,
     p10: f32,
     p11: f32,
+    p12: f32,
+    p13: f32,
+    p14: f32,
+    p15: f32,
 }
 
 /// Clamp a scalar to normalized grayscale range.
@@ -327,20 +331,28 @@ fn sample_sphere_camera(
     light_x: f32,
     light_y: f32,
     ambient: f32,
+    deform: f32,
+    deform_freq: f32,
+    deform_phase: f32,
     x: f32,
     y: f32,
 ) -> f32 {
     let dx = x - center_x;
     let dy = y - center_y;
     let r = radius.max(0.01);
-    let rr = r * r;
+    let angle = dy.atan2(dx);
+    let band = (dy / r).clamp(-1.0, 1.0);
+    let lump = (angle * deform_freq + deform_phase).sin()
+        * (band * deform_freq * 0.7 + deform_phase * 0.6).cos();
+    let local_r = (r * (1.0 + deform.clamp(0.0, 1.0) * 0.34 * lump)).clamp(r * 0.55, r * 1.45);
+    let rr = local_r * local_r;
     let dist2 = dx * dx + dy * dy;
     if dist2 > rr {
         return 0.0;
     }
 
     let z = (rr - dist2).sqrt();
-    let inv_r = 1.0 / r;
+    let inv_r = 1.0 / local_r.max(1e-5);
     let nx = dx * inv_r;
     let ny = dy * inv_r;
     let nz = z * inv_r;
@@ -389,7 +401,19 @@ pub fn top_camera_render(
         sample_circle_camera(cfg.p7, cfg.p8, cfg.p9, cfg.p10, rx, ry)
     } else {
         let ambient = f32::from_bits(cfg.octaves);
-        sample_sphere_camera(cfg.p7, cfg.p8, cfg.p9, cfg.p10, cfg.p11, ambient, rx, ry)
+        sample_sphere_camera(
+            cfg.p7,
+            cfg.p8,
+            cfg.p9,
+            cfg.p10,
+            cfg.p11,
+            ambient,
+            cfg.p12,
+            cfg.p13.max(0.8),
+            cfg.p14,
+            rx,
+            ry,
+        )
     };
 
     value = (value * cfg.p0.max(0.0))

@@ -28,6 +28,9 @@ pub(super) fn build_td_sphere_noise_geo(
             light_x: (rng.next_f32() - 0.5) * 1.8,
             light_y: (rng.next_f32() - 0.5) * 1.8,
             ambient: 0.15 + rng.next_f32() * 0.3,
+            deform: 0.18 + rng.next_f32() * 0.16,
+            deform_freq: 2.4 + rng.next_f32() * 1.6,
+            deform_phase: rng.next_f32() * std::f32::consts::TAU,
         }),
     )?;
     let noise = ctx.nodes.create(
@@ -37,7 +40,7 @@ pub(super) fn build_td_sphere_noise_geo(
             seed: rng.next_u32(),
             scale: 1.4 + rng.next_f32() * 4.0,
             octaves: 3 + (rng.next_u32() % 3),
-            amplitude: 0.55 + rng.next_f32() * 0.5,
+            amplitude: 0.22 + rng.next_f32() * 0.22,
             output_port: PortType::ChannelScalar,
             temporal: Default::default(),
         }),
@@ -46,9 +49,9 @@ pub(super) fn build_td_sphere_noise_geo(
         &mut builder,
         "sop-geometry",
         NodePayload::SopGeometry(SopGeometryNode {
-            radius_response: 0.55 + rng.next_f32() * 0.65,
-            center_response: 0.0,
-            light_response: 0.4 + rng.next_f32() * 0.8,
+            radius_response: 0.35 + rng.next_f32() * 0.25,
+            center_response: 0.22 + rng.next_f32() * 0.16,
+            light_response: 0.22 + rng.next_f32() * 0.26,
             bias: 0.0,
         }),
     )?;

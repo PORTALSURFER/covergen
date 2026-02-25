@@ -147,13 +147,15 @@ fn evaluate_mixed_graph(
                         values.insert(step.node_id, RuntimeValue::Mask(out));
                     }
                     PortType::ChannelScalar => {
+                        let phase = modulation.map(|time| time.normalized).unwrap_or(0.0);
                         values.insert(
                             step.node_id,
                             RuntimeValue::Scalar(eval_source_noise_scalar(
-                                effective_seed,
+                                effective.seed,
                                 effective.scale,
                                 effective.octaves,
                                 effective.amplitude,
+                                phase,
                             )),
                         );
                     }

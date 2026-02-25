@@ -33,6 +33,10 @@ pub(super) struct GraphOpUniforms {
     pub(super) p9: f32,
     pub(super) p10: f32,
     pub(super) p11: f32,
+    pub(super) p12: f32,
+    pub(super) p13: f32,
+    pub(super) p14: f32,
+    pub(super) p15: f32,
 }
 
 impl GraphOpUniforms {
@@ -58,6 +62,10 @@ impl GraphOpUniforms {
             p9: 0.0,
             p10: 0.0,
             p11: 0.0,
+            p12: 0.0,
+            p13: 0.0,
+            p14: 0.0,
+            p15: 0.0,
         }
     }
 }

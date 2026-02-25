@@ -317,6 +317,9 @@ fn add_sphere(
             light_x: (rng.next_f32() - 0.5) * 1.8,
             light_y: (rng.next_f32() - 0.5) * 1.8,
             ambient: 0.12 + rng.next_f32() * 0.36,
+            deform: 0.0,
+            deform_freq: 2.5,
+            deform_phase: 0.0,
         }),
     )
 }

@@ -12,18 +12,27 @@ pub enum SopPrimitive {
 }
 
 /// Evaluate a deterministic scalar noise sample for CHOP/SOP modulation.
-pub fn eval_source_noise_scalar(seed: u32, scale: f32, octaves: u32, amplitude: f32) -> f32 {
+pub fn eval_source_noise_scalar(
+    seed: u32,
+    scale: f32,
+    octaves: u32,
+    amplitude: f32,
+    time: f32,
+) -> f32 {
     let mut value = seed ^ 0x9E37_79B9;
     let octave_count = octaves.clamp(1, 8);
     let mut norm = 0.0;
     let mut acc = 0.0;
+    let phase =
+        time.clamp(0.0, 1.0) * std::f32::consts::TAU * (0.45 + scale.clamp(0.1, 8.0) * 0.12);
     for octave in 0..octave_count {
         value ^= value >> 15;
         value = value.wrapping_mul(0x2C1B_3C6D);
         value ^= value >> 12;
         value = value.wrapping_mul(0x297A_2D39);
         value ^= value >> 15;
-        let sample = (value as f32 / u32::MAX as f32) * 2.0 - 1.0;
+        let base = (value as f32 / u32::MAX as f32) * 2.0 - 1.0;
+        let sample = (phase + base * std::f32::consts::PI + octave as f32 * 1.17).sin();
         let weight = 1.0 / (1.0 + octave as f32);
         acc += sample * weight;
         norm += weight;
@@ -52,14 +61,15 @@ pub fn apply_sop_geometry(
             SopPrimitive::Circle(circle)
         }
         SopPrimitive::Sphere(mut sphere) => {
-            let radius_gain = 1.0 + signal * node.radius_response.clamp(0.0, 2.0) * 0.45;
-            sphere.radius = (sphere.radius * radius_gain).clamp(0.05, 0.98);
-            let shift = signal * node.center_response.clamp(0.0, 1.5);
-            sphere.center_x = (sphere.center_x + shift * 0.45).clamp(-0.85, 0.85);
-            sphere.center_y = (sphere.center_y - shift * 0.3).clamp(-0.85, 0.85);
-            let light_shift = signal * node.light_response.clamp(0.0, 2.0);
-            sphere.light_x = (sphere.light_x + light_shift).clamp(-2.8, 2.8);
-            sphere.light_y = (sphere.light_y - light_shift * 0.75).clamp(-2.8, 2.8);
+            // Keep object scale stable and drive modulation mostly through deformation.
+            let radial_gain = 1.0 + signal * node.radius_response.clamp(0.0, 2.0) * 0.06;
+            sphere.radius = (sphere.radius * radial_gain).clamp(0.05, 0.98);
+            let deform_gain = node.radius_response.clamp(0.0, 2.0) * 0.34;
+            sphere.deform = (sphere.deform + signal.abs() * deform_gain).clamp(0.0, 1.0);
+            sphere.deform_freq = (sphere.deform_freq
+                * (1.0 + signal * node.light_response.clamp(0.0, 2.0) * 0.08))
+                .clamp(0.8, 8.0);
+            sphere.deform_phase += signal * node.center_response.clamp(0.0, 2.0) * 0.45;
             SopPrimitive::Sphere(sphere)
         }
     }
@@ -155,14 +165,20 @@ fn sample_sphere(sphere: SopSphereNode, x: f32, y: f32) -> f32 {
     let dx = x - sphere.center_x;
     let dy = y - sphere.center_y;
     let radius = sphere.radius.max(0.01);
-    let rr = radius * radius;
+    let angle = dy.atan2(dx);
+    let band = (dy / radius).clamp(-1.0, 1.0);
+    let lump = (angle * sphere.deform_freq + sphere.deform_phase).sin()
+        * (band * sphere.deform_freq * 0.7 + sphere.deform_phase * 0.6).cos();
+    let local_radius = (radius * (1.0 + sphere.deform.clamp(0.0, 1.0) * 0.34 * lump))
+        .clamp(radius * 0.55, radius * 1.45);
+    let rr = local_radius * local_radius;
     let dist2 = dx * dx + dy * dy;
     if dist2 > rr {
         return 0.0;
     }
 
     let z = (rr - dist2).sqrt();
-    let inv_r = 1.0 / radius;
+    let inv_r = 1.0 / local_radius.max(1e-5);
     let nx = dx * inv_r;
     let ny = dy * inv_r;
     let nz = z * inv_r;

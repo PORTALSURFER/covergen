@@ -70,13 +70,15 @@ pub(crate) fn render_graph_luma_gpu(
                         )?;
                     }
                     PortType::ChannelScalar => {
+                        let phase = modulation.map(|time| time.normalized).unwrap_or(0.0);
                         scalar_values.insert(
                             step.node_id,
                             eval_source_noise_scalar(
-                                effective_seed,
+                                effective.seed,
                                 effective.scale,
                                 effective.octaves,
                                 effective.amplitude,
+                                phase,
                             ),
                         );
                     }

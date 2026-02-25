@@ -20,6 +20,12 @@ pub struct SopSphereNode {
     pub light_x: f32,
     pub light_y: f32,
     pub ambient: f32,
+    /// Surface deformation amount in `[0, 1]`.
+    pub deform: f32,
+    /// Spatial frequency of deformation noise pattern.
+    pub deform_freq: f32,
+    /// Phase offset for deformation pattern animation.
+    pub deform_phase: f32,
 }
 
 /// SOP geometry-modulation node driven by optional noise/channel inputs.
