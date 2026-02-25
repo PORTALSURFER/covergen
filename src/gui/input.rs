@@ -68,14 +68,12 @@ impl InputCollector {
             WindowEvent::MouseWheel { delta, .. } => {
                 self.wheel_lines_y += mouse_wheel_lines(*delta);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                self.handle_key(
-                    event.physical_key,
-                    event.state,
-                    event.repeat,
-                    event.text.as_ref().map(|text| text.as_ref()),
-                )
-            }
+            WindowEvent::KeyboardInput { event, .. } => self.handle_key(
+                event.physical_key,
+                event.state,
+                event.repeat,
+                event.text.as_ref().map(|text| text.as_ref()),
+            ),
             _ => {}
         }
     }
@@ -217,7 +215,6 @@ impl InputCollector {
             KeyCode::Tab => self.toggle_node_open = true,
             KeyCode::KeyP => self.toggle_pause = true,
             KeyCode::KeyF => self.focus_all = true,
-            KeyCode::KeyR => self.new_project = true,
             KeyCode::ArrowUp => self.menu_up = true,
             KeyCode::ArrowDown => self.menu_down = true,
             KeyCode::ArrowLeft => self.param_dec = true,
