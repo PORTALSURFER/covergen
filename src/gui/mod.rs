@@ -44,7 +44,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
     );
     let window = Arc::new(
         WindowBuilder::new()
-            .with_title("covergen TD")
+            .with_title("covergen graph")
             .with_inner_size(window_size)
             .with_resizable(true)
             .build(&event_loop)?,

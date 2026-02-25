@@ -5,8 +5,8 @@
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind,
-    NODE_HEIGHT, NODE_WIDTH,
+    input_pin_center, output_pin_center, pin_rect, ExecutionKind, GuiProject, ProjectNode,
+    ProjectNodeKind, NODE_HEIGHT, NODE_WIDTH,
 };
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
@@ -324,9 +324,8 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
 }
 
 fn node_top_color(kind: ProjectNodeKind) -> Color {
-    if kind.is_top_like() {
-        Color::argb(AGIO.highlight_success)
-    } else {
-        Color::argb(AGIO.highlight_error)
+    match kind.execution_kind() {
+        ExecutionKind::Render => Color::argb(AGIO.highlight_success),
+        ExecutionKind::Io => Color::argb(AGIO.highlight_accent),
     }
 }

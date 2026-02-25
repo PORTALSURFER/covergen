@@ -13,37 +13,77 @@ pub(crate) const NODE_HEIGHT: i32 = 44;
 pub(crate) const NODE_PIN_SIZE: i32 = 8;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 
+/// Resource kinds currently carried by GUI graph ports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResourceKind {
+    /// GPU 2D texture resource.
+    Texture2D,
+}
+
+/// Execution kinds currently represented by GUI nodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecutionKind {
+    /// Node executes through a render pass.
+    Render,
+    /// Node is a runtime IO boundary.
+    Io,
+}
+
 /// Minimal set of node kinds exposed by the Add Node menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProjectNodeKind {
-    /// Basic TOP source/processor placeholder node.
-    TopBasic,
-    /// Final output node.
-    Output,
+    /// `tex.solid` source node (currently visualized as a circle placeholder).
+    TexSolid,
+    /// `io.window_out` sink node.
+    IoWindowOut,
 }
 
 impl ProjectNodeKind {
-    /// Return true when this node kind belongs to TOP-like operators.
-    pub(crate) const fn is_top_like(self) -> bool {
-        matches!(self, Self::TopBasic)
+    /// Return stable registry id used by UI labels and serialization.
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::TexSolid => "tex.solid",
+            Self::IoWindowOut => "io.window_out",
+        }
+    }
+
+    /// Return execution kind for this node.
+    pub(crate) const fn execution_kind(self) -> ExecutionKind {
+        match self {
+            Self::TexSolid => ExecutionKind::Render,
+            Self::IoWindowOut => ExecutionKind::Io,
+        }
     }
 
     /// Return short display label used by node and menu UI.
     pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::TopBasic => "TOP Basic",
-            Self::Output => "Output",
-        }
+        self.stable_id()
     }
 
     /// Return true when this node kind has an input pin.
     pub(crate) const fn accepts_image_input(self) -> bool {
-        matches!(self, Self::Output)
+        matches!(self, Self::IoWindowOut)
+    }
+
+    /// Return required input resource kind when this node consumes one.
+    pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
+        if self.accepts_image_input() {
+            return Some(ResourceKind::Texture2D);
+        }
+        None
     }
 
     /// Return true when this node kind has an output pin.
     pub(crate) const fn produces_image_output(self) -> bool {
-        matches!(self, Self::TopBasic)
+        matches!(self, Self::TexSolid)
+    }
+
+    /// Return output resource kind when this node publishes one.
+    pub(crate) const fn output_resource_kind(self) -> Option<ResourceKind> {
+        if self.produces_image_output() {
+            return Some(ResourceKind::Texture2D);
+        }
+        None
     }
 }
 
@@ -270,13 +310,13 @@ impl GuiProject {
         let Some(source) = self.node(source_id) else {
             return false;
         };
-        if !source.kind().produces_image_output() {
+        if source.kind().output_resource_kind() != Some(ResourceKind::Texture2D) {
             return false;
         }
         let Some(target) = self.node(target_id) else {
             return false;
         };
-        if !target.kind().accepts_image_input() {
+        if target.kind().input_resource_kind() != Some(ResourceKind::Texture2D) {
             return false;
         }
         let Some(target) = self.node_mut(target_id) else {
@@ -291,12 +331,12 @@ impl GuiProject {
         true
     }
 
-    /// Return the source kind wired into the first Output node, if any.
+    /// Return the source kind wired into the first `io.window_out` node, if any.
     pub(crate) fn output_source_kind(&self) -> Option<ProjectNodeKind> {
         let output = self
             .nodes
             .iter()
-            .find(|node| matches!(node.kind, ProjectNodeKind::Output))?;
+            .find(|node| matches!(node.kind, ProjectNodeKind::IoWindowOut))?;
         let source_id = *output.inputs.first()?;
         self.node(source_id).map(ProjectNode::kind)
     }
@@ -369,8 +409,8 @@ mod tests {
     #[test]
     fn add_node_assigns_incrementing_ids() {
         let mut project = GuiProject::new_empty(640, 480);
-        let a = project.add_node(ProjectNodeKind::TopBasic, 80, 80, 420, 480);
-        let b = project.add_node(ProjectNodeKind::Output, 120, 120, 420, 480);
+        let a = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let b = project.add_node(ProjectNodeKind::IoWindowOut, 120, 120, 420, 480);
         assert_eq!(a, 1);
         assert_eq!(b, 2);
     }
@@ -378,8 +418,8 @@ mod tests {
     #[test]
     fn node_hit_test_uses_topmost_order() {
         let mut project = GuiProject::new_empty(640, 480);
-        let a = project.add_node(ProjectNodeKind::TopBasic, 80, 80, 420, 480);
-        let b = project.add_node(ProjectNodeKind::Output, 80, 80, 420, 480);
+        let a = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let b = project.add_node(ProjectNodeKind::IoWindowOut, 80, 80, 420, 480);
         assert_eq!(project.node_at(90, 90), Some(b));
         assert_ne!(project.node_at(90, 90), Some(a));
     }
@@ -387,22 +427,19 @@ mod tests {
     #[test]
     fn connect_image_link_wires_top_to_output() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TopBasic, 80, 80, 420, 480);
-        let out = project.add_node(ProjectNodeKind::Output, 220, 80, 420, 480);
+        let top = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(top, out));
         assert_eq!(project.edge_count(), 1);
-        assert_eq!(
-            project.output_source_kind(),
-            Some(ProjectNodeKind::TopBasic)
-        );
+        assert_eq!(project.output_source_kind(), Some(ProjectNodeKind::TexSolid));
         assert!(!project.connect_image_link(top, out));
     }
 
     #[test]
     fn pin_centers_follow_node_kind_capabilities() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TopBasic, 60, 70, 420, 480);
-        let out = project.add_node(ProjectNodeKind::Output, 220, 70, 420, 480);
+        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 70, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 70, 420, 480);
         let top_node = project.node(top).expect("top node must exist");
         let out_node = project.node(out).expect("output node must exist");
         assert!(output_pin_center(top_node).is_some());
@@ -414,8 +451,8 @@ mod tests {
     #[test]
     fn graph_bounds_span_all_nodes() {
         let mut project = GuiProject::new_empty(640, 480);
-        project.add_node(ProjectNodeKind::TopBasic, 40, 80, 420, 480);
-        project.add_node(ProjectNodeKind::Output, 200, 160, 420, 480);
+        project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+        project.add_node(ProjectNodeKind::IoWindowOut, 200, 160, 420, 480);
         assert_eq!(
             project.graph_bounds(),
             Some(GraphBounds {

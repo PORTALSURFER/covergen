@@ -1,7 +1,7 @@
 //! CPU-side TOP viewer buffer generation for GUI preview.
 //!
 //! The current implementation keeps scope intentionally small: when an
-//! `Output` node is wired from a `TopBasic` source, it produces a single
+//! `io.window_out` node is wired from a `tex.solid` source, it produces a single
 //! circle buffer that is uploaded to the right-side TOP viewer.
 
 use super::project::{GuiProject, ProjectNodeKind};
@@ -88,7 +88,7 @@ fn generate_output_pixels(
     if width == 0 || height == 0 {
         return;
     }
-    if source_kind != Some(ProjectNodeKind::TopBasic) {
+    if source_kind != Some(ProjectNodeKind::TexSolid) {
         return;
     }
     draw_circle(out, width, height);
@@ -145,8 +145,8 @@ mod tests {
     #[test]
     fn viewer_generates_pixels_when_top_is_connected_to_output() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TopBasic, 60, 80, 420, 480);
-        let out = project.add_node(ProjectNodeKind::Output, 220, 80, 420, 480);
+        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(top, out));
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420);

@@ -29,10 +29,10 @@ impl AddNodeOption {
 /// Menu entries currently exposed in the graph editor.
 pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 2] = [
     AddNodeOption {
-        kind: ProjectNodeKind::TopBasic,
+        kind: ProjectNodeKind::TexSolid,
     },
     AddNodeOption {
-        kind: ProjectNodeKind::Output,
+        kind: ProjectNodeKind::IoWindowOut,
     },
 ];
 

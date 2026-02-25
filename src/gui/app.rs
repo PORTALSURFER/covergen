@@ -247,7 +247,7 @@ impl GuiApp {
             "running"
         };
         let title = format!(
-            "covergen TD | {} | viewport={}x{} | target={}x{} | nodes={} | frame={} | {:.1} fps | {}",
+            "covergen graph | {} | viewport={}x{} | target={}x{} | nodes={} | frame={} | {:.1} fps | {}",
             self.project.name,
             self.renderer.width(),
             self.renderer.height(),
@@ -366,13 +366,19 @@ fn maybe_seed_benchmark_nodes(
         return None;
     }
     let top = project.add_node(
-        ProjectNodeKind::TopBasic,
+        ProjectNodeKind::TexSolid,
         120,
         120,
         panel_width,
         panel_height,
     );
-    let _out = project.add_node(ProjectNodeKind::Output, 280, 220, panel_width, panel_height);
+    let _out = project.add_node(
+        ProjectNodeKind::IoWindowOut,
+        280,
+        220,
+        panel_width,
+        panel_height,
+    );
     Some(top)
 }
 
