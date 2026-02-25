@@ -1,40 +1,16 @@
-//! GUI TOP preview planning with GPU-first evaluation.
+//! GUI TOP preview planning with compiled GPU-runtime evaluation.
 //!
-//! The generator produces a cached per-frame preview payload. For supported
-//! node chains, the payload is a GPU operation list executed directly in the
-//! renderer. Unsupported chains fall back to CPU rasterization.
+//! The generator caches one compiled render chain and frame-keyed operation
+//! payload so the renderer executes a single GPU-only preview path.
 
-use super::project::{GuiProject, ProjectNodeKind};
-use super::top_view_cpu::generate_output_pixels;
+use super::project::GuiProject;
+use super::runtime::GuiCompiledRuntime;
 
-/// One GPU-evaluable preview operation.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum TopViewerOp {
-    /// `tex.solid` operation.
-    Solid {
-        center_x: f32,
-        center_y: f32,
-        radius: f32,
-        feather: f32,
-        color_r: f32,
-        color_g: f32,
-        color_b: f32,
-        alpha: f32,
-    },
-    /// `tex.transform_2d` operation.
-    Transform {
-        brightness: f32,
-        gain_r: f32,
-        gain_g: f32,
-        gain_b: f32,
-        alpha_mul: f32,
-    },
-}
+/// Re-exported TOP operation type consumed by preview rendering.
+pub(crate) use super::runtime::TopRuntimeOp as TopViewerOp;
 
 /// TOP viewer payload consumed by the GUI renderer.
 pub(crate) enum TopViewerPayload<'a> {
-    /// CPU-generated RGBA8 pixels.
-    CpuRgba8(&'a [u8]),
     /// GPU operation chain executed into the viewer target.
     GpuOps(&'a [TopViewerOp]),
 }
@@ -56,42 +32,18 @@ struct ViewerCacheKey {
     frame_index: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ViewerContentMode {
-    Cpu,
-    Gpu,
-}
-
 /// Cached TOP preview payload producer.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct TopViewerGenerator {
     key: Option<ViewerCacheKey>,
     width: u32,
     height: u32,
     x: i32,
     y: i32,
-    content_mode: ViewerContentMode,
-    pixels: Vec<u8>,
-    scratch: Vec<u8>,
+    compiled_signature: Option<u64>,
+    compiled_runtime: Option<GuiCompiledRuntime>,
     ops: Vec<TopViewerOp>,
     eval_stack: Vec<u32>,
-}
-
-impl Default for TopViewerGenerator {
-    fn default() -> Self {
-        Self {
-            key: None,
-            width: 0,
-            height: 0,
-            x: 0,
-            y: 0,
-            content_mode: ViewerContentMode::Cpu,
-            pixels: Vec::new(),
-            scratch: Vec::new(),
-            ops: Vec::new(),
-            eval_stack: Vec::new(),
-        }
-    }
 }
 
 impl TopViewerGenerator {
@@ -127,26 +79,17 @@ impl TopViewerGenerator {
         self.key = Some(key);
         self.width = width;
         self.height = height;
-        let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
-        if self.build_gpu_ops(project, time_secs) {
-            self.content_mode = ViewerContentMode::Gpu;
-            return;
+
+        if self.compiled_signature != Some(render_signature) {
+            self.compiled_runtime = GuiCompiledRuntime::compile(project);
+            self.compiled_signature = Some(render_signature);
         }
 
-        self.content_mode = ViewerContentMode::Cpu;
-        let pixel_count = width.saturating_mul(height).saturating_mul(4) as usize;
-        self.pixels.resize(pixel_count, 0);
-        self.scratch.resize(pixel_count, 0);
-        self.eval_stack.clear();
-        generate_output_pixels(
-            &mut self.pixels,
-            &mut self.scratch,
-            width,
-            height,
-            project,
-            time_secs,
-            &mut self.eval_stack,
-        );
+        self.ops.clear();
+        if let Some(compiled_runtime) = &self.compiled_runtime {
+            let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
+            compiled_runtime.evaluate_ops(project, time_secs, &mut self.eval_stack, &mut self.ops);
+        }
     }
 
     /// Return current frame payload, if viewer dimensions are valid.
@@ -154,121 +97,14 @@ impl TopViewerGenerator {
         if self.width == 0 || self.height == 0 {
             return None;
         }
-        let payload = match self.content_mode {
-            ViewerContentMode::Cpu => {
-                if self.pixels.is_empty() {
-                    return None;
-                }
-                TopViewerPayload::CpuRgba8(self.pixels.as_slice())
-            }
-            ViewerContentMode::Gpu => {
-                if self.ops.is_empty() {
-                    return None;
-                }
-                TopViewerPayload::GpuOps(self.ops.as_slice())
-            }
-        };
         Some(TopViewerFrame {
             x: self.x,
             y: self.y,
             width: self.width,
             height: self.height,
-            payload,
+            payload: TopViewerPayload::GpuOps(self.ops.as_slice()),
         })
     }
-
-    fn build_gpu_ops(&mut self, project: &GuiProject, time_secs: f32) -> bool {
-        self.ops.clear();
-        self.eval_stack.clear();
-        let Some(output_source_id) = project.window_out_input_node_id() else {
-            return false;
-        };
-        collect_gpu_ops(
-            project,
-            output_source_id,
-            time_secs,
-            &mut self.ops,
-            &mut self.eval_stack,
-        )
-    }
-}
-
-fn collect_gpu_ops(
-    project: &GuiProject,
-    node_id: u32,
-    time_secs: f32,
-    out_ops: &mut Vec<TopViewerOp>,
-    eval_stack: &mut Vec<u32>,
-) -> bool {
-    if eval_stack.contains(&node_id) {
-        return false;
-    }
-    let Some(node) = project.node(node_id) else {
-        return false;
-    };
-    eval_stack.push(node_id);
-    let ok = match node.kind() {
-        ProjectNodeKind::TexSolid => {
-            out_ops.push(TopViewerOp::Solid {
-                center_x: project
-                    .node_param_value(node_id, "center_x", time_secs, eval_stack)
-                    .unwrap_or(0.5),
-                center_y: project
-                    .node_param_value(node_id, "center_y", time_secs, eval_stack)
-                    .unwrap_or(0.5),
-                radius: project
-                    .node_param_value(node_id, "radius", time_secs, eval_stack)
-                    .unwrap_or(0.24),
-                feather: project
-                    .node_param_value(node_id, "feather", time_secs, eval_stack)
-                    .unwrap_or(0.06),
-                color_r: project
-                    .node_param_value(node_id, "color_r", time_secs, eval_stack)
-                    .unwrap_or(0.9),
-                color_g: project
-                    .node_param_value(node_id, "color_g", time_secs, eval_stack)
-                    .unwrap_or(0.9),
-                color_b: project
-                    .node_param_value(node_id, "color_b", time_secs, eval_stack)
-                    .unwrap_or(0.9),
-                alpha: project
-                    .node_param_value(node_id, "alpha", time_secs, eval_stack)
-                    .unwrap_or(1.0),
-            });
-            true
-        }
-        ProjectNodeKind::TexTransform2D => {
-            if let Some(source_id) = project.input_source_node_id(node_id) {
-                if !collect_gpu_ops(project, source_id, time_secs, out_ops, eval_stack) {
-                    false
-                } else {
-                    out_ops.push(TopViewerOp::Transform {
-                        brightness: project
-                            .node_param_value(node_id, "brightness", time_secs, eval_stack)
-                            .unwrap_or(1.08),
-                        gain_r: project
-                            .node_param_value(node_id, "gain_r", time_secs, eval_stack)
-                            .unwrap_or(0.45),
-                        gain_g: project
-                            .node_param_value(node_id, "gain_g", time_secs, eval_stack)
-                            .unwrap_or(0.8),
-                        gain_b: project
-                            .node_param_value(node_id, "gain_b", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        alpha_mul: project
-                            .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
-                            .unwrap_or(0.8),
-                    });
-                    true
-                }
-            } else {
-                false
-            }
-        }
-        ProjectNodeKind::CtlLfo | ProjectNodeKind::IoWindowOut => false,
-    };
-    eval_stack.pop();
-    ok
 }
 
 #[cfg(test)]
@@ -286,13 +122,11 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
-        match frame.payload {
-            TopViewerPayload::GpuOps(ops) => {
-                assert_eq!(ops.len(), 1);
-                assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
-            }
-            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
-        }
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
     }
 
     #[test]
@@ -309,7 +143,6 @@ mod tests {
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
-            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
         };
         assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
@@ -337,7 +170,6 @@ mod tests {
                 TopViewerOp::Solid { color_r, .. } => color_r,
                 _ => panic!("first op should be solid"),
             },
-            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
         };
         viewer.update(&project, 960, 540, 420, 60, 60);
         let r1 = match viewer.frame().expect("frame1").payload {
@@ -345,7 +177,6 @@ mod tests {
                 TopViewerOp::Solid { color_r, .. } => color_r,
                 _ => panic!("first op should be solid"),
             },
-            TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
         };
         assert_ne!(r0, r1);
     }
@@ -371,14 +202,14 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_graph_uses_cpu_fallback_payload() {
+    fn disconnected_graph_returns_empty_gpu_payload() {
         let project = GuiProject::new_empty(640, 480);
         let mut viewer = TopViewerGenerator::default();
         viewer.update(&project, 960, 540, 420, 0, 60);
         let frame = viewer.frame().expect("viewer frame should exist");
-        match frame.payload {
-            TopViewerPayload::CpuRgba8(bytes) => assert!(!bytes.is_empty()),
-            TopViewerPayload::GpuOps(_) => panic!("expected CPU fallback payload"),
-        }
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert!(ops.is_empty());
     }
 }

@@ -107,8 +107,7 @@ pub(super) struct TopPreviewRenderer {
 }
 
 impl TopPreviewRenderer {
-    /// Create a preview renderer that can display CPU textures and execute
-    /// GPU operation chains.
+    /// Create a preview renderer that executes compiled GPU operation chains.
     pub(super) fn new(
         device: &wgpu::Device,
         uniform_layout: &wgpu::BindGroupLayout,

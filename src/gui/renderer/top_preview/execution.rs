@@ -3,9 +3,9 @@
 use crate::gui::geometry::Rect;
 use crate::gui::top_view::{TopViewerFrame, TopViewerOp, TopViewerPayload};
 
+use super::super::viewer;
 use super::pipeline::create_preview_texture_bundle;
 use super::{RenderTargetRef, TopOpUniform, TopPreviewRenderer, PREVIEW_BG};
-use super::super::viewer;
 
 impl TopPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
@@ -34,45 +34,20 @@ impl TopPreviewRenderer {
         let quad = viewer::quad_vertices(rect);
         queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
 
-        match top_view.payload {
-            TopViewerPayload::CpuRgba8(bytes) => {
-                self.upload_cpu_texture(queue, bytes, top_view.width, top_view.height);
-            }
-            TopViewerPayload::GpuOps(ops) => {
-                if !self.encode_gpu_ops(device, queue, encoder, ops, top_view.width, top_view.height) {
-                    self.clear_viewer_target(encoder);
-                }
-            }
+        let ops = match top_view.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        if !self.encode_gpu_ops(
+            device,
+            queue,
+            encoder,
+            ops,
+            top_view.width,
+            top_view.height,
+        ) {
+            self.clear_viewer_target(encoder);
         }
         self.viewer_visible = true;
-    }
-
-    fn upload_cpu_texture(&self, queue: &wgpu::Queue, bytes: &[u8], width: u32, height: u32) {
-        let Some(texture) = self.viewer_texture.as_ref() else {
-            return;
-        };
-        if bytes.is_empty() {
-            return;
-        }
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytes,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(width.saturating_mul(4)),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
     }
 
     fn encode_gpu_ops(
