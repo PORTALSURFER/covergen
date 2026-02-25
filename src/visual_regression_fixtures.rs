@@ -330,5 +330,6 @@ pub(super) fn snapshot_config(seed: u32, width: u32, height: u32, profile: V2Pro
             explore_candidates: 0,
             explore_size: 320,
         },
+        gui: crate::runtime_config::GuiConfig::default(),
     }
 }

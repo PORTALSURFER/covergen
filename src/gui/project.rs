@@ -20,12 +20,9 @@ pub(crate) enum ProjectNodeKind {
 }
 
 impl ProjectNodeKind {
-    /// Human-readable label rendered on node cards.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::TopBasic => "top-basic",
-            Self::Output => "output",
-        }
+    /// Return true when this node kind belongs to TOP-like operators.
+    pub(crate) const fn is_top_like(self) -> bool {
+        matches!(self, Self::TopBasic)
     }
 }
 

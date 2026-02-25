@@ -61,6 +61,10 @@ Useful V2 flags:
 - `--motion <gentle|normal|wild>` (animation intensity profile; default `normal`)
 - `--reels` (forces 1080x1920 and enables animation)
 - `--keep-frames` (preserve temporary PNG frames after MP4 encode)
+- `--gui-target-fps <30..=360>` (editor interaction refresh target; default `144`)
+- `--gui-vsync <on|off|adaptive>` (swapchain present mode policy)
+- `--gui-perf-trace <path>` (write per-frame GUI stage timings as CSV)
+- `--gui-benchmark-drag` (run deterministic synthetic node drag loop for perf validation)
 
 Replay workflow:
 
@@ -90,6 +94,7 @@ Realtime GUI controls:
 
 GUI responsiveness notes:
 
+- GUI uses a GPU-backed `winit + wgpu` renderer (no full-frame CPU raster path).
 - Editor interaction runs at a fixed high refresh rate (independent of animation FPS).
 - The right preview panel is auto-scaled for interactive performance; render/export output resolution is unchanged.
 

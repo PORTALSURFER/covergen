@@ -1,6 +1,6 @@
 //! Shared GUI state and menu models.
 
-use super::draw::Rect;
+use super::geometry::Rect;
 use super::project::ProjectNodeKind;
 use crate::runtime_config::V2Config;
 
@@ -16,18 +16,15 @@ pub(crate) const MENU_ITEM_HEIGHT: i32 = 26;
 /// One add-node menu entry.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AddNodeOption {
-    pub(crate) label: &'static str,
     pub(crate) kind: ProjectNodeKind,
 }
 
 /// Menu entries currently exposed in the graph editor.
 pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 2] = [
     AddNodeOption {
-        label: "TOP Basic",
         kind: ProjectNodeKind::TopBasic,
     },
     AddNodeOption {
-        label: "Output",
         kind: ProjectNodeKind::Output,
     },
 ];

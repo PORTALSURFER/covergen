@@ -3,7 +3,7 @@
 use crate::art_direction::{
     ChaosDirection, EnergyDirection, MoodDirection, PaletteDirection, SymmetryDirection,
 };
-use crate::runtime_config::{AnimationMotion, V2Config, V2Profile};
+use crate::runtime_config::{AnimationMotion, GuiVsync, V2Config, V2Profile};
 
 #[test]
 fn reels_mode_enables_animation_and_dimensions() {
@@ -142,4 +142,29 @@ fn art_direction_flags_parse() {
     assert_eq!(cfg.art_direction.symmetry, SymmetryDirection::High);
     assert_eq!(cfg.art_direction.chaos, ChaosDirection::Wild);
     assert_eq!(cfg.art_direction.palette, PaletteDirection::Monochrome);
+}
+
+#[test]
+fn gui_flags_parse() {
+    let cfg = V2Config::parse(vec![
+        "--gui-target-fps".to_string(),
+        "200".to_string(),
+        "--gui-vsync".to_string(),
+        "adaptive".to_string(),
+        "--gui-perf-trace".to_string(),
+        "target/gui_trace.csv".to_string(),
+        "--gui-benchmark-drag".to_string(),
+    ])
+    .expect("gui flags should parse");
+    assert_eq!(cfg.gui.target_fps, 200);
+    assert_eq!(cfg.gui.vsync, GuiVsync::Adaptive);
+    assert_eq!(cfg.gui.perf_trace.as_deref(), Some("target/gui_trace.csv"));
+    assert!(cfg.gui.benchmark_drag);
+}
+
+#[test]
+fn gui_target_fps_validation_rejects_extreme_values() {
+    let err = V2Config::parse(vec!["--gui-target-fps".to_string(), "10".to_string()])
+        .expect_err("gui-target-fps below minimum should be rejected");
+    assert!(err.to_string().contains("gui-target-fps"));
 }

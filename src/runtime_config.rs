@@ -33,6 +33,18 @@ pub enum AnimationMotion {
     Wild,
 }
 
+/// GUI present-mode policy for interactive editor rendering.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+pub enum GuiVsync {
+    /// Use FIFO present mode for tear-free output.
+    #[default]
+    On,
+    /// Disable sync when the platform supports immediate present.
+    Off,
+    /// Allow mailbox-style adaptive behavior where supported.
+    Adaptive,
+}
+
 impl AnimationMotion {
     /// Return temporal modulation scale for this motion profile.
     pub fn modulation_intensity(self) -> f32 {
@@ -131,6 +143,18 @@ pub struct V2Args {
     /// High-level creative steering controls.
     #[command(flatten)]
     art_direction: ArtDirectionArgs,
+    /// Target GUI interaction refresh rate.
+    #[arg(long, default_value_t = 144)]
+    gui_target_fps: u32,
+    /// GUI swapchain synchronization mode.
+    #[arg(long, default_value = "on")]
+    gui_vsync: GuiVsync,
+    /// Optional CSV output path for per-frame GUI timing trace.
+    #[arg(long)]
+    gui_perf_trace: Option<String>,
+    /// Run deterministic synthetic drag motions for GUI benchmarking.
+    #[arg(long)]
+    gui_benchmark_drag: bool,
 }
 
 /// Animation settings for clip generation.
@@ -141,6 +165,26 @@ pub struct AnimationConfig {
     pub fps: u32,
     pub keep_frames: bool,
     pub motion: AnimationMotion,
+}
+
+/// GUI runtime tuning and telemetry settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuiConfig {
+    pub target_fps: u32,
+    pub vsync: GuiVsync,
+    pub perf_trace: Option<String>,
+    pub benchmark_drag: bool,
+}
+
+impl Default for GuiConfig {
+    fn default() -> Self {
+        Self {
+            target_fps: 144,
+            vsync: GuiVsync::On,
+            perf_trace: None,
+            benchmark_drag: false,
+        }
+    }
 }
 
 /// Parsed command-line configuration.
@@ -160,6 +204,8 @@ pub struct V2Config {
     pub art_direction: ArtDirectionConfig,
     pub animation: AnimationConfig,
     pub selection: SelectionConfig,
+    #[serde(default)]
+    pub gui: GuiConfig,
 }
 
 #[derive(Parser, Debug)]
@@ -218,6 +264,12 @@ impl V2Config {
                 explore_candidates: args.explore_candidates,
                 explore_size: args.explore_size,
             },
+            gui: GuiConfig {
+                target_fps: args.gui_target_fps,
+                vsync: args.gui_vsync,
+                perf_trace: args.gui_perf_trace,
+                benchmark_drag: args.gui_benchmark_drag,
+            },
         };
         validate_v2_config(&config)?;
         Ok(config)
@@ -259,6 +311,7 @@ impl V2Config {
                 explore_candidates: 0,
                 explore_size: self.selection.explore_size,
             },
+            gui: self.gui.clone(),
         })
     }
 }
@@ -288,6 +341,9 @@ fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
     }
     if config.animation.fps == 0 || config.animation.fps > 120 {
         return Err("fps must be in range 1..=120".into());
+    }
+    if config.gui.target_fps < 30 || config.gui.target_fps > 360 {
+        return Err("gui-target-fps must be in range 30..=360".into());
     }
     if config.selection.explore_size < 16 {
         return Err("explore-size must be at least 16".into());

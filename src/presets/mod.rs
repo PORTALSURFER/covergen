@@ -115,6 +115,7 @@ mod tests {
                 explore_candidates: 0,
                 explore_size: 320,
             },
+            gui: crate::runtime_config::GuiConfig::default(),
         }
     }
 

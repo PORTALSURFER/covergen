@@ -282,6 +282,7 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
             explore_candidates: 0,
             explore_size: 320,
         },
+        gui: crate::runtime_config::GuiConfig::default(),
     }
 }
 
