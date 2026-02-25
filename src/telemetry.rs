@@ -5,6 +5,7 @@
 //! `end_capture` to retrieve one immutable report.
 
 use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// One named timing sample collected during a render run.
@@ -59,6 +60,15 @@ fn telemetry_state() -> &'static Mutex<TelemetryState> {
     STATE.get_or_init(|| Mutex::new(TelemetryState::default()))
 }
 
+fn capture_active_flag() -> &'static AtomicBool {
+    static ACTIVE: AtomicBool = AtomicBool::new(false);
+    &ACTIVE
+}
+
+fn is_capture_active() -> bool {
+    capture_active_flag().load(Ordering::Acquire)
+}
+
 fn with_state_mut<R>(f: impl FnOnce(&mut TelemetryState) -> R) -> R {
     let mut guard = telemetry_state()
         .lock()
@@ -75,20 +85,29 @@ pub(crate) fn begin_capture(run_label: impl Into<String>) {
     with_state_mut(|state| {
         state.active = Some(report);
     });
+    capture_active_flag().store(true, Ordering::Release);
 }
 
 /// End the current telemetry capture session and return the captured report.
 pub(crate) fn end_capture() -> Option<CaptureReport> {
-    with_state_mut(|state| state.active.take())
+    let report = with_state_mut(|state| state.active.take());
+    capture_active_flag().store(false, Ordering::Release);
+    report
 }
 
 /// Record a timing sample for a named scope.
 pub(crate) fn record_timing(scope: impl Into<String>, elapsed: Duration) {
+    if !is_capture_active() {
+        return;
+    }
     record_timing_ms(scope, elapsed.as_secs_f64() * 1000.0);
 }
 
 /// Record a timing sample from a millisecond value.
 pub(crate) fn record_timing_ms(scope: impl Into<String>, ms: f64) {
+    if !is_capture_active() {
+        return;
+    }
     if !ms.is_finite() {
         return;
     }
@@ -102,6 +121,9 @@ pub(crate) fn record_timing_ms(scope: impl Into<String>, ms: f64) {
 
 /// Record one animation frame timing sample.
 pub(crate) fn record_frame(scope: impl Into<String>, elapsed: Duration) {
+    if !is_capture_active() {
+        return;
+    }
     let ms = elapsed.as_secs_f64() * 1000.0;
     if !ms.is_finite() {
         return;
@@ -116,6 +138,9 @@ pub(crate) fn record_frame(scope: impl Into<String>, elapsed: Duration) {
 
 /// Snapshot process memory from `/proc/self/status` when capture is active.
 pub(crate) fn snapshot_memory(label: impl Into<String>) {
+    if !is_capture_active() {
+        return;
+    }
     let Some((rss_bytes, hwm_bytes)) = read_memory_bytes() else {
         return;
     };
@@ -164,6 +189,29 @@ mod tests {
         assert_eq!(report.run_label, "sample");
         assert_eq!(report.timings.len(), 1);
         assert_eq!(report.frames.len(), 1);
+    }
+
+    #[test]
+    fn capture_active_flag_tracks_lifecycle() {
+        let _ = end_capture();
+        assert!(!is_capture_active());
+        begin_capture("sample");
+        assert!(is_capture_active());
+        let _ = end_capture();
+        assert!(!is_capture_active());
+    }
+
+    #[test]
+    fn record_calls_are_noop_when_capture_is_inactive() {
+        let _ = end_capture();
+        record_timing_ms("inactive.timing", 1.0);
+        record_frame("inactive.frame", Duration::from_millis(1));
+        snapshot_memory("inactive.memory");
+        begin_capture("post-inactive");
+        let report = end_capture().expect("capture should exist");
+        assert!(report.timings.is_empty());
+        assert!(report.frames.is_empty());
+        assert!(report.memory.is_empty());
     }
 
     #[test]
