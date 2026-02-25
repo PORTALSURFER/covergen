@@ -49,6 +49,7 @@ const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
 const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
+const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -239,6 +240,7 @@ impl SceneBuilder {
         let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
         self.clear_active_layer();
+        self.push_param_links(project, state);
         self.push_wire_drag(project, state);
         self.push_right_marquee(state);
         self.push_link_cut(state);
@@ -298,7 +300,7 @@ impl SceneBuilder {
                     EDGE_COLOR
                 };
                 if signal_path {
-                    self.push_rounded_signal_wire(from_x, from_y, to_x, to_y, color);
+                    continue;
                 } else {
                     self.push_straight_wire_with_round_caps(from_x, from_y, to_x, to_y, color);
                 }
@@ -574,8 +576,40 @@ impl SceneBuilder {
         };
         if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
             self.push_rounded_signal_wire(x0, y0, x1, y1, PARAM_EDGE_COLOR);
+            if state.hover_param_target.is_some() {
+                self.push_param_target_marker(x1, y1, PARAM_EDGE_COLOR);
+            }
         } else {
             self.push_straight_wire_with_round_caps(x0, y0, x1, y1, PIN_HOVER);
+        }
+    }
+
+    fn push_param_links(&mut self, project: &GuiProject, state: &PreviewState) {
+        if project.edge_count() == 0 {
+            return;
+        }
+        for target in project.nodes() {
+            for source_id in target.inputs() {
+                let Some(source) = project.node(*source_id) else {
+                    continue;
+                };
+                let Some((from_x, from_y)) = output_pin_center(source) else {
+                    continue;
+                };
+                if project.link_resource_kind(*source_id, target.id()) != Some(ResourceKind::Signal) {
+                    continue;
+                }
+                let (gx, gy) = signal_target_graph_point(project, target, *source_id);
+                let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+                let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
+                let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
+                    CUT_EDGE_COLOR
+                } else {
+                    PARAM_EDGE_COLOR
+                };
+                self.push_rounded_signal_wire(from_x, from_y, to_x, to_y, color);
+                self.push_param_target_marker(to_x, to_y, color);
+            }
         }
     }
 
@@ -626,6 +660,16 @@ impl SceneBuilder {
         for dy in -WIRE_ENDPOINT_RADIUS_PX..=WIRE_ENDPOINT_RADIUS_PX {
             let yy = cy + dy;
             let radius_sq = WIRE_ENDPOINT_RADIUS_PX * WIRE_ENDPOINT_RADIUS_PX;
+            let span_sq = radius_sq - (dy * dy);
+            let span = (span_sq as f32).sqrt().floor() as i32;
+            self.push_line(cx - span, yy, cx + span, yy, color);
+        }
+    }
+
+    fn push_param_target_marker(&mut self, cx: i32, cy: i32, color: Color) {
+        for dy in -PARAM_BIND_TARGET_RADIUS_PX..=PARAM_BIND_TARGET_RADIUS_PX {
+            let yy = cy + dy;
+            let radius_sq = PARAM_BIND_TARGET_RADIUS_PX * PARAM_BIND_TARGET_RADIUS_PX;
             let span_sq = radius_sq - (dy * dy);
             let span = (span_sq as f32).sqrt().floor() as i32;
             self.push_line(cx - span, yy, cx + span, yy, color);
@@ -862,6 +906,7 @@ fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
 
 fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     let mut hash = hash_start();
+    hash = hash_u64(hash, project.render_signature());
     hash = hash_u64(hash, project.ui_signature());
     hash = hash_f32(hash, state.pan_x);
     hash = hash_f32(hash, state.pan_y);
