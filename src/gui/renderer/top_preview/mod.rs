@@ -31,6 +31,23 @@ struct TopOpUniform {
 impl TopOpUniform {
     fn solid(op: TopViewerOp) -> Self {
         let TopViewerOp::Solid {
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [color_r, color_g, color_b, alpha],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+        }
+    }
+
+    fn circle(op: TopViewerOp) -> Self {
+        let TopViewerOp::Circle {
             center_x,
             center_y,
             radius,
@@ -82,6 +99,7 @@ pub(super) struct TopPreviewRenderer {
     viewer_pipeline: wgpu::RenderPipeline,
     viewer_texture_layout: wgpu::BindGroupLayout,
     viewer_sampler: wgpu::Sampler,
+    op_sampler: wgpu::Sampler,
     viewer_bind_group: Option<wgpu::BindGroup>,
     viewer_texture: Option<wgpu::Texture>,
     viewer_texture_view: Option<wgpu::TextureView>,
@@ -92,6 +110,7 @@ pub(super) struct TopPreviewRenderer {
     op_uniform_buffer: wgpu::Buffer,
     op_uniform_bind_group: wgpu::BindGroup,
     op_solid_pipeline: wgpu::RenderPipeline,
+    op_circle_pipeline: wgpu::RenderPipeline,
     op_transform_pipeline: wgpu::RenderPipeline,
 
     dummy_texture: wgpu::Texture,
@@ -115,6 +134,13 @@ impl TopPreviewRenderer {
     ) -> Self {
         let viewer_texture_layout = viewer::create_texture_bind_group_layout(device);
         let viewer_sampler = viewer::create_texture_sampler(device);
+        let op_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gui-top-preview-op-sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
         let viewer_shader = viewer::create_shader_module(device);
         let viewer_pipeline = viewer::create_pipeline(
             device,
@@ -169,6 +195,13 @@ impl TopPreviewRenderer {
             "fs_solid",
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        let op_circle_pipeline = create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_circle",
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
         let op_transform_pipeline = create_op_pipeline(
             device,
             &op_shader,
@@ -196,13 +229,14 @@ impl TopPreviewRenderer {
             device,
             &viewer_texture_layout,
             &dummy_view,
-            &viewer_sampler,
+            &op_sampler,
         );
 
         Self {
             viewer_pipeline,
             viewer_texture_layout,
             viewer_sampler,
+            op_sampler,
             viewer_bind_group: None,
             viewer_texture: None,
             viewer_texture_view: None,
@@ -212,6 +246,7 @@ impl TopPreviewRenderer {
             op_uniform_buffer,
             op_uniform_bind_group,
             op_solid_pipeline,
+            op_circle_pipeline,
             op_transform_pipeline,
             dummy_texture,
             dummy_bind_group,

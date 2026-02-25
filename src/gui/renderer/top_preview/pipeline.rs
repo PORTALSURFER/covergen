@@ -10,6 +10,8 @@ pub(super) fn create_op_pipeline(
     fragment_entry: &str,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
+    // Operation passes write a full replacement texture each step.
+    // Blending at this stage introduces unintended compositing artifacts.
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("gui-top-preview-op-pipeline"),
         layout: Some(layout),
@@ -24,7 +26,7 @@ pub(super) fn create_op_pipeline(
             entry_point: fragment_entry,
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -119,7 +121,13 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> VertexOut {
 
 @fragment
 fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
-    let bg = vec3<f32>(8.0 / 255.0, 8.0 / 255.0, 8.0 / 255.0);
+    let fg = clamp(u_op.p0.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
+    let alpha = clamp(u_op.p0.w, 0.0, 1.0);
+    return vec4<f32>(fg, alpha);
+}
+
+@fragment
+fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
     let feather = max(u_op.p0.w, 0.0);
@@ -127,8 +135,7 @@ fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
     let edge = smoothstep(radius + feather, radius - feather, dist);
     let alpha = clamp(edge * clamp(u_op.p1.w, 0.0, 1.0), 0.0, 1.0);
     let fg = clamp(u_op.p1.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
-    let rgb = mix(bg, fg, alpha);
-    return vec4<f32>(rgb, 1.0);
+    return vec4<f32>(fg, alpha);
 }
 
 @fragment

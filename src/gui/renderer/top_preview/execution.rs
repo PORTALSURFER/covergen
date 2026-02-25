@@ -111,6 +111,18 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
                 }
+                TopViewerOp::Circle { .. } => {
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
+                    queue.write_buffer(
+                        &self.op_uniform_buffer,
+                        0,
+                        bytemuck::bytes_of(&TopOpUniform::circle(op)),
+                    );
+                    pass.set_pipeline(&self.op_circle_pipeline);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(1, &self.dummy_bind_group, &[]);
+                }
                 TopViewerOp::Transform { .. } => {
                     let Some(src_target) = source_target else {
                         return None;
@@ -203,7 +215,7 @@ impl TopPreviewRenderer {
             height,
             "gui-top-preview-scratch-a",
             &self.viewer_texture_layout,
-            &self.viewer_sampler,
+            &self.op_sampler,
         );
         let (b_texture, b_view, b_bind) = create_preview_texture_bundle(
             device,
@@ -211,7 +223,7 @@ impl TopPreviewRenderer {
             height,
             "gui-top-preview-scratch-b",
             &self.viewer_texture_layout,
-            &self.viewer_sampler,
+            &self.op_sampler,
         );
         self.scratch_texture_a = Some(a_texture);
         self.scratch_view_a = Some(a_view);

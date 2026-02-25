@@ -10,6 +10,13 @@ use super::project::{GuiProject, ProjectNodeKind};
 pub(crate) enum TopRuntimeOp {
     /// `tex.solid` source operation.
     Solid {
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+        alpha: f32,
+    },
+    /// `tex.circle` source operation.
+    Circle {
         center_x: f32,
         center_y: f32,
         radius: f32,
@@ -40,6 +47,7 @@ struct CompiledStep {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CompiledStepKind {
     Solid,
+    Circle,
     Transform,
 }
 
@@ -87,6 +95,22 @@ impl GuiCompiledRuntime {
             match step.kind {
                 CompiledStepKind::Solid => {
                     out_ops.push(TopRuntimeOp::Solid {
+                        color_r: project
+                            .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        color_g: project
+                            .node_param_value(step.node_id, "color_g", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        color_b: project
+                            .node_param_value(step.node_id, "color_b", time_secs, eval_stack)
+                            .unwrap_or(0.9),
+                        alpha: project
+                            .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
+                            .unwrap_or(1.0),
+                    });
+                }
+                CompiledStepKind::Circle => {
+                    out_ops.push(TopRuntimeOp::Circle {
                         center_x: project
                             .node_param_value(step.node_id, "center_x", time_secs, eval_stack)
                             .unwrap_or(0.5),
@@ -117,19 +141,19 @@ impl GuiCompiledRuntime {
                     out_ops.push(TopRuntimeOp::Transform {
                         brightness: project
                             .node_param_value(step.node_id, "brightness", time_secs, eval_stack)
-                            .unwrap_or(1.08),
+                            .unwrap_or(1.0),
                         gain_r: project
                             .node_param_value(step.node_id, "gain_r", time_secs, eval_stack)
-                            .unwrap_or(0.45),
+                            .unwrap_or(1.0),
                         gain_g: project
                             .node_param_value(step.node_id, "gain_g", time_secs, eval_stack)
-                            .unwrap_or(0.8),
+                            .unwrap_or(1.0),
                         gain_b: project
                             .node_param_value(step.node_id, "gain_b", time_secs, eval_stack)
                             .unwrap_or(1.0),
                         alpha_mul: project
                             .node_param_value(step.node_id, "alpha_mul", time_secs, eval_stack)
-                            .unwrap_or(0.8),
+                            .unwrap_or(1.0),
                     });
                 }
             }
@@ -162,6 +186,13 @@ fn compile_node(
             });
             true
         }
+        ProjectNodeKind::TexCircle => {
+            out_steps.push(CompiledStep {
+                node_id,
+                kind: CompiledStepKind::Circle,
+            });
+            true
+        }
         ProjectNodeKind::TexTransform2D => {
             let source_id = match project.input_source_node_id(node_id) {
                 Some(id) => id,
@@ -184,4 +215,40 @@ fn compile_node(
         visited.push(node_id);
     }
     ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GuiCompiledRuntime, TopRuntimeOp};
+    use crate::gui::project::{GuiProject, ProjectNodeKind};
+
+    #[test]
+    fn transform_defaults_are_identity() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let transform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, transform));
+        assert!(project.connect_image_link(transform, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::Transform {
+                brightness,
+                gain_r,
+                gain_g,
+                gain_b,
+                alpha_mul
+            } if brightness == 1.0
+                && gain_r == 1.0
+                && gain_g == 1.0
+                && gain_b == 1.0
+                && alpha_mul == 1.0
+        ));
+    }
 }
