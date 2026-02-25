@@ -302,7 +302,7 @@ fn validate_v2_config(config: &V2Config) -> Result<(), Box<dyn Error>> {
 }
 
 /// Generate a per-run seed when one is not explicitly supplied.
-fn runtime_seed() -> u32 {
+pub(crate) fn runtime_seed() -> u32 {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

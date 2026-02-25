@@ -27,6 +27,16 @@ pub(crate) struct CovergenCli {
 pub(crate) enum CovergenCommand {
     /// Run benchmark and threshold workflows.
     Bench(BenchArgs),
+    /// Launch a realtime TOP preview window.
+    Gui(GuiArgs),
+}
+
+/// GUI subcommand arguments for realtime TOP preview.
+#[derive(clap::Args, Debug, Clone)]
+pub(crate) struct GuiArgs {
+    /// Runtime graph/preset arguments consumed by the GUI preview loop.
+    #[command(flatten)]
+    pub run: V2Args,
 }
 
 #[cfg(test)]
@@ -48,5 +58,17 @@ mod tests {
     fn bench_subcommand_is_parsed() {
         let cli = CovergenCli::parse_from(["covergen", "bench", "--samples", "2"]);
         assert!(matches!(cli.command, Some(CovergenCommand::Bench(_))));
+    }
+
+    #[test]
+    fn gui_subcommand_is_parsed() {
+        let cli = CovergenCli::parse_from(["covergen", "gui", "--preset", "td-sphere-noise-geo"]);
+        match cli.command {
+            Some(CovergenCommand::Gui(args)) => {
+                let config = V2Config::from_args(args.run).expect("gui args should parse");
+                assert_eq!(config.preset, "td-sphere-noise-geo");
+            }
+            _ => panic!("expected gui subcommand"),
+        }
     }
 }

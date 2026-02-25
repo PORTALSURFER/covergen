@@ -12,6 +12,7 @@ mod compiler;
 mod gpu_render;
 mod gpu_retained;
 mod graph;
+mod gui;
 mod image_ops;
 mod manifest;
 mod model;
@@ -49,6 +50,7 @@ use clap::Parser;
 use cli::{CovergenCli, CovergenCommand};
 use compiler::compile_graph;
 use graph::GpuGraph;
+use gui::run_gui_preview;
 use manifest::{load_manifest, save_manifest};
 use presets::build_preset_graph;
 use runtime::execute_compiled;
@@ -62,6 +64,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             let config = bench::cli::bench_config_from_args(args)?;
             pollster::block_on(bench::run_with_config(config))
         }
+        Some(CovergenCommand::Gui(args)) => pollster::block_on(run_gui_preview(args.run)),
         None => pollster::block_on(run_covergen(cli.run)),
     }
 }

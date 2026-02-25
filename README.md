@@ -12,6 +12,7 @@ hardware GPU is available, the process exits with an error.
 
 - `covergen` runs the node-graph runtime (`src/*`).
 - `covergen bench ...` runs benchmark + telemetry workflows.
+- `covergen gui ...` opens a realtime TOP preview window.
 
 V1 runtime support was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
 
@@ -66,6 +67,12 @@ Sphere-noise-geometry network command:
 
 ```bash
 cargo run --bin covergen -- --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
+```
+
+Realtime TOP preview window (Esc quit, Space pause, R reseed):
+
+```bash
+cargo run --bin covergen -- gui --preset td-sphere-noise-geo --size 1024 --motion gentle
 ```
 
 Operator-family model (TouchDesigner-style):
