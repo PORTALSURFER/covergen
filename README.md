@@ -10,7 +10,8 @@ hardware GPU is available, the process exits with an error.
 
 ## Modes
 
-- `covergen` runs the node-graph runtime (`src/*`).
+- `covergen` launches the realtime TOP preview window by default.
+- `covergen render ...` runs headless node-graph render/export mode.
 - `covergen bench ...` runs benchmark + telemetry workflows.
 - `covergen gui ...` opens a realtime TOP preview window.
 
@@ -18,14 +19,22 @@ V1 runtime support was removed on **February 24, 2026**. Migration and cutover s
 
 ## V2 Quick Start
 
+Default launch (GUI TOP preview):
+
 ```bash
-cargo run --bin covergen -- --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
+cargo run --bin covergen
+```
+
+Headless still/image generation:
+
+```bash
+cargo run --bin covergen -- render --size 1024 --count 4 --seed 12345 --preset hybrid-stack --profile quality
 ```
 
 Instagram Reels animation (30 seconds, vertical 1080x1920, gentle modulation):
 
 ```bash
-cargo run --bin covergen -- --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
+cargo run --bin covergen -- render --reels --animate --seconds 30 --fps 30 --seed 12345 --output reel.mp4
 ```
 
 Useful V2 flags:
@@ -57,16 +66,16 @@ Replay workflow:
 
 ```bash
 # Generate art and persist an exact replay manifest.
-cargo run --bin covergen -- --preset td-hyperweave --output still.png --manifest-out replay.json
+cargo run --bin covergen -- render --preset td-hyperweave --output still.png --manifest-out replay.json
 
 # Re-run exactly from the manifest graph+config.
-cargo run --bin covergen -- --manifest-in replay.json
+cargo run --bin covergen -- render --manifest-in replay.json
 ```
 
 Sphere-noise-geometry network command:
 
 ```bash
-cargo run --bin covergen -- --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
+cargo run --bin covergen -- render --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
 ```
 
 Realtime TOP preview window (Esc quit, Space pause, R reseed):

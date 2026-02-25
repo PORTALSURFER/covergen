@@ -64,8 +64,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             let config = bench::cli::bench_config_from_args(args)?;
             pollster::block_on(bench::run_with_config(config))
         }
+        Some(CovergenCommand::Render(args)) => pollster::block_on(run_covergen(args.run)),
         Some(CovergenCommand::Gui(args)) => pollster::block_on(run_gui_preview(args.run)),
-        None => pollster::block_on(run_covergen(cli.run)),
+        None => pollster::block_on(run_gui_preview(cli.run)),
     }
 }
 
