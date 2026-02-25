@@ -168,7 +168,7 @@ impl GuiApp {
         let input_elapsed = input_start.elapsed();
 
         let update_start = Instant::now();
-        let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(snapshot);
+        let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
         if consume_editor_input {
             self.state.drag = None;
@@ -286,7 +286,7 @@ impl GuiApp {
         self
     }
 
-    fn apply_panel_resize_input(&mut self, input: InputSnapshot) -> (bool, bool) {
+    fn apply_panel_resize_input(&mut self, input: &InputSnapshot) -> (bool, bool) {
         let mut changed = false;
         let mut consumed = false;
         if input.left_clicked && self.try_begin_panel_resize(input.mouse_pos) {
@@ -361,6 +361,7 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.wire_drag.is_some()
         || state.link_cut.is_some()
         || state.pan_drag.is_some()
+        || state.param_edit.is_some()
         || state.menu.open
 }
 

@@ -26,6 +26,10 @@ pub(crate) struct InputCollector {
     param_dec: bool,
     param_inc: bool,
     menu_accept: bool,
+    typed_text: String,
+    param_backspace: bool,
+    param_commit: bool,
+    param_cancel: bool,
 }
 
 impl InputCollector {
@@ -52,7 +56,12 @@ impl InputCollector {
                 self.wheel_lines_y += mouse_wheel_lines(*delta);
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                self.handle_key(event.physical_key, event.state, event.repeat)
+                self.handle_key(
+                    event.physical_key,
+                    event.state,
+                    event.repeat,
+                    event.text.as_ref().map(|text| text.as_ref()),
+                )
             }
             _ => {}
         }
@@ -83,6 +92,10 @@ impl InputCollector {
             param_dec: self.param_dec,
             param_inc: self.param_inc,
             menu_accept: self.menu_accept,
+            typed_text: self.typed_text.clone(),
+            param_backspace: self.param_backspace,
+            param_commit: self.param_commit,
+            param_cancel: self.param_cancel,
         };
         self.left_clicked = false;
         self.middle_clicked = false;
@@ -97,6 +110,10 @@ impl InputCollector {
         self.param_dec = false;
         self.param_inc = false;
         self.menu_accept = false;
+        self.typed_text.clear();
+        self.param_backspace = false;
+        self.param_commit = false;
+        self.param_cancel = false;
         snapshot
     }
 
@@ -114,7 +131,13 @@ impl InputCollector {
         self.middle_down = state == ElementState::Pressed;
     }
 
-    fn handle_key(&mut self, key: PhysicalKey, state: ElementState, repeat: bool) {
+    fn handle_key(
+        &mut self,
+        key: PhysicalKey,
+        state: ElementState,
+        repeat: bool,
+        text: Option<&str>,
+    ) {
         let PhysicalKey::Code(code) = key else {
             return;
         };
@@ -133,6 +156,15 @@ impl InputCollector {
             return;
         }
         match code {
+            KeyCode::Backspace => self.param_backspace = true,
+            KeyCode::Enter | KeyCode::NumpadEnter => self.param_commit = true,
+            KeyCode::Escape => self.param_cancel = true,
+            _ => {}
+        }
+        if let Some(text) = text {
+            self.append_text_input(text);
+        }
+        match code {
             KeyCode::Space => self.toggle_add_menu = true,
             KeyCode::Tab => self.toggle_node_open = true,
             KeyCode::KeyP => self.toggle_pause = true,
@@ -142,8 +174,17 @@ impl InputCollector {
             KeyCode::ArrowDown => self.menu_down = true,
             KeyCode::ArrowLeft => self.param_dec = true,
             KeyCode::ArrowRight => self.param_inc = true,
-            KeyCode::Enter => self.menu_accept = true,
+            KeyCode::Enter | KeyCode::NumpadEnter => self.menu_accept = true,
             _ => {}
+        }
+    }
+
+    fn append_text_input(&mut self, text: &str) {
+        for ch in text.chars() {
+            if ch.is_control() {
+                continue;
+            }
+            self.typed_text.push(ch);
         }
     }
 

@@ -5,8 +5,8 @@
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind,
-    NODE_HEIGHT, NODE_PARAM_ROW_HEIGHT, NODE_WIDTH,
+    input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center, pin_rect,
+    GuiProject, ProjectNode, ProjectNodeKind, NODE_WIDTH,
 };
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
@@ -29,6 +29,10 @@ const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
+const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
+const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
+const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
+const PARAM_VALUE_TEXT: Color = Color::argb(AGIO.menu_text);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 
@@ -194,7 +198,7 @@ impl SceneBuilder {
             self.push_border(rect, border);
             self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
             if node.expanded() {
-                self.push_node_params(project, node, rect, state);
+                self.push_node_params(project, node, state);
             }
             self.push_pins(node, state);
         }
@@ -204,7 +208,6 @@ impl SceneBuilder {
         &mut self,
         project: &GuiProject,
         node: &ProjectNode,
-        node_rect: Rect,
         state: &PreviewState,
     ) {
         let Some(rows) = project.node_param_views(node.id()) else {
@@ -213,16 +216,61 @@ impl SceneBuilder {
         if rows.is_empty() {
             return;
         }
-        let base_h = (NODE_HEIGHT as f32 * state.zoom).round().max(1.0) as i32;
-        let row_h = (NODE_PARAM_ROW_HEIGHT as f32 * state.zoom).round().max(1.0) as i32;
         for (index, row) in rows.iter().enumerate() {
-            let y = node_rect.y + base_h + index as i32 * row_h;
+            let Some(row_world) = node_param_row_rect(node, index) else {
+                continue;
+            };
+            let row_rect = graph_rect_to_panel(row_world, state);
             if row.selected {
-                self.push_rect(Rect::new(node_rect.x + 2, y, node_rect.w - 4, row_h), PARAM_SELECTED);
+                self.push_rect(
+                    Rect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
+                    PARAM_SELECTED,
+                );
             }
-            let bound = if row.bound { " [bound]" } else { "" };
-            let line = format!("{}: {:.3}{}", row.label, row.value, bound);
-            self.push_text(node_rect.x + 8, y + row_h.saturating_sub(6), line.as_str(), NODE_TEXT);
+            let label = if row.bound {
+                format!("{} *", row.label)
+            } else {
+                row.label.to_string()
+            };
+            self.push_text(
+                row_rect.x + 4,
+                row_rect.y + row_rect.h.saturating_sub(6),
+                label.as_str(),
+                NODE_TEXT,
+            );
+            let Some(value_world) = node_param_value_rect(node, index) else {
+                continue;
+            };
+            let value_rect = graph_rect_to_panel(value_world, state);
+            self.push_rect(value_rect, PARAM_VALUE_BG);
+            let editing = state
+                .param_edit
+                .as_ref()
+                .map(|edit| edit.node_id == node.id() && edit.param_index == index)
+                .unwrap_or(false);
+            self.push_border(
+                value_rect,
+                if editing {
+                    PARAM_VALUE_ACTIVE
+                } else {
+                    PARAM_VALUE_BORDER
+                },
+            );
+            let value_text = if let Some(edit) = state.param_edit.as_ref() {
+                if edit.node_id == node.id() && edit.param_index == index {
+                    edit.buffer.clone()
+                } else {
+                    format!("{:.3}", row.value)
+                }
+            } else {
+                format!("{:.3}", row.value)
+            };
+            self.push_text(
+                value_rect.x + 4,
+                value_rect.y + value_rect.h.saturating_sub(4),
+                value_text.as_str(),
+                PARAM_VALUE_TEXT,
+            );
         }
     }
 

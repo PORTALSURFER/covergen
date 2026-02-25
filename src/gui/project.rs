@@ -13,6 +13,12 @@ pub(crate) const NODE_HEIGHT: i32 = 44;
 pub(crate) const NODE_PIN_SIZE: i32 = 8;
 /// Height of one expanded parameter row in node cards.
 pub(crate) const NODE_PARAM_ROW_HEIGHT: i32 = 16;
+/// Horizontal padding for expanded parameter row content.
+pub(crate) const NODE_PARAM_ROW_PAD_X: i32 = 4;
+/// Horizontal padding from parameter row right edge to value input box.
+pub(crate) const NODE_PARAM_VALUE_BOX_RIGHT_PAD: i32 = 6;
+/// Width of one parameter value input box in graph-space pixels.
+pub(crate) const NODE_PARAM_VALUE_BOX_WIDTH: i32 = 52;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
 
@@ -524,6 +530,22 @@ impl GuiProject {
         true
     }
 
+    /// Select one parameter row by index for one node.
+    pub(crate) fn select_param(&mut self, node_id: u32, param_index: usize) -> bool {
+        let Some(node) = self.node_mut(node_id) else {
+            return false;
+        };
+        if node.params.is_empty() {
+            return false;
+        }
+        let next = param_index.min(node.params.len().saturating_sub(1));
+        if node.selected_param == next {
+            return false;
+        }
+        node.selected_param = next;
+        true
+    }
+
     /// Adjust selected parameter value by one step.
     pub(crate) fn adjust_selected_param(&mut self, node_id: u32, direction: f32) -> bool {
         let Some(node) = self.node_mut(node_id) else {
@@ -540,6 +562,68 @@ impl GuiProject {
         }
         slot.value = next;
         true
+    }
+
+    /// Return raw parameter value at one index for one node.
+    pub(crate) fn node_param_raw_value(&self, node_id: u32, param_index: usize) -> Option<f32> {
+        let node = self.node(node_id)?;
+        if node.params.is_empty() {
+            return None;
+        }
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        node.params.get(index).map(|slot| slot.value)
+    }
+
+    /// Set one parameter value at one index after clamping to slot limits.
+    pub(crate) fn set_param_value(&mut self, node_id: u32, param_index: usize, value: f32) -> bool {
+        let Some(node) = self.node_mut(node_id) else {
+            return false;
+        };
+        if node.params.is_empty() {
+            return false;
+        }
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        let slot = &mut node.params[index];
+        let clamped = value.clamp(slot.min, slot.max);
+        if (slot.value - clamped).abs() < 1e-6 {
+            return false;
+        }
+        slot.value = clamped;
+        true
+    }
+
+    /// Return expanded parameter row index hit by one graph-space point.
+    pub(crate) fn param_row_at(&self, node_id: u32, x: i32, y: i32) -> Option<usize> {
+        let node = self.node(node_id)?;
+        if !node.expanded() {
+            return None;
+        }
+        for index in 0..node.params.len() {
+            let Some(rect) = node_param_row_rect(node, index) else {
+                continue;
+            };
+            if rect.contains(x, y) {
+                return Some(index);
+            }
+        }
+        None
+    }
+
+    /// Return true when graph-space point falls inside one value input box.
+    pub(crate) fn param_value_box_contains(
+        &self,
+        node_id: u32,
+        param_index: usize,
+        x: i32,
+        y: i32,
+    ) -> bool {
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        let Some(rect) = node_param_value_rect(node, param_index) else {
+            return false;
+        };
+        rect.contains(x, y)
     }
 
     /// Return rendered parameter rows for one node.
@@ -707,6 +791,31 @@ pub(crate) fn pin_rect(cx: i32, cy: i32) -> super::geometry::Rect {
         NODE_PIN_SIZE,
         NODE_PIN_SIZE,
     )
+}
+
+/// Return one parameter row rectangle in graph-space coordinates.
+pub(crate) fn node_param_row_rect(node: &ProjectNode, param_index: usize) -> Option<super::geometry::Rect> {
+    if !node.expanded() || param_index >= node.params.len() {
+        return None;
+    }
+    let row_y = node.y() + NODE_HEIGHT + param_index as i32 * NODE_PARAM_ROW_HEIGHT;
+    Some(super::geometry::Rect::new(
+        node.x() + NODE_PARAM_ROW_PAD_X,
+        row_y,
+        NODE_WIDTH - NODE_PARAM_ROW_PAD_X * 2,
+        NODE_PARAM_ROW_HEIGHT,
+    ))
+}
+
+/// Return one parameter value input box rectangle in graph-space coordinates.
+pub(crate) fn node_param_value_rect(
+    node: &ProjectNode,
+    param_index: usize,
+) -> Option<super::geometry::Rect> {
+    let row = node_param_row_rect(node, param_index)?;
+    let width = NODE_PARAM_VALUE_BOX_WIDTH.min(row.w.saturating_sub(8)).max(20);
+    let x = row.x + row.w - width - NODE_PARAM_VALUE_BOX_RIGHT_PAD;
+    Some(super::geometry::Rect::new(x, row.y + 1, width, row.h.saturating_sub(2)))
 }
 
 fn clamp_node_position(
@@ -891,6 +1000,30 @@ mod tests {
         assert!(project.disconnect_link(lfo, solid));
         assert!(project.disconnect_link(solid, out));
         assert_eq!(project.edge_count(), 0);
+    }
+
+    #[test]
+    fn set_param_value_clamps_to_slot_range() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        assert!(project.set_param_value(solid, 0, 10.0));
+        let value = project
+            .node_param_raw_value(solid, 0)
+            .expect("param value should exist");
+        assert_eq!(value, 1.0);
+    }
+
+    #[test]
+    fn param_row_hit_returns_index_for_expanded_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        let node = project.node(solid).expect("node should exist");
+        let row = super::node_param_row_rect(node, 2).expect("row rect");
+        let hit = project.param_row_at(solid, row.x + 2, row.y + 2);
+        assert_eq!(hit, Some(2));
+        let value_hit = project.param_value_box_contains(solid, 2, row.x + row.w - 4, row.y + 2);
+        assert!(value_hit);
     }
 
     #[test]

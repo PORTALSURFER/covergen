@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use super::project::{input_pin_center, output_pin_center, GraphBounds, GuiProject};
 use super::state::{
-    menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, PreviewState,
-    WireDragState,
+    menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, ParamEditState,
+    PreviewState, WireDragState,
     ADD_NODE_OPTIONS,
 };
 
@@ -39,6 +39,7 @@ pub(crate) fn apply_preview_actions(
         state.wire_drag = None;
         state.link_cut = None;
         state.pan_drag = None;
+        state.param_edit = None;
         state.pan_x = 0.0;
         state.pan_y = 0.0;
         state.zoom = 1.0;
@@ -68,8 +69,23 @@ pub(crate) fn apply_preview_actions(
     }
 
     changed |= handle_add_menu_toggle(&input, panel_width, panel_height, state);
-    changed |= update_hover_state(input, project, panel_width, panel_height, state);
+    changed |= update_hover_state(&input, project, panel_width, panel_height, state);
     changed |= handle_node_open_toggle(&input, project, panel_width, panel_height, state);
+    let (param_changed, param_click_consumed) =
+        handle_param_edit_input(&input, project, panel_width, panel_height, state);
+    changed |= param_changed;
+    if param_click_consumed {
+        state.drag = None;
+        state.wire_drag = None;
+        state.prev_left_down = input.left_down;
+        return true;
+    }
+    if state.param_edit.is_some() {
+        state.drag = None;
+        state.wire_drag = None;
+        state.prev_left_down = input.left_down;
+        return changed;
+    }
     if state.menu.open {
         changed |= handle_add_menu_input(&input, project, panel_width, panel_height, state);
     } else {
@@ -170,6 +186,7 @@ fn handle_add_menu_toggle(
     if state.menu.open {
         state.menu = AddNodeMenuState::closed();
         state.wire_drag = None;
+        state.param_edit = None;
         return true;
     }
     let (x, y) = input
@@ -178,6 +195,7 @@ fn handle_add_menu_toggle(
     state.menu = AddNodeMenuState::open_at(x, y, panel_width, panel_height);
     state.drag = None;
     state.wire_drag = None;
+    state.param_edit = None;
     true
 }
 
@@ -207,6 +225,9 @@ fn handle_parameter_shortcuts(
     project: &mut GuiProject,
     state: &mut PreviewState,
 ) -> bool {
+    if state.param_edit.is_some() {
+        return false;
+    }
     let target = state.hover_node.or(state.active_node);
     let Some(node_id) = target else {
         return false;
@@ -231,6 +252,156 @@ fn handle_parameter_shortcuts(
     changed
 }
 
+fn handle_param_edit_input(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    let mut changed = false;
+    if state.menu.open {
+        return (changed, false);
+    }
+    changed |= apply_param_text_edits(input, project, state);
+    if !input.left_clicked {
+        return (changed, false);
+    }
+    let consumed = handle_param_click(input, project, panel_width, panel_height, state);
+    (changed, consumed)
+}
+
+fn apply_param_text_edits(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    state: &mut PreviewState,
+) -> bool {
+    if let Some(edit) = state.param_edit.as_ref() {
+        if !project.node_expanded(edit.node_id) {
+            state.param_edit = None;
+            return true;
+        }
+    }
+    let Some(edit) = state.param_edit.as_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    if input.param_cancel {
+        state.param_edit = None;
+        return true;
+    }
+    if input.param_backspace {
+        changed |= edit.buffer.pop().is_some();
+    }
+    if !input.typed_text.is_empty() {
+        for ch in input.typed_text.chars() {
+            if can_append_param_char(&edit.buffer, ch) {
+                edit.buffer.push(ch);
+                changed = true;
+            }
+        }
+    }
+    if input.param_commit {
+        if commit_param_edit(project, edit) {
+            state.param_edit = None;
+            return true;
+        }
+    }
+    changed
+}
+
+fn handle_param_click(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let Some((mx, my)) = input.mouse_pos else {
+        return finish_param_edit(project, state);
+    };
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return finish_param_edit(project, state);
+    }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let Some(node_id) = project.node_at(graph_x, graph_y) else {
+        return finish_param_edit(project, state);
+    };
+    let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
+        return finish_param_edit(project, state);
+    };
+    let _ = project.select_param(node_id, param_index);
+    state.active_node = Some(node_id);
+    if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
+        let _ = finish_param_edit(project, state);
+        return true;
+    }
+    let same_edit_target = state
+        .param_edit
+        .as_ref()
+        .map(|edit| edit.node_id == node_id && edit.param_index == param_index)
+        .unwrap_or(false);
+    if !same_edit_target {
+        let _ = finish_param_edit(project, state);
+    }
+    let _ = start_param_edit(project, state, node_id, param_index);
+    true
+}
+
+fn start_param_edit(
+    project: &GuiProject,
+    state: &mut PreviewState,
+    node_id: u32,
+    param_index: usize,
+) -> bool {
+    if state
+        .param_edit
+        .as_ref()
+        .map(|edit| edit.node_id == node_id && edit.param_index == param_index)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let Some(value) = project.node_param_raw_value(node_id, param_index) else {
+        return false;
+    };
+    state.param_edit = Some(ParamEditState {
+        node_id,
+        param_index,
+        buffer: format!("{value:.3}"),
+    });
+    true
+}
+
+fn finish_param_edit(project: &mut GuiProject, state: &mut PreviewState) -> bool {
+    let Some(mut edit) = state.param_edit.take() else {
+        return false;
+    };
+    let _ = commit_param_edit(project, &mut edit);
+    true
+}
+
+fn commit_param_edit(project: &mut GuiProject, edit: &mut ParamEditState) -> bool {
+    let Ok(value) = edit.buffer.trim().parse::<f32>() else {
+        return false;
+    };
+    let _ = project.set_param_value(edit.node_id, edit.param_index, value);
+    true
+}
+
+fn can_append_param_char(current: &str, ch: char) -> bool {
+    if ch.is_ascii_digit() {
+        return true;
+    }
+    if ch == '-' {
+        return current.is_empty();
+    }
+    if ch == '.' {
+        return !current.contains('.');
+    }
+    false
+}
+
 fn handle_link_cut(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -250,6 +421,7 @@ fn handle_link_cut(
                 });
                 state.drag = None;
                 state.wire_drag = None;
+                state.param_edit = None;
                 return true;
             }
         }
@@ -513,7 +685,7 @@ fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool
 }
 
 fn update_hover_state(
-    input: InputSnapshot,
+    input: &InputSnapshot,
     project: &GuiProject,
     panel_width: usize,
     panel_height: usize,
@@ -683,7 +855,7 @@ fn focus_bounds(
 
 #[cfg(test)]
 mod tests {
-    use super::segments_intersect;
+    use super::{can_append_param_char, segments_intersect};
 
     #[test]
     fn segments_intersect_detects_crossing_lines() {
@@ -693,5 +865,15 @@ mod tests {
     #[test]
     fn segments_intersect_detects_non_crossing_lines() {
         assert!(!segments_intersect(0, 0, 10, 0, 0, 5, 10, 5));
+    }
+
+    #[test]
+    fn can_append_param_char_limits_numeric_input_shape() {
+        assert!(can_append_param_char("", '1'));
+        assert!(can_append_param_char("", '-'));
+        assert!(!can_append_param_char("1", '-'));
+        assert!(can_append_param_char("1", '.'));
+        assert!(!can_append_param_char("1.2", '.'));
+        assert!(!can_append_param_char("", 'a'));
     }
 }

@@ -43,7 +43,7 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 4] = [
 ];
 
 /// Snapshot of one frame's input state.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct InputSnapshot {
     pub(crate) mouse_pos: Option<(i32, i32)>,
     pub(crate) left_down: bool,
@@ -62,6 +62,10 @@ pub(crate) struct InputSnapshot {
     pub(crate) param_dec: bool,
     pub(crate) param_inc: bool,
     pub(crate) menu_accept: bool,
+    pub(crate) typed_text: String,
+    pub(crate) param_backspace: bool,
+    pub(crate) param_commit: bool,
+    pub(crate) param_cancel: bool,
 }
 
 /// Active node drag state.
@@ -94,6 +98,14 @@ pub(crate) struct LinkCutState {
 pub(crate) struct PanDragState {
     pub(crate) last_x: i32,
     pub(crate) last_y: i32,
+}
+
+/// Active parameter text-edit session for one node parameter.
+#[derive(Clone, Debug)]
+pub(crate) struct ParamEditState {
+    pub(crate) node_id: u32,
+    pub(crate) param_index: usize,
+    pub(crate) buffer: String,
 }
 
 /// Add-node popup menu state.
@@ -163,7 +175,7 @@ impl AddNodeMenuState {
 }
 
 /// Runtime animation/editor state for one GUI session.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct PreviewState {
     pub(crate) frame_index: u32,
     pub(crate) timeline_accum_secs: f32,
@@ -174,6 +186,7 @@ pub(crate) struct PreviewState {
     pub(crate) wire_drag: Option<WireDragState>,
     pub(crate) link_cut: Option<LinkCutState>,
     pub(crate) pan_drag: Option<PanDragState>,
+    pub(crate) param_edit: Option<ParamEditState>,
     pub(crate) pan_x: f32,
     pub(crate) pan_y: f32,
     pub(crate) zoom: f32,
@@ -198,6 +211,7 @@ impl PreviewState {
             wire_drag: None,
             link_cut: None,
             pan_drag: None,
+            param_edit: None,
             pan_x: 0.0,
             pan_y: 0.0,
             zoom: 1.0,
