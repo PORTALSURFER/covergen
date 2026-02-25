@@ -110,10 +110,10 @@ impl InputCollector {
             return;
         };
         match code {
-            KeyCode::Space => self.toggle_pause = true,
+            KeyCode::Space => self.toggle_add_menu = true,
             KeyCode::KeyF => self.focus_all = true,
             KeyCode::KeyR => self.new_project = true,
-            KeyCode::Tab => self.toggle_add_menu = true,
+            KeyCode::Tab => self.toggle_pause = true,
             KeyCode::ArrowUp => self.menu_up = true,
             KeyCode::ArrowDown => self.menu_down = true,
             KeyCode::Enter => self.menu_accept = true,

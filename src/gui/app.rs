@@ -75,7 +75,7 @@ impl GuiApp {
             config.gui.target_fps,
             config.gui.vsync
         );
-        println!("[gui] controls: Esc=quit, Space=pause, Tab=add node menu, R=new project");
+        println!("[gui] controls: Esc=quit, Space=add node menu, Tab=pause, R=new project");
         Ok(Self {
             config,
             panel_width,
