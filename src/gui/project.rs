@@ -737,18 +737,18 @@ impl GuiProject {
         Some(v)
     }
 
-    /// Return stable signature for graph topology + node kinds.
+    /// Return stable signature for render-affecting graph state.
     ///
-    /// This is used by preview caches to detect wiring or node-kind updates.
-    pub(crate) fn graph_signature(&self) -> u64 {
+    /// This signature intentionally excludes UI-only fields such as expanded
+    /// state and selected parameter row so preview caches only invalidate when
+    /// output content can change.
+    pub(crate) fn render_signature(&self) -> u64 {
         let mut hash = 0xcbf29ce484222325_u64;
         for node in &self.nodes {
             hash = fnv1a_u64(hash, node.id as u64);
             for byte in node.kind.stable_id().as_bytes() {
                 hash = fnv1a_u64(hash, *byte as u64);
             }
-            hash = fnv1a_u64(hash, node.expanded as u64);
-            hash = fnv1a_u64(hash, node.selected_param as u64);
             if let Some(texture_input) = node.texture_input {
                 hash = fnv1a_u64(hash, texture_input as u64);
             }
@@ -765,6 +765,30 @@ impl GuiProject {
             hash = fnv1a_u64(hash, 0xfe);
         }
         hash
+    }
+
+    /// Return stable signature for UI-only node-editor state.
+    ///
+    /// This can be used by UI caches that should react to node-card expansion,
+    /// row selection, or node position updates without affecting render caches.
+    pub(crate) fn ui_signature(&self) -> u64 {
+        let mut hash = 0xcbf29ce484222325_u64;
+        for node in &self.nodes {
+            hash = fnv1a_u64(hash, node.id as u64);
+            hash = fnv1a_u64(hash, node.x as i64 as u64);
+            hash = fnv1a_u64(hash, node.y as i64 as u64);
+            hash = fnv1a_u64(hash, node.expanded as u64);
+            hash = fnv1a_u64(hash, node.selected_param as u64);
+            hash = fnv1a_u64(hash, 0xfd);
+        }
+        hash
+    }
+
+    /// Return stable signature for both render and UI graph state.
+    ///
+    /// Prefer [`Self::render_signature`] for TOP/render invalidation.
+    pub(crate) fn graph_signature(&self) -> u64 {
+        fnv1a_u64(self.render_signature(), self.ui_signature())
     }
 
     /// Return true when at least one parameter has a live signal binding.
@@ -1104,6 +1128,45 @@ mod tests {
             .node_param_raw_value(solid, 0)
             .expect("param value should exist");
         assert_eq!(value, 1.0);
+    }
+
+    #[test]
+    fn render_signature_ignores_expand_and_param_selection_state() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 180, 40, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        let base = project.render_signature();
+
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        assert_eq!(project.render_signature(), base);
+
+        assert!(project.select_next_param(solid));
+        assert_eq!(project.render_signature(), base);
+    }
+
+    #[test]
+    fn ui_signature_changes_for_expand_or_param_selection() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let base = project.ui_signature();
+
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        let after_expand = project.ui_signature();
+        assert_ne!(after_expand, base);
+
+        assert!(project.select_next_param(solid));
+        assert_ne!(project.ui_signature(), after_expand);
+    }
+
+    #[test]
+    fn render_signature_changes_when_render_param_changes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let base = project.render_signature();
+
+        assert!(project.set_param_value(solid, 0, 0.2));
+        assert_ne!(project.render_signature(), base);
     }
 
     #[test]

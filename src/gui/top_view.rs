@@ -52,7 +52,7 @@ pub(crate) struct TopViewerFrame<'a> {
 struct ViewerCacheKey {
     width: u32,
     height: u32,
-    graph_signature: u64,
+    render_signature: u64,
     frame_index: u32,
 }
 
@@ -107,7 +107,7 @@ impl TopViewerGenerator {
     ) {
         let width = viewport_width.saturating_sub(panel_width) as u32;
         let height = viewport_height as u32;
-        let graph_signature = project.graph_signature();
+        let render_signature = project.render_signature();
         let dynamic_frame = if project.has_signal_bindings() {
             frame_index
         } else {
@@ -116,7 +116,7 @@ impl TopViewerGenerator {
         let key = ViewerCacheKey {
             width,
             height,
-            graph_signature,
+            render_signature,
             frame_index: dynamic_frame,
         };
         self.x = panel_width as i32;
@@ -348,6 +348,26 @@ mod tests {
             TopViewerPayload::CpuRgba8(_) => panic!("expected GPU operation payload"),
         };
         assert_ne!(r0, r1);
+    }
+
+    #[test]
+    fn ui_only_state_changes_do_not_invalidate_preview_cache_key() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let base_key = viewer.key;
+
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        assert_eq!(viewer.key, base_key);
+
+        assert!(project.select_next_param(solid));
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        assert_eq!(viewer.key, base_key);
     }
 
     #[test]
