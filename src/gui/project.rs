@@ -1287,11 +1287,11 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
             // never changes output until the user edits parameters.
-            param("brightness", "brightness", 1.0, 0.0, 2.0, 0.02),
-            param("gain_r", "gain_r", 1.0, 0.0, 2.0, 0.02),
-            param("gain_g", "gain_g", 1.0, 0.0, 2.0, 0.02),
-            param("gain_b", "gain_b", 1.0, 0.0, 2.0, 0.02),
-            param("alpha_mul", "alpha_mul", 1.0, 0.0, 1.0, 0.01),
+            param("brightness", "brightness", 1.0, 0.0, 64.0, 0.1),
+            param("gain_r", "gain_r", 1.0, 0.0, 64.0, 0.1),
+            param("gain_g", "gain_g", 1.0, 0.0, 64.0, 0.1),
+            param("gain_b", "gain_b", 1.0, 0.0, 64.0, 0.1),
+            param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
         ProjectNodeKind::SceneEntity => vec![
             param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
