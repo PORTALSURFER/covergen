@@ -95,24 +95,25 @@ struct VertexOut {
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> VertexOut {
     var out: VertexOut;
-    let pos = array<vec2<f32>, 6>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>( 1.0, -1.0),
-        vec2<f32>( 1.0,  1.0),
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>( 1.0,  1.0),
-        vec2<f32>(-1.0,  1.0),
-    );
-    let uv = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, 1.0),
-        vec2<f32>(1.0, 0.0),
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, 0.0),
-        vec2<f32>(0.0, 0.0),
-    );
-    out.clip_pos = vec4<f32>(pos[vi], 0.0, 1.0);
-    out.uv = uv[vi];
+    if (vi == 0u) {
+        out.clip_pos = vec4<f32>(-1.0, -1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(0.0, 1.0);
+    } else if (vi == 1u) {
+        out.clip_pos = vec4<f32>(1.0, -1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(1.0, 1.0);
+    } else if (vi == 2u) {
+        out.clip_pos = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(1.0, 0.0);
+    } else if (vi == 3u) {
+        out.clip_pos = vec4<f32>(-1.0, -1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(0.0, 1.0);
+    } else if (vi == 4u) {
+        out.clip_pos = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(1.0, 0.0);
+    } else {
+        out.clip_pos = vec4<f32>(-1.0, 1.0, 0.0, 1.0);
+        out.uv = vec2<f32>(0.0, 0.0);
+    }
     return out;
 }
 
