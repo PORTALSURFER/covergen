@@ -12,8 +12,6 @@ pub(crate) struct GuiTheme {
     pub(crate) preview_bg: u32,
     /// Main panel surface.
     pub(crate) panel_bg: u32,
-    /// Grid line color over panel surface.
-    pub(crate) grid: u32,
     /// Default border and divider color.
     pub(crate) border: u32,
     /// Default node card body color.
@@ -46,7 +44,6 @@ pub(crate) struct GuiTheme {
 pub(crate) const AGIO: GuiTheme = GuiTheme {
     preview_bg: 0xFF010101,
     panel_bg: 0xFF030303,
-    grid: 0xFF070707,
     border: 0xFF111111,
     node_body: 0xFF050505,
     menu_bg: 0xFF080808,

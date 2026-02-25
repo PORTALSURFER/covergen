@@ -11,7 +11,6 @@ use super::theme::AGIO;
 
 const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
 const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
-const GRID_COLOR: Color = Color::argb(AGIO.grid);
 const BORDER_COLOR: Color = Color::argb(AGIO.border);
 const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
 const NODE_BODY: Color = Color::argb(AGIO.node_body);
@@ -129,12 +128,6 @@ impl SceneBuilder {
             rect: Rect::new(0, 0, panel_width as i32, height as i32),
             color: PANEL_BG,
         });
-        Self::push_grid_into(
-            &mut self.static_lines,
-            panel_width as i32,
-            height as i32,
-            20,
-        );
         Self::push_divider_into(&mut self.static_lines, panel_width as i32, height as i32);
     }
 
@@ -212,31 +205,6 @@ impl SceneBuilder {
                 self.push_rect(item, MENU_SELECTED);
             }
             self.push_text(item.x + 6, item.y + 8, option.label(), MENU_TEXT);
-        }
-    }
-
-    fn push_grid_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32, step: i32) {
-        let mut x = 0;
-        while x < panel_width {
-            out.push(ColoredLine {
-                x0: x,
-                y0: 0,
-                x1: x,
-                y1: panel_height - 1,
-                color: GRID_COLOR,
-            });
-            x += step;
-        }
-        let mut y = 0;
-        while y < panel_height {
-            out.push(ColoredLine {
-                x0: 0,
-                y0: y,
-                x1: panel_width - 1,
-                y1: y,
-                color: GRID_COLOR,
-            });
-            y += step;
         }
     }
 
