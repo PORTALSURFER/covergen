@@ -1,9 +1,13 @@
 //! Lightweight per-frame GUI performance sampling.
 
+use std::collections::VecDeque;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Duration;
+
+const TRACE_HEADER: &[u8] = b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms\n";
+const TRACE_RING_CAPACITY: usize = 8_192;
 
 /// Per-frame timing sample written to GUI trace output.
 #[derive(Clone, Debug)]
@@ -20,16 +24,24 @@ pub(crate) struct GuiFrameSample {
 #[derive(Debug, Default)]
 pub(crate) struct GuiPerfRecorder {
     output_path: Option<PathBuf>,
-    samples: Vec<GuiFrameSample>,
+    writer: Option<BufWriter<File>>,
+    fallback_samples: VecDeque<GuiFrameSample>,
+    writer_open_failed: bool,
+    last_error: Option<String>,
 }
 
 impl GuiPerfRecorder {
     /// Create recorder that writes a CSV trace when `output_path` is provided.
     pub(crate) fn new(output_path: Option<String>) -> Self {
-        Self {
+        let mut recorder = Self {
             output_path: output_path.map(PathBuf::from),
-            samples: Vec::new(),
-        }
+            writer: None,
+            fallback_samples: VecDeque::with_capacity(TRACE_RING_CAPACITY),
+            writer_open_failed: false,
+            last_error: None,
+        };
+        recorder.ensure_writer_open();
+        recorder
     }
 
     /// Store one timing sample for this GUI frame.
@@ -45,34 +57,98 @@ impl GuiPerfRecorder {
         if self.output_path.is_none() {
             return;
         }
-        self.samples.push(GuiFrameSample {
+        let sample = GuiFrameSample {
             frame_index,
             input_ms: millis(input),
             update_ms: millis(update),
             scene_ms: millis(scene),
             render_ms: millis(render),
             total_ms: millis(total),
-        });
+        };
+        if self.writer.is_none() {
+            self.ensure_writer_open();
+        }
+        if let Some(writer) = self.writer.as_mut() {
+            if let Err(err) = write_sample_line(writer, &sample) {
+                self.last_error = Some(err.to_string());
+                self.writer = None;
+                self.writer_open_failed = true;
+            } else {
+                return;
+            }
+        }
+        self.push_fallback_sample(sample);
     }
 
     /// Flush captured samples to disk when tracing is enabled.
-    pub(crate) fn flush(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(path) = self.output_path.as_ref() else {
+    pub(crate) fn flush(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.output_path.is_none() {
             return Ok(());
+        }
+        if self.writer.is_none() {
+            self.writer_open_failed = false;
+            self.ensure_writer_open();
+        }
+        if self.writer.is_none() {
+            let reason = self
+                .last_error
+                .clone()
+                .unwrap_or_else(|| "failed to open GUI perf trace writer".to_string());
+            return Err(std::io::Error::other(reason).into());
+        }
+        self.flush_fallback_samples()?;
+        if let Some(writer) = self.writer.as_mut() {
+            writer.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Attempt to open/initialize the trace writer when tracing is enabled.
+    fn ensure_writer_open(&mut self) {
+        if self.output_path.is_none() || self.writer.is_some() || self.writer_open_failed {
+            return;
+        }
+        match self.try_open_writer() {
+            Ok(writer) => {
+                self.writer = Some(writer);
+                self.writer_open_failed = false;
+                self.last_error = None;
+            }
+            Err(err) => {
+                self.writer_open_failed = true;
+                self.last_error = Some(err.to_string());
+            }
+        }
+    }
+
+    /// Create a CSV writer and emit one header row.
+    fn try_open_writer(&self) -> Result<BufWriter<File>, std::io::Error> {
+        let Some(path) = self.output_path.as_ref() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "trace path missing",
+            ));
         };
-        let mut file = File::create(path)?;
-        file.write_all(b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms\n")?;
-        for row in &self.samples {
-            writeln!(
-                file,
-                "{},{:.4},{:.4},{:.4},{:.4},{:.4}",
-                row.frame_index,
-                row.input_ms,
-                row.update_ms,
-                row.scene_ms,
-                row.render_ms,
-                row.total_ms
-            )?;
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(TRACE_HEADER)?;
+        Ok(writer)
+    }
+
+    /// Keep only a bounded tail of captured samples when streaming is unavailable.
+    fn push_fallback_sample(&mut self, sample: GuiFrameSample) {
+        if self.fallback_samples.len() >= TRACE_RING_CAPACITY {
+            let _ = self.fallback_samples.pop_front();
+        }
+        self.fallback_samples.push_back(sample);
+    }
+
+    /// Flush fallback ring-buffer samples into the active writer.
+    fn flush_fallback_samples(&mut self) -> Result<(), std::io::Error> {
+        while let Some(sample) = self.fallback_samples.pop_front() {
+            if let Some(writer) = self.writer.as_mut() {
+                write_sample_line(writer, &sample)?;
+            }
         }
         Ok(())
     }
@@ -80,4 +156,93 @@ impl GuiPerfRecorder {
 
 fn millis(value: Duration) -> f64 {
     value.as_secs_f64() * 1000.0
+}
+
+fn write_sample_line<W: Write>(
+    writer: &mut W,
+    sample: &GuiFrameSample,
+) -> Result<(), std::io::Error> {
+    writeln!(
+        writer,
+        "{},{:.4},{:.4},{:.4},{:.4},{:.4}",
+        sample.frame_index,
+        sample.input_ms,
+        sample.update_ms,
+        sample.scene_ms,
+        sample.render_ms,
+        sample.total_ms
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use super::{GuiPerfRecorder, TRACE_RING_CAPACITY};
+
+    #[test]
+    fn fallback_ring_buffer_is_bounded() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let trace_path = std::env::temp_dir().join(format!(
+            "covergen-missing-{unique}/gui_perf_trace.csv"
+        ));
+        let mut recorder = GuiPerfRecorder::new(Some(trace_path.to_string_lossy().into_owned()));
+        let sample_count = TRACE_RING_CAPACITY as u64 + 32;
+        for frame in 0..sample_count {
+            recorder.record(
+                frame,
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+            );
+        }
+        assert_eq!(recorder.fallback_samples.len(), TRACE_RING_CAPACITY);
+        let first = recorder
+            .fallback_samples
+            .front()
+            .expect("ring buffer should keep newest samples");
+        assert_eq!(first.frame_index, 32);
+    }
+
+    #[test]
+    fn recorder_streams_to_disk_without_fallback_growth() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let trace_path = std::env::temp_dir().join(format!("covergen_gui_trace_{unique}.csv"));
+        let mut recorder = GuiPerfRecorder::new(Some(trace_path.to_string_lossy().into_owned()));
+        recorder.record(
+            0,
+            Duration::from_millis(2),
+            Duration::from_millis(3),
+            Duration::from_millis(4),
+            Duration::from_millis(5),
+            Duration::from_millis(6),
+        );
+        recorder.record(
+            1,
+            Duration::from_millis(1),
+            Duration::from_millis(1),
+            Duration::from_millis(1),
+            Duration::from_millis(1),
+            Duration::from_millis(1),
+        );
+        assert!(recorder.fallback_samples.is_empty());
+        recorder.flush().expect("trace flush should succeed");
+
+        let content =
+            std::fs::read_to_string(&trace_path).expect("trace file should be readable for assertions");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].starts_with("0,"));
+        assert!(lines[2].starts_with("1,"));
+
+        let _ = std::fs::remove_file(trace_path);
+    }
 }

@@ -236,7 +236,7 @@ impl GuiApp {
     }
 
     /// Flush trace output before event-loop shutdown.
-    pub(crate) fn shutdown(&self) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
         self.perf.flush()
     }
 
