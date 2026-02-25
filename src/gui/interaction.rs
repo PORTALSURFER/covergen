@@ -217,7 +217,7 @@ fn handle_wire_input(
     }
     if !input.left_down {
         if let Some(target_id) = state.hover_input_pin {
-            changed |= project.connect_image_link(wire.source_node_id, target_id);
+            project.connect_image_link(wire.source_node_id, target_id);
         }
         state.wire_drag = None;
         return true;

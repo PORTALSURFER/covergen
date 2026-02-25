@@ -366,7 +366,7 @@ impl GuiRenderer {
         self.viewer_bind_group = Some(bind_group);
     }
 
-    fn draw_top_viewer(&self, pass: &mut wgpu::RenderPass<'_>) {
+    fn draw_top_viewer<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         if !self.viewer_visible {
             return;
         }
