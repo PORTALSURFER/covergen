@@ -200,6 +200,13 @@ impl GuiApp {
             self.state.drag = None;
             self.state.wire_drag = None;
             self.state.hover_param_target = None;
+            if !self.state.auto_expanded_binding_nodes.is_empty() {
+                for node_id in self.state.auto_expanded_binding_nodes.drain(..) {
+                    scene_dirty |= self
+                        .project
+                        .collapse_node(node_id, self.panel_width, self.renderer.height());
+                }
+            }
             self.state.prev_left_down = snapshot.left_down;
         } else {
             scene_dirty |= apply_preview_actions(

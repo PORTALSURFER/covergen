@@ -877,6 +877,33 @@ impl GuiProject {
         true
     }
 
+    /// Collapse one node without toggling when it is currently expanded.
+    ///
+    /// Returns `true` when expanded state changed.
+    pub(crate) fn collapse_node(
+        &mut self,
+        node_id: u32,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> bool {
+        let Some(index) = self.node_index(node_id) else {
+            return false;
+        };
+        {
+            let node = &mut self.nodes[index];
+            if node.params.is_empty() || !node.expanded {
+                return false;
+            }
+            node.expanded = false;
+            let card_h = node.card_height();
+            let (x, y) = clamp_node_position(node.x, node.y, panel_width, panel_height, card_h);
+            node.x = x;
+            node.y = y;
+        }
+        self.invalidate_hit_test_cache();
+        true
+    }
+
     /// Advance selected parameter row for one node.
     pub(crate) fn select_next_param(&mut self, node_id: u32) -> bool {
         let Some(node) = self.node_mut(node_id) else {

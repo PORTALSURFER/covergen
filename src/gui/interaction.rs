@@ -54,6 +54,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_param_target = None;
+        state.auto_expanded_binding_nodes.clear();
         state.hover_menu_item = None;
         changed = true;
     }
@@ -63,6 +64,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -72,6 +74,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -81,6 +84,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -95,6 +99,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -102,6 +107,8 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        changed |=
+            collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
     }
@@ -116,6 +123,9 @@ pub(crate) fn apply_preview_actions(
         } else {
             state.drag = None;
         }
+    }
+    if state.wire_drag.is_none() {
+        changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
     }
     state.prev_left_down = input.left_down;
     changed
@@ -1109,6 +1119,45 @@ fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool
     x >= 0 && y >= 0 && x < panel_width as i32 && y < panel_height as i32
 }
 
+fn collapse_auto_expanded_binding_nodes(
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    if state.auto_expanded_binding_nodes.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    for node_id in state.auto_expanded_binding_nodes.drain(..) {
+        changed |= project.collapse_node(node_id, panel_width, panel_height);
+    }
+    changed
+}
+
+fn collapse_auto_expanded_binding_nodes_except(
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+    keep_node_id: Option<u32>,
+) -> bool {
+    if state.auto_expanded_binding_nodes.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(state.auto_expanded_binding_nodes.len());
+    for node_id in state.auto_expanded_binding_nodes.drain(..) {
+        if Some(node_id) == keep_node_id {
+            kept.push(node_id);
+            continue;
+        }
+        changed |= project.collapse_node(node_id, panel_width, panel_height);
+    }
+    state.auto_expanded_binding_nodes = kept;
+    changed
+}
+
 fn update_hover_state(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -1126,33 +1175,68 @@ fn update_hover_state(
     state.hover_input_pin = None;
     state.hover_param_target = None;
     state.hover_menu_item = None;
+    let signal_bind_drag = state
+        .wire_drag
+        .map(|wire| wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal))
+        .unwrap_or(false);
 
     let Some((mx, my)) = input.mouse_pos else {
-        return prev_hover_node.is_some()
+        let mut changed = prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_item.is_some();
+        if signal_bind_drag {
+            changed |= collapse_auto_expanded_binding_nodes_except(
+                project,
+                panel_width,
+                panel_height,
+                state,
+                None,
+            );
+        }
+        return changed;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
-        return prev_hover_node.is_some()
+        let mut changed = prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_item.is_some();
+        if signal_bind_drag {
+            changed |= collapse_auto_expanded_binding_nodes_except(
+                project,
+                panel_width,
+                panel_height,
+                state,
+                None,
+            );
+        }
+        return changed;
     }
     if state.menu.open {
         state.hover_menu_item = state.menu.item_at(mx, my);
-        return state.hover_menu_item != prev_hover_item
+        let mut changed = state.hover_menu_item != prev_hover_item
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some();
+        if signal_bind_drag {
+            changed |= collapse_auto_expanded_binding_nodes_except(
+                project,
+                panel_width,
+                panel_height,
+                state,
+                None,
+            );
+        }
+        return changed;
     }
     if let Some(wire) = state.wire_drag {
         if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
             let mut changed = false;
             let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+            let mut keep_auto_expanded_node = None;
             state.hover_node = project.node_at(graph_x, graph_y);
             if let Some(node_id) = state.hover_node {
                 let accepts_signal = project
@@ -1160,7 +1244,13 @@ fn update_hover_state(
                     .map(|node| node.kind().accepts_signal_bindings())
                     .unwrap_or(false);
                 if accepts_signal {
-                    changed |= project.expand_node(node_id, panel_width, panel_height);
+                    keep_auto_expanded_node = Some(node_id);
+                    let expanded =
+                        project.expand_node(node_id, panel_width, panel_height);
+                    changed |= expanded;
+                    if expanded && !state.auto_expanded_binding_nodes.contains(&node_id) {
+                        state.auto_expanded_binding_nodes.push(node_id);
+                    }
                     if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
                         state.hover_param_target = Some(HoverParamTarget {
                             node_id,
@@ -1169,6 +1259,13 @@ fn update_hover_state(
                     }
                 }
             }
+            changed |= collapse_auto_expanded_binding_nodes_except(
+                project,
+                panel_width,
+                panel_height,
+                state,
+                keep_auto_expanded_node,
+            );
             return changed
                 || state.hover_node != prev_hover_node
                 || prev_hover_output.is_some()
@@ -1472,6 +1569,60 @@ mod tests {
         let target = state.hover_param_target.expect("hover parameter target");
         assert_eq!(target.node_id, solid);
         assert_eq!(target.param_index, 0);
+    }
+
+    #[test]
+    fn signal_wire_hover_leave_collapses_auto_expanded_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: lfo,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+
+        let hover_node = InputSnapshot {
+            mouse_pos: Some((225, 85)),
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(&hover_node, &mut project, 420, 480, &mut state));
+        assert!(project.node_expanded(solid));
+
+        let hover_away = InputSnapshot {
+            mouse_pos: Some((16, 16)),
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(&hover_away, &mut project, 420, 480, &mut state));
+        assert!(!project.node_expanded(solid));
+    }
+
+    #[test]
+    fn signal_wire_hover_does_not_collapse_user_expanded_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: lfo,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+
+        let hover_node = InputSnapshot {
+            mouse_pos: Some((225, 85)),
+            ..InputSnapshot::default()
+        };
+        let _ = update_hover_state(&hover_node, &mut project, 420, 480, &mut state);
+        let hover_away = InputSnapshot {
+            mouse_pos: Some((16, 16)),
+            ..InputSnapshot::default()
+        };
+        let _ = update_hover_state(&hover_away, &mut project, 420, 480, &mut state);
+        assert!(project.node_expanded(solid));
     }
 
     #[test]

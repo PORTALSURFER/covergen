@@ -236,6 +236,8 @@ pub(crate) struct PreviewState {
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
     pub(crate) hover_param_target: Option<HoverParamTarget>,
+    /// Node ids auto-expanded while dragging a signal bind wire.
+    pub(crate) auto_expanded_binding_nodes: Vec<u32>,
     pub(crate) hover_menu_item: Option<usize>,
 }
 
@@ -264,6 +266,7 @@ impl PreviewState {
             hover_output_pin: None,
             hover_input_pin: None,
             hover_param_target: None,
+            auto_expanded_binding_nodes: Vec::new(),
             hover_menu_item: None,
         }
     }
