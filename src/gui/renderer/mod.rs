@@ -12,6 +12,7 @@ use winit::window::Window;
 use crate::runtime_config::GuiVsync;
 
 use super::scene::{Color, SceneFrame, SceneLayer};
+use super::text::GuiTextRenderer;
 use super::top_view::TopViewerFrame;
 use setup::{
     create_pipeline, create_uniform_bind_group, create_vertex_buffer, grow_capacity,
@@ -19,6 +20,13 @@ use setup::{
     Vertex, ViewportUniform,
 };
 use top_preview::TopPreviewRenderer;
+
+const HUD_MARGIN_PX: i32 = 12;
+const HUD_PAD_X: i32 = 8;
+const HUD_PAD_Y: i32 = 6;
+const HUD_BG: Color = Color::argb(0xCC000000);
+const HUD_BORDER: Color = Color::argb(0xFF3A3A3A);
+const HUD_TEXT: Color = Color::argb(0xFFE8E8E8);
 
 /// Per-frame GUI renderer counters.
 #[derive(Clone, Copy, Debug, Default)]
@@ -178,7 +186,6 @@ impl LayerGpuGeometry {
 }
 
 /// GPU renderer state for one GUI window/surface.
-#[derive(Debug)]
 pub(crate) struct GuiRenderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -193,6 +200,10 @@ pub(crate) struct GuiRenderer {
     edges_geometry: LayerGpuGeometry,
     nodes_geometry: LayerGpuGeometry,
     overlays_geometry: LayerGpuGeometry,
+    hud_geometry: LayerGpuGeometry,
+    hud_layer: SceneLayer,
+    hud_text: GuiTextRenderer,
+    hud_label: String,
     uniform_dirty: bool,
     frame_perf: GuiRenderPerfCounters,
 }
@@ -258,6 +269,7 @@ impl GuiRenderer {
         let edges_geometry = LayerGpuGeometry::new(&device, "edges", 2048);
         let nodes_geometry = LayerGpuGeometry::new(&device, "nodes", 8192);
         let overlays_geometry = LayerGpuGeometry::new(&device, "overlays", 2048);
+        let hud_geometry = LayerGpuGeometry::new(&device, "hud", 512);
 
         Ok(Self {
             surface,
@@ -273,6 +285,10 @@ impl GuiRenderer {
             edges_geometry,
             nodes_geometry,
             overlays_geometry,
+            hud_geometry,
+            hud_layer: SceneLayer::default(),
+            hud_text: GuiTextRenderer::default(),
+            hud_label: String::with_capacity(24),
             uniform_dirty: false,
             frame_perf: GuiRenderPerfCounters::default(),
         })
@@ -303,11 +319,13 @@ impl GuiRenderer {
     ///
     /// `panel_width` defines the left editor pane and is used as a scissor
     /// clip so graph content cannot bleed into the right TOP viewer pane.
+    /// `avg_fps` drives the fullscreen-safe HUD counter in the top-right.
     pub(crate) fn render(
         &mut self,
         frame: &SceneFrame,
         top_view: Option<TopViewerFrame<'_>>,
         panel_width: usize,
+        avg_fps: f32,
     ) -> Result<(), Box<dyn Error>> {
         self.frame_perf = GuiRenderPerfCounters::default();
         let rebuild = self.rebuild_dirty_layers(frame);
@@ -319,6 +337,15 @@ impl GuiRenderer {
             .frame_perf
             .alloc_bytes
             .saturating_add(rebuild.alloc_bytes);
+        let hud_rebuild = self.rebuild_hud_layer(avg_fps);
+        self.frame_perf.upload_bytes = self
+            .frame_perf
+            .upload_bytes
+            .saturating_add(hud_rebuild.upload_bytes);
+        self.frame_perf.alloc_bytes = self
+            .frame_perf
+            .alloc_bytes
+            .saturating_add(hud_rebuild.alloc_bytes);
         if self.uniform_dirty {
             self.frame_perf.upload_bytes = self
                 .frame_perf
@@ -452,6 +479,9 @@ impl GuiRenderer {
             self.draw_layer(&mut pass, &self.edges_geometry);
             self.draw_layer(&mut pass, &self.nodes_geometry);
             self.draw_layer(&mut pass, &self.overlays_geometry);
+
+            pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+            self.draw_layer(&mut pass, &self.hud_geometry);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_tex.present();
@@ -472,4 +502,73 @@ impl GuiRenderer {
             pass.draw(0..layer.line_count, 0..1);
         }
     }
+
+    fn rebuild_hud_layer(&mut self, avg_fps: f32) -> LayerRebuildStats {
+        self.hud_layer.rects.clear();
+        self.hud_layer.lines.clear();
+
+        self.hud_label.clear();
+        if avg_fps.is_finite() && avg_fps > 0.0 {
+            self.hud_label.push_str(&format!("FPS {:.1}", avg_fps));
+        } else {
+            self.hud_label.push_str("FPS --.-");
+        }
+
+        let text_w = self.hud_text.measure_text_width(self.hud_label.as_str(), 1.0);
+        let metrics = self.hud_text.metrics_scaled(1.0);
+        let box_w = text_w + HUD_PAD_X * 2;
+        let box_h = metrics.line_height_px + HUD_PAD_Y * 2;
+        let x = self.config.width as i32 - HUD_MARGIN_PX - box_w;
+        let y = HUD_MARGIN_PX;
+        let rect = super::geometry::Rect::new(x, y, box_w, box_h);
+        self.hud_layer
+            .rects
+            .push(super::scene::ColoredRect { rect, color: HUD_BG });
+        push_border_lines(&mut self.hud_layer, rect, HUD_BORDER);
+        self.hud_text.push_text(
+            &mut self.hud_layer.rects,
+            x + HUD_PAD_X,
+            y + HUD_PAD_Y,
+            self.hud_label.as_str(),
+            HUD_TEXT,
+        );
+
+        self.hud_geometry
+            .rebuild(&self.device, &self.queue, &self.hud_layer, "hud")
+    }
+}
+
+fn push_border_lines(layer: &mut SceneLayer, rect: super::geometry::Rect, color: Color) {
+    let x0 = rect.x;
+    let y0 = rect.y;
+    let x1 = rect.x + rect.w - 1;
+    let y1 = rect.y + rect.h - 1;
+    layer.lines.push(super::scene::ColoredLine {
+        x0,
+        y0,
+        x1,
+        y1: y0,
+        color,
+    });
+    layer.lines.push(super::scene::ColoredLine {
+        x0: x1,
+        y0,
+        x1,
+        y1,
+        color,
+    });
+    layer.lines.push(super::scene::ColoredLine {
+        x0: x1,
+        y0: y1,
+        x1: x0,
+        y1,
+        color,
+    });
+    layer.lines.push(super::scene::ColoredLine {
+        x0,
+        y0: y1,
+        x1: x0,
+        y1: y0,
+        color,
+    });
 }

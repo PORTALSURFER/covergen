@@ -247,7 +247,7 @@ impl GuiApp {
 
             let render_start = Instant::now();
             self.renderer
-                .render(frame, self.top_view.frame(), self.panel_width)?;
+                .render(frame, self.top_view.frame(), self.panel_width, self.state.avg_fps)?;
             render_elapsed = render_start.elapsed();
             let render_perf = self.renderer.take_perf_counters();
             submit_count = render_perf.submit_count;
