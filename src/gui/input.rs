@@ -15,6 +15,10 @@ pub(crate) struct InputCollector {
     right_clicked: bool,
     left_alt_down: bool,
     right_alt_down: bool,
+    left_shift_down: bool,
+    right_shift_down: bool,
+    left_ctrl_down: bool,
+    right_ctrl_down: bool,
     middle_down: bool,
     middle_clicked: bool,
     wheel_lines_y: f32,
@@ -30,6 +34,8 @@ pub(crate) struct InputCollector {
     menu_accept: bool,
     typed_text: String,
     param_backspace: bool,
+    param_delete: bool,
+    param_select_all: bool,
     param_commit: bool,
     param_cancel: bool,
 }
@@ -88,6 +94,7 @@ impl InputCollector {
             right_down: self.right_down,
             right_clicked: self.right_clicked,
             alt_down: self.left_alt_down || self.right_alt_down,
+            shift_down: self.left_shift_down || self.right_shift_down,
             middle_down: self.middle_down,
             middle_clicked: self.middle_clicked,
             wheel_lines_y: self.wheel_lines_y,
@@ -103,6 +110,8 @@ impl InputCollector {
             menu_accept: self.menu_accept,
             typed_text: self.typed_text.clone(),
             param_backspace: self.param_backspace,
+            param_delete: self.param_delete,
+            param_select_all: self.param_select_all,
             param_commit: self.param_commit,
             param_cancel: self.param_cancel,
         };
@@ -122,6 +131,8 @@ impl InputCollector {
         self.menu_accept = false;
         self.typed_text.clear();
         self.param_backspace = false;
+        self.param_delete = false;
+        self.param_select_all = false;
         self.param_commit = false;
         self.param_cancel = false;
         snapshot
@@ -167,6 +178,22 @@ impl InputCollector {
                 self.right_alt_down = state == ElementState::Pressed;
                 return;
             }
+            KeyCode::ShiftLeft => {
+                self.left_shift_down = state == ElementState::Pressed;
+                return;
+            }
+            KeyCode::ShiftRight => {
+                self.right_shift_down = state == ElementState::Pressed;
+                return;
+            }
+            KeyCode::ControlLeft => {
+                self.left_ctrl_down = state == ElementState::Pressed;
+                return;
+            }
+            KeyCode::ControlRight => {
+                self.right_ctrl_down = state == ElementState::Pressed;
+                return;
+            }
             _ => {}
         }
         if state != ElementState::Pressed || repeat {
@@ -174,6 +201,7 @@ impl InputCollector {
         }
         match code {
             KeyCode::Backspace => self.param_backspace = true,
+            KeyCode::Delete => self.param_delete = true,
             KeyCode::Enter | KeyCode::NumpadEnter => self.param_commit = true,
             KeyCode::Escape => self.param_cancel = true,
             _ => {}
@@ -182,6 +210,9 @@ impl InputCollector {
             self.append_text_input(text);
         }
         match code {
+            KeyCode::KeyA if self.left_ctrl_down || self.right_ctrl_down => {
+                self.param_select_all = true;
+            }
             KeyCode::Space => self.toggle_add_menu = true,
             KeyCode::Tab => self.toggle_node_open = true,
             KeyCode::KeyP => self.toggle_pause = true,

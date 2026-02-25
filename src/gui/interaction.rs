@@ -437,18 +437,30 @@ fn apply_param_text_edits(
     let Some(edit) = state.param_edit.as_mut() else {
         return false;
     };
+    clamp_param_edit_indices(edit);
     let mut changed = false;
     if input.param_cancel {
         state.param_edit = None;
         return true;
     }
+    if input.param_select_all {
+        changed |= select_all_param_text(edit);
+    }
+    if input.param_dec {
+        changed |= move_param_cursor_left(edit, input.shift_down);
+    }
+    if input.param_inc {
+        changed |= move_param_cursor_right(edit, input.shift_down);
+    }
     if input.param_backspace {
-        changed |= edit.buffer.pop().is_some();
+        changed |= backspace_param_text(edit);
+    }
+    if input.param_delete {
+        changed |= delete_param_text(edit);
     }
     if !input.typed_text.is_empty() {
         for ch in input.typed_text.chars() {
-            if can_append_param_char(&edit.buffer, ch) {
-                edit.buffer.push(ch);
+            if insert_param_char(edit, ch) {
                 changed = true;
             }
         }
@@ -497,9 +509,15 @@ fn handle_param_click(
         .as_ref()
         .map(|edit| edit.node_id == node_id && edit.param_index == param_index)
         .unwrap_or(false);
-    if !same_edit_target {
-        let _ = finish_param_edit(project, state);
+    if same_edit_target {
+        if let Some(edit) = state.param_edit.as_mut() {
+            let end = edit.buffer.len();
+            edit.cursor = end;
+            edit.anchor = end;
+        }
+        return true;
     }
+    let _ = finish_param_edit(project, state);
     let _ = start_param_edit(project, state, node_id, param_index);
     true
 }
@@ -525,7 +543,14 @@ fn start_param_edit(
         node_id,
         param_index,
         buffer: format!("{value:.3}"),
+        cursor: 0,
+        anchor: 0,
     });
+    if let Some(edit) = state.param_edit.as_mut() {
+        let len = edit.buffer.len();
+        edit.cursor = len;
+        edit.anchor = 0;
+    }
     true
 }
 
@@ -546,16 +571,197 @@ fn commit_param_edit(project: &mut GuiProject, edit: &mut ParamEditState) -> boo
 }
 
 fn can_append_param_char(current: &str, ch: char) -> bool {
-    if ch.is_ascii_digit() {
+    if !(ch.is_ascii_digit() || ch == '-' || ch == '.') {
+        return false;
+    }
+    let mut next = String::with_capacity(current.len() + ch.len_utf8());
+    next.push_str(current);
+    next.push(ch);
+    is_valid_param_buffer(next.as_str())
+}
+
+fn is_valid_param_buffer(buffer: &str) -> bool {
+    for (index, ch) in buffer.char_indices() {
+        if ch.is_ascii_digit() {
+            continue;
+        }
+        if ch == '-' {
+            if index == 0 {
+                continue;
+            }
+            return false;
+        }
+        if ch == '.' {
+            if buffer[..index].contains('.') {
+                return false;
+            }
+            continue;
+        }
+        return false;
+    }
+    true
+}
+
+fn clamp_param_edit_indices(edit: &mut ParamEditState) {
+    let len = edit.buffer.len();
+    edit.cursor = edit.cursor.min(len);
+    edit.anchor = edit.anchor.min(len);
+}
+
+fn has_param_selection(edit: &ParamEditState) -> bool {
+    edit.cursor != edit.anchor
+}
+
+fn param_selection_bounds(edit: &ParamEditState) -> (usize, usize) {
+    (edit.cursor.min(edit.anchor), edit.cursor.max(edit.anchor))
+}
+
+fn collapse_param_selection(edit: &mut ParamEditState, at: usize) {
+    let clamped = at.min(edit.buffer.len());
+    edit.cursor = clamped;
+    edit.anchor = clamped;
+}
+
+fn select_all_param_text(edit: &mut ParamEditState) -> bool {
+    let len = edit.buffer.len();
+    if len == 0 {
+        return false;
+    }
+    if edit.anchor == 0 && edit.cursor == len {
+        return false;
+    }
+    edit.anchor = 0;
+    edit.cursor = len;
+    true
+}
+
+fn delete_param_selection(edit: &mut ParamEditState) -> bool {
+    if !has_param_selection(edit) {
+        return false;
+    }
+    let (start, end) = param_selection_bounds(edit);
+    edit.buffer.replace_range(start..end, "");
+    collapse_param_selection(edit, start);
+    true
+}
+
+fn backspace_param_text(edit: &mut ParamEditState) -> bool {
+    if delete_param_selection(edit) {
         return true;
     }
-    if ch == '-' {
-        return current.is_empty();
+    if edit.cursor == 0 {
+        return false;
     }
-    if ch == '.' {
-        return !current.contains('.');
+    let start = prev_char_boundary(&edit.buffer, edit.cursor);
+    edit.buffer.replace_range(start..edit.cursor, "");
+    collapse_param_selection(edit, start);
+    true
+}
+
+fn delete_param_text(edit: &mut ParamEditState) -> bool {
+    if delete_param_selection(edit) {
+        return true;
     }
-    false
+    if edit.cursor >= edit.buffer.len() {
+        return false;
+    }
+    let end = next_char_boundary(&edit.buffer, edit.cursor);
+    edit.buffer.replace_range(edit.cursor..end, "");
+    collapse_param_selection(edit, edit.cursor);
+    true
+}
+
+fn insert_param_char(edit: &mut ParamEditState, ch: char) -> bool {
+    if !(ch.is_ascii_digit() || ch == '-' || ch == '.') {
+        return false;
+    }
+    let candidate = ch.to_string();
+    let mut next = edit.buffer.clone();
+    if has_param_selection(edit) {
+        let (start, end) = param_selection_bounds(edit);
+        next.replace_range(start..end, candidate.as_str());
+        if !is_valid_param_buffer(next.as_str()) {
+            return false;
+        }
+        edit.buffer = next;
+        let next_cursor = start + candidate.len();
+        collapse_param_selection(edit, next_cursor);
+        return true;
+    }
+    if edit.cursor == edit.buffer.len() && !can_append_param_char(edit.buffer.as_str(), ch) {
+        return false;
+    }
+    next.insert(edit.cursor, ch);
+    if !is_valid_param_buffer(next.as_str()) {
+        return false;
+    }
+    edit.buffer = next;
+    collapse_param_selection(edit, edit.cursor + ch.len_utf8());
+    true
+}
+
+fn move_param_cursor_left(edit: &mut ParamEditState, extend_selection: bool) -> bool {
+    if edit.cursor == 0 && (!has_param_selection(edit) || extend_selection) {
+        return false;
+    }
+    if !extend_selection && has_param_selection(edit) {
+        let (start, _) = param_selection_bounds(edit);
+        collapse_param_selection(edit, start);
+        return true;
+    }
+    let next = prev_char_boundary(&edit.buffer, edit.cursor);
+    if next == edit.cursor {
+        return false;
+    }
+    edit.cursor = next;
+    if !extend_selection {
+        edit.anchor = edit.cursor;
+    }
+    true
+}
+
+fn move_param_cursor_right(edit: &mut ParamEditState, extend_selection: bool) -> bool {
+    if edit.cursor >= edit.buffer.len() && (!has_param_selection(edit) || extend_selection) {
+        return false;
+    }
+    if !extend_selection && has_param_selection(edit) {
+        let (_, end) = param_selection_bounds(edit);
+        collapse_param_selection(edit, end);
+        return true;
+    }
+    let next = next_char_boundary(&edit.buffer, edit.cursor);
+    if next == edit.cursor {
+        return false;
+    }
+    edit.cursor = next;
+    if !extend_selection {
+        edit.anchor = edit.cursor;
+    }
+    true
+}
+
+fn prev_char_boundary(text: &str, index: usize) -> usize {
+    if index == 0 {
+        return 0;
+    }
+    let clamped = index.min(text.len());
+    text[..clamped]
+        .char_indices()
+        .next_back()
+        .map(|(idx, _)| idx)
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(text: &str, index: usize) -> usize {
+    let clamped = index.min(text.len());
+    if clamped >= text.len() {
+        return text.len();
+    }
+    text[clamped..]
+        .chars()
+        .next()
+        .map(|ch| clamped + ch.len_utf8())
+        .unwrap_or(text.len())
 }
 
 fn handle_link_cut(
@@ -1026,8 +1232,11 @@ fn focus_bounds(
 #[cfg(test)]
 mod tests {
     use super::{
-        can_append_param_char, marquee_moved, rects_overlap, segments_intersect, RightMarqueeState,
+        backspace_param_text, can_append_param_char, insert_param_char, marquee_moved,
+        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
+        RightMarqueeState,
     };
+    use crate::gui::state::ParamEditState;
 
     #[test]
     fn segments_intersect_detects_crossing_lines() {
@@ -1069,5 +1278,52 @@ mod tests {
     fn rects_overlap_detects_intersection() {
         assert!(rects_overlap(0, 0, 10, 10, 8, 8, 16, 16));
         assert!(!rects_overlap(0, 0, 10, 10, 11, 11, 20, 20));
+    }
+
+    #[test]
+    fn insert_param_char_replaces_selection() {
+        let mut edit = ParamEditState {
+            node_id: 7,
+            param_index: 0,
+            buffer: "1.000".to_string(),
+            cursor: 5,
+            anchor: 0,
+        };
+        assert!(insert_param_char(&mut edit, '2'));
+        assert_eq!(edit.buffer, "2");
+        assert_eq!(edit.cursor, 1);
+        assert_eq!(edit.anchor, 1);
+    }
+
+    #[test]
+    fn backspace_param_text_deletes_selected_range() {
+        let mut edit = ParamEditState {
+            node_id: 7,
+            param_index: 0,
+            buffer: "12.34".to_string(),
+            cursor: 4,
+            anchor: 1,
+        };
+        assert!(backspace_param_text(&mut edit));
+        assert_eq!(edit.buffer, "14");
+        assert_eq!(edit.cursor, 1);
+        assert_eq!(edit.anchor, 1);
+    }
+
+    #[test]
+    fn cursor_moves_collapse_selection_when_not_extending() {
+        let mut edit = ParamEditState {
+            node_id: 7,
+            param_index: 0,
+            buffer: "12.34".to_string(),
+            cursor: 4,
+            anchor: 1,
+        };
+        assert!(move_param_cursor_left(&mut edit, false));
+        assert_eq!(edit.cursor, 1);
+        assert_eq!(edit.anchor, 1);
+        assert!(move_param_cursor_right(&mut edit, false));
+        assert_eq!(edit.cursor, 2);
+        assert_eq!(edit.anchor, 2);
     }
 }

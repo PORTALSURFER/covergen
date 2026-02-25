@@ -51,6 +51,7 @@ pub(crate) struct InputSnapshot {
     pub(crate) right_down: bool,
     pub(crate) right_clicked: bool,
     pub(crate) alt_down: bool,
+    pub(crate) shift_down: bool,
     pub(crate) middle_down: bool,
     pub(crate) middle_clicked: bool,
     pub(crate) wheel_lines_y: f32,
@@ -66,6 +67,8 @@ pub(crate) struct InputSnapshot {
     pub(crate) menu_accept: bool,
     pub(crate) typed_text: String,
     pub(crate) param_backspace: bool,
+    pub(crate) param_delete: bool,
+    pub(crate) param_select_all: bool,
     pub(crate) param_commit: bool,
     pub(crate) param_cancel: bool,
 }
@@ -117,6 +120,8 @@ pub(crate) struct ParamEditState {
     pub(crate) node_id: u32,
     pub(crate) param_index: usize,
     pub(crate) buffer: String,
+    pub(crate) cursor: usize,
+    pub(crate) anchor: usize,
 }
 
 /// Add-node popup menu state.

@@ -38,6 +38,8 @@ const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
 const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_VALUE_TEXT: Color = Color::argb(AGIO.menu_text);
+const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
+const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
@@ -256,6 +258,10 @@ impl SceneBuilder {
                 continue;
             };
             let row_rect = graph_rect_to_panel(row_world, state);
+            let Some(value_world) = node_param_value_rect(node, index) else {
+                continue;
+            };
+            let value_rect = graph_rect_to_panel(value_world, state);
             if row.selected {
                 self.push_rect(
                     Rect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
@@ -267,31 +273,17 @@ impl SceneBuilder {
             } else {
                 row.label.to_string()
             };
-            self.push_graph_text(
-                row_rect.x + 4,
-                row_rect.y + row_rect.h.saturating_sub(6),
-                label.as_str(),
-                NODE_TEXT,
-                state,
-            );
-            let Some(value_world) = node_param_value_rect(node, index) else {
-                continue;
-            };
-            let value_rect = graph_rect_to_panel(value_world, state);
+            let label_x = row_rect.x + 4;
+            let label_max_w = (value_rect.x - label_x - 4).max(0);
+            let fitted_label = self.fit_graph_text(label.as_str(), label_max_w, state);
+            let label_rect = Rect::new(label_x, row_rect.y, label_max_w, row_rect.h);
+            self.push_graph_text_in_rect(label_rect, 0, fitted_label.as_str(), NODE_TEXT, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
             let editing = state
                 .param_edit
                 .as_ref()
                 .map(|edit| edit.node_id == node.id() && edit.param_index == index)
                 .unwrap_or(false);
-            self.push_border(
-                value_rect,
-                if editing {
-                    PARAM_VALUE_ACTIVE
-                } else {
-                    PARAM_VALUE_BORDER
-                },
-            );
             let value_text = if let Some(edit) = state.param_edit.as_ref() {
                 if edit.node_id == node.id() && edit.param_index == index {
                     edit.buffer.clone()
@@ -301,12 +293,18 @@ impl SceneBuilder {
             } else {
                 format!("{:.3}", row.value)
             };
-            self.push_graph_text(
-                value_rect.x + 4,
-                value_rect.y + value_rect.h.saturating_sub(4),
-                value_text.as_str(),
-                PARAM_VALUE_TEXT,
-                state,
+            let active_edit = state
+                .param_edit
+                .as_ref()
+                .filter(|edit| edit.node_id == node.id() && edit.param_index == index);
+            self.push_value_editor_text(value_rect, value_text.as_str(), active_edit, state);
+            self.push_border(
+                value_rect,
+                if editing {
+                    PARAM_VALUE_ACTIVE
+                } else {
+                    PARAM_VALUE_BORDER
+                },
             );
         }
     }
@@ -455,6 +453,97 @@ impl SceneBuilder {
         let out = &mut self.frame.rects;
         self.text_renderer
             .push_text_scaled(out, x, y, text, color, state.zoom);
+    }
+
+    fn push_graph_text_in_rect(
+        &mut self,
+        rect: Rect,
+        left_pad: i32,
+        text: &str,
+        color: Color,
+        state: &PreviewState,
+    ) {
+        if state.zoom < GRAPH_TEXT_HIDE_ZOOM || rect.w <= 0 || rect.h <= 0 || text.is_empty() {
+            return;
+        }
+        let metrics = self.text_renderer.metrics_scaled(state.zoom);
+        let x = rect.x + left_pad;
+        let y = rect.y + ((rect.h - metrics.line_height_px).max(0) / 2);
+        let out = &mut self.frame.rects;
+        self.text_renderer
+            .push_text_scaled(out, x, y, text, color, state.zoom);
+    }
+
+    fn push_value_editor_text(
+        &mut self,
+        value_rect: Rect,
+        text: &str,
+        edit: Option<&super::state::ParamEditState>,
+        state: &PreviewState,
+    ) {
+        if state.zoom < GRAPH_TEXT_HIDE_ZOOM {
+            return;
+        }
+        let metrics = self.text_renderer.metrics_scaled(state.zoom);
+        let text_x = value_rect.x + 4;
+        let text_y = value_rect.y + ((value_rect.h - metrics.line_height_px).max(0) / 2);
+        if let Some(edit_state) = edit {
+            let mut cursor = edit_state.cursor.min(text.len());
+            let mut anchor = edit_state.anchor.min(text.len());
+            if anchor > cursor {
+                std::mem::swap(&mut anchor, &mut cursor);
+            }
+            if anchor != cursor {
+                let start_w = self.text_renderer.cursor_offset(text, anchor, state.zoom);
+                let end_w = self.text_renderer.cursor_offset(text, cursor, state.zoom);
+                let highlight_x = text_x + start_w;
+                let highlight_w = (end_w - start_w).max(1);
+                let left = highlight_x.max(value_rect.x + 1);
+                let right = (highlight_x + highlight_w).min(value_rect.x + value_rect.w - 1);
+                let clamped = Rect::new(left, text_y, right - left, metrics.line_height_px.max(1));
+                if clamped.w > 0 && clamped.h > 0 {
+                    self.push_rect(clamped, PARAM_VALUE_SELECTION);
+                }
+            }
+        }
+        let out = &mut self.frame.rects;
+        self.text_renderer
+            .push_text_scaled(out, text_x, text_y, text, PARAM_VALUE_TEXT, state.zoom);
+        if let Some(edit_state) = edit {
+            let caret_index = edit_state.cursor.min(text.len());
+            let caret_x = text_x + self.text_renderer.cursor_offset(text, caret_index, state.zoom);
+            let caret_top = text_y;
+            let caret_bottom = text_y + metrics.line_height_px.max(1) - 1;
+            self.push_line(caret_x, caret_top, caret_x, caret_bottom, PARAM_VALUE_CARET);
+        }
+    }
+
+    fn fit_graph_text(&self, text: &str, max_width: i32, state: &PreviewState) -> String {
+        if max_width <= 0 || text.is_empty() {
+            return String::new();
+        }
+        let scale = state.zoom;
+        let full_w = self.text_renderer.measure_text_width(text, scale);
+        if full_w <= max_width {
+            return text.to_string();
+        }
+        let ellipsis = "...";
+        let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
+        if ellipsis_w > max_width {
+            return String::new();
+        }
+        let mut out = String::new();
+        for ch in text.chars() {
+            out.push(ch);
+            let mut candidate = out.clone();
+            candidate.push_str(ellipsis);
+            if self.text_renderer.measure_text_width(candidate.as_str(), scale) > max_width {
+                out.pop();
+                break;
+            }
+        }
+        out.push_str(ellipsis);
+        out
     }
 }
 

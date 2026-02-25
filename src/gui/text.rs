@@ -19,6 +19,13 @@ const FONT_SIZE_QUANT_STEP: f32 = 4.0;
 const GLYPH_COVERAGE_THRESHOLD: u8 = 96;
 const TAB_SPACES: i32 = 4;
 
+/// Scaled line-layout metrics for one rendered text run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GuiTextMetrics {
+    pub(crate) baseline_px: i32,
+    pub(crate) line_height_px: i32,
+}
+
 /// Cached text renderer that emits glyph pixels as scene rectangles.
 pub(crate) struct GuiTextRenderer {
     font: Option<Font<'static>>,
@@ -64,32 +71,85 @@ impl GuiTextRenderer {
             return;
         }
         let size_key = quantized_font_size(scale);
-        let glyph_scale = Scale::uniform(font_size_from_key(size_key));
-        let (baseline_px, line_height_px) = self
-            .font
-            .as_ref()
-            .map(|loaded| line_metrics(loaded, glyph_scale))
-            .unwrap_or((10, 14));
+        let metrics = self.metrics_scaled(scale);
         let mut cursor_x = x;
         let mut cursor_y = y;
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
-                cursor_y += line_height_px;
+                cursor_y += metrics.line_height_px;
                 continue;
             }
             if ch == '\t' {
                 cursor_x += TAB_SPACES * self.space_advance(size_key);
                 continue;
             }
-            let glyph = self.cached_glyph(ch, size_key, baseline_px);
+            let glyph = self.cached_glyph(ch, size_key, metrics.baseline_px);
             push_glyph_runs(out, cursor_x, cursor_y, glyph, color);
             cursor_x += glyph.advance_px.max(1);
         }
     }
 
-    fn space_advance(&mut self, size_key: u16) -> i32 {
-        self.cached_glyph(' ', size_key, 0).advance_px.max(1)
+    /// Return line metrics for the provided text scale.
+    pub(crate) fn metrics_scaled(&self, scale: f32) -> GuiTextMetrics {
+        let size_key = quantized_font_size(scale);
+        let glyph_scale = Scale::uniform(font_size_from_key(size_key));
+        let (baseline_px, line_height_px) = self
+            .font
+            .as_ref()
+            .map(|loaded| line_metrics(loaded, glyph_scale))
+            .unwrap_or((10, 14));
+        GuiTextMetrics {
+            baseline_px,
+            line_height_px,
+        }
+    }
+
+    /// Return measured single-line width for `text` at the provided scale.
+    pub(crate) fn measure_text_width(&self, text: &str, scale: f32) -> i32 {
+        if text.is_empty() {
+            return 0;
+        }
+        let size_key = quantized_font_size(scale);
+        let mut line_width = 0;
+        let mut max_width = 0;
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_width = max_width.max(line_width);
+                line_width = 0;
+                continue;
+            }
+            if ch == '\t' {
+                line_width += TAB_SPACES * self.space_advance(size_key);
+                continue;
+            }
+            line_width += self.glyph_advance(ch, size_key);
+        }
+        max_width.max(line_width)
+    }
+
+    fn space_advance(&self, size_key: u16) -> i32 {
+        self.glyph_advance(' ', size_key).max(1)
+    }
+
+    fn glyph_advance(&self, ch: char, size_key: u16) -> i32 {
+        let Some(font) = &self.font else {
+            return 8;
+        };
+        let key = self.lookup_char(ch);
+        let scale = Scale::uniform(font_size_from_key(size_key));
+        font.glyph(key)
+            .scaled(scale)
+            .h_metrics()
+            .advance_width
+            .ceil()
+            .max(1.0) as i32
+    }
+
+    /// Return text caret x-offset for a UTF-8 byte cursor at the provided scale.
+    pub(crate) fn cursor_offset(&self, text: &str, cursor: usize, scale: f32) -> i32 {
+        let clamped = cursor.min(text.len());
+        self.measure_text_width(&text[..clamped], scale)
     }
 
     fn cached_glyph(&mut self, ch: char, size_key: u16, baseline_px: i32) -> &GlyphBitmap {
