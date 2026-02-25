@@ -19,7 +19,7 @@ V1 runtime support was removed on **February 24, 2026**. Migration and cutover s
 
 ## V2 Quick Start
 
-Default launch (GUI TOP preview):
+Default launch (GUI split view: left node editor + right TOP preview):
 
 ```bash
 cargo run --bin covergen

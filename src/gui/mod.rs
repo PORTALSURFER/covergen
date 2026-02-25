@@ -1,8 +1,11 @@
-//! Realtime TOP preview window for graph-native rendering.
+//! Realtime TouchDesigner-style GUI preview for graph-native rendering.
 //!
-//! This module provides a lightweight, TouchDesigner-style TOP viewer:
-//! it continuously renders the selected graph preset on GPU and displays
-//! the finalized output texture in a desktop window.
+//! The window is split into two panels:
+//! - left: lightweight node-editor view of the compiled graph
+//! - right: live TOP texture preview from the retained GPU runtime
+
+mod draw;
+mod node_editor;
 
 use std::error::Error;
 use std::thread;
@@ -19,7 +22,15 @@ use crate::runtime::{
 };
 use crate::runtime_config::{runtime_seed, V2Args, V2Config};
 
-/// Launch the realtime TOP preview window using standard runtime args.
+use draw::{draw_line, draw_text};
+use node_editor::NodeEditorLayout;
+
+const PANEL_WIDTH: usize = 420;
+const PREVIEW_BG: u32 = 0xFF0A0D12;
+const DIVIDER_COLOR: u32 = 0xFF2A313A;
+const HUD_TEXT_COLOR: u32 = 0xFFE5E7EB;
+
+/// Launch the realtime split-panel GUI using standard runtime arguments.
 pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> {
     let config = V2Config::from_args(args)?;
     let graph = build_preset_graph(&config)?;
@@ -31,9 +42,10 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
     )?;
     renderer.ensure_node_feedback_buffers(compiled.feedback_slots.len())?;
     renderer.reset_feedback_state()?;
+
     let mut buffers =
         create_runtime_buffers(compiled.width, compiled.height, config.width, config.height)?;
-    let mut window = TopPreviewWindow::new(config.width, config.height)?;
+    let mut window = TopPreviewWindow::new(config.width, config.height, &compiled)?;
     run_preview_loop(&config, &compiled, &mut renderer, &mut buffers, &mut window)
 }
 
@@ -52,15 +64,9 @@ fn run_preview_loop(
         let frame_start = Instant::now();
         apply_preview_actions(window.poll_actions(), renderer, &mut state)?;
         render_if_unpaused(config, compiled, renderer, buffers, &mut state)?;
-        let frame_elapsed = frame_start.elapsed();
-        state.avg_fps = smoothed_fps(state.avg_fps, frame_elapsed);
-        window.present(&buffers.output_gray)?;
-        window.set_title(&window_title(
-            config,
-            state.frame_index,
-            state.paused,
-            state.avg_fps,
-        ));
+        state.avg_fps = smoothed_fps(state.avg_fps, frame_start.elapsed());
+        window.present(&buffers.output_gray, &state)?;
+        window.set_title(&window_title(config, &state));
         sleep_to_frame_budget(frame_start, frame_budget);
     }
     Ok(())
@@ -96,15 +102,7 @@ fn render_if_unpaused(
     if state.paused {
         return Ok(());
     }
-    render_preview_frame(
-        config,
-        compiled,
-        renderer,
-        buffers,
-        state.seed_offset,
-        state.frame_index,
-        state.total_frames,
-    )?;
+    render_preview_frame(config, compiled, renderer, buffers, state)?;
     state.frame_index = state.frame_index.wrapping_add(1);
     Ok(())
 }
@@ -114,16 +112,17 @@ fn render_preview_frame(
     compiled: &CompiledGraph,
     renderer: &mut crate::gpu_render::GpuLayerRenderer,
     buffers: &mut RuntimeBuffers,
-    seed_offset: u32,
-    frame_index: u32,
-    total_frames: u32,
+    state: &PreviewState,
 ) -> Result<(), Box<dyn Error>> {
     let graph_time = apply_motion_temporal_constraints(
-        crate::node::GraphTimeInput::from_frame(frame_index % total_frames, total_frames)
-            .with_intensity(config.animation.motion.modulation_intensity()),
+        crate::node::GraphTimeInput::from_frame(
+            state.frame_index % state.total_frames,
+            state.total_frames,
+        )
+        .with_intensity(config.animation.motion.modulation_intensity()),
         config.animation.motion,
     );
-    render_graph_frame(compiled, renderer, seed_offset, Some(graph_time))?;
+    render_graph_frame(compiled, renderer, state.seed_offset, Some(graph_time))?;
     finalize_luma_for_output(config, renderer, buffers)?;
     Ok(())
 }
@@ -131,10 +130,9 @@ fn render_preview_frame(
 fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
     let inst = 1.0 / frame_elapsed.as_secs_f32().max(1e-4);
     if previous <= 0.0 {
-        inst
-    } else {
-        previous * 0.9 + inst * 0.1
+        return inst;
     }
+    previous * 0.9 + inst * 0.1
 }
 
 fn sleep_to_frame_budget(start: Instant, frame_budget: Duration) {
@@ -143,22 +141,18 @@ fn sleep_to_frame_budget(start: Instant, frame_budget: Duration) {
     }
 }
 
-fn window_title(config: &V2Config, frame_index: u32, paused: bool, fps: f32) -> String {
-    let state = if paused { "paused" } else { "running" };
+fn window_title(config: &V2Config, state: &PreviewState) -> String {
+    let run_state = if state.paused { "paused" } else { "running" };
     format!(
-        "covergen TOP | preset={} | {}x{} | frame={} | {:.1} fps | {}",
-        config.preset, config.width, config.height, frame_index, fps, state
+        "covergen TD | preset={} | {}x{} | frame={} | {:.1} fps | {}",
+        config.preset, config.width, config.height, state.frame_index, state.avg_fps, run_state
     )
 }
 
 fn print_controls_once(config: &V2Config, compiled: &CompiledGraph) {
     println!(
-        "[gui] TOP preview started | preset {} | graph {}x{} -> output {}x{} | nodes {}",
+        "[gui] split view started | left=node-editor right=top-preview | preset {} | nodes {}",
         config.preset,
-        compiled.width,
-        compiled.height,
-        config.width,
-        config.height,
         compiled.steps.len()
     );
     println!("[gui] controls: Esc=quit, Space=pause/resume, R=reseed");
@@ -193,20 +187,35 @@ impl PreviewState {
     }
 }
 
-/// Host window that displays one grayscale TOP texture as RGB pixels.
+/// Host window for split-panel GUI rendering.
 struct TopPreviewWindow {
     width: usize,
     height: usize,
+    panel_width: usize,
+    preview_width: usize,
+    preview_height: usize,
     rgb: Vec<u32>,
     window: Window,
+    editor: NodeEditorLayout,
 }
 
 impl TopPreviewWindow {
-    fn new(width: u32, height: u32) -> Result<Self, Box<dyn Error>> {
-        let width = usize::try_from(width).map_err(|_| "invalid preview width")?;
-        let height = usize::try_from(height).map_err(|_| "invalid preview height")?;
+    fn new(
+        preview_width: u32,
+        preview_height: u32,
+        compiled: &CompiledGraph,
+    ) -> Result<Self, Box<dyn Error>> {
+        let preview_width = usize::try_from(preview_width).map_err(|_| "invalid preview width")?;
+        let preview_height =
+            usize::try_from(preview_height).map_err(|_| "invalid preview height")?;
+        let panel_width = PANEL_WIDTH;
+        let width = panel_width
+            .checked_add(preview_width)
+            .ok_or("invalid split-panel width")?;
+        let height = preview_height;
+
         let mut window = Window::new(
-            "covergen TOP",
+            "covergen TD",
             width,
             height,
             WindowOptions {
@@ -215,17 +224,24 @@ impl TopPreviewWindow {
             },
         )?;
         window.set_target_fps(60);
+
+        let editor = NodeEditorLayout::build(compiled, panel_width, height);
         let rgb = vec![
-            0u32;
+            PREVIEW_BG;
             width
                 .checked_mul(height)
-                .ok_or("invalid preview dimensions")?
+                .ok_or("invalid panel dimensions")?
         ];
+
         Ok(Self {
             width,
             height,
+            panel_width,
+            preview_width,
+            preview_height,
             rgb,
             window,
+            editor,
         })
     }
 
@@ -240,19 +256,26 @@ impl TopPreviewWindow {
         }
     }
 
-    fn present(&mut self, gray: &[u8]) -> Result<(), Box<dyn Error>> {
-        if gray.len() != self.rgb.len() {
+    fn present(&mut self, gray: &[u8], state: &PreviewState) -> Result<(), Box<dyn Error>> {
+        let expected = self
+            .preview_width
+            .checked_mul(self.preview_height)
+            .ok_or("invalid preview plane")?;
+        if gray.len() != expected {
             return Err(format!(
-                "preview buffer mismatch: expected {} bytes, got {}",
-                self.rgb.len(),
+                "preview buffer mismatch: expected {}, got {}",
+                expected,
                 gray.len()
             )
             .into());
         }
-        for (rgb, gray) in self.rgb.iter_mut().zip(gray.iter().copied()) {
-            let value = gray as u32;
-            *rgb = 0xFF00_0000 | (value << 16) | (value << 8) | value;
-        }
+
+        self.rgb.fill(PREVIEW_BG);
+        self.editor.draw(&mut self.rgb, self.width, self.height);
+        self.blit_preview(gray);
+        self.draw_preview_hud(state);
+        self.draw_divider();
+
         self.window
             .update_with_buffer(&self.rgb, self.width, self.height)?;
         Ok(())
@@ -260,5 +283,47 @@ impl TopPreviewWindow {
 
     fn set_title(&mut self, title: &str) {
         self.window.set_title(title);
+    }
+
+    fn blit_preview(&mut self, gray: &[u8]) {
+        for y in 0..self.preview_height {
+            let src_row = y * self.preview_width;
+            let dst_row = y * self.width + self.panel_width;
+            for x in 0..self.preview_width {
+                let value = gray[src_row + x] as u32;
+                self.rgb[dst_row + x] = 0xFF00_0000 | (value << 16) | (value << 8) | value;
+            }
+        }
+    }
+
+    fn draw_preview_hud(&mut self, state: &PreviewState) {
+        let status = if state.paused { "PAUSED" } else { "RUNNING" };
+        let text = format!(
+            "TOP PREVIEW {}  {:.1} FPS  F{}",
+            status, state.avg_fps, state.frame_index
+        );
+        draw_text(
+            &mut self.rgb,
+            self.width,
+            self.height,
+            (self.panel_width + 12) as i32,
+            12,
+            &text,
+            HUD_TEXT_COLOR,
+        );
+    }
+
+    fn draw_divider(&mut self) {
+        let x = self.panel_width as i32 - 1;
+        draw_line(
+            &mut self.rgb,
+            self.width,
+            self.height,
+            x,
+            0,
+            x,
+            self.height as i32 - 1,
+            DIVIDER_COLOR,
+        );
     }
 }
