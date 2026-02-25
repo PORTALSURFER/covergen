@@ -296,7 +296,7 @@ impl GuiProject {
         node_id
     }
 
-    /// Move one node while keeping it in canvas bounds.
+    /// Move one node in graph space.
     ///
     /// Returns `true` when the node position changed.
     pub(crate) fn move_node(
@@ -843,13 +843,13 @@ pub(crate) fn node_param_value_rect(
 fn clamp_node_position(
     x: i32,
     y: i32,
-    panel_width: usize,
-    panel_height: usize,
-    node_height: i32,
+    _panel_width: usize,
+    _panel_height: usize,
+    _node_height: i32,
 ) -> (i32, i32) {
-    let max_x = (panel_width as i32 - NODE_WIDTH - 6).max(6);
-    let max_y = (panel_height as i32 - node_height - 6).max(6);
-    (x.clamp(6, max_x), y.clamp(40, max_y))
+    // Keep the call sites stable for now, but stop clamping node coordinates:
+    // the graph canvas is intentionally unbounded.
+    (x, y)
 }
 
 fn node_card_height_for_param_count(expanded: bool, param_count: usize) -> i32 {
