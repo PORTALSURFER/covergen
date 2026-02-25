@@ -1,5 +1,6 @@
 use std::error::Error;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::collections::VecDeque;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::gpu_retained::RetainedGpuPost;
@@ -25,11 +26,12 @@ pub(crate) struct GpuLayerRenderer {
     bind_group: wgpu::BindGroup,
     out_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
-    staging_buffer: wgpu::Buffer,
+    readback_slots: Vec<ReadbackSlot>,
     width: u32,
     height: u32,
     output_size: u64,
-    pending_readback: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
+    pending_readbacks: VecDeque<usize>,
+    next_readback_slot: usize,
     retained: RetainedGpuPost,
     graph_ops: GpuGraphOps,
     node_layer_temp_buffer: wgpu::Buffer,
@@ -38,6 +40,12 @@ pub(crate) struct GpuLayerRenderer {
     node_alias_mask_buffers: Vec<wgpu::Buffer>,
     node_feedback_buffers: Vec<wgpu::Buffer>,
     node_feedback_clear_buffer: wgpu::Buffer,
+}
+
+#[derive(Debug)]
+struct ReadbackSlot {
+    staging_buffer: wgpu::Buffer,
+    pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
 }
 
 /// Frame-scoped command recording context for graph execution.
@@ -96,12 +104,19 @@ impl GpuLayerRenderer {
             contents: bytemuck::bytes_of(&zero),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("staging"),
-            size: output_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let mut readback_slots = Vec::with_capacity(2);
+        for slot in 0..2 {
+            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("staging-{slot}")),
+                size: output_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            readback_slots.push(ReadbackSlot {
+                staging_buffer,
+                pending: None,
+            });
+        }
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("bind group layout"),
             entries: &[
@@ -192,11 +207,12 @@ impl GpuLayerRenderer {
             bind_group,
             out_buffer,
             uniform_buffer,
-            staging_buffer,
+            readback_slots,
             width,
             height,
             output_size,
-            pending_readback: None,
+            pending_readbacks: VecDeque::with_capacity(2),
+            next_readback_slot: 0,
             retained,
             graph_ops,
             node_layer_temp_buffer,
@@ -210,7 +226,7 @@ impl GpuLayerRenderer {
 
     /// Reset retained accumulation buffers for the next image.
     pub(crate) fn begin_retained_image(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.pending_readback.is_some() {
+        if self.has_pending_layer_readbacks() {
             return Err("cannot begin retained image while readback is pending".into());
         }
         self.retained.begin_image(&self.device, &self.queue);
@@ -226,7 +242,7 @@ impl GpuLayerRenderer {
         high_pct: f32,
         fast_mode: bool,
     ) -> Result<(), Box<dyn Error>> {
-        if self.pending_readback.is_some() {
+        if self.has_pending_layer_readbacks() {
             return Err("cannot collect retained output while layer readback is pending".into());
         }
         let receiver = self.retained.begin_final_readback(
@@ -250,7 +266,7 @@ impl GpuLayerRenderer {
         contrast: f32,
     ) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
-        if self.pending_readback.is_some() {
+        if self.has_pending_layer_readbacks() {
             return Err("gpu readback already pending; collect before submitting again".into());
         }
 
@@ -278,8 +294,12 @@ impl GpuLayerRenderer {
     /// Submit one GPU layer render and stage it for asynchronous readback.
     pub(crate) fn submit_layer(&mut self, params: &Params) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
-        if self.pending_readback.is_some() {
-            return Err("gpu readback already pending; collect before submitting again".into());
+        if self.pending_readbacks.len() >= self.readback_slots.len() {
+            return Err("gpu readback queue is full; collect before submitting again".into());
+        }
+        let slot_index = self.next_readback_slot % self.readback_slots.len();
+        if self.readback_slots[slot_index].pending.is_some() {
+            return Err("readback slot is unexpectedly busy".into());
         }
 
         self.queue
@@ -293,18 +313,20 @@ impl GpuLayerRenderer {
         encoder.copy_buffer_to_buffer(
             &self.out_buffer,
             0,
-            &self.staging_buffer,
+            &self.readback_slots[slot_index].staging_buffer,
             0,
             self.output_size,
         );
         self.queue.submit(Some(encoder.finish()));
 
-        let slice = self.staging_buffer.slice(..);
+        let slice = self.readback_slots[slot_index].staging_buffer.slice(..);
         let (sender, receiver) = mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        self.pending_readback = Some(receiver);
+        self.readback_slots[slot_index].pending = Some(receiver);
+        self.pending_readbacks.push_back(slot_index);
+        self.next_readback_slot = (slot_index + 1) % self.readback_slots.len();
         Ok(())
     }
 
@@ -313,18 +335,27 @@ impl GpuLayerRenderer {
         if out.len() != self.expected_pixels()? {
             return Err("output buffer length does not match render dimensions".into());
         }
-        let receiver = self
-            .pending_readback
-            .take()
+        let slot_index = self
+            .pending_readbacks
+            .pop_front()
             .ok_or("no gpu readback pending for collect")?;
+        let receiver = self
+            .readback_slots
+            .get_mut(slot_index)
+            .and_then(|slot| slot.pending.take())
+            .ok_or("readback slot had no pending map")?;
         self.wait_for_map(receiver)?;
 
-        let slice = self.staging_buffer.slice(..);
+        let slot = self
+            .readback_slots
+            .get_mut(slot_index)
+            .ok_or("readback slot index out of range")?;
+        let slice = slot.staging_buffer.slice(..);
         {
             let raw = slice.get_mapped_range();
             decode_luma(&raw, out);
         }
-        self.staging_buffer.unmap();
+        slot.staging_buffer.unmap();
         Ok(())
     }
 
@@ -354,21 +385,25 @@ impl GpuLayerRenderer {
     ) -> Result<(), Box<dyn Error>> {
         let deadline = Instant::now() + MAP_TIMEOUT;
         loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err("timeout waiting for GPU buffer mapping".into());
+            }
+            let wait = (deadline - now).min(Duration::from_millis(2));
             self.device.poll(wgpu::Maintain::Poll);
-            match receiver.try_recv() {
+            match receiver.recv_timeout(wait) {
                 Ok(Ok(())) => return Ok(()),
                 Ok(Err(err)) => return Err(format!("buffer map failed: {err:?}").into()),
-                Err(TryRecvError::Empty) => {
-                    if Instant::now() >= deadline {
-                        return Err("timeout waiting for GPU buffer mapping".into());
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Err(TryRecvError::Disconnected) => {
-                    return Err("gpu map callback disconnected before completion".into());
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("gpu map callback disconnected before completion".into())
                 }
             }
         }
+    }
+
+    fn has_pending_layer_readbacks(&self) -> bool {
+        !self.pending_readbacks.is_empty()
     }
 
     fn expected_pixels(&self) -> Result<usize, Box<dyn Error>> {
