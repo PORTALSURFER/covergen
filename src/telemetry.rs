@@ -4,8 +4,8 @@
 //! start collecting timings, frame samples, and memory snapshots, then
 //! `end_capture` to retrieve one immutable report.
 
-use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// One named timing sample collected during a render run.
@@ -65,6 +65,7 @@ fn capture_active_flag() -> &'static AtomicBool {
     &ACTIVE
 }
 
+#[inline]
 fn is_capture_active() -> bool {
     capture_active_flag().load(Ordering::Acquire)
 }
@@ -90,9 +91,10 @@ pub(crate) fn begin_capture(run_label: impl Into<String>) {
 
 /// End the current telemetry capture session and return the captured report.
 pub(crate) fn end_capture() -> Option<CaptureReport> {
-    let report = with_state_mut(|state| state.active.take());
+    // Flip the fast-path flag first so new record calls short-circuit without
+    // taking the telemetry mutex while capture teardown is in progress.
     capture_active_flag().store(false, Ordering::Release);
-    report
+    with_state_mut(|state| state.active.take())
 }
 
 /// Record a timing sample for a named scope.
