@@ -13,31 +13,23 @@ use super::scene::{Color, ColoredRect};
 
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/JetBrainsMono.ttf");
 const FONT_SIZE_PX: f32 = 12.0;
+const MIN_FONT_SIZE_PX: f32 = 4.0;
+const MAX_FONT_SIZE_PX: f32 = 48.0;
+const FONT_SIZE_QUANT_STEP: f32 = 4.0;
 const GLYPH_COVERAGE_THRESHOLD: u8 = 96;
 const TAB_SPACES: i32 = 4;
 
 /// Cached text renderer that emits glyph pixels as scene rectangles.
 pub(crate) struct GuiTextRenderer {
     font: Option<Font<'static>>,
-    scale: Scale,
-    baseline_px: i32,
-    line_height_px: i32,
-    glyph_cache: HashMap<char, GlyphBitmap>,
+    glyph_cache: HashMap<GlyphCacheKey, GlyphBitmap>,
 }
 
 impl Default for GuiTextRenderer {
     fn default() -> Self {
-        let scale = Scale::uniform(FONT_SIZE_PX);
         let font = Font::try_from_bytes(FONT_BYTES);
-        let (baseline_px, line_height_px) = font
-            .as_ref()
-            .map(|loaded| line_metrics(loaded, scale))
-            .unwrap_or((10, 14));
         Self {
             font,
-            scale,
-            baseline_px,
-            line_height_px,
             glyph_cache: HashMap::new(),
         }
     }
@@ -53,39 +45,66 @@ impl GuiTextRenderer {
         text: &str,
         color: Color,
     ) {
+        self.push_text_scaled(out, x, y, text, color, 1.0);
+    }
+
+    /// Append text rectangles at `(x, y)` using a scale multiplier.
+    ///
+    /// `scale` is relative to the baseline font size (`12px`).
+    pub(crate) fn push_text_scaled(
+        &mut self,
+        out: &mut Vec<ColoredRect>,
+        x: i32,
+        y: i32,
+        text: &str,
+        color: Color,
+        scale: f32,
+    ) {
         if self.font.is_none() || text.is_empty() {
             return;
         }
+        let size_key = quantized_font_size(scale);
+        let glyph_scale = Scale::uniform(font_size_from_key(size_key));
+        let (baseline_px, line_height_px) = self
+            .font
+            .as_ref()
+            .map(|loaded| line_metrics(loaded, glyph_scale))
+            .unwrap_or((10, 14));
         let mut cursor_x = x;
         let mut cursor_y = y;
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
-                cursor_y += self.line_height_px;
+                cursor_y += line_height_px;
                 continue;
             }
             if ch == '\t' {
-                cursor_x += TAB_SPACES * self.space_advance();
+                cursor_x += TAB_SPACES * self.space_advance(size_key);
                 continue;
             }
-            let glyph = self.cached_glyph(ch);
+            let glyph = self.cached_glyph(ch, size_key, baseline_px);
             push_glyph_runs(out, cursor_x, cursor_y, glyph, color);
             cursor_x += glyph.advance_px.max(1);
         }
     }
 
-    fn space_advance(&mut self) -> i32 {
-        self.cached_glyph(' ').advance_px.max(1)
+    fn space_advance(&mut self, size_key: u16) -> i32 {
+        self.cached_glyph(' ', size_key, 0).advance_px.max(1)
     }
 
-    fn cached_glyph(&mut self, ch: char) -> &GlyphBitmap {
+    fn cached_glyph(&mut self, ch: char, size_key: u16, baseline_px: i32) -> &GlyphBitmap {
         let key = self.lookup_char(ch);
-        if !self.glyph_cache.contains_key(&key) {
-            let glyph = self.rasterize_glyph(key);
-            self.glyph_cache.insert(key, glyph);
+        let cache_key = GlyphCacheKey {
+            ch: key,
+            size_key,
+            baseline_px,
+        };
+        if !self.glyph_cache.contains_key(&cache_key) {
+            let glyph = self.rasterize_glyph(key, size_key, baseline_px);
+            self.glyph_cache.insert(cache_key, glyph);
         }
         self.glyph_cache
-            .get(&key)
+            .get(&cache_key)
             .expect("glyph must exist after cache insert")
     }
 
@@ -100,13 +119,14 @@ impl GuiTextRenderer {
         }
     }
 
-    fn rasterize_glyph(&self, ch: char) -> GlyphBitmap {
+    fn rasterize_glyph(&self, ch: char, size_key: u16, baseline_px: i32) -> GlyphBitmap {
         let Some(font) = &self.font else {
             return GlyphBitmap::empty(8);
         };
-        let scaled = font.glyph(ch).scaled(self.scale);
+        let scale = Scale::uniform(font_size_from_key(size_key));
+        let scaled = font.glyph(ch).scaled(scale);
         let advance_px = scaled.h_metrics().advance_width.ceil() as i32;
-        let positioned = scaled.positioned(point(0.0, self.baseline_px as f32));
+        let positioned = scaled.positioned(point(0.0, baseline_px as f32));
         let Some(bounds) = positioned.pixel_bounding_box() else {
             return GlyphBitmap::empty(advance_px.max(1));
         };
@@ -126,6 +146,13 @@ impl GuiTextRenderer {
             coverage,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct GlyphCacheKey {
+    ch: char,
+    size_key: u16,
+    baseline_px: i32,
 }
 
 #[derive(Clone)]
@@ -156,6 +183,15 @@ fn line_metrics(font: &Font<'_>, scale: Scale) -> (i32, i32) {
     let baseline_px = metrics.ascent.ceil() as i32;
     let line_height = metrics.ascent - metrics.descent + metrics.line_gap;
     (baseline_px.max(1), line_height.ceil() as i32)
+}
+
+fn quantized_font_size(scale: f32) -> u16 {
+    let px = (FONT_SIZE_PX * scale).clamp(MIN_FONT_SIZE_PX, MAX_FONT_SIZE_PX);
+    (px * FONT_SIZE_QUANT_STEP).round() as u16
+}
+
+fn font_size_from_key(size_key: u16) -> f32 {
+    size_key as f32 / FONT_SIZE_QUANT_STEP
 }
 
 fn has_renderable_glyph(font: &Font<'_>, ch: char) -> bool {
@@ -210,7 +246,10 @@ fn flush_run(out: &mut Vec<ColoredRect>, x: i32, y: i32, start: i32, end: i32, c
 
 #[cfg(test)]
 mod tests {
-    use super::GuiTextRenderer;
+    use super::{
+        font_size_from_key, quantized_font_size, GuiTextRenderer, MAX_FONT_SIZE_PX,
+        MIN_FONT_SIZE_PX,
+    };
     use crate::gui::scene::Color;
 
     #[test]
@@ -219,5 +258,37 @@ mod tests {
         let mut rects = Vec::new();
         text.push_text(&mut rects, 20, 10, "Output", Color::argb(0xFFFFFFFF));
         assert!(!rects.is_empty());
+    }
+
+    #[test]
+    fn scaled_text_expands_rect_coverage_when_zoomed_in() {
+        let mut text = GuiTextRenderer::default();
+        let mut base_rects = Vec::new();
+        text.push_text_scaled(
+            &mut base_rects,
+            0,
+            0,
+            "W",
+            Color::argb(0xFFFFFFFF),
+            1.0,
+        );
+        let mut large_rects = Vec::new();
+        text.push_text_scaled(
+            &mut large_rects,
+            0,
+            0,
+            "W",
+            Color::argb(0xFFFFFFFF),
+            2.0,
+        );
+        let base_width: i32 = base_rects.iter().map(|rect| rect.rect.w).sum();
+        let large_width: i32 = large_rects.iter().map(|rect| rect.rect.w).sum();
+        assert!(large_width > base_width);
+    }
+
+    #[test]
+    fn quantized_font_size_is_clamped_to_safe_bounds() {
+        assert!(font_size_from_key(quantized_font_size(0.01)) >= MIN_FONT_SIZE_PX);
+        assert!(font_size_from_key(quantized_font_size(99.0)) <= MAX_FONT_SIZE_PX);
     }
 }

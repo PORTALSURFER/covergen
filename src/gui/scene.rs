@@ -42,6 +42,7 @@ const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
 const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
+const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -206,7 +207,7 @@ impl SceneBuilder {
                 BORDER_COLOR
             };
             self.push_border(rect, border);
-            self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
+            self.push_graph_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.expanded() {
                 self.push_node_params(project, node, state);
@@ -266,11 +267,12 @@ impl SceneBuilder {
             } else {
                 row.label.to_string()
             };
-            self.push_text(
+            self.push_graph_text(
                 row_rect.x + 4,
                 row_rect.y + row_rect.h.saturating_sub(6),
                 label.as_str(),
                 NODE_TEXT,
+                state,
             );
             let Some(value_world) = node_param_value_rect(node, index) else {
                 continue;
@@ -299,11 +301,12 @@ impl SceneBuilder {
             } else {
                 format!("{:.3}", row.value)
             };
-            self.push_text(
+            self.push_graph_text(
                 value_rect.x + 4,
                 value_rect.y + value_rect.h.saturating_sub(4),
                 value_text.as_str(),
                 PARAM_VALUE_TEXT,
+                state,
             );
         }
     }
@@ -443,6 +446,15 @@ impl SceneBuilder {
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
         let out = &mut self.frame.rects;
         self.text_renderer.push_text(out, x, y, text, color);
+    }
+
+    fn push_graph_text(&mut self, x: i32, y: i32, text: &str, color: Color, state: &PreviewState) {
+        if state.zoom < GRAPH_TEXT_HIDE_ZOOM {
+            return;
+        }
+        let out = &mut self.frame.rects;
+        self.text_renderer
+            .push_text_scaled(out, x, y, text, color, state.zoom);
     }
 }
 
