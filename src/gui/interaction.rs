@@ -8,8 +8,8 @@ use super::project::{
     ResourceKind, NODE_WIDTH,
 };
 use super::state::{
-    menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, ParamEditState,
-    HoverParamTarget, PreviewState, RightMarqueeState, WireDragState,
+    AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState, PanDragState,
+    ParamEditState, PreviewState, RightMarqueeState, WireDragState,
     ADD_NODE_OPTIONS,
 };
 
@@ -954,29 +954,27 @@ fn handle_add_menu_input(
 ) -> bool {
     let mut changed = false;
     if let Some(hovered) = state.hover_menu_item {
-        if state.menu.selected != hovered {
-            state.menu.selected = hovered;
-            changed = true;
-        }
+        changed |= state.menu.select_option_index(hovered);
+    }
+    changed |= state
+        .menu
+        .apply_query_input(input.typed_text.as_str(), input.param_backspace);
+    if input.param_cancel {
+        state.menu = AddNodeMenuState::closed();
+        return true;
     }
     if input.menu_up {
-        let next = state.menu.selected.saturating_sub(1);
-        if next != state.menu.selected {
-            state.menu.selected = next;
-            changed = true;
-        }
+        changed |= state.menu.select_prev();
     }
     if input.menu_down {
-        let max_index = ADD_NODE_OPTIONS.len().saturating_sub(1);
-        let next = (state.menu.selected + 1).min(max_index);
-        if next != state.menu.selected {
-            state.menu.selected = next;
-            changed = true;
-        }
+        changed |= state.menu.select_next();
     }
+    changed |= state.menu.clamp_selection();
     if input.menu_accept {
-        add_menu_selected_node(project, panel_width, panel_height, state);
-        return true;
+        if add_menu_selected_node(project, panel_width, panel_height, state) {
+            return true;
+        }
+        return changed;
     }
     if !input.left_clicked {
         return changed;
@@ -986,9 +984,8 @@ fn handle_add_menu_input(
         return true;
     };
     if let Some(index) = state.menu.item_at(mx, my) {
-        state.menu.selected = index;
-        add_menu_selected_node(project, panel_width, panel_height, state);
-        return true;
+        let _ = state.menu.select_option_index(index);
+        return add_menu_selected_node(project, panel_width, panel_height, state);
     } else if !state.menu.rect().contains(mx, my) {
         state.menu = AddNodeMenuState::closed();
         return true;
@@ -1001,15 +998,16 @@ fn add_menu_selected_node(
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
-) {
-    let option = ADD_NODE_OPTIONS
-        .get(state.menu.selected)
-        .copied()
-        .unwrap_or(ADD_NODE_OPTIONS[0]);
+) -> bool {
+    let Some(option_index) = state.menu.selected_option_index() else {
+        return false;
+    };
+    let option = ADD_NODE_OPTIONS[option_index];
     let spawn_x = state.menu.x + 8;
-    let spawn_y = (state.menu.y + menu_height() + 8).min(panel_height as i32 - 32);
+    let spawn_y = (state.menu.y + state.menu.rect().h + 8).min(panel_height as i32 - 32);
     project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
     state.menu = AddNodeMenuState::closed();
+    true
 }
 
 fn handle_drag_input(
@@ -1467,13 +1465,16 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_delete_selected_nodes,
-        handle_param_wheel_input,
+        handle_add_menu_input, handle_param_wheel_input,
         handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
         move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
         RightMarqueeState,
     };
     use crate::gui::project::{node_param_value_rect, GuiProject, ProjectNodeKind};
-    use crate::gui::state::{HoverParamTarget, InputSnapshot, ParamEditState, PreviewState, WireDragState};
+    use crate::gui::state::{
+        AddNodeMenuState, HoverParamTarget, InputSnapshot, ParamEditState, PreviewState,
+        WireDragState,
+    };
     use crate::runtime_config::V2Config;
 
     #[test]
@@ -1723,5 +1724,33 @@ mod tests {
         let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
         let value = project.node_param_value(circle, "radius", 0.5, &mut Vec::new());
         assert_eq!(source, value);
+    }
+
+    #[test]
+    fn add_menu_query_and_accept_spawns_filtered_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.menu = AddNodeMenuState::open_at(120, 100, 420, 480);
+        let input = InputSnapshot {
+            typed_text: "lfo".to_string(),
+            menu_accept: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_add_menu_input(
+            &input,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        let mut has_lfo = false;
+        for node in project.nodes() {
+            if node.kind() == ProjectNodeKind::CtlLfo {
+                has_lfo = true;
+                break;
+            }
+        }
+        assert!(has_lfo);
+        assert!(!state.menu.open);
     }
 }

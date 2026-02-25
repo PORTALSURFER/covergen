@@ -12,7 +12,11 @@ use super::project::{
     output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
     NODE_WIDTH,
 };
-use super::state::{PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
+use super::state::{
+    AddNodeMenuRow, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
+    MENU_CATEGORY_HEIGHT, MENU_INNER_PADDING, MENU_ITEM_HEIGHT, MENU_SEARCH_HEIGHT,
+    MENU_TITLE_HEIGHT,
+};
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
 
@@ -32,6 +36,8 @@ const HEADER_BG: Color = Color::argb(AGIO.header_bg);
 const HEADER_TEXT: Color = Color::argb(AGIO.header_text);
 const NODE_TEXT: Color = Color::argb(AGIO.node_text);
 const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
+const MENU_CATEGORY_TEXT: Color = Color::argb(0xFF8E8E8E);
+const MENU_SEARCH_BG: Color = Color::argb(0xFF121212);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
@@ -451,19 +457,80 @@ impl SceneBuilder {
         self.push_border(rect, MENU_BORDER);
         self.push_text(
             rect.x + MENU_INNER_PADDING + 6,
-            rect.y + 7,
-            "Add Node",
+            rect.y + 6,
+            "Create Node",
             MENU_TEXT,
         );
-        for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
-            let Some(item) = state.menu.item_rect(index) else {
-                continue;
-            };
-            if index == state.menu.selected || state.hover_menu_item == Some(index) {
-                self.push_rect(item, MENU_SELECTED);
-            }
-            self.push_text(item.x + 6, item.y + 8, option.label(), MENU_TEXT);
+        let search_rect = state.menu.search_rect();
+        self.push_rect(search_rect, MENU_SEARCH_BG);
+        self.push_border(search_rect, MENU_BORDER);
+        let query_text = if state.menu.query.is_empty() {
+            "Search nodes..."
+        } else {
+            state.menu.query.as_str()
+        };
+        self.push_text(
+            search_rect.x + 6,
+            search_rect.y + 7,
+            query_text,
+            MENU_TEXT,
+        );
+        let rows = state.menu.visible_rows();
+        if rows.is_empty() {
+            self.push_text(
+                rect.x + MENU_INNER_PADDING + 6,
+                search_rect.y + search_rect.h + MENU_BLOCK_GAP + 6,
+                "No matching nodes",
+                MENU_CATEGORY_TEXT,
+            );
+            return;
         }
+        let selected_option = state.menu.selected_option_index();
+        let mut menu_label_scratch = std::mem::take(&mut self.label_scratch);
+        let mut row_y = rect.y + MENU_TITLE_HEIGHT + MENU_BLOCK_GAP + MENU_SEARCH_HEIGHT + MENU_BLOCK_GAP;
+        for row in rows {
+            match row {
+                AddNodeMenuRow::Category(category) => {
+                    self.push_text(
+                        rect.x + MENU_INNER_PADDING + 6,
+                        row_y + 3,
+                        category.label(),
+                        MENU_CATEGORY_TEXT,
+                    );
+                    row_y += MENU_CATEGORY_HEIGHT;
+                }
+                AddNodeMenuRow::Option(option_index) => {
+                    let item = Rect::new(
+                        rect.x + MENU_INNER_PADDING,
+                        row_y,
+                        rect.w - (MENU_INNER_PADDING * 2),
+                        MENU_ITEM_HEIGHT - 2,
+                    );
+                    if selected_option == Some(option_index)
+                        || state.hover_menu_item == Some(option_index)
+                    {
+                        self.push_rect(item, MENU_SELECTED);
+                    }
+                    let option = ADD_NODE_OPTIONS[option_index];
+                    if state.menu.query.is_empty() {
+                        self.push_text(item.x + 6, item.y + 6, option.label(), MENU_TEXT);
+                    } else {
+                        menu_label_scratch.clear();
+                        menu_label_scratch.push_str(option.category.label());
+                        menu_label_scratch.push_str(" / ");
+                        menu_label_scratch.push_str(option.label());
+                        self.push_text(
+                            item.x + 6,
+                            item.y + 6,
+                            menu_label_scratch.as_str(),
+                            MENU_TEXT,
+                        );
+                    }
+                    row_y += MENU_ITEM_HEIGHT;
+                }
+            }
+        }
+        self.label_scratch = menu_label_scratch;
     }
 
     fn push_link_cut(&mut self, state: &PreviewState) {
@@ -986,6 +1053,9 @@ fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash = hash_i32(hash, state.menu.x);
     hash = hash_i32(hash, state.menu.y);
     hash = hash_u64(hash, state.menu.selected as u64);
+    for byte in state.menu.query.as_bytes() {
+        hash = hash_u64(hash, *byte as u64);
+    }
     if let Some(index) = state.hover_menu_item {
         hash = hash_u64(hash, index as u64);
     }
