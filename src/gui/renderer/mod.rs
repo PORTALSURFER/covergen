@@ -165,10 +165,14 @@ impl GuiRenderer {
     }
 
     /// Render one scene frame to the GUI surface.
+    ///
+    /// `panel_width` defines the left editor pane and is used as a scissor
+    /// clip so graph content cannot bleed into the right TOP viewer pane.
     pub(crate) fn render(
         &mut self,
         frame: &SceneFrame,
         top_view: Option<TopViewerFrame<'_>>,
+        panel_width: usize,
     ) -> Result<(), Box<dyn Error>> {
         self.rebuild_geometry(frame);
         self.ensure_vertex_capacity(self.triangle_vertices.len(), self.line_vertices.len());
@@ -191,10 +195,13 @@ impl GuiRenderer {
             bytemuck::cast_slice(&self.line_vertices),
         );
         self.update_viewer_texture(top_view);
-        self.render_surface(frame.clear.unwrap_or(Color::argb(0xFF000000)))
+        self.render_surface(
+            frame.clear.unwrap_or(Color::argb(0xFF000000)),
+            panel_width,
+        )
     }
 
-    fn render_surface(&mut self, clear: Color) -> Result<(), Box<dyn Error>> {
+    fn render_surface(&mut self, clear: Color, panel_width: usize) -> Result<(), Box<dyn Error>> {
         let surface_tex = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -233,8 +240,11 @@ impl GuiRenderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            let editor_scissor_w = panel_width.min(self.config.width as usize) as u32;
+            let editor_scissor_h = self.config.height;
             if !self.triangle_vertices.is_empty() {
                 self.draw_top_viewer(&mut pass);
+                pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
                 pass.set_pipeline(&self.triangles_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, self.triangle_buffer.slice(..));
@@ -243,6 +253,7 @@ impl GuiRenderer {
                 self.draw_top_viewer(&mut pass);
             }
             if !self.line_vertices.is_empty() {
+                pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
                 pass.set_pipeline(&self.lines_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, self.line_buffer.slice(..));
