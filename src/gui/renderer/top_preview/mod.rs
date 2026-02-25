@@ -7,6 +7,7 @@ mod execution;
 mod pipeline;
 
 use bytemuck::{Pod, Zeroable};
+use std::num::NonZeroU64;
 
 use crate::gui::top_view::TopViewerOp;
 
@@ -132,8 +133,11 @@ pub(super) struct TopPreviewRenderer {
     viewer_quad_buffer: wgpu::Buffer,
     viewer_visible: bool,
 
+    op_uniform_layout: wgpu::BindGroupLayout,
     op_uniform_buffer: wgpu::Buffer,
     op_uniform_bind_group: wgpu::BindGroup,
+    op_uniform_stride: u64,
+    op_uniform_capacity: usize,
     op_solid_pipeline: wgpu::RenderPipeline,
     op_circle_pipeline: wgpu::RenderPipeline,
     op_sphere_pipeline: wgpu::RenderPipeline,
@@ -152,6 +156,66 @@ pub(super) struct TopPreviewRenderer {
 }
 
 impl TopPreviewRenderer {
+    /// Return non-zero binding size for one operation uniform payload.
+    fn op_uniform_binding_size() -> NonZeroU64 {
+        NonZeroU64::new(std::mem::size_of::<TopOpUniform>() as u64)
+            .expect("top op uniform size must be non-zero")
+    }
+
+    /// Return one dynamic-uniform stride aligned to device limits.
+    fn op_uniform_stride(device: &wgpu::Device) -> u64 {
+        let size = std::mem::size_of::<TopOpUniform>() as u64;
+        let alignment = device.limits().min_uniform_buffer_offset_alignment as u64;
+        if alignment <= 1 {
+            return size;
+        }
+        let padded = size.saturating_add(alignment.saturating_sub(1));
+        (padded / alignment) * alignment
+    }
+
+    /// Create bind group that exposes one dynamic uniform slice per op.
+    fn create_op_uniform_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        buffer: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gui-top-preview-op-uniform-bind-group"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer,
+                    offset: 0,
+                    size: Some(Self::op_uniform_binding_size()),
+                }),
+            }],
+        })
+    }
+
+    /// Ensure uniform storage can hold one payload for every operation.
+    fn ensure_op_uniform_capacity(&mut self, device: &wgpu::Device, op_count: usize) {
+        if op_count <= self.op_uniform_capacity {
+            return;
+        }
+        let next_capacity = op_count.next_power_of_two();
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gui-top-preview-op-uniform"),
+            size: self.op_uniform_stride.saturating_mul(next_capacity as u64),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = Self::create_op_uniform_bind_group(device, &self.op_uniform_layout, &buffer);
+        self.op_uniform_buffer = buffer;
+        self.op_uniform_bind_group = bind_group;
+        self.op_uniform_capacity = next_capacity;
+    }
+
+    /// Return byte offset for one operation's dynamic uniform slice.
+    fn op_uniform_offset(&self, op_index: usize) -> u64 {
+        self.op_uniform_stride.saturating_mul(op_index as u64)
+    }
+
     /// Create a preview renderer that executes compiled GPU operation chains.
     pub(super) fn new(
         device: &wgpu::Device,
@@ -177,9 +241,10 @@ impl TopPreviewRenderer {
         );
         let viewer_quad_buffer = viewer::create_vertex_buffer(device);
 
+        let op_uniform_stride = Self::op_uniform_stride(device);
         let op_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gui-top-preview-op-uniform"),
-            size: std::mem::size_of::<TopOpUniform>() as u64,
+            size: op_uniform_stride,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -190,20 +255,14 @@ impl TopPreviewRenderer {
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(Self::op_uniform_binding_size()),
                 },
                 count: None,
             }],
         });
-        let op_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("gui-top-preview-op-uniform-bind-group"),
-            layout: &op_uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: op_uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let op_uniform_bind_group =
+            Self::create_op_uniform_bind_group(device, &op_uniform_layout, &op_uniform_buffer);
 
         let op_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gui-top-preview-op-shader"),
@@ -276,8 +335,11 @@ impl TopPreviewRenderer {
             viewer_texture_size: (0, 0),
             viewer_quad_buffer,
             viewer_visible: false,
+            op_uniform_layout,
             op_uniform_buffer,
             op_uniform_bind_group,
+            op_uniform_stride,
+            op_uniform_capacity: 1,
             op_solid_pipeline,
             op_circle_pipeline,
             op_sphere_pipeline,

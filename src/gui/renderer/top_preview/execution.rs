@@ -74,6 +74,7 @@ impl TopPreviewRenderer {
             return None;
         }
         let mut upload_bytes = 0u64;
+        self.ensure_op_uniform_capacity(device, ops.len());
         if ops.len() > 1 {
             self.ensure_scratch_textures(device, width, height);
         }
@@ -91,6 +92,10 @@ impl TopPreviewRenderer {
                 RenderTargetRef::ScratchA
             };
             let Some(target_view) = self.target_view(target) else {
+                return None;
+            };
+            let uniform_offset = self.op_uniform_offset(index);
+            let Ok(dynamic_offset) = u32::try_from(uniform_offset) else {
                 return None;
             };
 
@@ -115,11 +120,11 @@ impl TopPreviewRenderer {
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
-                        0,
+                        uniform_offset,
                         bytemuck::bytes_of(&TopOpUniform::solid(op)),
                     );
                     pass.set_pipeline(&self.op_solid_pipeline);
-                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Circle { .. } => {
@@ -127,11 +132,11 @@ impl TopPreviewRenderer {
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
-                        0,
+                        uniform_offset,
                         bytemuck::bytes_of(&TopOpUniform::circle(op)),
                     );
                     pass.set_pipeline(&self.op_circle_pipeline);
-                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Sphere { .. } => {
@@ -139,11 +144,11 @@ impl TopPreviewRenderer {
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
-                        0,
+                        uniform_offset,
                         bytemuck::bytes_of(&TopOpUniform::sphere(op)),
                     );
                     pass.set_pipeline(&self.op_sphere_pipeline);
-                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Transform { .. } => {
@@ -157,11 +162,11 @@ impl TopPreviewRenderer {
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
                         &self.op_uniform_buffer,
-                        0,
+                        uniform_offset,
                         bytemuck::bytes_of(&TopOpUniform::transform(op)),
                     );
                     pass.set_pipeline(&self.op_transform_pipeline);
-                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[]);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, src_bind_group, &[]);
                 }
             }
