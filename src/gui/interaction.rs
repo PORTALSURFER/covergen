@@ -22,9 +22,12 @@ pub(crate) fn apply_preview_actions(
         state.frame_index = 0;
         state.drag = None;
         state.menu = AddNodeMenuState::closed();
+        state.hover_node = None;
+        state.hover_menu_item = None;
     }
 
     handle_add_menu_toggle(&input, panel_width, panel_height, state);
+    update_hover_state(input, project, panel_width, panel_height, state);
     if state.menu.open {
         handle_add_menu_input(&input, project, panel_width, panel_height, state);
     } else {
@@ -67,6 +70,9 @@ fn handle_add_menu_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) {
+    if let Some(hovered) = state.hover_menu_item {
+        state.menu.selected = hovered;
+    }
     if input.menu_up {
         state.menu.selected = state.menu.selected.saturating_sub(1);
     }
@@ -167,4 +173,27 @@ fn begin_drag_if_node_hit(
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
     x >= 0 && y >= 0 && x < panel_width as i32 && y < panel_height as i32
+}
+
+fn update_hover_state(
+    input: InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) {
+    state.hover_node = None;
+    state.hover_menu_item = None;
+
+    let Some((mx, my)) = input.mouse_pos else {
+        return;
+    };
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return;
+    }
+    if state.menu.open {
+        state.hover_menu_item = state.menu.item_at(mx, my);
+        return;
+    }
+    state.hover_node = project.node_at(mx, my);
 }

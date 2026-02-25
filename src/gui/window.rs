@@ -7,7 +7,7 @@ use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use super::draw::{draw_line, draw_text, fill_rect, stroke_rect};
 use super::node_editor::NodeEditorLayout;
 use super::project::GuiProject;
-use super::state::{InputSnapshot, PreviewState, ADD_NODE_OPTIONS, MENU_ITEM_HEIGHT};
+use super::state::{InputSnapshot, PreviewState, ADD_NODE_OPTIONS};
 
 const PREVIEW_BG: u32 = 0xFF0A0D12;
 const DIVIDER_COLOR: u32 = 0xFF2A313A;
@@ -92,10 +92,7 @@ impl TopPreviewWindow {
 
     /// Capture one frame of keyboard/mouse input.
     pub(crate) fn capture_input(&self, prev_left_down: bool) -> InputSnapshot {
-        let mouse_pos = self
-            .window
-            .get_mouse_pos(MouseMode::Clamp)
-            .map(|(x, y)| (x as i32, y as i32));
+        let mouse_pos = self.mouse_pos_in_buffer_space();
         let left_down = self.window.get_mouse_down(MouseButton::Left);
 
         InputSnapshot {
@@ -118,8 +115,14 @@ impl TopPreviewWindow {
         state: &PreviewState,
     ) -> Result<(), Box<dyn Error>> {
         self.rgb.fill(PREVIEW_BG);
-        self.editor
-            .draw(&mut self.rgb, self.width, self.height, project);
+        self.editor.draw(
+            &mut self.rgb,
+            self.width,
+            self.height,
+            project,
+            state.hover_node,
+            state.drag.map(|drag| drag.node_id),
+        );
         self.draw_preview_canvas();
         self.draw_preview_hud(project, state);
         if state.menu.open {
@@ -191,9 +194,12 @@ impl TopPreviewWindow {
         );
 
         for (index, option) in ADD_NODE_OPTIONS.iter().enumerate() {
-            let y = rect.y + 26 + index as i32 * MENU_ITEM_HEIGHT;
-            let item = super::draw::Rect::new(rect.x + 4, y, rect.w - 8, MENU_ITEM_HEIGHT - 2);
-            if index == state.menu.selected {
+            let Some(item) = state.menu.item_rect(index) else {
+                continue;
+            };
+            let is_selected = index == state.menu.selected;
+            let is_hovered = state.hover_menu_item == Some(index);
+            if is_selected || is_hovered {
                 fill_rect(&mut self.rgb, self.width, self.height, item, MENU_SELECTED);
             }
             draw_text(
@@ -206,6 +212,18 @@ impl TopPreviewWindow {
                 MENU_TEXT,
             );
         }
+    }
+
+    fn mouse_pos_in_buffer_space(&self) -> Option<(i32, i32)> {
+        let (window_w, window_h) = self.window.get_size();
+        if window_w == 0 || window_h == 0 {
+            return None;
+        }
+        self.window.get_mouse_pos(MouseMode::Clamp).map(|(x, y)| {
+            let nx = x.max(0.0) * self.width as f32 / window_w as f32;
+            let ny = y.max(0.0) * self.height as f32 / window_h as f32;
+            (nx.floor() as i32, ny.floor() as i32)
+        })
     }
 
     fn draw_divider(&mut self) {

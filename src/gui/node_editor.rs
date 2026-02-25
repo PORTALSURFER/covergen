@@ -29,11 +29,13 @@ impl NodeEditorLayout {
         width: usize,
         height: usize,
         project: &GuiProject,
+        hover_node_id: Option<u32>,
+        drag_node_id: Option<u32>,
     ) {
         draw_canvas(frame, width, height, self.panel_width);
         draw_header(frame, width, height, project);
         draw_edges(frame, width, height, project);
-        draw_nodes(frame, width, height, project);
+        draw_nodes(frame, width, height, project, hover_node_id, drag_node_id);
     }
 }
 
@@ -80,9 +82,18 @@ fn draw_edges(frame: &mut [u32], width: usize, height: usize, project: &GuiProje
     }
 }
 
-fn draw_nodes(frame: &mut [u32], width: usize, height: usize, project: &GuiProject) {
+fn draw_nodes(
+    frame: &mut [u32],
+    width: usize,
+    height: usize,
+    project: &GuiProject,
+    hover_node_id: Option<u32>,
+    drag_node_id: Option<u32>,
+) {
     for node in project.nodes() {
         let rect = node_rect(node);
+        let is_dragged = drag_node_id == Some(node.id());
+        let is_hovered = hover_node_id == Some(node.id());
         fill_rect(frame, width, height, rect, 0xFF151A22);
         fill_rect(
             frame,
@@ -91,7 +102,14 @@ fn draw_nodes(frame: &mut [u32], width: usize, height: usize, project: &GuiProje
             Rect::new(rect.x, rect.y, rect.w, 8),
             node_color(node.kind()),
         );
-        stroke_rect(frame, width, height, rect, BORDER_COLOR);
+        let border = if is_dragged {
+            0xFFF59E0B
+        } else if is_hovered {
+            0xFF22D3EE
+        } else {
+            BORDER_COLOR
+        };
+        stroke_rect(frame, width, height, rect, border);
         draw_text(
             frame,
             width,

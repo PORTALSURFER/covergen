@@ -6,6 +6,10 @@ use crate::runtime_config::V2Config;
 
 /// Width of add-node popup menu.
 pub(crate) const MENU_WIDTH: i32 = 220;
+/// Height of add-node menu header row.
+pub(crate) const MENU_HEADER_HEIGHT: i32 = 26;
+/// Inner menu padding from the outer frame.
+pub(crate) const MENU_INNER_PADDING: i32 = 4;
 /// Height of one add-node menu row.
 pub(crate) const MENU_ITEM_HEIGHT: i32 = 26;
 
@@ -88,21 +92,31 @@ impl AddNodeMenuState {
         Rect::new(self.x, self.y, MENU_WIDTH, menu_height())
     }
 
+    /// Return one item rectangle in panel coordinates.
+    pub(crate) fn item_rect(&self, index: usize) -> Option<Rect> {
+        if index >= ADD_NODE_OPTIONS.len() {
+            return None;
+        }
+        let y = self.y + MENU_HEADER_HEIGHT + index as i32 * MENU_ITEM_HEIGHT;
+        Some(Rect::new(
+            self.x + MENU_INNER_PADDING,
+            y,
+            MENU_WIDTH - (MENU_INNER_PADDING * 2),
+            MENU_ITEM_HEIGHT - 2,
+        ))
+    }
+
     /// Return hovered item index for cursor position.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        if !self.rect().contains(x, y) {
-            return None;
+        for index in 0..ADD_NODE_OPTIONS.len() {
+            let Some(rect) = self.item_rect(index) else {
+                continue;
+            };
+            if rect.contains(x, y) {
+                return Some(index);
+            }
         }
-        let local_y = y - self.y - 26;
-        if local_y < 0 {
-            return None;
-        }
-        let index = (local_y / MENU_ITEM_HEIGHT) as usize;
-        if index < ADD_NODE_OPTIONS.len() {
-            Some(index)
-        } else {
-            None
-        }
+        None
     }
 }
 
@@ -115,6 +129,8 @@ pub(crate) struct PreviewState {
     pub(crate) prev_left_down: bool,
     pub(crate) drag: Option<DragState>,
     pub(crate) menu: AddNodeMenuState,
+    pub(crate) hover_node: Option<u32>,
+    pub(crate) hover_menu_item: Option<usize>,
 }
 
 impl PreviewState {
@@ -127,11 +143,28 @@ impl PreviewState {
             prev_left_down: false,
             drag: None,
             menu: AddNodeMenuState::closed(),
+            hover_node: None,
+            hover_menu_item: None,
         }
     }
 }
 
 /// Return full popup menu height.
 pub(crate) fn menu_height() -> i32 {
-    26 + (ADD_NODE_OPTIONS.len() as i32 * MENU_ITEM_HEIGHT) + 8
+    MENU_HEADER_HEIGHT + (ADD_NODE_OPTIONS.len() as i32 * MENU_ITEM_HEIGHT) + 8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AddNodeMenuState;
+
+    #[test]
+    fn menu_item_hit_test_matches_item_rects() {
+        let menu = AddNodeMenuState::open_at(100, 100, 420, 400);
+        for index in 0..2 {
+            let rect = menu.item_rect(index).expect("item rect should exist");
+            let hit = menu.item_at(rect.x + 2, rect.y + 2);
+            assert_eq!(hit, Some(index));
+        }
+    }
 }
