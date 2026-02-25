@@ -13,7 +13,7 @@ use super::project::{
     NODE_WIDTH,
 };
 use super::state::{
-    AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
+    AddNodeCategory, AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
     MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
@@ -492,12 +492,26 @@ impl SceneBuilder {
                 continue;
             };
             if state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index) {
-                self.push_rect(item, MENU_SELECTED);
+                if !matches!(entry, AddNodeMenuEntry::Category(_)) {
+                    self.push_rect(item, MENU_SELECTED);
+                }
             }
             let (text, color) = match entry {
                 AddNodeMenuEntry::Category(category) => {
+                    let chip = category_chip_rect(
+                        item,
+                        self.text_renderer
+                            .measure_text_width(category.label(), 1.0),
+                    );
+                    self.push_rect(chip, category_menu_color(category));
+                    if state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index) {
+                        self.push_border(chip, MENU_SELECTED);
+                    } else {
+                        self.push_border(chip, MENU_BORDER);
+                    }
                     menu_label_scratch.clear();
                     menu_label_scratch.push_str(category.label());
+                    self.push_text(chip.x + 8, chip.y + 2, menu_label_scratch.as_str(), MENU_TEXT);
                     (menu_label_scratch.as_str(), MENU_CATEGORY_TEXT)
                 }
                 AddNodeMenuEntry::Back => ("< Categories", MENU_CATEGORY_TEXT),
@@ -514,7 +528,9 @@ impl SceneBuilder {
                     }
                 }
             };
-            self.push_text(item.x + 6, item.y + 6, text, color);
+            if !matches!(entry, AddNodeMenuEntry::Category(_)) {
+                self.push_text(item.x + 6, item.y + 6, text, color);
+            }
         }
         self.label_scratch = menu_label_scratch;
     }
@@ -1143,6 +1159,23 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::CtlLfo => Color::argb(AGIO.node_header_ctl_lfo),
         ProjectNodeKind::IoWindowOut => Color::argb(AGIO.node_header_io_window_out),
     }
+}
+
+fn category_menu_color(category: AddNodeCategory) -> Color {
+    match category {
+        AddNodeCategory::Texture => Color::argb(AGIO.node_header_tex_solid),
+        AddNodeCategory::Buffer => Color::argb(AGIO.node_header_buf_sphere),
+        AddNodeCategory::Scene => Color::argb(AGIO.node_header_scene_entity),
+        AddNodeCategory::Render => Color::argb(AGIO.node_header_render_scene_pass),
+        AddNodeCategory::Control => Color::argb(AGIO.node_header_ctl_lfo),
+        AddNodeCategory::Io => Color::argb(AGIO.node_header_io_window_out),
+    }
+}
+
+fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
+    let chip_w = (text_width + 20).clamp(86, item.w);
+    let chip_h = (item.h - 4).max(14);
+    Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
 
 fn signal_target_graph_point(project: &GuiProject, target: &ProjectNode, source_id: u32) -> (i32, i32) {
