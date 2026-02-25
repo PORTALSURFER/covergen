@@ -289,6 +289,31 @@ mod tests {
     }
 
     #[test]
+    fn buffer_noise_chain_emits_scene_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 220, 80, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 380, 80, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 540, 80, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 700, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 860, 80, 420, 480);
+        assert!(project.connect_image_link(sphere, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 1200, 540, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+    }
+
+    #[test]
     fn ui_only_state_changes_do_not_invalidate_preview_cache_key() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);

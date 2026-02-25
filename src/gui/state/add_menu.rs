@@ -52,7 +52,7 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 10] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 11] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
         category: AddNodeCategory::Texture,
@@ -67,6 +67,10 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 10] = [
     },
     AddNodeOption {
         kind: ProjectNodeKind::BufCircleNurbs,
+        category: AddNodeCategory::Buffer,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::BufNoise,
         category: AddNodeCategory::Buffer,
     },
     AddNodeOption {
@@ -404,6 +408,21 @@ mod tests {
         assert_eq!(
             super::ADD_NODE_OPTIONS[option_index].kind,
             ProjectNodeKind::BufCircleNurbs
+        );
+    }
+
+    #[test]
+    fn buffer_category_lists_noise_option() {
+        let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
+        assert!(menu.open_category(AddNodeCategory::Buffer));
+        assert!(menu.apply_query_input("noise", false));
+        assert!(menu.select_next());
+        let Some(AddNodeMenuEntry::Option(option_index)) = menu.selected_entry() else {
+            panic!("selected option expected after filtering");
+        };
+        assert_eq!(
+            super::ADD_NODE_OPTIONS[option_index].kind,
+            ProjectNodeKind::BufNoise
         );
     }
 }

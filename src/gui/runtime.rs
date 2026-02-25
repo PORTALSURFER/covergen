@@ -65,6 +65,7 @@ enum CompiledStepKind {
     Circle,
     SphereBuffer,
     CircleNurbsBuffer,
+    BufferNoise,
     SceneEntity,
     SceneBuild,
     ScenePass,
@@ -87,6 +88,12 @@ struct SceneEntityState {
 enum SceneMeshProfile {
     Sphere,
     CircleNurbs,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SceneMeshState {
+    profile: SceneMeshProfile,
+    radius: f32,
 }
 
 /// Compiled GUI runtime graph rooted at `io.window_out`.
@@ -129,8 +136,7 @@ impl GuiCompiledRuntime {
     ) {
         out_ops.clear();
         eval_stack.clear();
-        let mut mesh_radius = None;
-        let mut mesh_profile = SceneMeshProfile::Sphere;
+        let mut mesh = None;
         let mut entity = None;
         let mut scene_ready = false;
         for step in &self.steps {
@@ -184,8 +190,10 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "radius", time_secs, eval_stack)
                         .unwrap_or(0.28)
                         .max(0.01);
-                    mesh_radius = Some(radius);
-                    mesh_profile = SceneMeshProfile::Sphere;
+                    mesh = Some(SceneMeshState {
+                        profile: SceneMeshProfile::Sphere,
+                        radius,
+                    });
                     scene_ready = false;
                 }
                 CompiledStepKind::CircleNurbsBuffer => {
@@ -193,8 +201,39 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "radius", time_secs, eval_stack)
                         .unwrap_or(0.28)
                         .max(0.01);
-                    mesh_radius = Some(radius);
-                    mesh_profile = SceneMeshProfile::CircleNurbs;
+                    mesh = Some(SceneMeshState {
+                        profile: SceneMeshProfile::CircleNurbs,
+                        radius,
+                    });
+                    scene_ready = false;
+                }
+                CompiledStepKind::BufferNoise => {
+                    let Some(mut mesh_state) = mesh else {
+                        continue;
+                    };
+                    let amplitude = project
+                        .node_param_value(step.node_id, "amplitude", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0);
+                    let frequency = project
+                        .node_param_value(step.node_id, "frequency", time_secs, eval_stack)
+                        .unwrap_or(2.0)
+                        .max(0.01);
+                    let speed_hz = project
+                        .node_param_value(step.node_id, "speed_hz", time_secs, eval_stack)
+                        .unwrap_or(0.35)
+                        .max(0.0);
+                    let phase = project
+                        .node_param_value(step.node_id, "phase", time_secs, eval_stack)
+                        .unwrap_or(0.0);
+                    let seed = project
+                        .node_param_value(step.node_id, "seed", time_secs, eval_stack)
+                        .unwrap_or(1.0);
+                    let t = time_secs * speed_hz * std::f32::consts::TAU;
+                    let noise = layered_sine_noise(t, frequency, phase, seed);
+                    let radius_scale = (1.0 + amplitude * noise).clamp(0.15, 4.0);
+                    mesh_state.radius = (mesh_state.radius * radius_scale).max(0.005);
+                    mesh = Some(mesh_state);
                     scene_ready = false;
                 }
                 CompiledStepKind::SceneEntity => {
@@ -228,20 +267,20 @@ impl GuiCompiledRuntime {
                     scene_ready = false;
                 }
                 CompiledStepKind::SceneBuild => {
-                    scene_ready = mesh_radius.is_some() && entity.is_some();
+                    scene_ready = mesh.is_some() && entity.is_some();
                 }
                 CompiledStepKind::ScenePass => {
                     if !scene_ready {
                         continue;
                     }
-                    let (Some(mesh_radius), Some(entity_state)) = (mesh_radius, entity) else {
+                    let (Some(mesh_state), Some(entity_state)) = (mesh, entity) else {
                         continue;
                     };
-                    match mesh_profile {
+                    match mesh_state.profile {
                         SceneMeshProfile::Sphere => out_ops.push(TopRuntimeOp::Sphere {
                             center_x: entity_state.pos_x,
                             center_y: entity_state.pos_y,
-                            radius: (mesh_radius * entity_state.scale).max(0.01),
+                            radius: (mesh_state.radius * entity_state.scale).max(0.01),
                             edge_softness: project
                                 .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
                                 .unwrap_or(0.01),
@@ -263,7 +302,7 @@ impl GuiCompiledRuntime {
                         SceneMeshProfile::CircleNurbs => out_ops.push(TopRuntimeOp::Circle {
                             center_x: entity_state.pos_x,
                             center_y: entity_state.pos_y,
-                            radius: (mesh_radius * entity_state.scale).max(0.01),
+                            radius: (mesh_state.radius * entity_state.scale).max(0.01),
                             feather: project
                                 .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
                                 .unwrap_or(0.01),
@@ -344,6 +383,21 @@ fn compile_node(
             });
             true
         }
+        ProjectNodeKind::BufNoise => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, visiting, visited, out_steps) {
+                false
+            } else {
+                out_steps.push(CompiledStep {
+                    node_id,
+                    kind: CompiledStepKind::BufferNoise,
+                });
+                true
+            }
+        }
         ProjectNodeKind::TexTransform2D => {
             let source_id = match project.input_source_node_id(node_id) {
                 Some(id) => id,
@@ -411,6 +465,17 @@ fn compile_node(
         visited.push(node_id);
     }
     ok
+}
+
+/// Deterministic, lightweight pseudo-noise for buffer deformation previews.
+fn layered_sine_noise(t: f32, frequency: f32, phase: f32, seed: f32) -> f32 {
+    let s0 = seed * 0.13 + phase;
+    let s1 = seed * 0.73 + phase * 1.9;
+    let s2 = seed * 1.37 + phase * 0.47;
+    let n0 = (t * frequency + s0).sin();
+    let n1 = (t * frequency * 2.11 + s1).sin();
+    let n2 = (t * frequency * 4.37 + s2).sin();
+    (n0 * 0.62 + n1 * 0.28 + n2 * 0.10).clamp(-1.0, 1.0)
 }
 
 #[cfg(test)]
@@ -488,5 +553,42 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
+    }
+
+    #[test]
+    fn buffer_noise_deforms_mesh_radius() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 340, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 500, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 660, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        assert!(project.set_param_value(noise, 0, 0.5));
+        assert!(project.set_param_value(noise, 1, 3.0));
+        assert!(project.set_param_value(noise, 2, 1.0));
+        assert!(project.set_param_value(noise, 4, 17.0));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops_t0 = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops_t0);
+        let mut ops_t1 = Vec::new();
+        runtime.evaluate_ops(&project, 0.5, &mut eval_stack, &mut ops_t1);
+        let r0 = match ops_t0[0] {
+            TopRuntimeOp::Sphere { radius, .. } => radius,
+            _ => panic!("expected sphere op"),
+        };
+        let r1 = match ops_t1[0] {
+            TopRuntimeOp::Sphere { radius, .. } => radius,
+            _ => panic!("expected sphere op"),
+        };
+        assert_ne!(r0, r1);
     }
 }

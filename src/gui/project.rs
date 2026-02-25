@@ -69,6 +69,8 @@ pub(crate) enum ProjectNodeKind {
     BufSphere,
     /// `buf.circle_nurbs` curve buffer source node.
     BufCircleNurbs,
+    /// `buf.noise` mesh deformation node.
+    BufNoise,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
     /// `scene.entity` mesh + transform + material binding node.
@@ -91,6 +93,7 @@ impl ProjectNodeKind {
             Self::TexCircle => "tex.circle",
             Self::BufSphere => "buf.sphere",
             Self::BufCircleNurbs => "buf.circle_nurbs",
+            Self::BufNoise => "buf.noise",
             Self::TexTransform2D => "tex.transform_2d",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
@@ -108,6 +111,7 @@ impl ProjectNodeKind {
             Self::TexCircle => ExecutionKind::Render,
             Self::BufSphere => ExecutionKind::Cpu,
             Self::BufCircleNurbs => ExecutionKind::Cpu,
+            Self::BufNoise => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
@@ -126,6 +130,7 @@ impl ProjectNodeKind {
     pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
         match self {
             Self::TexTransform2D | Self::IoWindowOut => Some(ResourceKind::Texture2D),
+            Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Buffer),
             Self::SceneBuild => Some(ResourceKind::Entity),
             Self::RenderScenePass => Some(ResourceKind::Scene),
@@ -141,6 +146,7 @@ impl ProjectNodeKind {
                 | Self::TexCircle
                 | Self::BufSphere
                 | Self::BufCircleNurbs
+                | Self::BufNoise
                 | Self::TexTransform2D
                 | Self::SceneEntity
                 | Self::RenderScenePass
@@ -166,7 +172,7 @@ impl ProjectNodeKind {
     /// Return output resource kind when this node publishes one.
     pub(crate) const fn output_resource_kind(self) -> Option<ResourceKind> {
         match self {
-            Self::BufSphere | Self::BufCircleNurbs => Some(ResourceKind::Buffer),
+            Self::BufSphere | Self::BufCircleNurbs | Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Entity),
             Self::SceneBuild => Some(ResourceKind::Scene),
             Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::RenderScenePass => {
@@ -1344,6 +1350,15 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("order", "order", 3.0, 2.0, 5.0, 1.0),
             param("divisions", "divisions", 64.0, 8.0, 512.0, 1.0),
         ],
+        ProjectNodeKind::BufNoise => vec![
+            // Keep deformation disabled by default so inserting this node is
+            // identity until users increase amplitude.
+            param("amplitude", "amplitude", 0.0, 0.0, 1.0, 0.01),
+            param("frequency", "frequency", 2.0, 0.05, 32.0, 0.05),
+            param("speed_hz", "speed_hz", 0.35, 0.0, 16.0, 0.05),
+            param("phase", "phase", 0.0, -8.0, 8.0, 0.05),
+            param("seed", "seed", 1.0, 0.0, 1024.0, 1.0),
+        ],
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
             // never changes output until the user edits parameters.
@@ -1638,6 +1653,27 @@ mod tests {
             project.link_resource_kind(pass, out),
             Some(ResourceKind::Texture2D)
         );
+    }
+
+    #[test]
+    fn buffer_noise_chain_requires_buffer_input_and_outputs_buffer() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 120, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 120, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 340, 120, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 500, 120, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 660, 120, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 120, 420, 480);
+
+        assert!(!project.connect_image_link(solid, noise));
+        assert!(project.connect_image_link(sphere, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert_eq!(project.link_resource_kind(sphere, noise), Some(ResourceKind::Buffer));
+        assert_eq!(project.link_resource_kind(noise, entity), Some(ResourceKind::Buffer));
     }
 
     #[test]
