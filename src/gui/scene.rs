@@ -8,7 +8,7 @@ use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_row_rect, node_param_value_rect,
     output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, NODE_WIDTH,
 };
-use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
+use super::state::{PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
 
@@ -19,6 +19,7 @@ const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
 const NODE_BODY: Color = Color::argb(AGIO.node_body);
 const NODE_DRAG: Color = Color::argb(AGIO.highlight_warning);
 const NODE_HOVER: Color = Color::argb(AGIO.highlight_focus);
+const NODE_SELECTED: Color = Color::argb(AGIO.highlight_selection);
 const MENU_BG: Color = Color::argb(AGIO.menu_bg);
 const MENU_SELECTED: Color = Color::argb(AGIO.highlight_selection);
 const MENU_BORDER: Color = Color::argb(AGIO.border);
@@ -39,6 +40,8 @@ const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_VALUE_TEXT: Color = Color::argb(AGIO.menu_text);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
+const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
+const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -126,6 +129,7 @@ impl SceneBuilder {
         self.push_header(project);
         self.push_edges(project, state);
         self.push_nodes(project, state);
+        self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
         &self.frame
@@ -196,6 +200,8 @@ impl SceneBuilder {
                 NODE_DRAG
             } else if state.hover_node == Some(node.id()) {
                 NODE_HOVER
+            } else if state.selected_nodes.contains(&node.id()) {
+                NODE_SELECTED
             } else {
                 BORDER_COLOR
             };
@@ -339,6 +345,17 @@ impl SceneBuilder {
         );
     }
 
+    fn push_right_marquee(&mut self, state: &PreviewState) {
+        let Some(marquee) = state.right_marquee else {
+            return;
+        };
+        let Some(rect) = marquee_panel_rect(marquee) else {
+            return;
+        };
+        self.push_rect(rect, MARQUEE_FILL);
+        self.push_border(rect, MARQUEE_BORDER);
+    }
+
     fn push_divider_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32) {
         let x = panel_width - 1;
         out.push(ColoredLine {
@@ -448,6 +465,19 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
     let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
     (sx, sy)
+}
+
+fn marquee_panel_rect(marquee: RightMarqueeState) -> Option<Rect> {
+    let x0 = marquee.start_x.min(marquee.cursor_x);
+    let y0 = marquee.start_y.min(marquee.cursor_y);
+    let x1 = marquee.start_x.max(marquee.cursor_x);
+    let y1 = marquee.start_y.max(marquee.cursor_y);
+    let w = x1 - x0;
+    let h = y1 - y0;
+    if w <= 4 || h <= 4 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, w, h))
 }
 
 fn node_top_color(kind: ProjectNodeKind) -> Color {

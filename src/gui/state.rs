@@ -48,6 +48,8 @@ pub(crate) struct InputSnapshot {
     pub(crate) mouse_pos: Option<(i32, i32)>,
     pub(crate) left_down: bool,
     pub(crate) left_clicked: bool,
+    pub(crate) right_down: bool,
+    pub(crate) right_clicked: bool,
     pub(crate) alt_down: bool,
     pub(crate) middle_down: bool,
     pub(crate) middle_clicked: bool,
@@ -98,6 +100,15 @@ pub(crate) struct LinkCutState {
 pub(crate) struct PanDragState {
     pub(crate) last_x: i32,
     pub(crate) last_y: i32,
+}
+
+/// Active right-drag marquee selection box.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RightMarqueeState {
+    pub(crate) start_x: i32,
+    pub(crate) start_y: i32,
+    pub(crate) cursor_x: i32,
+    pub(crate) cursor_y: i32,
 }
 
 /// Active parameter text-edit session for one node parameter.
@@ -186,7 +197,9 @@ pub(crate) struct PreviewState {
     pub(crate) wire_drag: Option<WireDragState>,
     pub(crate) link_cut: Option<LinkCutState>,
     pub(crate) pan_drag: Option<PanDragState>,
+    pub(crate) right_marquee: Option<RightMarqueeState>,
     pub(crate) param_edit: Option<ParamEditState>,
+    pub(crate) selected_nodes: Vec<u32>,
     pub(crate) pan_x: f32,
     pub(crate) pan_y: f32,
     pub(crate) zoom: f32,
@@ -211,7 +224,9 @@ impl PreviewState {
             wire_drag: None,
             link_cut: None,
             pan_drag: None,
+            right_marquee: None,
             param_edit: None,
+            selected_nodes: Vec::new(),
             pan_x: 0.0,
             pan_y: 0.0,
             zoom: 1.0,

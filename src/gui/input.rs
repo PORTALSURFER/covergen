@@ -11,6 +11,8 @@ pub(crate) struct InputCollector {
     mouse_pos: Option<(f64, f64)>,
     left_down: bool,
     left_clicked: bool,
+    right_down: bool,
+    right_clicked: bool,
     left_alt_down: bool,
     right_alt_down: bool,
     middle_down: bool,
@@ -52,6 +54,11 @@ impl InputCollector {
                 state,
                 ..
             } => self.handle_middle_button(*state),
+            WindowEvent::MouseInput {
+                button: MouseButton::Right,
+                state,
+                ..
+            } => self.handle_right_button(*state),
             WindowEvent::MouseWheel { delta, .. } => {
                 self.wheel_lines_y += mouse_wheel_lines(*delta);
             }
@@ -78,6 +85,8 @@ impl InputCollector {
             mouse_pos,
             left_down: self.left_down,
             left_clicked: self.left_clicked,
+            right_down: self.right_down,
+            right_clicked: self.right_clicked,
             alt_down: self.left_alt_down || self.right_alt_down,
             middle_down: self.middle_down,
             middle_clicked: self.middle_clicked,
@@ -98,6 +107,7 @@ impl InputCollector {
             param_cancel: self.param_cancel,
         };
         self.left_clicked = false;
+        self.right_clicked = false;
         self.middle_clicked = false;
         self.wheel_lines_y = 0.0;
         self.toggle_pause = false;
@@ -129,6 +139,13 @@ impl InputCollector {
             self.middle_clicked = true;
         }
         self.middle_down = state == ElementState::Pressed;
+    }
+
+    fn handle_right_button(&mut self, state: ElementState) {
+        if state == ElementState::Pressed && !self.right_down {
+            self.right_clicked = true;
+        }
+        self.right_down = state == ElementState::Pressed;
     }
 
     fn handle_key(
