@@ -234,31 +234,33 @@ fn render_node(
             true
         }
         ProjectNodeKind::TexTransform2D => {
-            let Some(source_id) = project.input_source_node_id(node_id) else {
-                false
-            } else if !render_node(
-                project, source_id, width, height, scratch, out, time_secs, eval_stack,
-            ) {
-                false
+            if let Some(source_id) = project.input_source_node_id(node_id) {
+                if !render_node(
+                    project, source_id, width, height, scratch, out, time_secs, eval_stack,
+                ) {
+                    false
+                } else {
+                    out.copy_from_slice(scratch);
+                    let brightness = project
+                        .node_param_value(node_id, "brightness", time_secs, eval_stack)
+                        .unwrap_or(1.08);
+                    let gain_r = project
+                        .node_param_value(node_id, "gain_r", time_secs, eval_stack)
+                        .unwrap_or(0.45);
+                    let gain_g = project
+                        .node_param_value(node_id, "gain_g", time_secs, eval_stack)
+                        .unwrap_or(0.8);
+                    let gain_b = project
+                        .node_param_value(node_id, "gain_b", time_secs, eval_stack)
+                        .unwrap_or(1.0);
+                    let alpha_mul = project
+                        .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
+                        .unwrap_or(0.8);
+                    apply_tex_transform(out, brightness, gain_r, gain_g, gain_b, alpha_mul);
+                    true
+                }
             } else {
-                out.copy_from_slice(scratch);
-                let brightness = project
-                    .node_param_value(node_id, "brightness", time_secs, eval_stack)
-                    .unwrap_or(1.08);
-                let gain_r = project
-                    .node_param_value(node_id, "gain_r", time_secs, eval_stack)
-                    .unwrap_or(0.45);
-                let gain_g = project
-                    .node_param_value(node_id, "gain_g", time_secs, eval_stack)
-                    .unwrap_or(0.8);
-                let gain_b = project
-                    .node_param_value(node_id, "gain_b", time_secs, eval_stack)
-                    .unwrap_or(1.0);
-                let alpha_mul = project
-                    .node_param_value(node_id, "alpha_mul", time_secs, eval_stack)
-                    .unwrap_or(0.8);
-                apply_tex_transform(out, brightness, gain_r, gain_g, gain_b, alpha_mul);
-                true
+                false
             }
         }
         ProjectNodeKind::CtlLfo => false,
