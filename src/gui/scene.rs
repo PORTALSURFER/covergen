@@ -1,7 +1,8 @@
 //! Retained-style scene assembly for the GPU GUI renderer.
 //!
-//! The builder produces simple colored rectangles and line segments each frame.
-//! Rendering stays on GPU; only lightweight geometry lists are rebuilt.
+//! The builder partitions GUI geometry into retained layers and marks only
+//! changed layers dirty each update (`static_panel`, `edges`, `nodes`,
+//! `overlays`). Rendering stays on GPU and unchanged layers are reused.
 
 use super::geometry::Rect;
 use super::project::{
@@ -87,16 +88,53 @@ pub(crate) struct ColoredLine {
 #[derive(Debug, Default)]
 pub(crate) struct SceneFrame {
     pub(crate) clear: Option<Color>,
+    pub(crate) static_panel: SceneLayer,
+    pub(crate) edges: SceneLayer,
+    pub(crate) nodes: SceneLayer,
+    pub(crate) overlays: SceneLayer,
+    pub(crate) dirty: SceneLayerDirty,
+}
+
+/// One retained GUI geometry layer.
+#[derive(Debug, Default)]
+pub(crate) struct SceneLayer {
     pub(crate) rects: Vec<ColoredRect>,
     pub(crate) lines: Vec<ColoredLine>,
+}
+
+/// Dirty flags used to invalidate retained GUI geometry layers.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SceneLayerDirty {
+    pub(crate) static_panel: bool,
+    pub(crate) edges: bool,
+    pub(crate) nodes: bool,
+    pub(crate) overlays: bool,
+}
+
+impl SceneLayerDirty {
+    /// Return true when any retained layer needs a GPU buffer update.
+    pub(crate) fn any(self) -> bool {
+        self.static_panel || self.edges || self.nodes || self.overlays
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum ActiveLayer {
+    StaticPanel,
+    Edges,
+    #[default]
+    Nodes,
+    Overlays,
 }
 
 /// Stateful scene builder that reuses allocation capacity across frames.
 pub(crate) struct SceneBuilder {
     frame: SceneFrame,
-    static_rects: Vec<ColoredRect>,
-    static_lines: Vec<ColoredLine>,
+    active_layer: ActiveLayer,
     cached_static_key: Option<(usize, usize, usize)>,
+    cached_nodes_key: Option<u64>,
+    cached_edges_key: Option<u64>,
+    cached_overlays_key: Option<u64>,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
@@ -106,9 +144,11 @@ impl Default for SceneBuilder {
     fn default() -> Self {
         Self {
             frame: SceneFrame::default(),
-            static_rects: Vec::new(),
-            static_lines: Vec::new(),
+            active_layer: ActiveLayer::default(),
             cached_static_key: None,
+            cached_nodes_key: None,
+            cached_edges_key: None,
+            cached_overlays_key: None,
             text_renderer: GuiTextRenderer::default(),
             label_scratch: String::new(),
             fitted_label_scratch: String::new(),
@@ -126,19 +166,31 @@ impl SceneBuilder {
         height: usize,
         panel_width: usize,
     ) -> &SceneFrame {
-        self.rebuild_static_if_needed(width, height, panel_width);
         self.frame.clear = Some(PREVIEW_BG);
-        self.frame.rects.clear();
-        self.frame.lines.clear();
-        self.frame.rects.extend_from_slice(&self.static_rects);
-        self.frame.lines.extend_from_slice(&self.static_lines);
+        self.frame.dirty = SceneLayerDirty::default();
 
-        self.push_header(project);
-        self.push_edges(project, state);
-        self.push_nodes(project, state);
-        self.push_right_marquee(state);
-        self.push_link_cut(state);
-        self.push_menu(state);
+        self.rebuild_static_if_needed(width, height, panel_width);
+
+        let nodes_key = nodes_layer_key(project, state);
+        if self.cached_nodes_key != Some(nodes_key) {
+            self.cached_nodes_key = Some(nodes_key);
+            self.frame.dirty.nodes = true;
+            self.rebuild_nodes_layer(project, state);
+        }
+
+        let edges_key = edges_layer_key(project, state);
+        if self.cached_edges_key != Some(edges_key) {
+            self.cached_edges_key = Some(edges_key);
+            self.frame.dirty.edges = true;
+            self.rebuild_edges_layer(project, state);
+        }
+
+        let overlays_key = overlays_layer_key(project, state);
+        if self.cached_overlays_key != Some(overlays_key) {
+            self.cached_overlays_key = Some(overlays_key);
+            self.frame.dirty.overlays = true;
+            self.rebuild_overlays_layer(project, state);
+        }
         &self.frame
     }
 
@@ -148,13 +200,44 @@ impl SceneBuilder {
             return;
         }
         self.cached_static_key = Some(key);
-        self.static_rects.clear();
-        self.static_lines.clear();
-        self.static_rects.push(ColoredRect {
-            rect: Rect::new(0, 0, panel_width as i32, height as i32),
-            color: PANEL_BG,
-        });
-        Self::push_divider_into(&mut self.static_lines, panel_width as i32, height as i32);
+        self.frame.dirty.static_panel = true;
+        self.set_active_layer(ActiveLayer::StaticPanel);
+        self.clear_active_layer();
+        self.push_rect(Rect::new(0, 0, panel_width as i32, height as i32), PANEL_BG);
+        let x = panel_width as i32 - 1;
+        self.push_line(x, 0, x, height as i32 - 1, BORDER_COLOR);
+    }
+
+    fn rebuild_nodes_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        self.set_active_layer(ActiveLayer::Nodes);
+        self.clear_active_layer();
+        self.push_header(project);
+        self.push_nodes(project, state);
+    }
+
+    fn rebuild_edges_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        self.set_active_layer(ActiveLayer::Edges);
+        self.clear_active_layer();
+        self.push_edges(project, state);
+    }
+
+    fn rebuild_overlays_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        self.set_active_layer(ActiveLayer::Overlays);
+        self.clear_active_layer();
+        self.push_wire_drag(project, state);
+        self.push_right_marquee(state);
+        self.push_link_cut(state);
+        self.push_menu(state);
+    }
+
+    fn set_active_layer(&mut self, layer: ActiveLayer) {
+        self.active_layer = layer;
+    }
+
+    fn clear_active_layer(&mut self) {
+        let layer = active_scene_layer_mut(&mut self.frame, self.active_layer);
+        layer.rects.clear();
+        layer.lines.clear();
     }
 
     fn push_header(&mut self, project: &GuiProject) {
@@ -167,7 +250,6 @@ impl SceneBuilder {
 
     fn push_edges(&mut self, project: &GuiProject, state: &PreviewState) {
         if project.edge_count() == 0 {
-            self.push_wire_drag(project, state);
             return;
         }
         for target in project.nodes() {
@@ -191,7 +273,6 @@ impl SceneBuilder {
                 self.push_line(from_x, from_y, to_x, to_y, color);
             }
         }
-        self.push_wire_drag(project, state);
     }
 
     fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState) {
@@ -359,19 +440,10 @@ impl SceneBuilder {
         self.push_border(rect, MARQUEE_BORDER);
     }
 
-    fn push_divider_into(out: &mut Vec<ColoredLine>, panel_width: i32, panel_height: i32) {
-        let x = panel_width - 1;
-        out.push(ColoredLine {
-            x0: x,
-            y0: 0,
-            x1: x,
-            y1: panel_height - 1,
-            color: BORDER_COLOR,
-        });
-    }
-
     fn push_rect(&mut self, rect: Rect, color: Color) {
-        self.frame.rects.push(ColoredRect { rect, color });
+        active_scene_layer_mut(&mut self.frame, self.active_layer)
+            .rects
+            .push(ColoredRect { rect, color });
     }
 
     fn push_border(&mut self, rect: Rect, color: Color) {
@@ -386,7 +458,9 @@ impl SceneBuilder {
     }
 
     fn push_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
-        self.frame.lines.push(ColoredLine {
+        active_scene_layer_mut(&mut self.frame, self.active_layer)
+            .lines
+            .push(ColoredLine {
             x0,
             y0,
             x1,
@@ -444,7 +518,7 @@ impl SceneBuilder {
     }
 
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
-        let out = &mut self.frame.rects;
+        let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
         self.text_renderer.push_text(out, x, y, text, color);
     }
 
@@ -452,7 +526,7 @@ impl SceneBuilder {
         if state.zoom < GRAPH_TEXT_HIDE_ZOOM {
             return;
         }
-        let out = &mut self.frame.rects;
+        let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
         self.text_renderer
             .push_text_scaled(out, x, y, text, color, state.zoom);
     }
@@ -471,7 +545,7 @@ impl SceneBuilder {
         let metrics = self.text_renderer.metrics_scaled(state.zoom);
         let x = rect.x + left_pad;
         let y = rect.y + ((rect.h - metrics.line_height_px).max(0) / 2);
-        let out = &mut self.frame.rects;
+        let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
         self.text_renderer
             .push_text_scaled(out, x, y, text, color, state.zoom);
     }
@@ -508,7 +582,7 @@ impl SceneBuilder {
                 }
             }
         }
-        let out = &mut self.frame.rects;
+        let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
         self.text_renderer.push_text_scaled(
             out,
             text_x,
@@ -585,6 +659,134 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
     let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
     (sx, sy)
+}
+
+fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut SceneLayer {
+    match layer {
+        ActiveLayer::StaticPanel => &mut frame.static_panel,
+        ActiveLayer::Edges => &mut frame.edges,
+        ActiveLayer::Nodes => &mut frame.nodes,
+        ActiveLayer::Overlays => &mut frame.overlays,
+    }
+}
+
+fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
+    let mut hash = hash_start();
+    hash = hash_u64(hash, project.graph_signature());
+    hash = hash_f32(hash, state.pan_x);
+    hash = hash_f32(hash, state.pan_y);
+    hash = hash_f32(hash, state.zoom);
+    hash = hash_opt_u32(hash, state.hover_node);
+    hash = hash_opt_u32(hash, state.hover_output_pin);
+    hash = hash_opt_u32(hash, state.hover_input_pin);
+    hash = hash_opt_u32(hash, state.wire_drag.map(|wire| wire.source_node_id));
+    hash = hash_opt_u32(hash, state.drag.map(|drag| drag.node_id));
+    for selected in &state.selected_nodes {
+        hash = hash_u64(hash, *selected as u64);
+    }
+    if let Some(edit) = state.param_edit.as_ref() {
+        hash = hash_u64(hash, edit.node_id as u64);
+        hash = hash_u64(hash, edit.param_index as u64);
+        hash = hash_u64(hash, edit.cursor as u64);
+        hash = hash_u64(hash, edit.anchor as u64);
+        for byte in edit.buffer.as_bytes() {
+            hash = hash_u64(hash, *byte as u64);
+        }
+    }
+    for byte in project.name.as_bytes() {
+        hash = hash_u64(hash, *byte as u64);
+    }
+    hash
+}
+
+fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
+    let mut hash = hash_start();
+    hash = hash_f32(hash, state.pan_x);
+    hash = hash_f32(hash, state.pan_y);
+    hash = hash_f32(hash, state.zoom);
+    hash = hash_opt_cut_line(hash, state.link_cut);
+    for node in project.nodes() {
+        hash = hash_u64(hash, node.id() as u64);
+        hash = hash_i32(hash, node.x());
+        hash = hash_i32(hash, node.y());
+        for input in node.inputs() {
+            hash = hash_u64(hash, *input as u64);
+        }
+        hash = hash_u64(hash, 0xff);
+    }
+    hash
+}
+
+fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
+    let mut hash = hash_start();
+    hash = hash_u64(hash, project.ui_signature());
+    hash = hash_f32(hash, state.pan_x);
+    hash = hash_f32(hash, state.pan_y);
+    hash = hash_f32(hash, state.zoom);
+    hash = hash_opt_u32(hash, state.hover_input_pin);
+    hash = hash_opt_wire(hash, state.wire_drag);
+    hash = hash_opt_cut_line(hash, state.link_cut);
+    hash = hash_opt_marquee(hash, state.right_marquee);
+    hash = hash_u64(hash, state.menu.open as u64);
+    hash = hash_i32(hash, state.menu.x);
+    hash = hash_i32(hash, state.menu.y);
+    hash = hash_u64(hash, state.menu.selected as u64);
+    if let Some(index) = state.hover_menu_item {
+        hash = hash_u64(hash, index as u64);
+    }
+    hash
+}
+
+fn hash_start() -> u64 {
+    0xcbf29ce484222325
+}
+
+fn hash_u64(seed: u64, value: u64) -> u64 {
+    seed.wrapping_mul(0x100000001b3) ^ value
+}
+
+fn hash_i32(seed: u64, value: i32) -> u64 {
+    hash_u64(seed, value as i64 as u64)
+}
+
+fn hash_f32(seed: u64, value: f32) -> u64 {
+    hash_u64(seed, value.to_bits() as u64)
+}
+
+fn hash_opt_u32(seed: u64, value: Option<u32>) -> u64 {
+    match value {
+        Some(v) => hash_u64(seed, v as u64),
+        None => hash_u64(seed, u64::MAX),
+    }
+}
+
+fn hash_opt_wire(seed: u64, value: Option<super::state::WireDragState>) -> u64 {
+    let Some(wire) = value else {
+        return hash_u64(seed, u64::MAX - 1);
+    };
+    let hash = hash_u64(seed, wire.source_node_id as u64);
+    let hash = hash_i32(hash, wire.cursor_x);
+    hash_i32(hash, wire.cursor_y)
+}
+
+fn hash_opt_cut_line(seed: u64, value: Option<super::state::LinkCutState>) -> u64 {
+    let Some(cut) = value else {
+        return hash_u64(seed, u64::MAX - 2);
+    };
+    let hash = hash_i32(seed, cut.start_x);
+    let hash = hash_i32(hash, cut.start_y);
+    let hash = hash_i32(hash, cut.cursor_x);
+    hash_i32(hash, cut.cursor_y)
+}
+
+fn hash_opt_marquee(seed: u64, value: Option<RightMarqueeState>) -> u64 {
+    let Some(marquee) = value else {
+        return hash_u64(seed, u64::MAX - 3);
+    };
+    let hash = hash_i32(seed, marquee.start_x);
+    let hash = hash_i32(hash, marquee.start_y);
+    let hash = hash_i32(hash, marquee.cursor_x);
+    hash_i32(hash, marquee.cursor_y)
 }
 
 fn marquee_panel_rect(marquee: RightMarqueeState) -> Option<Rect> {

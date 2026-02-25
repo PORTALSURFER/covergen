@@ -11,7 +11,7 @@ use winit::window::Window;
 
 use crate::runtime_config::GuiVsync;
 
-use super::scene::{Color, SceneFrame};
+use super::scene::{Color, SceneFrame, SceneLayer};
 use super::top_view::TopViewerFrame;
 use setup::{
     create_pipeline, create_uniform_bind_group, create_vertex_buffer, grow_capacity,
@@ -19,6 +19,122 @@ use setup::{
     Vertex, ViewportUniform,
 };
 use top_preview::TopPreviewRenderer;
+
+/// Retained GPU buffers/vertices for one scene layer.
+#[derive(Debug)]
+struct LayerGpuGeometry {
+    triangle_buffer: wgpu::Buffer,
+    line_buffer: wgpu::Buffer,
+    triangle_capacity: usize,
+    line_capacity: usize,
+    triangle_vertices: Vec<Vertex>,
+    line_vertices: Vec<Vertex>,
+    triangle_count: u32,
+    line_count: u32,
+}
+
+impl LayerGpuGeometry {
+    /// Create one retained layer geometry cache.
+    fn new(device: &wgpu::Device, label_prefix: &str, initial_capacity: usize) -> Self {
+        let tri_cap = initial_capacity.max(1);
+        let line_cap = initial_capacity.max(1);
+        let triangle_buffer = create_vertex_buffer(
+            device,
+            tri_cap,
+            &format!("gui-{label_prefix}-triangle-vb"),
+        );
+        let line_buffer =
+            create_vertex_buffer(device, line_cap, &format!("gui-{label_prefix}-line-vb"));
+        Self {
+            triangle_buffer,
+            line_buffer,
+            triangle_capacity: tri_cap,
+            line_capacity: line_cap,
+            triangle_vertices: Vec::with_capacity(tri_cap),
+            line_vertices: Vec::with_capacity(line_cap),
+            triangle_count: 0,
+            line_count: 0,
+        }
+    }
+
+    /// Rebuild vertex payload and upload to GPU buffers.
+    fn rebuild(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layer: &SceneLayer,
+        label_prefix: &str,
+    ) {
+        self.triangle_vertices.clear();
+        self.line_vertices.clear();
+
+        let triangle_target = layer.rects.len().saturating_mul(6);
+        if triangle_target > self.triangle_vertices.capacity() {
+            self.triangle_vertices
+                .reserve(triangle_target - self.triangle_vertices.capacity());
+        }
+        let line_target = layer.lines.len().saturating_mul(2);
+        if line_target > self.line_vertices.capacity() {
+            self.line_vertices
+                .reserve(line_target - self.line_vertices.capacity());
+        }
+
+        for rect in &layer.rects {
+            push_rect_triangles(&mut self.triangle_vertices, rect.rect, rect.color);
+        }
+        for line in &layer.lines {
+            self.line_vertices
+                .push(Vertex::new(line.x0, line.y0, line.color));
+            self.line_vertices
+                .push(Vertex::new(line.x1, line.y1, line.color));
+        }
+
+        self.ensure_capacity(device, self.triangle_vertices.len(), self.line_vertices.len(), label_prefix);
+
+        if !self.triangle_vertices.is_empty() {
+            queue.write_buffer(
+                &self.triangle_buffer,
+                0,
+                bytemuck::cast_slice(&self.triangle_vertices),
+            );
+        }
+        if !self.line_vertices.is_empty() {
+            queue.write_buffer(
+                &self.line_buffer,
+                0,
+                bytemuck::cast_slice(&self.line_vertices),
+            );
+        }
+
+        self.triangle_count = self.triangle_vertices.len() as u32;
+        self.line_count = self.line_vertices.len() as u32;
+    }
+
+    fn ensure_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        triangles: usize,
+        lines: usize,
+        label_prefix: &str,
+    ) {
+        if triangles > self.triangle_capacity {
+            self.triangle_capacity = grow_capacity(triangles);
+            self.triangle_buffer = create_vertex_buffer(
+                device,
+                self.triangle_capacity,
+                &format!("gui-{label_prefix}-triangle-vb"),
+            );
+        }
+        if lines > self.line_capacity {
+            self.line_capacity = grow_capacity(lines);
+            self.line_buffer = create_vertex_buffer(
+                device,
+                self.line_capacity,
+                &format!("gui-{label_prefix}-line-vb"),
+            );
+        }
+    }
+}
 
 /// GPU renderer state for one GUI window/surface.
 #[derive(Debug)]
@@ -32,12 +148,10 @@ pub(crate) struct GuiRenderer {
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     top_preview: TopPreviewRenderer,
-    triangle_buffer: wgpu::Buffer,
-    line_buffer: wgpu::Buffer,
-    triangle_capacity: usize,
-    line_capacity: usize,
-    triangle_vertices: Vec<Vertex>,
-    line_vertices: Vec<Vertex>,
+    static_panel_geometry: LayerGpuGeometry,
+    edges_geometry: LayerGpuGeometry,
+    nodes_geometry: LayerGpuGeometry,
+    overlays_geometry: LayerGpuGeometry,
     uniform_dirty: bool,
 }
 
@@ -99,11 +213,6 @@ impl GuiRenderer {
         let top_preview =
             TopPreviewRenderer::new(&device, &uniform_bind_group_layout, config.format);
 
-        let triangle_capacity = 8192;
-        let line_capacity = 8192;
-        let triangle_buffer = create_vertex_buffer(&device, triangle_capacity, "gui-triangle-vb");
-        let line_buffer = create_vertex_buffer(&device, line_capacity, "gui-line-vb");
-
         Ok(Self {
             surface,
             device,
@@ -114,12 +223,10 @@ impl GuiRenderer {
             uniform_buffer,
             uniform_bind_group,
             top_preview,
-            triangle_buffer,
-            line_buffer,
-            triangle_capacity,
-            line_capacity,
-            triangle_vertices: Vec::with_capacity(triangle_capacity),
-            line_vertices: Vec::with_capacity(line_capacity),
+            static_panel_geometry: LayerGpuGeometry::new(&device, "static-panel", 1024),
+            edges_geometry: LayerGpuGeometry::new(&device, "edges", 2048),
+            nodes_geometry: LayerGpuGeometry::new(&device, "nodes", 8192),
+            overlays_geometry: LayerGpuGeometry::new(&device, "overlays", 2048),
             uniform_dirty: false,
         })
     }
@@ -155,8 +262,7 @@ impl GuiRenderer {
         top_view: Option<TopViewerFrame<'_>>,
         panel_width: usize,
     ) -> Result<(), Box<dyn Error>> {
-        self.rebuild_geometry(frame);
-        self.ensure_vertex_capacity(self.triangle_vertices.len(), self.line_vertices.len());
+        self.rebuild_dirty_layers(frame);
         if self.uniform_dirty {
             self.queue.write_buffer(
                 &self.uniform_buffer,
@@ -165,21 +271,37 @@ impl GuiRenderer {
             );
             self.uniform_dirty = false;
         }
-        self.queue.write_buffer(
-            &self.triangle_buffer,
-            0,
-            bytemuck::cast_slice(&self.triangle_vertices),
-        );
-        self.queue.write_buffer(
-            &self.line_buffer,
-            0,
-            bytemuck::cast_slice(&self.line_vertices),
-        );
         self.render_surface(
             frame.clear.unwrap_or(Color::argb(0xFF000000)),
             panel_width,
             top_view,
         )
+    }
+
+    fn rebuild_dirty_layers(&mut self, frame: &SceneFrame) {
+        if !frame.dirty.any() {
+            return;
+        }
+        if frame.dirty.static_panel {
+            self.static_panel_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.static_panel,
+                "static-panel",
+            );
+        }
+        if frame.dirty.edges {
+            self.edges_geometry
+                .rebuild(&self.device, &self.queue, &frame.edges, "edges");
+        }
+        if frame.dirty.nodes {
+            self.nodes_geometry
+                .rebuild(&self.device, &self.queue, &frame.nodes, "nodes");
+        }
+        if frame.dirty.overlays {
+            self.overlays_geometry
+                .rebuild(&self.device, &self.queue, &frame.overlays, "overlays");
+        }
     }
 
     fn render_surface(
@@ -235,59 +357,29 @@ impl GuiRenderer {
 
             self.top_preview.draw(&mut pass, &self.uniform_bind_group);
 
-            if !self.triangle_vertices.is_empty() {
-                pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
-                pass.set_pipeline(&self.triangles_pipeline);
-                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                pass.set_vertex_buffer(0, self.triangle_buffer.slice(..));
-                pass.draw(0..self.triangle_vertices.len() as u32, 0..1);
-            }
-            if !self.line_vertices.is_empty() {
-                pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
-                pass.set_pipeline(&self.lines_pipeline);
-                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                pass.set_vertex_buffer(0, self.line_buffer.slice(..));
-                pass.draw(0..self.line_vertices.len() as u32, 0..1);
-            }
+            pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
+            self.draw_layer(&mut pass, &self.static_panel_geometry);
+            self.draw_layer(&mut pass, &self.edges_geometry);
+            self.draw_layer(&mut pass, &self.nodes_geometry);
+            self.draw_layer(&mut pass, &self.overlays_geometry);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_tex.present();
         Ok(())
     }
 
-    fn rebuild_geometry(&mut self, frame: &SceneFrame) {
-        self.triangle_vertices.clear();
-        self.line_vertices.clear();
-        let triangle_target = frame.rects.len().saturating_mul(6);
-        if triangle_target > self.triangle_vertices.capacity() {
-            self.triangle_vertices
-                .reserve(triangle_target - self.triangle_vertices.capacity());
+    fn draw_layer<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, layer: &'a LayerGpuGeometry) {
+        if layer.triangle_count > 0 {
+            pass.set_pipeline(&self.triangles_pipeline);
+            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, layer.triangle_buffer.slice(..));
+            pass.draw(0..layer.triangle_count, 0..1);
         }
-        let line_target = frame.lines.len().saturating_mul(2);
-        if line_target > self.line_vertices.capacity() {
-            self.line_vertices
-                .reserve(line_target - self.line_vertices.capacity());
-        }
-        for rect in &frame.rects {
-            push_rect_triangles(&mut self.triangle_vertices, rect.rect, rect.color);
-        }
-        for line in &frame.lines {
-            self.line_vertices
-                .push(Vertex::new(line.x0, line.y0, line.color));
-            self.line_vertices
-                .push(Vertex::new(line.x1, line.y1, line.color));
-        }
-    }
-
-    fn ensure_vertex_capacity(&mut self, triangles: usize, lines: usize) {
-        if triangles > self.triangle_capacity {
-            self.triangle_capacity = grow_capacity(triangles);
-            self.triangle_buffer =
-                create_vertex_buffer(&self.device, self.triangle_capacity, "gui-triangle-vb");
-        }
-        if lines > self.line_capacity {
-            self.line_capacity = grow_capacity(lines);
-            self.line_buffer = create_vertex_buffer(&self.device, self.line_capacity, "gui-line-vb");
+        if layer.line_count > 0 {
+            pass.set_pipeline(&self.lines_pipeline);
+            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, layer.line_buffer.slice(..));
+            pass.draw(0..layer.line_count, 0..1);
         }
     }
 }
