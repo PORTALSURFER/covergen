@@ -16,6 +16,11 @@ impl Rect {
     pub(crate) const fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
         Self { x, y, w, h }
     }
+
+    /// Return true when `(px, py)` lies inside this rectangle.
+    pub(crate) const fn contains(self, px: i32, py: i32) -> bool {
+        px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h
+    }
 }
 
 /// Fill one rectangle in `frame` using one ARGB color.
