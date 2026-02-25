@@ -209,7 +209,10 @@ impl SceneBuilder {
                 BORDER_COLOR
             };
             self.push_border(rect, border);
-            self.push_graph_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT, state);
+            // Anchor title text in graph space so it stays visually locked to the
+            // node card under pan/zoom and long-distance canvas movement.
+            let (title_x, title_y) = graph_point_to_panel(node.x() + 8, node.y() + 18, state);
+            self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.expanded() {
                 self.push_node_params(project, node, state);
