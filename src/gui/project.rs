@@ -34,6 +34,8 @@ pub(crate) enum ExecutionKind {
 pub(crate) enum ProjectNodeKind {
     /// `tex.solid` source node (currently visualized as a circle placeholder).
     TexSolid,
+    /// `tex.transform_2d` render node for texture-space color/alpha mutation.
+    TexTransform2D,
     /// `io.window_out` sink node.
     IoWindowOut,
 }
@@ -43,6 +45,7 @@ impl ProjectNodeKind {
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::TexSolid => "tex.solid",
+            Self::TexTransform2D => "tex.transform_2d",
             Self::IoWindowOut => "io.window_out",
         }
     }
@@ -51,6 +54,7 @@ impl ProjectNodeKind {
     pub(crate) const fn execution_kind(self) -> ExecutionKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
+            Self::TexTransform2D => ExecutionKind::Render,
             Self::IoWindowOut => ExecutionKind::Io,
         }
     }
@@ -62,7 +66,7 @@ impl ProjectNodeKind {
 
     /// Return true when this node kind has an input pin.
     pub(crate) const fn accepts_image_input(self) -> bool {
-        matches!(self, Self::IoWindowOut)
+        matches!(self, Self::TexTransform2D | Self::IoWindowOut)
     }
 
     /// Return required input resource kind when this node consumes one.
@@ -75,7 +79,7 @@ impl ProjectNodeKind {
 
     /// Return true when this node kind has an output pin.
     pub(crate) const fn produces_image_output(self) -> bool {
-        matches!(self, Self::TexSolid)
+        matches!(self, Self::TexSolid | Self::TexTransform2D)
     }
 
     /// Return output resource kind when this node publishes one.
@@ -307,6 +311,10 @@ impl GuiProject {
         if source_id == target_id {
             return false;
         }
+        if self.depends_on(source_id, target_id) {
+            // Reject links that would introduce a cycle.
+            return false;
+        }
         let Some(source) = self.node(source_id) else {
             return false;
         };
@@ -331,14 +339,55 @@ impl GuiProject {
         true
     }
 
-    /// Return the source kind wired into the first `io.window_out` node, if any.
-    pub(crate) fn output_source_kind(&self) -> Option<ProjectNodeKind> {
+    /// Return source node id wired into the first `io.window_out` node, if any.
+    pub(crate) fn window_out_input_node_id(&self) -> Option<u32> {
         let output = self
             .nodes
             .iter()
             .find(|node| matches!(node.kind, ProjectNodeKind::IoWindowOut))?;
-        let source_id = *output.inputs.first()?;
-        self.node(source_id).map(ProjectNode::kind)
+        output.inputs.first().copied()
+    }
+
+    /// Return first input source node id for one node.
+    pub(crate) fn input_source_node_id(&self, node_id: u32) -> Option<u32> {
+        self.node(node_id)?.inputs.first().copied()
+    }
+
+    /// Return stable signature for graph topology + node kinds.
+    ///
+    /// This is used by preview caches to detect wiring or node-kind updates.
+    pub(crate) fn graph_signature(&self) -> u64 {
+        let mut hash = 0xcbf29ce484222325_u64;
+        for node in &self.nodes {
+            hash = fnv1a_u64(hash, node.id as u64);
+            for byte in node.kind.stable_id().as_bytes() {
+                hash = fnv1a_u64(hash, *byte as u64);
+            }
+            hash = fnv1a_u64(hash, 0xff);
+            for source_id in &node.inputs {
+                hash = fnv1a_u64(hash, *source_id as u64);
+            }
+            hash = fnv1a_u64(hash, 0xfe);
+        }
+        hash
+    }
+
+    fn depends_on(&self, start_node_id: u32, target_node_id: u32) -> bool {
+        let mut stack = vec![start_node_id];
+        let mut visited = Vec::new();
+        while let Some(node_id) = stack.pop() {
+            if node_id == target_node_id {
+                return true;
+            }
+            if visited.contains(&node_id) {
+                continue;
+            }
+            visited.push(node_id);
+            if let Some(node) = self.node(node_id) {
+                stack.extend(node.inputs.iter().copied());
+            }
+        }
+        false
     }
 
     fn recount_edges(&mut self) {
@@ -388,6 +437,10 @@ fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }
 
+fn fnv1a_u64(hash: u64, data: u64) -> u64 {
+    (hash ^ data).wrapping_mul(0x100000001b3)
+}
+
 fn next_project_name() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -425,14 +478,43 @@ mod tests {
     }
 
     #[test]
-    fn connect_image_link_wires_top_to_output() {
+    fn connect_image_link_wires_solid_to_window_out() {
         let mut project = GuiProject::new_empty(640, 480);
         let top = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(top, out));
         assert_eq!(project.edge_count(), 1);
-        assert_eq!(project.output_source_kind(), Some(ProjectNodeKind::TexSolid));
+        let source_id = project
+            .window_out_input_node_id()
+            .expect("window-out input must exist");
+        let source = project.node(source_id).expect("source node must exist");
+        assert_eq!(source.kind(), ProjectNodeKind::TexSolid);
         assert!(!project.connect_image_link(top, out));
+    }
+
+    #[test]
+    fn transform_node_supports_in_and_out_links() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 160, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 300, 40, 420, 480);
+        assert!(project.connect_image_link(source, xform));
+        assert!(project.connect_image_link(xform, out));
+        assert_eq!(project.edge_count(), 2);
+        let source_id = project
+            .window_out_input_node_id()
+            .expect("window-out input must exist");
+        let source = project.node(source_id).expect("source node must exist");
+        assert_eq!(source.kind(), ProjectNodeKind::TexTransform2D);
+    }
+
+    #[test]
+    fn connect_image_link_rejects_cycle() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let a = project.add_node(ProjectNodeKind::TexTransform2D, 20, 40, 420, 480);
+        let b = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        assert!(project.connect_image_link(a, b));
+        assert!(!project.connect_image_link(b, a));
     }
 
     #[test]

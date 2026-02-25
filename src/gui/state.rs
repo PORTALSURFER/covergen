@@ -27,9 +27,12 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 2] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 3] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexTransform2D,
     },
     AddNodeOption {
         kind: ProjectNodeKind::IoWindowOut,
@@ -200,7 +203,7 @@ mod tests {
     #[test]
     fn menu_item_hit_test_matches_item_rects() {
         let menu = AddNodeMenuState::open_at(100, 100, 420, 400);
-        for index in 0..2 {
+        for index in 0..super::ADD_NODE_OPTIONS.len() {
             let rect = menu.item_rect(index).expect("item rect should exist");
             let hit = menu.item_at(rect.x + 2, rect.y + 2);
             assert_eq!(hit, Some(index));
