@@ -17,17 +17,29 @@ pub(crate) enum TopViewerPayload<'a> {
 
 /// Borrowed frame payload for one TOP viewer render.
 pub(crate) struct TopViewerFrame<'a> {
+    /// Panel-space x-offset of fitted preview quad.
     pub(crate) x: i32,
+    /// Panel-space y-offset of fitted preview quad.
     pub(crate) y: i32,
+    /// Panel-space fitted preview quad width.
     pub(crate) width: u32,
+    /// Panel-space fitted preview quad height.
     pub(crate) height: u32,
+    /// Backing GPU texture width used for TOP evaluation.
+    pub(crate) texture_width: u32,
+    /// Backing GPU texture height used for TOP evaluation.
+    pub(crate) texture_height: u32,
     pub(crate) payload: TopViewerPayload<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ViewerCacheKey {
-    width: u32,
-    height: u32,
+    panel_width: u32,
+    panel_height: u32,
+    view_width: u32,
+    view_height: u32,
+    texture_width: u32,
+    texture_height: u32,
     render_signature: u64,
     frame_index: u32,
 }
@@ -57,8 +69,14 @@ impl TopViewerGenerator {
         frame_index: u32,
         timeline_fps: u32,
     ) {
-        let width = viewport_width.saturating_sub(panel_width) as u32;
-        let height = viewport_height as u32;
+        let panel_w = viewport_width.saturating_sub(panel_width) as u32;
+        let panel_h = viewport_height as u32;
+        let texture_width = project.preview_width.max(1);
+        let texture_height = project.preview_height.max(1);
+        let (view_width, view_height) =
+            fit_aspect_in_rect(panel_w, panel_h, texture_width, texture_height);
+        let x = panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
+        let y = (panel_h.saturating_sub(view_height) / 2) as i32;
         let render_signature = project.render_signature();
         let dynamic_frame = if project.has_signal_bindings() {
             frame_index
@@ -66,19 +84,23 @@ impl TopViewerGenerator {
             0
         };
         let key = ViewerCacheKey {
-            width,
-            height,
+            panel_width: panel_w,
+            panel_height: panel_h,
+            view_width,
+            view_height,
+            texture_width,
+            texture_height,
             render_signature,
             frame_index: dynamic_frame,
         };
-        self.x = panel_width as i32;
-        self.y = 0;
+        self.x = x;
+        self.y = y;
         if self.key == Some(key) {
             return;
         }
         self.key = Some(key);
-        self.width = width;
-        self.height = height;
+        self.width = view_width;
+        self.height = view_height;
 
         if self.compiled_signature != Some(render_signature) {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
@@ -102,8 +124,34 @@ impl TopViewerGenerator {
             y: self.y,
             width: self.width,
             height: self.height,
+            texture_width: self
+                .key
+                .map(|key| key.texture_width)
+                .unwrap_or(self.width.max(1)),
+            texture_height: self
+                .key
+                .map(|key| key.texture_height)
+                .unwrap_or(self.height.max(1)),
             payload: TopViewerPayload::GpuOps(self.ops.as_slice()),
         })
+    }
+}
+
+fn fit_aspect_in_rect(
+    avail_w: u32,
+    avail_h: u32,
+    texture_w: u32,
+    texture_h: u32,
+) -> (u32, u32) {
+    if avail_w == 0 || avail_h == 0 || texture_w == 0 || texture_h == 0 {
+        return (0, 0);
+    }
+    if (avail_w as u64) * (texture_h as u64) <= (avail_h as u64) * (texture_w as u64) {
+        let h = ((avail_w as u64) * (texture_h as u64) / (texture_w as u64)) as u32;
+        (avail_w.max(1), h.max(1))
+    } else {
+        let w = ((avail_h as u64) * (texture_w as u64) / (texture_h as u64)) as u32;
+        (w.max(1), avail_h.max(1))
     }
 }
 
@@ -241,5 +289,19 @@ mod tests {
             TopViewerPayload::GpuOps(ops) => ops,
         };
         assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn viewer_frame_fits_texture_aspect_inside_output_panel() {
+        let project = GuiProject::new_empty(1920, 1080);
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 1200, 900, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        assert_eq!(frame.texture_width, 1920);
+        assert_eq!(frame.texture_height, 1080);
+        assert_eq!(frame.width, 780);
+        assert_eq!(frame.height, 438);
+        assert_eq!(frame.x, 420);
+        assert_eq!(frame.y, 231);
     }
 }

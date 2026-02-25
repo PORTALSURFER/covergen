@@ -20,12 +20,16 @@ impl TopPreviewRenderer {
             self.viewer_visible = false;
             return 0;
         };
-        if top_view.width == 0 || top_view.height == 0 {
+        if top_view.width == 0
+            || top_view.height == 0
+            || top_view.texture_width == 0
+            || top_view.texture_height == 0
+        {
             self.viewer_visible = false;
             return 0;
         }
         let mut upload_bytes = 0u64;
-        self.ensure_viewer_texture(device, top_view.width, top_view.height);
+        self.ensure_viewer_texture(device, top_view.texture_width, top_view.texture_height);
         let rect = Rect::new(
             top_view.x,
             top_view.y,
@@ -40,7 +44,14 @@ impl TopPreviewRenderer {
             TopViewerPayload::GpuOps(ops) => ops,
         };
         if let Some(op_upload_bytes) =
-            self.encode_gpu_ops(device, queue, encoder, ops, top_view.width, top_view.height)
+            self.encode_gpu_ops(
+                device,
+                queue,
+                encoder,
+                ops,
+                top_view.texture_width,
+                top_view.texture_height,
+            )
         {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
