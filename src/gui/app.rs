@@ -15,12 +15,23 @@ use super::perf::GuiPerfRecorder;
 use super::project::{GuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
-use super::state::PreviewState;
+use super::state::{InputSnapshot, PreviewState};
+
+const MIN_PANEL_WIDTH: usize = 260;
+const MIN_PREVIEW_WIDTH: usize = 320;
+const DIVIDER_HIT_SLOP_PX: i32 = 6;
+
+/// Active divider drag metadata for panel resizing.
+#[derive(Clone, Copy, Debug)]
+struct PanelResizeDrag {
+    grab_offset_px: i32,
+}
 
 /// Frame scheduler and state owner for the realtime GUI loop.
 pub(crate) struct GuiApp {
     config: V2Config,
     panel_width: usize,
+    panel_resize_drag: Option<PanelResizeDrag>,
     window: Arc<Window>,
     renderer: GuiRenderer,
     project: GuiProject,
@@ -47,6 +58,7 @@ impl GuiApp {
         window: Arc<Window>,
     ) -> Result<Self, Box<dyn Error>> {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
+        let panel_width = clamp_panel_width(panel_width, renderer.width());
         let mut project = GuiProject::new_empty(config.width, config.height);
         let benchmark_node =
             maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
@@ -64,6 +76,7 @@ impl GuiApp {
         Ok(Self {
             config,
             panel_width,
+            panel_resize_drag: None,
             window,
             renderer,
             project,
@@ -95,6 +108,7 @@ impl GuiApp {
             WindowEvent::CloseRequested => true,
             WindowEvent::Resized(size) => {
                 self.renderer.resize(size.width, size.height);
+                self.panel_width = clamp_panel_width(self.panel_width, self.renderer.width());
                 self.needs_redraw = true;
                 false
             }
@@ -135,14 +149,21 @@ impl GuiApp {
         let input_elapsed = input_start.elapsed();
 
         let update_start = Instant::now();
-        let mut scene_dirty = apply_preview_actions(
-            &self.config,
-            snapshot,
-            &mut self.project,
-            self.panel_width,
-            self.renderer.height(),
-            &mut self.state,
-        );
+        let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(snapshot);
+        let mut scene_dirty = resize_changed;
+        if consume_editor_input {
+            self.state.drag = None;
+            self.state.prev_left_down = snapshot.left_down;
+        } else {
+            scene_dirty |= apply_preview_actions(
+                &self.config,
+                snapshot,
+                &mut self.project,
+                self.panel_width,
+                self.renderer.height(),
+                &mut self.state,
+            );
+        }
         if self.config.gui.benchmark_drag {
             scene_dirty |= self.apply_synthetic_drag();
         }
@@ -236,8 +257,51 @@ impl GuiApp {
         self
     }
 
+    fn apply_panel_resize_input(&mut self, input: InputSnapshot) -> (bool, bool) {
+        let mut changed = false;
+        let mut consumed = false;
+        if input.left_clicked && self.try_begin_panel_resize(input.mouse_pos) {
+            consumed = true;
+        }
+        let Some(drag) = self.panel_resize_drag else {
+            return (changed, consumed);
+        };
+        consumed = true;
+        if !input.left_down {
+            self.panel_resize_drag = None;
+            return (changed, consumed);
+        }
+        let Some((mx, _)) = input.mouse_pos else {
+            return (changed, consumed);
+        };
+        let requested = (mx - drag.grab_offset_px + 1).max(1) as usize;
+        let next_width = clamp_panel_width(requested, self.renderer.width());
+        if next_width != self.panel_width {
+            self.panel_width = next_width;
+            changed = true;
+        }
+        (changed, consumed)
+    }
+
+    fn try_begin_panel_resize(&mut self, mouse_pos: Option<(i32, i32)>) -> bool {
+        let Some((mx, my)) = mouse_pos else {
+            return false;
+        };
+        if !on_panel_divider(mx, my, self.panel_width, self.renderer.height()) {
+            return false;
+        }
+        let divider_x = self.panel_width as i32 - 1;
+        self.panel_resize_drag = Some(PanelResizeDrag {
+            grab_offset_px: mx - divider_x,
+        });
+        self.state.drag = None;
+        true
+    }
+
     fn update_loop_policy(&mut self) {
-        self.continuous_redraw = !self.state.paused || state_has_transient_ui(&self.state);
+        self.continuous_redraw = !self.state.paused
+            || state_has_transient_ui(&self.state)
+            || self.panel_resize_drag.is_some();
         if self.config.gui.benchmark_drag {
             self.continuous_redraw = true;
         }
@@ -270,6 +334,24 @@ fn maybe_seed_benchmark_nodes(
 
 fn frame_budget(target_fps: u32) -> Duration {
     Duration::from_secs_f64(1.0 / target_fps.max(1) as f64)
+}
+
+fn clamp_panel_width(requested: usize, viewport_width: usize) -> usize {
+    if viewport_width <= 1 {
+        return 1;
+    }
+    let hard_max = viewport_width - 1;
+    let min_width = MIN_PANEL_WIDTH.min(hard_max);
+    let max_width = hard_max.saturating_sub(MIN_PREVIEW_WIDTH).max(min_width);
+    requested.clamp(min_width, max_width)
+}
+
+fn on_panel_divider(mx: i32, my: i32, panel_width: usize, panel_height: usize) -> bool {
+    if my < 0 || my >= panel_height as i32 {
+        return false;
+    }
+    let divider_x = panel_width as i32 - 1;
+    (mx - divider_x).abs() <= DIVIDER_HIT_SLOP_PX
 }
 
 fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
