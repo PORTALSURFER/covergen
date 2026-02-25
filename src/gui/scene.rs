@@ -5,8 +5,8 @@
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center, pin_rect,
-    GuiProject, ProjectNode, ProjectNodeKind, NODE_WIDTH,
+    input_pin_center, node_expand_toggle_rect, node_param_row_rect, node_param_value_rect,
+    output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, NODE_WIDTH,
 };
 use super::state::{PreviewState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
@@ -29,6 +29,10 @@ const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
+const TOGGLE_BG: Color = Color::argb(0xFF121212);
+const TOGGLE_BORDER: Color = Color::argb(AGIO.border);
+const TOGGLE_ACTIVE_BG: Color = Color::argb(0x663B82F6);
+const TOGGLE_ICON: Color = Color::argb(AGIO.menu_text);
 const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
 const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
@@ -197,10 +201,34 @@ impl SceneBuilder {
             };
             self.push_border(rect, border);
             self.push_text(rect.x + 8, rect.y + 18, node.kind().label(), NODE_TEXT);
+            self.push_node_toggle(node, state);
             if node.expanded() {
                 self.push_node_params(project, node, state);
             }
             self.push_pins(node, state);
+        }
+    }
+
+    fn push_node_toggle(&mut self, node: &ProjectNode, state: &PreviewState) {
+        let Some(toggle_world) = node_expand_toggle_rect(node) else {
+            return;
+        };
+        let toggle = graph_rect_to_panel(toggle_world, state);
+        let bg = if node.expanded() {
+            TOGGLE_ACTIVE_BG
+        } else {
+            TOGGLE_BG
+        };
+        self.push_rect(toggle, bg);
+        self.push_border(toggle, TOGGLE_BORDER);
+        if toggle.w < 4 || toggle.h < 4 {
+            return;
+        }
+        let cx = toggle.x + toggle.w / 2;
+        let cy = toggle.y + toggle.h / 2;
+        self.push_line(toggle.x + 2, cy, toggle.x + toggle.w - 3, cy, TOGGLE_ICON);
+        if !node.expanded() {
+            self.push_line(cx, toggle.y + 2, cx, toggle.y + toggle.h - 3, TOGGLE_ICON);
         }
     }
 

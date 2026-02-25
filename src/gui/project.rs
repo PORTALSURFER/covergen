@@ -9,6 +9,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) const NODE_WIDTH: i32 = 128;
 /// Height of one graph node card in the editor canvas.
 pub(crate) const NODE_HEIGHT: i32 = 44;
+/// Width/height of node header expand/collapse toggle in graph-space pixels.
+pub(crate) const NODE_TOGGLE_SIZE: i32 = 8;
+/// Top-left inset from node origin to toggle origin in graph-space pixels.
+pub(crate) const NODE_TOGGLE_MARGIN: i32 = 3;
 /// Diameter of one node pin in editor pixels.
 pub(crate) const NODE_PIN_SIZE: i32 = 8;
 /// Height of one expanded parameter row in node cards.
@@ -196,6 +200,11 @@ impl ProjectNode {
     /// Return true when node card is expanded.
     pub(crate) const fn expanded(&self) -> bool {
         self.expanded
+    }
+
+    /// Return true when this node supports expand/collapse parameter UI.
+    pub(crate) fn supports_expand_toggle(&self) -> bool {
+        !self.params.is_empty()
     }
 
     /// Return node card height in world-space canvas pixels.
@@ -793,6 +802,19 @@ pub(crate) fn pin_rect(cx: i32, cy: i32) -> super::geometry::Rect {
     )
 }
 
+/// Return node header expand/collapse toggle rectangle in graph-space coordinates.
+pub(crate) fn node_expand_toggle_rect(node: &ProjectNode) -> Option<super::geometry::Rect> {
+    if !node.supports_expand_toggle() {
+        return None;
+    }
+    Some(super::geometry::Rect::new(
+        node.x() + NODE_TOGGLE_MARGIN,
+        node.y() + NODE_TOGGLE_MARGIN,
+        NODE_TOGGLE_SIZE,
+        NODE_TOGGLE_SIZE,
+    ))
+}
+
 /// Return one parameter row rectangle in graph-space coordinates.
 pub(crate) fn node_param_row_rect(node: &ProjectNode, param_index: usize) -> Option<super::geometry::Rect> {
     if !node.expanded() || param_index >= node.params.len() {
@@ -920,7 +942,10 @@ fn next_project_name() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{input_pin_center, output_pin_center, GraphBounds, GuiProject, ProjectNodeKind};
+    use super::{
+        input_pin_center, node_expand_toggle_rect, output_pin_center, GraphBounds, GuiProject,
+        ProjectNodeKind,
+    };
 
     #[test]
     fn empty_project_has_no_nodes() {
@@ -1024,6 +1049,19 @@ mod tests {
         assert_eq!(hit, Some(2));
         let value_hit = project.param_value_box_contains(solid, 2, row.x + row.w - 4, row.y + 2);
         assert!(value_hit);
+    }
+
+    #[test]
+    fn expand_toggle_rect_exists_for_param_nodes_only() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        let solid_node = project.node(solid).expect("solid node");
+        let out_node = project.node(out).expect("out node");
+        let solid_rect = node_expand_toggle_rect(solid_node).expect("solid toggle");
+        assert_eq!(solid_rect.x, solid_node.x() + super::NODE_TOGGLE_MARGIN);
+        assert_eq!(solid_rect.y, solid_node.y() + super::NODE_TOGGLE_MARGIN);
+        assert!(node_expand_toggle_rect(out_node).is_none());
     }
 
     #[test]

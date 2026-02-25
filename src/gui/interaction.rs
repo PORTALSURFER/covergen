@@ -3,7 +3,9 @@
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
-use super::project::{input_pin_center, output_pin_center, GraphBounds, GuiProject};
+use super::project::{
+    input_pin_center, node_expand_toggle_rect, output_pin_center, GraphBounds, GuiProject,
+};
 use super::state::{
     menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, ParamEditState,
     PreviewState, WireDragState,
@@ -318,17 +320,21 @@ fn handle_param_click(
     state: &mut PreviewState,
 ) -> bool {
     let Some((mx, my)) = input.mouse_pos else {
-        return finish_param_edit(project, state);
+        let _ = finish_param_edit(project, state);
+        return false;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
-        return finish_param_edit(project, state);
+        let _ = finish_param_edit(project, state);
+        return false;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let Some(node_id) = project.node_at(graph_x, graph_y) else {
-        return finish_param_edit(project, state);
+        let _ = finish_param_edit(project, state);
+        return false;
     };
     let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
-        return finish_param_edit(project, state);
+        let _ = finish_param_edit(project, state);
+        return false;
     };
     let _ = project.select_param(node_id, param_index);
     state.active_node = Some(node_id);
@@ -646,7 +652,7 @@ fn begin_wire_drag_if_pin_hit(
 
 fn begin_drag_if_node_hit(
     input: &InputSnapshot,
-    project: &GuiProject,
+    project: &mut GuiProject,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
@@ -663,18 +669,32 @@ fn begin_drag_if_node_hit(
         state.drag = None;
         return changed;
     };
-    let Some(node) = project.node(node_id) else {
+    let Some((node_x, node_y, toggle_rect)) = project.node(node_id).map(|node| {
+        (
+            node.x(),
+            node.y(),
+            node_expand_toggle_rect(node),
+        )
+    }) else {
         let changed = state.drag.is_some();
         state.drag = None;
         return changed;
     };
+    if let Some(toggle_rect) = toggle_rect {
+        if toggle_rect.contains(graph_x, graph_y) {
+            state.drag = None;
+            state.active_node = Some(node_id);
+            state.param_edit = None;
+            return project.toggle_node_expanded(node_id, panel_width, panel_height);
+        }
+    }
     if state.drag.map(|drag| drag.node_id) == Some(node_id) {
         return false;
     }
     state.drag = Some(super::state::DragState {
         node_id,
-        offset_x: graph_x - node.x(),
-        offset_y: graph_y - node.y(),
+        offset_x: graph_x - node_x,
+        offset_y: graph_y - node_y,
     });
     state.active_node = Some(node_id);
     true

@@ -76,7 +76,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, R=new project"
+            "[gui] controls: Esc=quit, Space=add node menu, Tab=open node, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, R=new project"
         );
         Ok(Self {
             config,
