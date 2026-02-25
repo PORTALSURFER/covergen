@@ -152,6 +152,32 @@ pub(crate) struct NodeParamView<'a> {
     pub(crate) selected: bool,
 }
 
+/// Zero-allocation iterator over one node's parameter rows.
+///
+/// This keeps UI traversal allocation-free by borrowing slots directly instead
+/// of materializing an intermediate vector every frame.
+pub(crate) struct NodeParamIter<'a> {
+    params: std::slice::Iter<'a, NodeParamSlot>,
+    selected_index: usize,
+    index: usize,
+}
+
+impl<'a> Iterator for NodeParamIter<'a> {
+    type Item = NodeParamView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let slot = self.params.next()?;
+        let selected = self.index == self.selected_index;
+        self.index += 1;
+        Some(NodeParamView {
+            label: slot.label,
+            value_text: slot.value_text.as_str(),
+            bound: slot.signal_source.is_some(),
+            selected,
+        })
+    }
+}
+
 /// One user-editable graph node instance in a GUI project.
 #[derive(Clone, Debug)]
 pub(crate) struct ProjectNode {
@@ -222,6 +248,15 @@ impl ProjectNode {
     /// Return number of editable parameters for this node.
     pub(crate) fn param_count(&self) -> usize {
         self.params.len()
+    }
+
+    /// Return allocation-free iterator of parameter rows for rendering.
+    pub(crate) fn param_views(&self) -> NodeParamIter<'_> {
+        NodeParamIter {
+            params: self.params.iter(),
+            selected_index: self.selected_param.min(self.params.len().saturating_sub(1)),
+            index: 0,
+        }
     }
 
     /// Return read-only parameter row data for one index.

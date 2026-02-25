@@ -254,10 +254,7 @@ impl SceneBuilder {
         }
         let mut label_scratch = std::mem::take(&mut self.label_scratch);
         let mut fitted_label_scratch = std::mem::take(&mut self.fitted_label_scratch);
-        for index in 0..node.param_count() {
-            let Some(row) = node.param_view(index) else {
-                continue;
-            };
+        for (index, row) in node.param_views().enumerate() {
             let Some(row_world) = node_param_row_rect(node, index) else {
                 continue;
             };
