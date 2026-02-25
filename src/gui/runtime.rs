@@ -163,8 +163,9 @@ fn compile_node(
             true
         }
         ProjectNodeKind::TexTransform2D => {
-            let Some(source_id) = project.input_source_node_id(node_id) else {
-                false
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
             };
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
@@ -184,4 +185,3 @@ fn compile_node(
     }
     ok
 }
-

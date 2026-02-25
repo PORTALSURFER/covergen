@@ -314,6 +314,33 @@ impl RetainedGpuPost {
         Ok(())
     }
 
+    /// Copy mapped GPU-finalized output into BGRA bytes.
+    pub(crate) fn finish_final_readback_bgra(
+        &self,
+        out_bgra: &mut [u8],
+    ) -> Result<(), Box<dyn Error>> {
+        let expected_bytes = self.expected_output_pixels().saturating_mul(4);
+        if out_bgra.len() != expected_bytes {
+            return Err(
+                "output BGRA buffer length does not match configured output dimensions".into(),
+            );
+        }
+        let slice = self.final_staging_buffer.slice(..);
+        {
+            let raw = slice.get_mapped_range();
+            let mapped: &[u32] = bytemuck::cast_slice(&raw);
+            for (src, dst) in mapped.iter().zip(out_bgra.chunks_exact_mut(4)) {
+                let gray = (*src & 255u32) as u8;
+                dst[0] = gray;
+                dst[1] = gray;
+                dst[2] = gray;
+                dst[3] = 255;
+            }
+        }
+        self.final_staging_buffer.unmap();
+        Ok(())
+    }
+
     pub(crate) fn expected_pixels(&self) -> usize {
         (self.width as usize) * (self.height as usize)
     }

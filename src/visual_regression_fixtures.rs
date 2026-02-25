@@ -286,6 +286,7 @@ pub(super) fn runtime_buffers(
         final_luma: vec![0.0f32; pixel_count(config.width, config.height)?],
         downsample_scratch: Vec::new(),
         output_gray: vec![0u8; pixel_count(config.width, config.height)?],
+        output_bgra: vec![0u8; pixel_count(config.width, config.height)?.saturating_mul(4)],
     })
 }
 

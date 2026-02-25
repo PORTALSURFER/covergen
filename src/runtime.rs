@@ -15,7 +15,7 @@ use image::codecs::png::CompressionType;
 
 use super::animation::{
     clip_output_path, create_frame_dir, encode_frames_to_mp4, frame_filename, total_frames,
-    RawVideoEncoder,
+    RawVideoEncoder, StreamFrameFormat,
 };
 use super::compiler::CompiledGraph;
 use super::node::GraphTimeInput;
@@ -37,6 +37,7 @@ pub(crate) struct RuntimeBuffers {
     #[cfg(test)]
     pub downsample_scratch: Vec<u8>,
     pub output_gray: Vec<u8>,
+    pub output_bgra: Vec<u8>,
 }
 
 /// Execute a compiled graph for all requested output images.
@@ -141,6 +142,7 @@ pub(crate) fn create_runtime_buffers(
         #[cfg(test)]
         downsample_scratch: Vec::new(),
         output_gray: vec![0u8; pixel_count(output_width, output_height)?],
+        output_bgra: vec![0u8; pixel_count(output_width, output_height)?.saturating_mul(4)],
     })
 }
 
@@ -171,6 +173,13 @@ fn execute_animation(
         } else {
             None
         };
+        if let Some(encoder) = stream_encoder.as_ref() {
+            println!(
+                "[v2] stream export frame format {:?} | data path {:?} | zero-readback active: false (planned target architecture)",
+                encoder.frame_format(),
+                encoder.data_path()
+            );
+        }
         let clip_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
@@ -193,11 +202,12 @@ fn execute_animation(
                 motion,
             );
 
-            render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
-            finalize_luma_for_output(config, renderer, buffers)?;
             if let Some(encoder) = stream_encoder.as_mut() {
-                encoder.write_gray_frame(&buffers.output_gray)?;
+                render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
+                write_stream_frame(config, renderer, buffers, encoder)?;
             } else if let Some(dir) = frame_dir.as_ref() {
+                render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
+                finalize_luma_for_output(config, renderer, buffers)?;
                 let encoded = encode_png_bytes(
                     config.width,
                     config.height,
@@ -247,6 +257,25 @@ fn execute_animation(
     Ok(())
 }
 
+fn write_stream_frame(
+    config: &V2Config,
+    renderer: &mut GpuLayerRenderer,
+    buffers: &mut RuntimeBuffers,
+    encoder: &mut RawVideoEncoder,
+) -> Result<(), Box<dyn Error>> {
+    match encoder.frame_format() {
+        StreamFrameFormat::Gray8 => {
+            finalize_luma_for_output(config, renderer, buffers)?;
+            encoder.write_gray_frame(&buffers.output_gray)?;
+        }
+        StreamFrameFormat::Bgra8 => {
+            finalize_bgra_for_output(config, renderer, buffers)?;
+            encoder.write_bgra_frame(&buffers.output_bgra)?;
+        }
+    }
+    Ok(())
+}
+
 /// Run final retained-output post-processing and copy grayscale output bytes.
 pub(crate) fn finalize_luma_for_output(
     config: &V2Config,
@@ -267,6 +296,38 @@ pub(crate) fn finalize_luma_for_output(
     let retained_finalize_start = Instant::now();
     renderer.collect_retained_output_gray(
         &mut buffers.output_gray,
+        final_contrast,
+        low_pct,
+        0.99,
+        fast_mode,
+    )?;
+    telemetry::record_timing(
+        "v2.gpu.node.finalize_retained_output",
+        retained_finalize_start.elapsed(),
+    );
+    Ok(())
+}
+
+/// Run final retained-output post-processing and copy BGRA output bytes.
+pub(crate) fn finalize_bgra_for_output(
+    config: &V2Config,
+    renderer: &mut GpuLayerRenderer,
+    buffers: &mut RuntimeBuffers,
+) -> Result<(), Box<dyn Error>> {
+    let final_contrast = match config.profile {
+        V2Profile::Quality => 1.45,
+        V2Profile::Performance => 1.25,
+    };
+    let low_pct = if matches!(config.profile, V2Profile::Performance) {
+        0.02
+    } else {
+        0.01
+    };
+    let fast_mode = matches!(config.profile, V2Profile::Performance);
+
+    let retained_finalize_start = Instant::now();
+    renderer.collect_retained_output_bgra(
+        &mut buffers.output_bgra,
         final_contrast,
         low_pct,
         0.99,

@@ -1,5 +1,5 @@
-use std::error::Error;
 use std::collections::VecDeque;
+use std::error::Error;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -255,6 +255,30 @@ impl GpuLayerRenderer {
         );
         self.wait_for_map(receiver)?;
         self.retained.finish_final_readback_gray(out_gray)
+    }
+
+    /// Read retained output after on-GPU finalization into BGRA output bytes.
+    pub(crate) fn collect_retained_output_bgra(
+        &mut self,
+        out_bgra: &mut [u8],
+        contrast: f32,
+        low_pct: f32,
+        high_pct: f32,
+        fast_mode: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.has_pending_layer_readbacks() {
+            return Err("cannot collect retained output while layer readback is pending".into());
+        }
+        let receiver = self.retained.begin_final_readback(
+            &self.device,
+            &self.queue,
+            contrast,
+            low_pct,
+            high_pct,
+            fast_mode,
+        );
+        self.wait_for_map(receiver)?;
+        self.retained.finish_final_readback_bgra(out_bgra)
     }
 
     /// Submit one layer into retained GPU post-processing accumulation.

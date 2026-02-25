@@ -38,11 +38,8 @@ impl LayerGpuGeometry {
     fn new(device: &wgpu::Device, label_prefix: &str, initial_capacity: usize) -> Self {
         let tri_cap = initial_capacity.max(1);
         let line_cap = initial_capacity.max(1);
-        let triangle_buffer = create_vertex_buffer(
-            device,
-            tri_cap,
-            &format!("gui-{label_prefix}-triangle-vb"),
-        );
+        let triangle_buffer =
+            create_vertex_buffer(device, tri_cap, &format!("gui-{label_prefix}-triangle-vb"));
         let line_buffer =
             create_vertex_buffer(device, line_cap, &format!("gui-{label_prefix}-line-vb"));
         Self {
@@ -89,7 +86,12 @@ impl LayerGpuGeometry {
                 .push(Vertex::new(line.x1, line.y1, line.color));
         }
 
-        self.ensure_capacity(device, self.triangle_vertices.len(), self.line_vertices.len(), label_prefix);
+        self.ensure_capacity(
+            device,
+            self.triangle_vertices.len(),
+            self.line_vertices.len(),
+            label_prefix,
+        );
 
         if !self.triangle_vertices.is_empty() {
             queue.write_buffer(
@@ -212,6 +214,10 @@ impl GuiRenderer {
         );
         let top_preview =
             TopPreviewRenderer::new(&device, &uniform_bind_group_layout, config.format);
+        let static_panel_geometry = LayerGpuGeometry::new(&device, "static-panel", 1024);
+        let edges_geometry = LayerGpuGeometry::new(&device, "edges", 2048);
+        let nodes_geometry = LayerGpuGeometry::new(&device, "nodes", 8192);
+        let overlays_geometry = LayerGpuGeometry::new(&device, "overlays", 2048);
 
         Ok(Self {
             surface,
@@ -223,10 +229,10 @@ impl GuiRenderer {
             uniform_buffer,
             uniform_bind_group,
             top_preview,
-            static_panel_geometry: LayerGpuGeometry::new(&device, "static-panel", 1024),
-            edges_geometry: LayerGpuGeometry::new(&device, "edges", 2048),
-            nodes_geometry: LayerGpuGeometry::new(&device, "nodes", 8192),
-            overlays_geometry: LayerGpuGeometry::new(&device, "overlays", 2048),
+            static_panel_geometry,
+            edges_geometry,
+            nodes_geometry,
+            overlays_geometry,
             uniform_dirty: false,
         })
     }

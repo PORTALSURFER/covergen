@@ -54,6 +54,38 @@ impl H264Encoder {
     }
 }
 
+/// Raw frame layout accepted by the streaming encoder stdin path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StreamFrameFormat {
+    Gray8,
+    Bgra8,
+}
+
+impl StreamFrameFormat {
+    fn bytes_per_pixel(self) -> usize {
+        match self {
+            Self::Gray8 => 1,
+            Self::Bgra8 => 4,
+        }
+    }
+
+    fn input_pixel_format(self) -> &'static str {
+        match self {
+            Self::Gray8 => "gray",
+            Self::Bgra8 => "bgra",
+        }
+    }
+}
+
+/// Frame-transfer architecture used by one export request.
+///
+/// A future zero-copy GPU handoff mode is planned but not active yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExportDataPath {
+    CpuReadback,
+    CpuReadbackGpuUpload,
+}
+
 /// Encoder selection outcome for one export request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct EncoderSelection {
@@ -149,6 +181,8 @@ pub struct RawVideoEncoder {
     stdin: Option<ChildStdin>,
     expected_frame_bytes: usize,
     encoder: H264Encoder,
+    frame_format: StreamFrameFormat,
+    data_path: ExportDataPath,
 }
 
 impl RawVideoEncoder {
@@ -160,17 +194,15 @@ impl RawVideoEncoder {
         output_path: &Path,
     ) -> Result<Self, Box<dyn Error>> {
         ensure_ffmpeg_available()?;
-        let expected_frame_bytes = (width as usize)
-            .checked_mul(height as usize)
-            .ok_or("invalid frame dimensions for streaming encoder")?;
         let selection = select_encoder()?;
+        let preferred_format = preferred_stream_frame_format(selection.preferred);
         let first_try = spawn_rawvideo_encoder(
             width,
             height,
             fps,
             output_path,
-            expected_frame_bytes,
             selection.preferred,
+            preferred_format,
         );
         match first_try {
             Ok(encoder) => Ok(encoder),
@@ -185,21 +217,46 @@ impl RawVideoEncoder {
                     height,
                     fps,
                     output_path,
-                    expected_frame_bytes,
                     H264Encoder::Libx264,
+                    preferred_stream_frame_format(H264Encoder::Libx264),
                 )
             }
             Err(err) => Err(err),
         }
     }
 
+    /// Frame layout required by this encoder.
+    pub fn frame_format(&self) -> StreamFrameFormat {
+        self.frame_format
+    }
+
+    /// Export data-transfer mode selected for this stream.
+    pub fn data_path(&self) -> ExportDataPath {
+        self.data_path
+    }
+
     /// Push one grayscale frame into ffmpeg stdin.
     pub fn write_gray_frame(&mut self, frame_gray: &[u8]) -> Result<(), Box<dyn Error>> {
-        if frame_gray.len() != self.expected_frame_bytes {
+        if self.frame_format != StreamFrameFormat::Gray8 {
+            return Err("stream encoder expects BGRA frames, not grayscale".into());
+        }
+        self.write_frame(frame_gray)
+    }
+
+    /// Push one BGRA frame into ffmpeg stdin.
+    pub fn write_bgra_frame(&mut self, frame_bgra: &[u8]) -> Result<(), Box<dyn Error>> {
+        if self.frame_format != StreamFrameFormat::Bgra8 {
+            return Err("stream encoder expects grayscale frames, not BGRA".into());
+        }
+        self.write_frame(frame_bgra)
+    }
+
+    fn write_frame(&mut self, frame_bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+        if frame_bytes.len() != self.expected_frame_bytes {
             return Err(format!(
                 "invalid frame byte count: expected {}, got {}",
                 self.expected_frame_bytes,
-                frame_gray.len()
+                frame_bytes.len()
             )
             .into());
         }
@@ -208,7 +265,7 @@ impl RawVideoEncoder {
             .stdin
             .as_mut()
             .ok_or("ffmpeg stdin is not available for frame streaming")?;
-        stdin.write_all(frame_gray)?;
+        stdin.write_all(frame_bytes)?;
         Ok(())
     }
 
@@ -236,9 +293,10 @@ fn spawn_rawvideo_encoder(
     height: u32,
     fps: u32,
     output_path: &Path,
-    expected_frame_bytes: usize,
     encoder: H264Encoder,
+    frame_format: StreamFrameFormat,
 ) -> Result<RawVideoEncoder, Box<dyn Error>> {
+    let expected_frame_bytes = checked_frame_bytes(width, height, frame_format)?;
     let mut command = Command::new("ffmpeg");
     command
         .arg("-y")
@@ -248,7 +306,7 @@ fn spawn_rawvideo_encoder(
         .arg("-f")
         .arg("rawvideo")
         .arg("-pix_fmt")
-        .arg("gray")
+        .arg(frame_format.input_pixel_format())
         .arg("-s:v")
         .arg(format!("{}x{}", width, height))
         .arg("-r")
@@ -256,6 +314,9 @@ fn spawn_rawvideo_encoder(
         .arg("-i")
         .arg("pipe:0")
         .arg("-an");
+    if encoder == H264Encoder::Nvenc && frame_format == StreamFrameFormat::Bgra8 {
+        command.arg("-vf").arg(nvenc_upload_filter_graph());
+    }
     append_h264_encoder_args(&mut command, encoder);
     command
         .arg(output_path)
@@ -279,7 +340,40 @@ fn spawn_rawvideo_encoder(
         stdin: Some(stdin),
         expected_frame_bytes,
         encoder,
+        frame_format,
+        data_path: data_path_for_encoder(encoder),
     })
+}
+
+fn checked_frame_bytes(
+    width: u32,
+    height: u32,
+    frame_format: StreamFrameFormat,
+) -> Result<usize, Box<dyn Error>> {
+    let pixels = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or("invalid frame dimensions for streaming encoder")?;
+    pixels
+        .checked_mul(frame_format.bytes_per_pixel())
+        .ok_or_else(|| "invalid frame byte count for streaming encoder".into())
+}
+
+fn preferred_stream_frame_format(encoder: H264Encoder) -> StreamFrameFormat {
+    match encoder {
+        H264Encoder::Nvenc => StreamFrameFormat::Bgra8,
+        H264Encoder::Libx264 => StreamFrameFormat::Gray8,
+    }
+}
+
+fn data_path_for_encoder(encoder: H264Encoder) -> ExportDataPath {
+    match encoder {
+        H264Encoder::Nvenc => ExportDataPath::CpuReadbackGpuUpload,
+        H264Encoder::Libx264 => ExportDataPath::CpuReadback,
+    }
+}
+
+fn nvenc_upload_filter_graph() -> &'static str {
+    "hwupload_cuda,scale_cuda=format=nv12"
 }
 
 fn append_h264_encoder_args(command: &mut Command, encoder: H264Encoder) {
@@ -383,6 +477,8 @@ fn probe_nvenc_encoder() -> bool {
         .arg("-frames:v")
         .arg("1")
         .arg("-an")
+        .arg("-vf")
+        .arg("format=bgra,hwupload_cuda,scale_cuda=format=nv12")
         .arg("-c:v")
         .arg(H264Encoder::Nvenc.codec_name())
         .arg("-f")
