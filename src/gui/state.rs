@@ -42,8 +42,12 @@ pub(crate) struct InputSnapshot {
     pub(crate) mouse_pos: Option<(i32, i32)>,
     pub(crate) left_down: bool,
     pub(crate) left_clicked: bool,
+    pub(crate) middle_down: bool,
+    pub(crate) middle_clicked: bool,
+    pub(crate) wheel_lines_y: f32,
     pub(crate) toggle_pause: bool,
     pub(crate) new_project: bool,
+    pub(crate) focus_all: bool,
     pub(crate) toggle_add_menu: bool,
     pub(crate) menu_up: bool,
     pub(crate) menu_down: bool,
@@ -64,6 +68,13 @@ pub(crate) struct WireDragState {
     pub(crate) source_node_id: u32,
     pub(crate) cursor_x: i32,
     pub(crate) cursor_y: i32,
+}
+
+/// Active middle-mouse panning state.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PanDragState {
+    pub(crate) last_x: i32,
+    pub(crate) last_y: i32,
 }
 
 /// Add-node popup menu state.
@@ -142,6 +153,10 @@ pub(crate) struct PreviewState {
     pub(crate) prev_left_down: bool,
     pub(crate) drag: Option<DragState>,
     pub(crate) wire_drag: Option<WireDragState>,
+    pub(crate) pan_drag: Option<PanDragState>,
+    pub(crate) pan_x: f32,
+    pub(crate) pan_y: f32,
+    pub(crate) zoom: f32,
     pub(crate) menu: AddNodeMenuState,
     pub(crate) hover_node: Option<u32>,
     pub(crate) hover_output_pin: Option<u32>,
@@ -160,6 +175,10 @@ impl PreviewState {
             prev_left_down: false,
             drag: None,
             wire_drag: None,
+            pan_drag: None,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            zoom: 1.0,
             menu: AddNodeMenuState::closed(),
             hover_node: None,
             hover_output_pin: None,

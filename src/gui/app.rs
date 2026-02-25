@@ -352,7 +352,7 @@ impl GuiApp {
 }
 
 fn state_has_transient_ui(state: &PreviewState) -> bool {
-    state.drag.is_some() || state.wire_drag.is_some() || state.menu.open
+    state.drag.is_some() || state.wire_drag.is_some() || state.pan_drag.is_some() || state.menu.open
 }
 
 fn maybe_seed_benchmark_nodes(

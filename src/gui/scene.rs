@@ -151,6 +151,7 @@ impl SceneBuilder {
             let Some((to_x, to_y)) = input_pin_center(target) else {
                 continue;
             };
+            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
             for source_id in target.inputs() {
                 let Some(source) = project.node(*source_id) else {
                     continue;
@@ -158,6 +159,7 @@ impl SceneBuilder {
                 let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
+                let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 self.push_line(from_x, from_y, to_x, to_y, EDGE_COLOR);
             }
         }
@@ -166,10 +168,11 @@ impl SceneBuilder {
 
     fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState) {
         for node in project.nodes() {
-            let rect = node_rect(node);
+            let rect = node_rect(node, state);
             self.push_rect(rect, NODE_BODY);
+            let top_h = (8.0 * state.zoom).round().max(2.0) as i32;
             self.push_rect(
-                Rect::new(rect.x, rect.y, rect.w, 8),
+                Rect::new(rect.x, rect.y, rect.w, top_h.min(rect.h)),
                 node_top_color(node.kind()),
             );
             let border = if state.drag.map(|drag| drag.node_id) == Some(node.id()) {
@@ -247,6 +250,7 @@ impl SceneBuilder {
 
     fn push_pins(&mut self, node: &ProjectNode, state: &PreviewState) {
         if let Some((cx, cy)) = output_pin_center(node) {
+            let (cx, cy) = graph_point_to_panel(cx, cy, state);
             let color = if state.hover_output_pin == Some(node.id())
                 || state.wire_drag.map(|wire| wire.source_node_id) == Some(node.id())
             {
@@ -257,6 +261,7 @@ impl SceneBuilder {
             self.push_rect(pin_rect(cx, cy), color);
         }
         if let Some((cx, cy)) = input_pin_center(node) {
+            let (cx, cy) = graph_point_to_panel(cx, cy, state);
             let color = if state.hover_input_pin == Some(node.id()) {
                 PIN_HOVER
             } else {
@@ -276,9 +281,12 @@ impl SceneBuilder {
         let Some((x0, y0)) = output_pin_center(source) else {
             return;
         };
+        let (x0, y0) = graph_point_to_panel(x0, y0, state);
         let (x1, y1) = if let Some(target_id) = state.hover_input_pin {
             if let Some(target_node) = project.node(target_id) {
-                input_pin_center(target_node).unwrap_or((wire.cursor_x, wire.cursor_y))
+                input_pin_center(target_node)
+                    .map(|(x, y)| graph_point_to_panel(x, y, state))
+                    .unwrap_or((wire.cursor_x, wire.cursor_y))
             } else {
                 (wire.cursor_x, wire.cursor_y)
             }
@@ -294,8 +302,25 @@ impl SceneBuilder {
     }
 }
 
-fn node_rect(node: &ProjectNode) -> Rect {
-    Rect::new(node.x(), node.y(), NODE_WIDTH, NODE_HEIGHT)
+fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
+    graph_rect_to_panel(
+        Rect::new(node.x(), node.y(), NODE_WIDTH, NODE_HEIGHT),
+        state,
+    )
+}
+
+fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
+    let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
+    let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
+    let w = (rect.w as f32 * state.zoom).round().max(1.0) as i32;
+    let h = (rect.h as f32 * state.zoom).round().max(1.0) as i32;
+    Rect::new(x, y, w, h)
+}
+
+fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
+    let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
+    let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
+    (sx, sy)
 }
 
 fn node_top_color(kind: ProjectNodeKind) -> Color {

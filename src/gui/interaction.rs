@@ -3,12 +3,17 @@
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
-use super::project::GuiProject;
+use super::project::{GraphBounds, GuiProject};
 use super::state::{
-    menu_height, AddNodeMenuState, InputSnapshot, PreviewState, WireDragState, ADD_NODE_OPTIONS,
+    menu_height, AddNodeMenuState, InputSnapshot, PanDragState, PreviewState, WireDragState,
+    ADD_NODE_OPTIONS,
 };
 
 const PIN_HIT_RADIUS_PX: i32 = 10;
+const MIN_ZOOM: f32 = 0.35;
+const MAX_ZOOM: f32 = 2.75;
+const ZOOM_SENSITIVITY: f32 = 1.12;
+const FOCUS_MARGIN_PX: f32 = 28.0;
 
 /// Apply one frame of input actions to project/editor state.
 ///
@@ -31,12 +36,24 @@ pub(crate) fn apply_preview_actions(
         state.frame_index = 0;
         state.drag = None;
         state.wire_drag = None;
+        state.pan_drag = None;
+        state.pan_x = 0.0;
+        state.pan_y = 0.0;
+        state.zoom = 1.0;
         state.menu = AddNodeMenuState::closed();
         state.hover_node = None;
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_menu_item = None;
         changed = true;
+    }
+
+    changed |= handle_pan_zoom_and_focus(&input, project, panel_width, panel_height, state);
+    if state.pan_drag.is_some() {
+        state.drag = None;
+        state.wire_drag = None;
+        state.prev_left_down = input.left_down;
+        return true;
     }
 
     changed |= handle_add_menu_toggle(&input, panel_width, panel_height, state);
@@ -74,6 +91,58 @@ pub(crate) fn step_timeline_if_running(
         }
     }
     advanced
+}
+
+fn handle_pan_zoom_and_focus(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let mut changed = false;
+    if input.focus_all {
+        changed |= focus_all_nodes(project, panel_width, panel_height, state);
+    }
+    if let Some((mx, my)) = input.mouse_pos {
+        if inside_panel(mx, my, panel_width, panel_height) && input.wheel_lines_y.abs() > 0.0 {
+            changed |= apply_zoom(mx, my, input.wheel_lines_y, state);
+        }
+    }
+    if input.middle_clicked {
+        if let Some((mx, my)) = input.mouse_pos {
+            if inside_panel(mx, my, panel_width, panel_height) {
+                state.pan_drag = Some(PanDragState {
+                    last_x: mx,
+                    last_y: my,
+                });
+                state.drag = None;
+                state.wire_drag = None;
+            }
+        }
+    }
+    let Some(mut pan_drag) = state.pan_drag else {
+        return changed;
+    };
+    if !input.middle_down {
+        state.pan_drag = None;
+        return true;
+    }
+    let Some((mx, my)) = input.mouse_pos else {
+        state.pan_drag = Some(pan_drag);
+        return changed;
+    };
+    let dx = mx - pan_drag.last_x;
+    let dy = my - pan_drag.last_y;
+    pan_drag.last_x = mx;
+    pan_drag.last_y = my;
+    state.pan_drag = Some(pan_drag);
+    if dx == 0 && dy == 0 {
+        return changed;
+    }
+    state.pan_x += dx as f32;
+    state.pan_y += dy as f32;
+    true
 }
 
 fn handle_add_menu_toggle(
@@ -191,8 +260,9 @@ fn handle_drag_input(
     if !inside_panel(mx, my, panel_width, panel_height) {
         return changed;
     }
-    let node_x = mx - drag.offset_x;
-    let node_y = my - drag.offset_y;
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let node_x = graph_x - drag.offset_x;
+    let node_y = graph_y - drag.offset_y;
     changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
     changed
 }
@@ -241,7 +311,9 @@ fn begin_wire_drag_if_pin_hit(
     if !inside_panel(mx, my, panel_width, panel_height) {
         return false;
     }
-    let Some(source_node_id) = project.output_pin_at(mx, my, PIN_HIT_RADIUS_PX) else {
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let pin_radius = pin_hit_radius_world(state);
+    let Some(source_node_id) = project.output_pin_at(graph_x, graph_y, pin_radius) else {
         return false;
     };
     state.drag = None;
@@ -266,7 +338,8 @@ fn begin_drag_if_node_hit(
     if !inside_panel(mx, my, panel_width, panel_height) {
         return false;
     }
-    let Some(node_id) = project.node_at(mx, my) else {
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let Some(node_id) = project.node_at(graph_x, graph_y) else {
         let changed = state.drag.is_some();
         state.drag = None;
         return changed;
@@ -281,8 +354,8 @@ fn begin_drag_if_node_hit(
     }
     state.drag = Some(super::state::DragState {
         node_id,
-        offset_x: mx - node.x(),
-        offset_y: my - node.y(),
+        offset_x: graph_x - node.x(),
+        offset_y: graph_y - node.y(),
     });
     true
 }
@@ -326,18 +399,86 @@ fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some();
     }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let pin_radius = pin_hit_radius_world(state);
     let disallow_source = state.wire_drag.map(|wire| wire.source_node_id);
-    state.hover_output_pin = project.output_pin_at(mx, my, PIN_HIT_RADIUS_PX);
-    state.hover_input_pin = project.input_pin_at(mx, my, PIN_HIT_RADIUS_PX, disallow_source);
+    state.hover_output_pin = project.output_pin_at(graph_x, graph_y, pin_radius);
+    state.hover_input_pin = project.input_pin_at(graph_x, graph_y, pin_radius, disallow_source);
     if state.hover_output_pin.is_some() || state.hover_input_pin.is_some() {
         return state.hover_output_pin != prev_hover_output
             || state.hover_input_pin != prev_hover_input
             || prev_hover_node.is_some()
             || prev_hover_item.is_some();
     }
-    state.hover_node = project.node_at(mx, my);
+    state.hover_node = project.node_at(graph_x, graph_y);
     state.hover_node != prev_hover_node
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()
         || prev_hover_item.is_some()
+}
+
+fn screen_to_graph(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
+    let zoom = state.zoom.max(0.001);
+    let gx = ((x as f32 - state.pan_x) / zoom).round() as i32;
+    let gy = ((y as f32 - state.pan_y) / zoom).round() as i32;
+    (gx, gy)
+}
+
+fn pin_hit_radius_world(state: &PreviewState) -> i32 {
+    ((PIN_HIT_RADIUS_PX as f32) / state.zoom.max(0.001))
+        .round()
+        .clamp(1.0, 64.0) as i32
+}
+
+fn apply_zoom(mx: i32, my: i32, wheel_lines_y: f32, state: &mut PreviewState) -> bool {
+    let old_zoom = state.zoom;
+    let zoom_factor = ZOOM_SENSITIVITY.powf(wheel_lines_y);
+    let new_zoom = (old_zoom * zoom_factor).clamp(MIN_ZOOM, MAX_ZOOM);
+    if (new_zoom - old_zoom).abs() < 1e-4 {
+        return false;
+    }
+    let world_x = (mx as f32 - state.pan_x) / old_zoom.max(0.001);
+    let world_y = (my as f32 - state.pan_y) / old_zoom.max(0.001);
+    state.zoom = new_zoom;
+    state.pan_x = mx as f32 - world_x * new_zoom;
+    state.pan_y = my as f32 - world_y * new_zoom;
+    true
+}
+
+fn focus_all_nodes(
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let Some(bounds) = project.graph_bounds() else {
+        return false;
+    };
+    focus_bounds(bounds, panel_width, panel_height, state)
+}
+
+fn focus_bounds(
+    bounds: GraphBounds,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let bounds_w = (bounds.max_x - bounds.min_x).max(1) as f32;
+    let bounds_h = (bounds.max_y - bounds.min_y).max(1) as f32;
+    let avail_w = (panel_width as f32 - FOCUS_MARGIN_PX * 2.0).max(32.0);
+    let avail_h = (panel_height as f32 - FOCUS_MARGIN_PX * 2.0).max(32.0);
+    let zoom = (avail_w / bounds_w)
+        .min(avail_h / bounds_h)
+        .clamp(MIN_ZOOM, MAX_ZOOM);
+    let center_x = (bounds.min_x + bounds.max_x) as f32 * 0.5;
+    let center_y = (bounds.min_y + bounds.max_y) as f32 * 0.5;
+    let pan_x = panel_width as f32 * 0.5 - center_x * zoom;
+    let pan_y = panel_height as f32 * 0.5 - center_y * zoom;
+    let changed = (state.zoom - zoom).abs() > 1e-3
+        || (state.pan_x - pan_x).abs() > 0.5
+        || (state.pan_y - pan_y).abs() > 0.5;
+    state.zoom = zoom;
+    state.pan_x = pan_x;
+    state.pan_y = pan_y;
+    changed
 }

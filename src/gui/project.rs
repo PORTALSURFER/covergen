@@ -57,6 +57,15 @@ pub(crate) struct ProjectNode {
     inputs: Vec<u32>,
 }
 
+/// Axis-aligned bounds of all graph nodes in world-space coordinates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GraphBounds {
+    pub(crate) min_x: i32,
+    pub(crate) min_y: i32,
+    pub(crate) max_x: i32,
+    pub(crate) max_y: i32,
+}
+
 impl ProjectNode {
     /// Return stable node id.
     pub(crate) const fn id(&self) -> u32 {
@@ -190,6 +199,27 @@ impl GuiProject {
                 x >= node.x && x < node.x + NODE_WIDTH && y >= node.y && y < node.y + NODE_HEIGHT
             })
             .map(|node| node.id)
+    }
+
+    /// Return world-space graph bounds for all current nodes.
+    pub(crate) fn graph_bounds(&self) -> Option<GraphBounds> {
+        let first = self.nodes.first()?;
+        let mut min_x = first.x();
+        let mut min_y = first.y();
+        let mut max_x = first.x() + NODE_WIDTH;
+        let mut max_y = first.y() + NODE_HEIGHT;
+        for node in self.nodes.iter().skip(1) {
+            min_x = min_x.min(node.x());
+            min_y = min_y.min(node.y());
+            max_x = max_x.max(node.x() + NODE_WIDTH);
+            max_y = max_y.max(node.y() + NODE_HEIGHT);
+        }
+        Some(GraphBounds {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        })
     }
 
     /// Return the node id whose output pin is hit by the cursor.
@@ -328,7 +358,7 @@ fn next_project_name() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{input_pin_center, output_pin_center, GuiProject, ProjectNodeKind};
+    use super::{input_pin_center, output_pin_center, GraphBounds, GuiProject, ProjectNodeKind};
 
     #[test]
     fn empty_project_has_no_nodes() {
@@ -379,5 +409,21 @@ mod tests {
         assert!(input_pin_center(top_node).is_none());
         assert!(output_pin_center(out_node).is_none());
         assert!(input_pin_center(out_node).is_some());
+    }
+
+    #[test]
+    fn graph_bounds_span_all_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        project.add_node(ProjectNodeKind::TopBasic, 40, 80, 420, 480);
+        project.add_node(ProjectNodeKind::Output, 200, 160, 420, 480);
+        assert_eq!(
+            project.graph_bounds(),
+            Some(GraphBounds {
+                min_x: 40,
+                min_y: 80,
+                max_x: 328,
+                max_y: 204,
+            })
+        );
     }
 }
