@@ -641,6 +641,45 @@ impl GuiProject {
         true
     }
 
+    /// Connect one signal source node to one explicit target parameter row.
+    ///
+    /// Returns `true` when the target parameter binding changed.
+    pub(crate) fn connect_signal_link_to_param(
+        &mut self,
+        source_id: u32,
+        target_id: u32,
+        param_index: usize,
+    ) -> bool {
+        if source_id == target_id {
+            return false;
+        }
+        if self.depends_on(source_id, target_id) {
+            // Reject links that would introduce a cycle.
+            return false;
+        }
+        let Some(source) = self.node(source_id) else {
+            return false;
+        };
+        if source.kind().output_resource_kind() != Some(ResourceKind::Signal) {
+            return false;
+        }
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        if !target.kind.accepts_signal_bindings() || target.params.is_empty() {
+            return false;
+        }
+        let index = param_index.min(target.params.len().saturating_sub(1));
+        let slot = &mut target.params[index];
+        if slot.signal_source == Some(source_id) {
+            return false;
+        }
+        slot.signal_source = Some(source_id);
+        rebuild_node_inputs(target);
+        self.recount_edges();
+        true
+    }
+
     /// Disconnect one explicit source -> target link.
     ///
     /// Removes both texture-input and signal-parameter bindings that match the
@@ -728,6 +767,33 @@ impl GuiProject {
                 return false;
             }
             node.expanded = !node.expanded;
+            let card_h = node.card_height();
+            let (x, y) = clamp_node_position(node.x, node.y, panel_width, panel_height, card_h);
+            node.x = x;
+            node.y = y;
+        }
+        self.invalidate_hit_test_cache();
+        true
+    }
+
+    /// Expand one node without toggling when it supports parameter rows.
+    ///
+    /// Returns `true` when expanded state changed.
+    pub(crate) fn expand_node(
+        &mut self,
+        node_id: u32,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> bool {
+        let Some(index) = self.node_index(node_id) else {
+            return false;
+        };
+        {
+            let node = &mut self.nodes[index];
+            if node.params.is_empty() || node.expanded {
+                return false;
+            }
+            node.expanded = true;
             let card_h = node.card_height();
             let (x, y) = clamp_node_position(node.x, node.y, panel_width, panel_height, card_h);
             node.x = x;
@@ -1389,6 +1455,18 @@ mod tests {
         assert!(project.disconnect_link(lfo, solid));
         assert!(project.disconnect_link(solid, out));
         assert_eq!(project.edge_count(), 0);
+    }
+
+    #[test]
+    fn connect_signal_link_to_specific_param_row() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 160, 40, 420, 480);
+        assert!(project.connect_signal_link_to_param(lfo, solid, 5));
+        let source = project.sample_signal_node(lfo, 0.25, &mut Vec::new());
+        let value = project.node_param_value(solid, "color_g", 0.25, &mut Vec::new());
+        assert_eq!(source, value);
+        assert!(!project.connect_signal_link_to_param(lfo, solid, 5));
     }
 
     #[test]

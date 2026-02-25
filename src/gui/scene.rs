@@ -7,7 +7,8 @@
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_row_rect, node_param_value_rect,
-    output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, NODE_WIDTH,
+    output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
+    NODE_WIDTH,
 };
 use super::state::{PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_INNER_PADDING};
 use super::text::GuiTextRenderer;
@@ -31,6 +32,7 @@ const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
+const PARAM_BIND_HOVER: Color = Color::argb(0x3342A5F5);
 const TOGGLE_BG: Color = Color::argb(0xFF121212);
 const TOGGLE_BORDER: Color = Color::argb(AGIO.border);
 const TOGGLE_ACTIVE_BG: Color = Color::argb(0x663B82F6);
@@ -363,6 +365,16 @@ impl SceneBuilder {
                     PARAM_SELECTED,
                 );
             }
+            let bind_hover = state
+                .hover_param_target
+                .map(|target| target.node_id == node.id() && target.param_index == index)
+                .unwrap_or(false);
+            if bind_hover {
+                self.push_rect(
+                    Rect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
+                    PARAM_BIND_HOVER,
+                );
+            }
             label_scratch.clear();
             label_scratch.push_str(row.label);
             if row.bound {
@@ -516,7 +528,21 @@ impl SceneBuilder {
             return;
         };
         let (x0, y0) = graph_point_to_panel(x0, y0, state);
-        let (x1, y1) = if let Some(target_id) = state.hover_input_pin {
+        let (x1, y1) = if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
+            if let Some(target) = state.hover_param_target {
+                if let Some(target_node) = project.node(target.node_id) {
+                    if let Some(row) = node_param_row_rect(target_node, target.param_index) {
+                        graph_point_to_panel(row.x + row.w - 4, row.y + row.h / 2, state)
+                    } else {
+                        (wire.cursor_x, wire.cursor_y)
+                    }
+                } else {
+                    (wire.cursor_x, wire.cursor_y)
+                }
+            } else {
+                (wire.cursor_x, wire.cursor_y)
+            }
+        } else if let Some(target_id) = state.hover_input_pin {
             if let Some(target_node) = project.node(target_id) {
                 input_pin_center(target_node)
                     .map(|(x, y)| graph_point_to_panel(x, y, state))
@@ -716,6 +742,7 @@ fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash = hash_opt_u32(hash, state.hover_node);
     hash = hash_opt_u32(hash, state.hover_output_pin);
     hash = hash_opt_u32(hash, state.hover_input_pin);
+    hash = hash_opt_param_target(hash, state.hover_param_target);
     hash = hash_opt_u32(hash, state.wire_drag.map(|wire| wire.source_node_id));
     hash = hash_opt_u32(hash, state.drag.map(|drag| drag.node_id));
     for selected in &state.selected_nodes {
@@ -761,6 +788,7 @@ fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash = hash_f32(hash, state.pan_y);
     hash = hash_f32(hash, state.zoom);
     hash = hash_opt_u32(hash, state.hover_input_pin);
+    hash = hash_opt_param_target(hash, state.hover_param_target);
     hash = hash_opt_wire(hash, state.wire_drag);
     hash = hash_opt_cut_line(hash, state.link_cut);
     hash = hash_opt_marquee(hash, state.right_marquee);
@@ -824,6 +852,19 @@ fn hash_opt_marquee(seed: u64, value: Option<RightMarqueeState>) -> u64 {
     let hash = hash_i32(hash, marquee.start_y);
     let hash = hash_i32(hash, marquee.cursor_x);
     hash_i32(hash, marquee.cursor_y)
+}
+
+fn hash_opt_param_target(seed: u64, value: Option<super::state::HoverParamTarget>) -> u64 {
+    let Some(target) = value else {
+        return hash_u64(seed, u64::MAX - 4);
+    };
+    let hash = hash_u64(seed, target.node_id as u64);
+    hash_u64(hash, target.param_index as u64)
+}
+
+fn wire_drag_source_kind(project: &GuiProject, wire: super::state::WireDragState) -> Option<ResourceKind> {
+    let source = project.node(wire.source_node_id)?;
+    source.kind().output_resource_kind()
 }
 
 fn marquee_panel_rect(marquee: RightMarqueeState) -> Option<Rect> {

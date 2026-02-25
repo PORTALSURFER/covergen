@@ -199,6 +199,7 @@ impl GuiApp {
         if consume_editor_input {
             self.state.drag = None;
             self.state.wire_drag = None;
+            self.state.hover_param_target = None;
             self.state.prev_left_down = snapshot.left_down;
         } else {
             scene_dirty |= apply_preview_actions(
@@ -376,6 +377,7 @@ impl GuiApp {
         });
         self.state.drag = None;
         self.state.wire_drag = None;
+        self.state.hover_param_target = None;
         true
     }
 

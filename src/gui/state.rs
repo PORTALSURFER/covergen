@@ -89,6 +89,13 @@ pub(crate) struct WireDragState {
     pub(crate) cursor_y: i32,
 }
 
+/// Hovered parameter target while dragging a signal-binding wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HoverParamTarget {
+    pub(crate) node_id: u32,
+    pub(crate) param_index: usize,
+}
+
 /// Active alt-drag line used to cut links that intersect it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LinkCutState {
@@ -213,6 +220,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_node: Option<u32>,
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
+    pub(crate) hover_param_target: Option<HoverParamTarget>,
     pub(crate) hover_menu_item: Option<usize>,
 }
 
@@ -240,6 +248,7 @@ impl PreviewState {
             hover_node: None,
             hover_output_pin: None,
             hover_input_pin: None,
+            hover_param_target: None,
             hover_menu_item: None,
         }
     }

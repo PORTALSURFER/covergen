@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use super::project::{
     input_pin_center, node_expand_toggle_rect, output_pin_center, GraphBounds, GuiProject,
-    NODE_WIDTH,
+    ResourceKind, NODE_WIDTH,
 };
 use super::state::{
     menu_height, AddNodeMenuState, InputSnapshot, LinkCutState, PanDragState, ParamEditState,
-    PreviewState, RightMarqueeState, WireDragState,
+    HoverParamTarget, PreviewState, RightMarqueeState, WireDragState,
     ADD_NODE_OPTIONS,
 };
 
@@ -53,6 +53,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_node = None;
         state.hover_output_pin = None;
         state.hover_input_pin = None;
+        state.hover_param_target = None;
         state.hover_menu_item = None;
         changed = true;
     }
@@ -61,6 +62,7 @@ pub(crate) fn apply_preview_actions(
     if state.pan_drag.is_some() {
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -69,6 +71,7 @@ pub(crate) fn apply_preview_actions(
     if state.link_cut.is_some() {
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -77,6 +80,7 @@ pub(crate) fn apply_preview_actions(
     if state.right_marquee.is_some() {
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.prev_left_down = input.left_down;
         return true;
     }
@@ -90,12 +94,14 @@ pub(crate) fn apply_preview_actions(
     if param_click_consumed {
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.prev_left_down = input.left_down;
         return true;
     }
     if state.param_edit.is_some() {
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.prev_left_down = input.left_down;
         return changed;
     }
@@ -161,6 +167,7 @@ fn handle_pan_zoom_and_focus(
                 });
                 state.drag = None;
                 state.wire_drag = None;
+                state.hover_param_target = None;
             }
         }
     }
@@ -200,6 +207,7 @@ fn handle_add_menu_toggle(
     if state.menu.open {
         state.menu = AddNodeMenuState::closed();
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.param_edit = None;
         return true;
     }
@@ -209,6 +217,7 @@ fn handle_add_menu_toggle(
     state.menu = AddNodeMenuState::open_at(x, y, panel_width, panel_height);
     state.drag = None;
     state.wire_drag = None;
+    state.hover_param_target = None;
     state.param_edit = None;
     true
 }
@@ -282,6 +291,7 @@ fn handle_delete_selected_nodes(
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
+    state.hover_param_target = None;
     state.drag = None;
     state.wire_drag = None;
     state.right_marquee = None;
@@ -313,6 +323,7 @@ fn handle_right_selection(
             state.right_marquee = None;
             state.drag = None;
             state.wire_drag = None;
+            state.hover_param_target = None;
             state.param_edit = None;
             return true;
         }
@@ -324,6 +335,7 @@ fn handle_right_selection(
         });
         state.drag = None;
         state.wire_drag = None;
+        state.hover_param_target = None;
         state.param_edit = None;
         return true;
     }
@@ -809,6 +821,7 @@ fn handle_link_cut(
                 });
                 state.drag = None;
                 state.wire_drag = None;
+                state.hover_param_target = None;
                 state.param_edit = None;
                 return true;
             }
@@ -992,10 +1005,19 @@ fn handle_wire_input(
         wire.cursor_y = my;
     }
     if !input.left_down {
-        if let Some(target_id) = state.hover_input_pin {
+        if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
+            if let Some(target) = state.hover_param_target {
+                let _ = project.connect_signal_link_to_param(
+                    wire.source_node_id,
+                    target.node_id,
+                    target.param_index,
+                );
+            }
+        } else if let Some(target_id) = state.hover_input_pin {
             let _ = project.connect_image_link(wire.source_node_id, target_id);
         }
         state.wire_drag = None;
+        state.hover_param_target = None;
         return true;
     }
     changed |= state.wire_drag.map(|drag| drag.cursor_x) != Some(wire.cursor_x);
@@ -1024,6 +1046,7 @@ fn begin_wire_drag_if_pin_hit(
     };
     state.drag = None;
     state.active_node = Some(source_node_id);
+    state.hover_param_target = None;
     state.wire_drag = Some(WireDragState {
         source_node_id,
         cursor_x: mx,
@@ -1088,7 +1111,7 @@ fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool
 
 fn update_hover_state(
     input: &InputSnapshot,
-    project: &GuiProject,
+    project: &mut GuiProject,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
@@ -1096,22 +1119,26 @@ fn update_hover_state(
     let prev_hover_node = state.hover_node;
     let prev_hover_output = state.hover_output_pin;
     let prev_hover_input = state.hover_input_pin;
+    let prev_hover_param_target = state.hover_param_target;
     let prev_hover_item = state.hover_menu_item;
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
+    state.hover_param_target = None;
     state.hover_menu_item = None;
 
     let Some((mx, my)) = input.mouse_pos else {
         return prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param_target.is_some()
             || prev_hover_item.is_some();
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
         return prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param_target.is_some()
             || prev_hover_item.is_some();
     }
     if state.menu.open {
@@ -1119,7 +1146,36 @@ fn update_hover_state(
         return state.hover_menu_item != prev_hover_item
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
-            || prev_hover_input.is_some();
+            || prev_hover_input.is_some()
+            || prev_hover_param_target.is_some();
+    }
+    if let Some(wire) = state.wire_drag {
+        if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
+            let mut changed = false;
+            let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+            state.hover_node = project.node_at(graph_x, graph_y);
+            if let Some(node_id) = state.hover_node {
+                let accepts_signal = project
+                    .node(node_id)
+                    .map(|node| node.kind().accepts_signal_bindings())
+                    .unwrap_or(false);
+                if accepts_signal {
+                    changed |= project.expand_node(node_id, panel_width, panel_height);
+                    if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+                        state.hover_param_target = Some(HoverParamTarget {
+                            node_id,
+                            param_index,
+                        });
+                    }
+                }
+            }
+            return changed
+                || state.hover_node != prev_hover_node
+                || prev_hover_output.is_some()
+                || prev_hover_input.is_some()
+                || state.hover_param_target != prev_hover_param_target
+                || prev_hover_item.is_some();
+        }
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let pin_radius = pin_hit_radius_world(state);
@@ -1130,7 +1186,8 @@ fn update_hover_state(
         return state.hover_output_pin != prev_hover_output
             || state.hover_input_pin != prev_hover_input
             || prev_hover_node.is_some()
-            || prev_hover_item.is_some();
+            || prev_hover_item.is_some()
+            || prev_hover_param_target.is_some();
     }
     state.hover_node = project.node_at(graph_x, graph_y);
     if state.hover_node.is_some() {
@@ -1140,6 +1197,12 @@ fn update_hover_state(
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()
         || prev_hover_item.is_some()
+        || prev_hover_param_target.is_some()
+}
+
+fn wire_drag_source_kind(project: &GuiProject, wire: WireDragState) -> Option<ResourceKind> {
+    let source = project.node(wire.source_node_id)?;
+    source.kind().output_resource_kind()
 }
 
 fn screen_to_graph(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
@@ -1258,12 +1321,13 @@ fn focus_bounds(
 #[cfg(test)]
 mod tests {
     use super::{
-        backspace_param_text, can_append_param_char, handle_delete_selected_nodes, insert_param_char,
-        marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
-        segments_intersect, RightMarqueeState,
+        backspace_param_text, can_append_param_char, handle_delete_selected_nodes,
+        handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
+        move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
+        RightMarqueeState,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
-    use crate::gui::state::{InputSnapshot, ParamEditState, PreviewState};
+    use crate::gui::state::{HoverParamTarget, InputSnapshot, ParamEditState, PreviewState, WireDragState};
     use crate::runtime_config::V2Config;
 
     #[test]
@@ -1373,5 +1437,66 @@ mod tests {
         assert_eq!(project.edge_count(), 0);
         assert!(state.selected_nodes.is_empty());
         assert!(state.active_node.is_none());
+    }
+
+    #[test]
+    fn signal_wire_hover_auto_expands_node_and_targets_parameter_row() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: lfo,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+
+        let expand_hover = InputSnapshot {
+            mouse_pos: Some((225, 85)),
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(
+            &expand_hover,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(project.node_expanded(solid));
+
+        let param_hover = InputSnapshot {
+            mouse_pos: Some((226, 126)),
+            ..InputSnapshot::default()
+        };
+        let _ = update_hover_state(&param_hover, &mut project, 420, 480, &mut state);
+        let target = state.hover_param_target.expect("hover parameter target");
+        assert_eq!(target.node_id, solid);
+        assert_eq!(target.param_index, 0);
+    }
+
+    #[test]
+    fn dropping_signal_wire_binds_hovered_parameter() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: lfo,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+        state.hover_param_target = Some(HoverParamTarget {
+            node_id: solid,
+            param_index: 2,
+        });
+        let input = InputSnapshot {
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(&input, &mut project, 420, 480, &mut state));
+        assert!(state.wire_drag.is_none());
+        let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
+        let value = project.node_param_value(solid, "radius", 0.5, &mut Vec::new());
+        assert_eq!(source, value);
     }
 }
