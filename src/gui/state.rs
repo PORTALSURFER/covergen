@@ -5,7 +5,8 @@ use crate::runtime_config::V2Config;
 mod add_menu;
 
 pub(crate) use add_menu::{
-    AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
+    AddNodeCategory, AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
+    MENU_INNER_PADDING,
 };
 
 /// Snapshot of one frame's input state.
