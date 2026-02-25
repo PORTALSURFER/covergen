@@ -968,6 +968,27 @@ impl GuiProject {
         true
     }
 
+    /// Adjust one parameter value by `steps * slot.step` after clamping.
+    ///
+    /// Returns `true` when the parameter value changed.
+    pub(crate) fn adjust_param(&mut self, node_id: u32, param_index: usize, steps: f32) -> bool {
+        let Some(node) = self.node_mut(node_id) else {
+            return false;
+        };
+        if node.params.is_empty() || !steps.is_finite() {
+            return false;
+        }
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        let slot = &mut node.params[index];
+        let next = (slot.value + slot.step * steps).clamp(slot.min, slot.max);
+        if (next - slot.value).abs() < 1e-6 {
+            return false;
+        }
+        slot.value = next;
+        slot.value_text = format_param_value_text(next);
+        true
+    }
+
     /// Return raw parameter value at one index for one node.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn node_param_raw_value(&self, node_id: u32, param_index: usize) -> Option<f32> {
@@ -1694,6 +1715,17 @@ mod tests {
             .node_param_raw_text(solid, 0)
             .expect("param text should exist");
         assert_eq!(after_adjust, "0.260");
+    }
+
+    #[test]
+    fn adjust_param_changes_specific_row_value() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        assert!(project.adjust_param(solid, 1, 3.0));
+        let value = project
+            .node_param_raw_value(solid, 1)
+            .expect("param value should exist");
+        assert_eq!(value, 0.93);
     }
 
     #[test]

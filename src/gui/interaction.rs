@@ -59,7 +59,20 @@ pub(crate) fn apply_preview_actions(
         changed = true;
     }
 
-    changed |= handle_pan_zoom_and_focus(&input, project, panel_width, panel_height, state);
+    let (wheel_param_changed, wheel_consumed) =
+        handle_param_wheel_input(&input, project, panel_width, panel_height, state);
+    changed |= wheel_param_changed;
+    let mut pan_zoom_input = input.clone();
+    if wheel_consumed {
+        pan_zoom_input.wheel_lines_y = 0.0;
+    }
+    changed |= handle_pan_zoom_and_focus(
+        &pan_zoom_input,
+        project,
+        panel_width,
+        panel_height,
+        state,
+    );
     if state.pan_drag.is_some() {
         state.drag = None;
         state.wire_drag = None;
@@ -150,6 +163,41 @@ pub(crate) fn step_timeline_if_running(
         }
     }
     advanced
+}
+
+fn handle_param_wheel_input(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    if input.wheel_lines_y.abs() <= f32::EPSILON {
+        return (false, false);
+    }
+    if state.param_edit.is_some() || state.menu.open {
+        return (false, false);
+    }
+    let Some((mx, my)) = input.mouse_pos else {
+        return (false, false);
+    };
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return (false, false);
+    }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let Some(node_id) = project.node_at(graph_x, graph_y) else {
+        return (false, false);
+    };
+    let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
+        return (false, false);
+    };
+    if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
+        return (false, false);
+    }
+    let mut changed = project.select_param(node_id, param_index);
+    state.active_node = Some(node_id);
+    changed |= project.adjust_param(node_id, param_index, input.wheel_lines_y);
+    (changed, true)
 }
 
 fn handle_pan_zoom_and_focus(
@@ -1419,11 +1467,12 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_delete_selected_nodes,
+        handle_param_wheel_input,
         handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
         move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
         RightMarqueeState,
     };
-    use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::project::{node_param_value_rect, GuiProject, ProjectNodeKind};
     use crate::gui::state::{HoverParamTarget, InputSnapshot, ParamEditState, PreviewState, WireDragState};
     use crate::runtime_config::V2Config;
 
@@ -1534,6 +1583,31 @@ mod tests {
         assert_eq!(project.edge_count(), 0);
         assert!(state.selected_nodes.is_empty());
         assert!(state.active_node.is_none());
+    }
+
+    #[test]
+    fn wheel_over_param_value_box_adjusts_value_and_consumes_zoom() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        let value_rect = {
+            let node = project.node(solid).expect("solid node exists");
+            node_param_value_rect(node, 0).expect("value rect exists")
+        };
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let input = InputSnapshot {
+            mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+            wheel_lines_y: 2.0,
+            ..InputSnapshot::default()
+        };
+        let (changed, consumed) =
+            handle_param_wheel_input(&input, &mut project, 420, 480, &mut state);
+        assert!(changed);
+        assert!(consumed);
+        let value = project
+            .node_param_raw_value(solid, 0)
+            .expect("param value should exist");
+        assert_eq!(value, 0.92);
     }
 
     #[test]
