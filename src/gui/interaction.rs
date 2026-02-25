@@ -1478,7 +1478,7 @@ mod tests {
     fn dropping_signal_wire_binds_hovered_parameter() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
-        let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 220, 80, 420, 480);
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         state.wire_drag = Some(WireDragState {
             source_node_id: lfo,
@@ -1486,7 +1486,7 @@ mod tests {
             cursor_y: 0,
         });
         state.hover_param_target = Some(HoverParamTarget {
-            node_id: solid,
+            node_id: circle,
             param_index: 2,
         });
         let input = InputSnapshot {
@@ -1496,7 +1496,7 @@ mod tests {
         assert!(handle_wire_input(&input, &mut project, 420, 480, &mut state));
         assert!(state.wire_drag.is_none());
         let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
-        let value = project.node_param_value(solid, "radius", 0.5, &mut Vec::new());
+        let value = project.node_param_value(circle, "radius", 0.5, &mut Vec::new());
         assert_eq!(source, value);
     }
 }

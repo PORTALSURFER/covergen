@@ -53,8 +53,10 @@ pub(crate) enum ExecutionKind {
 /// Minimal set of node kinds exposed by the Add Node menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProjectNodeKind {
-    /// `tex.solid` source node (currently visualized as a circle placeholder).
+    /// `tex.solid` source node (full-frame solid color).
     TexSolid,
+    /// `tex.circle` source node.
+    TexCircle,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
     /// `ctl.lfo` signal generator node.
@@ -68,6 +70,7 @@ impl ProjectNodeKind {
     pub(crate) const fn stable_id(self) -> &'static str {
         match self {
             Self::TexSolid => "tex.solid",
+            Self::TexCircle => "tex.circle",
             Self::TexTransform2D => "tex.transform_2d",
             Self::CtlLfo => "ctl.lfo",
             Self::IoWindowOut => "io.window_out",
@@ -79,6 +82,7 @@ impl ProjectNodeKind {
     pub(crate) const fn execution_kind(self) -> ExecutionKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
+            Self::TexCircle => ExecutionKind::Render,
             Self::TexTransform2D => ExecutionKind::Render,
             Self::CtlLfo => ExecutionKind::Control,
             Self::IoWindowOut => ExecutionKind::Io,
@@ -97,12 +101,15 @@ impl ProjectNodeKind {
 
     /// Return true when this node kind can bind scalar signal parameters.
     pub(crate) const fn accepts_signal_bindings(self) -> bool {
-        matches!(self, Self::TexSolid | Self::TexTransform2D | Self::CtlLfo)
+        matches!(
+            self,
+            Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::CtlLfo
+        )
     }
 
     /// Return true when this node kind has a texture output pin.
     pub(crate) const fn produces_texture_output(self) -> bool {
-        matches!(self, Self::TexSolid | Self::TexTransform2D)
+        matches!(self, Self::TexSolid | Self::TexCircle | Self::TexTransform2D)
     }
 
     /// Return true when this node kind has a scalar signal output pin.
@@ -1190,6 +1197,12 @@ fn node_card_height_for_param_count(expanded: bool, param_count: usize) -> i32 {
 fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
     match kind {
         ProjectNodeKind::TexSolid => vec![
+            param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
+            param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
+            param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
+            param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+        ],
+        ProjectNodeKind::TexCircle => vec![
             param("center_x", "center_x", 0.5, 0.0, 1.0, 0.01),
             param("center_y", "center_y", 0.5, 0.0, 1.0, 0.01),
             param("radius", "radius", 0.24, 0.02, 0.5, 0.005),
@@ -1200,11 +1213,13 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::TexTransform2D => vec![
-            param("brightness", "brightness", 1.08, 0.0, 2.0, 0.02),
-            param("gain_r", "gain_r", 0.45, 0.0, 2.0, 0.02),
-            param("gain_g", "gain_g", 0.8, 0.0, 2.0, 0.02),
+            // Keep transform as identity by default so inserting this node
+            // never changes output until the user edits parameters.
+            param("brightness", "brightness", 1.0, 0.0, 2.0, 0.02),
+            param("gain_r", "gain_r", 1.0, 0.0, 2.0, 0.02),
+            param("gain_g", "gain_g", 1.0, 0.0, 2.0, 0.02),
             param("gain_b", "gain_b", 1.0, 0.0, 2.0, 0.02),
-            param("alpha_mul", "alpha_mul", 0.8, 0.0, 1.0, 0.01),
+            param("alpha_mul", "alpha_mul", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::CtlLfo => vec![
             param("rate_hz", "rate_hz", 0.4, 0.0, 8.0, 0.05),
@@ -1461,12 +1476,12 @@ mod tests {
     fn connect_signal_link_to_specific_param_row() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
-        let solid = project.add_node(ProjectNodeKind::TexSolid, 160, 40, 420, 480);
-        assert!(project.connect_signal_link_to_param(lfo, solid, 5));
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 160, 40, 420, 480);
+        assert!(project.connect_signal_link_to_param(lfo, circle, 5));
         let source = project.sample_signal_node(lfo, 0.25, &mut Vec::new());
-        let value = project.node_param_value(solid, "color_g", 0.25, &mut Vec::new());
+        let value = project.node_param_value(circle, "color_g", 0.25, &mut Vec::new());
         assert_eq!(source, value);
-        assert!(!project.connect_signal_link_to_param(lfo, solid, 5));
+        assert!(!project.connect_signal_link_to_param(lfo, circle, 5));
     }
 
     #[test]
@@ -1509,7 +1524,7 @@ mod tests {
             .node_param_raw_text(solid, 0)
             .expect("param text should exist")
             .to_string();
-        assert_eq!(initial, "0.500");
+        assert_eq!(initial, "0.900");
 
         assert!(project.set_param_value(solid, 0, 0.25));
         let after_set = project

@@ -157,10 +157,6 @@ mod tests {
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
         assert!(project.connect_image_link(solid, out));
         assert!(project.toggle_node_expanded(solid, 420, 480));
-        assert!(project.select_next_param(solid));
-        assert!(project.select_next_param(solid));
-        assert!(project.select_next_param(solid));
-        assert!(project.select_next_param(solid));
         assert!(project.connect_image_link(lfo, solid));
 
         let mut viewer = TopViewerGenerator::default();
@@ -179,6 +175,23 @@ mod tests {
             },
         };
         assert_ne!(r0, r1);
+    }
+
+    #[test]
+    fn circle_node_emits_circle_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 60, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project.connect_image_link(circle, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(ops[0], TopViewerOp::Circle { .. }));
     }
 
     #[test]
