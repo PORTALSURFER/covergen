@@ -19,6 +19,9 @@
 - `v2/benchmarks/README.md`
 - `v2/rust-gpu.md`
 
+## GUI Help Docs
+- `help/in_app_help.md` (single-source Markdown catalog for readable docs + in-app `F1` help)
+
 ## CI and Validation
 - Preflight entrypoint: `../scripts/run_agent_request.sh`
 - Local CI entrypoint: `../scripts/ci_local.sh`
