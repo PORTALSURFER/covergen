@@ -343,6 +343,12 @@ fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let history_pm = history.rgb * history.a;
     let out_a = mix(src.a, history.a, mix_amount);
     let out_pm = mix(src_pm, history_pm, mix_amount);
+    // Quantized history buffers can leave tiny residual alpha that never
+    // reaches exact zero; clamp near-black tails so feedback fades to black.
+    let fade_epsilon = 1.5 / 255.0;
+    if (out_a <= fade_epsilon || max(max(out_pm.r, out_pm.g), out_pm.b) <= fade_epsilon) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
     let safe_a = max(out_a, 1e-6);
     let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
     return vec4<f32>(out_rgb, out_a);
