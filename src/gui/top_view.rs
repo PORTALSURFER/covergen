@@ -59,30 +59,38 @@ pub(crate) struct TopViewerGenerator {
     eval_stack: Vec<u32>,
 }
 
+/// Immutable update inputs for one TOP viewer cache tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TopViewerUpdate {
+    /// Current viewport width in physical pixels.
+    pub(crate) viewport_width: usize,
+    /// Current viewport height in physical pixels.
+    pub(crate) viewport_height: usize,
+    /// Left panel width in physical pixels.
+    pub(crate) panel_width: usize,
+    /// Current timeline frame index.
+    pub(crate) frame_index: u32,
+    /// Timeline playback rate used for time conversion.
+    pub(crate) timeline_fps: u32,
+    /// Epoch token for TOP evaluation invalidation.
+    pub(crate) top_eval_epoch: u64,
+}
+
 impl TopViewerGenerator {
     /// Update cached viewer payload for current panel split and graph state.
-    pub(crate) fn update(
-        &mut self,
-        project: &GuiProject,
-        viewport_width: usize,
-        viewport_height: usize,
-        panel_width: usize,
-        frame_index: u32,
-        timeline_fps: u32,
-        top_eval_epoch: u64,
-    ) {
-        let panel_w = viewport_width.saturating_sub(panel_width) as u32;
-        let panel_h = editor_panel_height(viewport_height) as u32;
+    pub(crate) fn update(&mut self, project: &GuiProject, update: TopViewerUpdate) {
+        let panel_w = update.viewport_width.saturating_sub(update.panel_width) as u32;
+        let panel_h = editor_panel_height(update.viewport_height) as u32;
         let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
-            frame_index
+            update.frame_index
         } else {
             0
         };
-        if self.compiled_epoch != Some(top_eval_epoch) {
+        if self.compiled_epoch != Some(update.top_eval_epoch) {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
-            self.compiled_epoch = Some(top_eval_epoch);
+            self.compiled_epoch = Some(update.top_eval_epoch);
         }
-        let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
+        let time_secs = update.frame_index as f32 / update.timeline_fps.max(1) as f32;
         let (texture_width, texture_height) = self
             .compiled_runtime
             .as_ref()
@@ -90,7 +98,7 @@ impl TopViewerGenerator {
             .unwrap_or((project.preview_width.max(1), project.preview_height.max(1)));
         let (view_width, view_height) =
             fit_aspect_in_rect(panel_w, panel_h, texture_width, texture_height);
-        let x = panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
+        let x = update.panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
         let y = (panel_h.saturating_sub(view_height) / 2) as i32;
         let key = ViewerCacheKey {
             panel_width: panel_w,
@@ -99,7 +107,7 @@ impl TopViewerGenerator {
             view_height,
             texture_width,
             texture_height,
-            top_eval_epoch,
+            top_eval_epoch: update.top_eval_epoch,
             frame_index: dynamic_frame,
         };
         self.x = x;
@@ -165,7 +173,7 @@ fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32
 #[cfg(test)]
 #[allow(clippy::infallible_destructuring_match)]
 mod tests {
-    use super::{TopViewerGenerator, TopViewerOp, TopViewerPayload};
+    use super::{TopViewerGenerator, TopViewerOp, TopViewerPayload, TopViewerUpdate};
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
     #[test]
@@ -178,12 +186,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -205,12 +215,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -233,12 +245,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -262,12 +276,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let r0 = match viewer.frame().expect("frame0").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
@@ -277,12 +293,14 @@ mod tests {
         };
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            60,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 60,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let r1 = match viewer.frame().expect("frame1").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
@@ -303,12 +321,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -334,12 +354,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -367,12 +389,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            1200,
-            700,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 1200,
+                viewport_height: 700,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         assert_eq!(frame.texture_width, 1024);
@@ -395,12 +419,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -428,12 +454,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            1200,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 1200,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -462,12 +490,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            1200,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 1200,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let phase_t0 = match viewer.frame().expect("frame0").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
@@ -478,12 +508,14 @@ mod tests {
 
         viewer.update(
             &project,
-            1200,
-            540,
-            420,
-            60,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 1200,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 60,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let phase_t1 = match viewer.frame().expect("frame1").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
@@ -505,36 +537,42 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let base_key = viewer.key;
 
         assert!(project.toggle_node_expanded(solid, 420, 480));
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         assert_eq!(viewer.key, base_key);
 
         assert!(project.select_next_param(solid));
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         assert_eq!(viewer.key, base_key);
     }
@@ -545,12 +583,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            960,
-            540,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
@@ -565,12 +605,14 @@ mod tests {
         let mut viewer = TopViewerGenerator::default();
         viewer.update(
             &project,
-            1200,
-            900,
-            420,
-            0,
-            60,
-            project.invalidation().top_eval,
+            TopViewerUpdate {
+                viewport_width: 1200,
+                viewport_height: 900,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         assert_eq!(frame.texture_width, 1920);

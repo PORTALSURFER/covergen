@@ -24,6 +24,7 @@ use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PendingAppAction, PreviewState};
 use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
 use super::top_view::TopViewerGenerator;
+use super::top_view::TopViewerUpdate;
 
 const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
@@ -481,12 +482,14 @@ impl GuiApp {
         if scene_dirty || self.needs_redraw {
             self.top_view.update(
                 &self.project,
-                self.renderer.width(),
-                self.renderer.height(),
-                self.panel_width,
-                self.state.frame_index,
-                self.config.animation.fps,
-                self.state.invalidation.top_eval,
+                TopViewerUpdate {
+                    viewport_width: self.renderer.width(),
+                    viewport_height: self.renderer.height(),
+                    panel_width: self.panel_width,
+                    frame_index: self.state.frame_index,
+                    timeline_fps: self.config.animation.fps,
+                    top_eval_epoch: self.state.invalidation.top_eval,
+                },
             );
             self.try_start_export_from_request()?;
             let scene_start = Instant::now();

@@ -2050,45 +2050,37 @@ fn hover_insert_link_at_cursor(
     dragged_node_id: u32,
 ) -> Option<HoverInsertLink> {
     let mut best: Option<(HoverInsertLink, f32)> = None;
-    let threshold_sq = (INSERT_WIRE_HOVER_RADIUS_PX * INSERT_WIRE_HOVER_RADIUS_PX) as f32;
+    let query = HoverInsertQuery {
+        cursor_x,
+        cursor_y,
+        threshold_sq: (INSERT_WIRE_HOVER_RADIUS_PX * INSERT_WIRE_HOVER_RADIUS_PX) as f32,
+        dragged_node_id,
+    };
     let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
     let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
     for target_id in target_ids.iter().copied() {
-        consider_hover_insert_candidate(
-            project,
-            state,
-            cursor_x,
-            cursor_y,
-            threshold_sq,
-            dragged_node_id,
-            target_id,
-            &mut best,
-        );
+        consider_hover_insert_candidate(project, state, query, target_id, &mut best);
     }
     if best.is_none() && target_ids.len() < project.node_count() {
         for target in project.nodes() {
-            consider_hover_insert_candidate(
-                project,
-                state,
-                cursor_x,
-                cursor_y,
-                threshold_sq,
-                dragged_node_id,
-                target.id(),
-                &mut best,
-            );
+            consider_hover_insert_candidate(project, state, query, target.id(), &mut best);
         }
     }
     best.map(|(link, _)| link)
 }
 
-fn consider_hover_insert_candidate(
-    project: &GuiProject,
-    state: &PreviewState,
+#[derive(Clone, Copy, Debug)]
+struct HoverInsertQuery {
     cursor_x: i32,
     cursor_y: i32,
     threshold_sq: f32,
     dragged_node_id: u32,
+}
+
+fn consider_hover_insert_candidate(
+    project: &GuiProject,
+    state: &PreviewState,
+    query: HoverInsertQuery,
     target_id: u32,
     best: &mut Option<(HoverInsertLink, f32)>,
 ) {
@@ -2098,7 +2090,7 @@ fn consider_hover_insert_candidate(
     let Some(source_id) = project.input_source_node_id(target_id) else {
         return;
     };
-    if !can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id) {
+    if !can_insert_dragged_node_on_link(project, query.dragged_node_id, source_id, target_id) {
         return;
     }
     let Some(source) = project.node(source_id) else {
@@ -2113,14 +2105,14 @@ fn consider_hover_insert_candidate(
     let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
     let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
     let dist_sq = point_to_segment_distance_sq(
-        cursor_x as f32,
-        cursor_y as f32,
+        query.cursor_x as f32,
+        query.cursor_y as f32,
         from_x as f32,
         from_y as f32,
         to_x as f32,
         to_y as f32,
     );
-    if dist_sq > threshold_sq {
+    if dist_sq > query.threshold_sq {
         return;
     }
     let candidate = HoverInsertLink {
