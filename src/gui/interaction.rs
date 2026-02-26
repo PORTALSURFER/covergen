@@ -478,10 +478,10 @@ fn handle_right_selection(
             if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
                 if project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
                     && project
-                        .signal_source_for_param(node_id, param_index)
+                        .param_link_source_for_param(node_id, param_index)
                         .is_some()
                 {
-                    changed |= project.disconnect_signal_link_from_param(node_id, param_index);
+                    changed |= project.disconnect_param_link_from_param(node_id, param_index);
                     changed |= set_single_selection(state, node_id);
                     state.active_node = Some(node_id);
                     state.right_marquee = None;
@@ -1125,7 +1125,7 @@ fn handle_link_cut(
         let cut_links = collect_cut_links(project, state, cut);
         for link in cut_links {
             if let Some(param_index) = link.param_index {
-                let _ = project.disconnect_signal_link_from_param(link.target_id, param_index);
+                let _ = project.disconnect_param_link_from_param(link.target_id, param_index);
             } else {
                 let _ = project.disconnect_link(link.source_id, link.target_id);
             }
@@ -1176,7 +1176,9 @@ fn collect_cut_links(
             }
         }
         for param_index in 0..target.param_count() {
-            let Some(source_id) = project.signal_source_for_param(target_id, param_index) else {
+            let Some((source_id, _resource_kind)) =
+                project.param_link_source_for_param(target_id, param_index)
+            else {
                 continue;
             };
             let Some(source) = project.node(source_id) else {
@@ -1408,16 +1410,32 @@ fn handle_wire_input(
         wire.cursor_y = my;
     }
     if !input.left_down {
-        if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
-            if let Some(target) = state.hover_param_target {
-                let _ = project.connect_signal_link_to_param(
-                    wire.source_node_id,
-                    target.node_id,
-                    target.param_index,
-                );
+        match wire_drag_source_kind(project, wire) {
+            Some(ResourceKind::Signal) => {
+                if let Some(target) = state.hover_param_target {
+                    let _ = project.connect_signal_link_to_param(
+                        wire.source_node_id,
+                        target.node_id,
+                        target.param_index,
+                    );
+                }
             }
-        } else if let Some(target_id) = state.hover_input_pin {
-            let _ = project.connect_image_link(wire.source_node_id, target_id);
+            Some(ResourceKind::Texture2D) => {
+                if let Some(target) = state.hover_param_target {
+                    let _ = project.connect_texture_link_to_param(
+                        wire.source_node_id,
+                        target.node_id,
+                        target.param_index,
+                    );
+                } else if let Some(target_id) = state.hover_input_pin {
+                    let _ = project.connect_image_link(wire.source_node_id, target_id);
+                }
+            }
+            _ => {
+                if let Some(target_id) = state.hover_input_pin {
+                    let _ = project.connect_image_link(wire.source_node_id, target_id);
+                }
+            }
         }
         state.wire_drag = None;
         state.hover_param_target = None;
@@ -1574,10 +1592,10 @@ fn update_hover_state(
     state.hover_param_target = None;
     state.hover_dropdown_item = None;
     state.hover_menu_item = None;
-    let signal_bind_drag = state
+    let param_bind_drag_kind = state
         .wire_drag
-        .map(|wire| wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal))
-        .unwrap_or(false);
+        .and_then(|wire| wire_drag_source_kind(project, wire))
+        .filter(|kind| matches!(kind, ResourceKind::Signal | ResourceKind::Texture2D));
 
     let Some((mx, my)) = input.mouse_pos else {
         let mut changed = prev_hover_node.is_some()
@@ -1586,7 +1604,7 @@ fn update_hover_state(
             || prev_hover_param_target.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
-        if signal_bind_drag {
+        if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
                 panel_width,
@@ -1604,7 +1622,7 @@ fn update_hover_state(
             || prev_hover_param_target.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
-        if signal_bind_drag {
+        if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
                 panel_width,
@@ -1623,7 +1641,7 @@ fn update_hover_state(
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_dropdown_item.is_some();
-        if signal_bind_drag {
+        if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
                 panel_width,
@@ -1644,18 +1662,25 @@ fn update_hover_state(
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
     }
-    if let Some(wire) = state.wire_drag {
-        if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
+    let mut param_bind_hover_changed = false;
+    if state.wire_drag.is_some() {
+        if let Some(bind_kind) = param_bind_drag_kind {
             let mut changed = false;
             let (graph_x, graph_y) = screen_to_graph(mx, my, state);
             let mut keep_auto_expanded_node = None;
             state.hover_node = project.node_at(graph_x, graph_y);
             if let Some(node_id) = state.hover_node {
-                let accepts_signal = project
+                let accepts_binding = project
                     .node(node_id)
-                    .map(|node| node.kind().accepts_signal_bindings())
+                    .map(|node| match bind_kind {
+                        ResourceKind::Signal => node.kind().accepts_signal_bindings(),
+                        ResourceKind::Texture2D => {
+                            node.kind() == super::project::ProjectNodeKind::TexFeedback
+                        }
+                        _ => false,
+                    })
                     .unwrap_or(false);
-                if accepts_signal {
+                if accepts_binding {
                     keep_auto_expanded_node = Some(node_id);
                     let expanded = project.expand_node(node_id, panel_width, panel_height);
                     changed |= expanded;
@@ -1663,10 +1688,21 @@ fn update_hover_state(
                         state.auto_expanded_binding_nodes.push(node_id);
                     }
                     if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-                        state.hover_param_target = Some(HoverParamTarget {
-                            node_id,
-                            param_index,
-                        });
+                        let accepts_param = match bind_kind {
+                            ResourceKind::Signal => {
+                                project.param_accepts_signal_link(node_id, param_index)
+                            }
+                            ResourceKind::Texture2D => {
+                                project.param_accepts_texture_link(node_id, param_index)
+                            }
+                            _ => false,
+                        };
+                        if accepts_param {
+                            state.hover_param_target = Some(HoverParamTarget {
+                                node_id,
+                                param_index,
+                            });
+                        }
                     }
                 }
             }
@@ -1677,13 +1713,16 @@ fn update_hover_state(
                 state,
                 keep_auto_expanded_node,
             );
-            return changed
-                || state.hover_node != prev_hover_node
-                || prev_hover_output.is_some()
-                || prev_hover_input.is_some()
-                || state.hover_param_target != prev_hover_param_target
-                || prev_hover_dropdown_item.is_some()
-                || prev_hover_item.is_some();
+            if bind_kind == ResourceKind::Signal || state.hover_param_target.is_some() {
+                return changed
+                    || state.hover_node != prev_hover_node
+                    || prev_hover_output.is_some()
+                    || prev_hover_input.is_some()
+                    || state.hover_param_target != prev_hover_param_target
+                    || prev_hover_dropdown_item.is_some()
+                    || prev_hover_item.is_some();
+            }
+            param_bind_hover_changed = changed;
         }
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
@@ -1692,7 +1731,8 @@ fn update_hover_state(
     state.hover_output_pin = project.output_pin_at(graph_x, graph_y, pin_radius);
     state.hover_input_pin = project.input_pin_at(graph_x, graph_y, pin_radius, disallow_source);
     if state.hover_output_pin.is_some() || state.hover_input_pin.is_some() {
-        return state.hover_output_pin != prev_hover_output
+        return param_bind_hover_changed
+            || state.hover_output_pin != prev_hover_output
             || state.hover_input_pin != prev_hover_input
             || prev_hover_node.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -1703,7 +1743,8 @@ fn update_hover_state(
     if state.hover_node.is_some() {
         state.active_node = state.hover_node;
     }
-    state.hover_node != prev_hover_node
+    param_bind_hover_changed
+        || state.hover_node != prev_hover_node
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()
         || prev_hover_dropdown_item.is_some()
@@ -1849,7 +1890,8 @@ mod tests {
         update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::project::{
-        node_param_row_rect, node_param_value_rect, output_pin_center, GuiProject, ProjectNodeKind,
+        input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center,
+        GuiProject, ProjectNodeKind,
     };
     use crate::gui::state::{
         AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState,
@@ -2097,6 +2139,63 @@ mod tests {
     }
 
     #[test]
+    fn texture_wire_hover_over_feedback_auto_expands_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        assert!(!project.node_expanded(feedback));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+        let hover_node = InputSnapshot {
+            mouse_pos: Some((225, 85)),
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(
+            &hover_node,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(project.node_expanded(feedback));
+    }
+
+    #[test]
+    fn texture_wire_hover_still_targets_input_pin_for_regular_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 220, 80, 420, 480);
+        let (in_x, in_y) = {
+            let node = project.node(xform).expect("transform node should exist");
+            input_pin_center(node).expect("input pin should exist")
+        };
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+        let hover_input = InputSnapshot {
+            mouse_pos: Some((in_x, in_y)),
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(
+            &hover_input,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(state.hover_input_pin, Some(xform));
+    }
+
+    #[test]
     fn dropping_signal_wire_binds_hovered_parameter() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
@@ -2124,6 +2223,36 @@ mod tests {
         ));
         assert!(state.wire_drag.is_none());
         assert_eq!(project.signal_source_for_param(circle, 2), Some(lfo));
+    }
+
+    #[test]
+    fn dropping_texture_wire_binds_feedback_target_parameter() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: 0,
+            cursor_y: 0,
+        });
+        state.hover_param_target = Some(HoverParamTarget {
+            node_id: feedback,
+            param_index: 0,
+        });
+        let input = InputSnapshot {
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(
+            &input,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(state.wire_drag.is_none());
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
     }
 
     #[test]

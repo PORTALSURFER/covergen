@@ -817,7 +817,8 @@ impl SceneBuilder {
         let obstacles = collect_panel_node_obstacles(project, state);
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
-                let Some(source_id) = project.signal_source_for_param(target.id(), param_index)
+                let Some((source_id, _resource_kind)) =
+                    project.param_link_source_for_param(target.id(), param_index)
                 else {
                     continue;
                 };

@@ -599,9 +599,11 @@ fn compile_node(
             }
         }
         ProjectNodeKind::TexFeedback => {
-            let source_id = match project.input_source_node_id(node_id) {
-                Some(id) => id,
-                None => return false,
+            let source_id = project
+                .texture_source_for_param_key(node_id, "target_tex")
+                .or_else(|| project.input_source_node_id(node_id));
+            let Some(source_id) = source_id else {
+                return false;
             };
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
@@ -735,6 +737,24 @@ mod tests {
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
         assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
+    }
+
+    #[test]
+    fn feedback_pipeline_compiles_from_target_tex_param_binding() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_texture_link_to_param(solid, feedback, 0));
         assert!(project.connect_image_link(feedback, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");

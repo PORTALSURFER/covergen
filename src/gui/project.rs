@@ -34,6 +34,7 @@ const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
 const HIT_BIN_SIZE: i32 = 128;
 const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
+const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
 
 /// Arc style options exposed by the `buf.circle_nurbs` node.
 const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
@@ -282,6 +283,9 @@ pub(crate) struct PersistedGuiParam {
     pub(crate) value: f32,
     /// Optional signal source node id.
     pub(crate) signal_source: Option<u32>,
+    /// Optional texture source node id for texture-target parameter rows.
+    #[serde(default)]
+    pub(crate) texture_source: Option<u32>,
 }
 
 /// Error returned when persisted GUI project payload cannot be loaded.
@@ -326,6 +330,8 @@ pub(crate) enum NodeParamWidget {
         /// Static option list used for this parameter.
         options: &'static [NodeParamOption],
     },
+    /// Texture-node binding target used by feedback routing parameters.
+    TextureTarget,
 }
 
 impl NodeParamWidget {
@@ -339,7 +345,13 @@ impl NodeParamWidget {
         match self {
             Self::Number => None,
             Self::Dropdown { options } => Some(options),
+            Self::TextureTarget => None,
         }
+    }
+
+    /// Return true when this parameter binds one texture node source id.
+    pub(crate) const fn is_texture_target(self) -> bool {
+        matches!(self, Self::TextureTarget)
     }
 }
 
@@ -354,6 +366,7 @@ pub(crate) struct NodeParamSlot {
     max: f32,
     step: f32,
     signal_source: Option<u32>,
+    texture_source: Option<u32>,
     widget: NodeParamWidget,
 }
 
@@ -387,7 +400,7 @@ impl<'a> Iterator for NodeParamIter<'a> {
         Some(NodeParamView {
             label: slot.label,
             value_text: slot.value_text.as_str(),
-            bound: slot.signal_source.is_some(),
+            bound: slot.signal_source.is_some() || slot.texture_source.is_some(),
             selected,
             dropdown: slot.widget.is_dropdown(),
         })
@@ -483,7 +496,7 @@ impl ProjectNode {
         Some(NodeParamView {
             label: slot.label,
             value_text: slot.value_text.as_str(),
-            bound: slot.signal_source.is_some(),
+            bound: slot.signal_source.is_some() || slot.texture_source.is_some(),
             selected,
             dropdown: slot.widget.is_dropdown(),
         })
@@ -558,6 +571,7 @@ impl GuiProject {
                         key: slot.key.to_string(),
                         value: slot.value,
                         signal_source: slot.signal_source,
+                        texture_source: slot.texture_source,
                     })
                     .collect(),
             })
@@ -658,6 +672,23 @@ impl GuiProject {
                     continue;
                 };
                 let _ = project.connect_signal_link_to_param(source_id, target_id, param_index);
+            }
+            for persisted_param in &persisted_node.params {
+                let Some(source_old_id) = persisted_param.texture_source else {
+                    continue;
+                };
+                let Some(source_id) = id_map.get(&source_old_id).copied() else {
+                    continue;
+                };
+                let Some(param_index) = project.node(target_id).and_then(|target| {
+                    target
+                        .params
+                        .iter()
+                        .position(|slot| slot.key == persisted_param.key.as_str())
+                }) else {
+                    continue;
+                };
+                let _ = project.connect_texture_link_to_param(source_id, target_id, param_index);
             }
         }
 
@@ -972,6 +1003,9 @@ impl GuiProject {
                     .selected_param
                     .min(target.params.len().saturating_sub(1));
                 let slot = &mut target.params[param_index];
+                if slot.widget.is_texture_target() {
+                    return false;
+                }
                 if slot.signal_source == Some(source_id) {
                     false
                 } else {
@@ -1018,6 +1052,9 @@ impl GuiProject {
         }
         let index = param_index.min(target.params.len().saturating_sub(1));
         let slot = &mut target.params[index];
+        if slot.widget.is_texture_target() {
+            return false;
+        }
         if slot.signal_source == Some(source_id) {
             return false;
         }
@@ -1027,10 +1064,51 @@ impl GuiProject {
         true
     }
 
+    /// Connect one texture source node to one explicit texture-target parameter row.
+    ///
+    /// Returns `true` when the target parameter binding changed.
+    pub(crate) fn connect_texture_link_to_param(
+        &mut self,
+        source_id: u32,
+        target_id: u32,
+        param_index: usize,
+    ) -> bool {
+        if source_id == target_id {
+            return false;
+        }
+        if self.depends_on(source_id, target_id) {
+            return false;
+        }
+        let Some(source) = self.node(source_id) else {
+            return false;
+        };
+        if source.kind().output_resource_kind() != Some(ResourceKind::Texture2D) {
+            return false;
+        }
+        let source_label = source.kind().label();
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        let index = param_index.min(target.params.len().saturating_sub(1));
+        let Some(slot) = target.params.get_mut(index) else {
+            return false;
+        };
+        if !slot.widget.is_texture_target() {
+            return false;
+        }
+        let changed = bind_texture_target_slot(slot, Some((source_id, source_label)));
+        if !changed {
+            return false;
+        }
+        rebuild_node_inputs(target);
+        self.recount_edges();
+        true
+    }
+
     /// Disconnect one explicit source -> target link.
     ///
-    /// Removes both texture-input and signal-parameter bindings that match the
-    /// source/target pair.
+    /// Removes texture-input, texture-parameter, and signal-parameter bindings
+    /// that match the source/target pair.
     pub(crate) fn disconnect_link(&mut self, source_id: u32, target_id: u32) -> bool {
         let Some(target) = self.node_mut(target_id) else {
             return false;
@@ -1044,6 +1122,9 @@ impl GuiProject {
             if slot.signal_source == Some(source_id) {
                 slot.signal_source = None;
                 changed = true;
+            }
+            if slot.texture_source == Some(source_id) {
+                changed |= bind_texture_target_slot(slot, None);
             }
         }
         if !changed {
@@ -1112,6 +1193,13 @@ impl GuiProject {
         if target
             .params
             .iter()
+            .any(|slot| slot.texture_source == Some(source_id))
+        {
+            return Some(ResourceKind::Texture2D);
+        }
+        if target
+            .params
+            .iter()
             .any(|slot| slot.signal_source == Some(source_id))
         {
             return Some(ResourceKind::Signal);
@@ -1134,6 +1222,7 @@ impl GuiProject {
     }
 
     /// Return signal source node id bound to one target parameter row, if any.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn signal_source_for_param(
         &self,
         target_id: u32,
@@ -1142,6 +1231,44 @@ impl GuiProject {
         let target = self.node(target_id)?;
         let slot = target.params.get(param_index)?;
         slot.signal_source
+    }
+
+    /// Return texture source node id bound to one target parameter row, if any.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn texture_source_for_param(
+        &self,
+        target_id: u32,
+        param_index: usize,
+    ) -> Option<u32> {
+        let target = self.node(target_id)?;
+        let slot = target.params.get(param_index)?;
+        slot.texture_source
+    }
+
+    /// Return one bound source id/kind for a target parameter row, if any.
+    pub(crate) fn param_link_source_for_param(
+        &self,
+        target_id: u32,
+        param_index: usize,
+    ) -> Option<(u32, ResourceKind)> {
+        let target = self.node(target_id)?;
+        let slot = target.params.get(param_index)?;
+        if let Some(source) = slot.texture_source {
+            return Some((source, ResourceKind::Texture2D));
+        }
+        slot.signal_source
+            .map(|source| (source, ResourceKind::Signal))
+    }
+
+    /// Return texture source node id bound to one parameter key, if any.
+    pub(crate) fn texture_source_for_param_key(
+        &self,
+        target_id: u32,
+        key: &'static str,
+    ) -> Option<u32> {
+        let target = self.node(target_id)?;
+        let slot = target.params.iter().find(|slot| slot.key == key)?;
+        slot.texture_source
     }
 
     /// Disconnect one explicit signal binding from a target parameter row.
@@ -1165,6 +1292,45 @@ impl GuiProject {
         rebuild_node_inputs(target);
         self.recount_edges();
         true
+    }
+
+    /// Disconnect one explicit texture binding from a target parameter row.
+    ///
+    /// Returns `true` when the target parameter binding changed.
+    pub(crate) fn disconnect_texture_link_from_param(
+        &mut self,
+        target_id: u32,
+        param_index: usize,
+    ) -> bool {
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        let Some(slot) = target.params.get_mut(param_index) else {
+            return false;
+        };
+        if slot.texture_source.is_none() {
+            return false;
+        }
+        if !bind_texture_target_slot(slot, None) {
+            return false;
+        }
+        rebuild_node_inputs(target);
+        self.recount_edges();
+        true
+    }
+
+    /// Disconnect any explicit parameter link (signal or texture) from one row.
+    ///
+    /// Returns `true` when the target parameter binding changed.
+    pub(crate) fn disconnect_param_link_from_param(
+        &mut self,
+        target_id: u32,
+        param_index: usize,
+    ) -> bool {
+        if self.disconnect_signal_link_from_param(target_id, param_index) {
+            return true;
+        }
+        self.disconnect_texture_link_from_param(target_id, param_index)
     }
 
     /// Toggle one node expanded/collapsed state.
@@ -1358,7 +1524,47 @@ impl GuiProject {
 
     /// Return true when a parameter row can be edited as free-form numeric text.
     pub(crate) fn param_supports_text_edit(&self, node_id: u32, param_index: usize) -> bool {
-        !self.param_is_dropdown(node_id, param_index)
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        let Some(slot) = node
+            .params
+            .get(param_index.min(node.params.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        !slot.widget.is_dropdown() && !slot.widget.is_texture_target()
+    }
+
+    /// Return true when one row accepts signal-source parameter bindings.
+    pub(crate) fn param_accepts_signal_link(&self, node_id: u32, param_index: usize) -> bool {
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        if !node.kind.accepts_signal_bindings() {
+            return false;
+        }
+        let Some(slot) = node
+            .params
+            .get(param_index.min(node.params.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        !slot.widget.is_texture_target()
+    }
+
+    /// Return true when one row accepts texture-source parameter bindings.
+    pub(crate) fn param_accepts_texture_link(&self, node_id: u32, param_index: usize) -> bool {
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        let Some(slot) = node
+            .params
+            .get(param_index.min(node.params.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        slot.widget.is_texture_target()
     }
 
     /// Return dropdown options for one parameter row.
@@ -1533,6 +1739,9 @@ impl GuiProject {
                 }
                 hash = fnv1a_u64(hash, slot.value.to_bits() as u64);
                 if let Some(source) = slot.signal_source {
+                    hash = fnv1a_u64(hash, source as u64);
+                }
+                if let Some(source) = slot.texture_source {
                     hash = fnv1a_u64(hash, source as u64);
                 }
             }
@@ -1780,9 +1989,10 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("gain_b", "gain_b", 1.0, 0.0, 64.0, 0.1),
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
-        ProjectNodeKind::TexFeedback => {
-            vec![param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01)]
-        }
+        ProjectNodeKind::TexFeedback => vec![
+            param_texture_target("target_tex", "target_tex"),
+            param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
+        ],
         ProjectNodeKind::SceneEntity => vec![
             param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
             param("pos_y", "pos_y", 0.5, 0.0, 1.0, 0.01),
@@ -1834,7 +2044,24 @@ fn param(
         max,
         step,
         signal_source: None,
+        texture_source: None,
         widget: NodeParamWidget::Number,
+    }
+}
+
+/// Build one texture-target parameter slot.
+fn param_texture_target(key: &'static str, label: &'static str) -> NodeParamSlot {
+    NodeParamSlot {
+        key,
+        label,
+        value: 0.0,
+        value_text: texture_target_placeholder().to_string(),
+        min: 0.0,
+        max: 0.0,
+        step: 0.0,
+        signal_source: None,
+        texture_source: None,
+        widget: NodeParamWidget::TextureTarget,
     }
 }
 
@@ -1865,6 +2092,7 @@ fn param_dropdown(
         max,
         step: 1.0,
         signal_source: None,
+        texture_source: None,
         widget: NodeParamWidget::Dropdown { options },
     }
 }
@@ -1873,8 +2101,32 @@ fn format_param_value_text(value: f32) -> String {
     format!("{value:.3}")
 }
 
+fn texture_target_placeholder() -> &'static str {
+    TEXTURE_TARGET_PLACEHOLDER
+}
+
+fn bind_texture_target_slot(slot: &mut NodeParamSlot, source: Option<(u32, &str)>) -> bool {
+    if !slot.widget.is_texture_target() {
+        return false;
+    }
+    let next_source = source.map(|(source_id, _)| source_id);
+    let next_label = source
+        .map(|(_, label)| label)
+        .unwrap_or(texture_target_placeholder());
+    if slot.texture_source == next_source && slot.value_text == next_label {
+        return false;
+    }
+    slot.texture_source = next_source;
+    slot.value_text.clear();
+    slot.value_text.push_str(next_label);
+    true
+}
+
 /// Set one slot value while respecting widget semantics.
 fn set_slot_value(slot: &mut NodeParamSlot, value: f32) -> bool {
+    if slot.widget.is_texture_target() {
+        return false;
+    }
     if let Some(options) = slot.widget.dropdown_options() {
         if options.is_empty() {
             return false;
@@ -1894,6 +2146,9 @@ fn set_slot_value(slot: &mut NodeParamSlot, value: f32) -> bool {
 /// Adjust one slot by step count while respecting widget semantics.
 fn adjust_slot_value(slot: &mut NodeParamSlot, steps: f32) -> bool {
     if !steps.is_finite() || steps.abs() <= f32::EPSILON {
+        return false;
+    }
+    if slot.widget.is_texture_target() {
         return false;
     }
     if let Some(options) = slot.widget.dropdown_options() {
@@ -1969,6 +2224,14 @@ fn rebuild_node_inputs(node: &mut ProjectNode) {
         node.inputs.push(texture_source);
     }
     for slot in &node.params {
+        let Some(texture_source) = slot.texture_source else {
+            continue;
+        };
+        if !node.inputs.contains(&texture_source) {
+            node.inputs.push(texture_source);
+        }
+    }
+    for slot in &node.params {
         let Some(signal_source) = slot.signal_source else {
             continue;
         };
@@ -1991,6 +2254,11 @@ fn clear_deleted_links(node: &mut ProjectNode, removed_ids: &[u32]) -> bool {
             if contains_sorted_id(removed_ids, source) {
                 slot.signal_source = None;
                 changed = true;
+            }
+        }
+        if let Some(source) = slot.texture_source {
+            if contains_sorted_id(removed_ids, source) {
+                changed |= bind_texture_target_slot(slot, None);
             }
         }
     }
@@ -2338,6 +2606,20 @@ mod tests {
     }
 
     #[test]
+    fn connect_texture_link_to_feedback_target_param_row() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 40, 420, 480);
+        assert!(project.connect_texture_link_to_param(solid, feedback, 0));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+        assert_eq!(
+            project.param_link_source_for_param(feedback, 0),
+            Some((solid, ResourceKind::Texture2D))
+        );
+        assert!(!project.connect_texture_link_to_param(solid, feedback, 0));
+    }
+
+    #[test]
     fn link_resource_kind_reports_texture_and_signal_links() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
@@ -2354,6 +2636,12 @@ mod tests {
             Some(ResourceKind::Signal)
         );
         assert_eq!(project.signal_param_index_for_source(lfo, xform), Some(3));
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 360, 40, 420, 480);
+        assert!(project.connect_texture_link_to_param(solid, feedback, 0));
+        assert_eq!(
+            project.link_resource_kind(solid, feedback),
+            Some(ResourceKind::Texture2D)
+        );
     }
 
     #[test]
@@ -2560,11 +2848,13 @@ mod tests {
         let scene = project.add_node(ProjectNodeKind::SceneBuild, 680, 40, 420, 480);
         let pass = project.add_node(ProjectNodeKind::RenderScenePass, 840, 40, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 1000, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 1160, 40, 420, 480);
         assert!(project.connect_image_link(circle, noise));
         assert!(project.connect_image_link(noise, entity));
         assert!(project.connect_image_link(entity, scene));
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
+        assert!(project.connect_texture_link_to_param(pass, feedback, 0));
         assert!(project.connect_signal_link_to_param(lfo, noise, 0));
         assert!(project.toggle_node_expanded(noise, 420, 480));
         assert!(project.set_param_value(noise, 1, 4.5));
