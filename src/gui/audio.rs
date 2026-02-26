@@ -32,19 +32,141 @@ struct LoadedWavClip {
     duration: Duration,
 }
 
-/// Timeline audio preview controller.
+/// Minimal player controls required by timeline sync logic.
+#[cfg(windows)]
+trait TimelinePlayer {
+    /// Resume playback.
+    fn play(&self);
+    /// Pause playback.
+    fn pause(&self);
+    /// Set output gain.
+    fn set_volume(&self, volume: f32);
+    /// Return current playback position.
+    fn get_pos(&self) -> Duration;
+    /// Seek to one playback position.
+    fn try_seek(&self, target: Duration) -> bool;
+    /// Stop playback and release player-side resources.
+    fn stop(&self);
+}
+
+/// Backend that creates and owns platform audio output resources.
+#[cfg(windows)]
+trait TimelineAudioBackend {
+    /// Create one playback session for `clip` at `target` with `volume`.
+    fn start_player(
+        &mut self,
+        clip: &LoadedWavClip,
+        target: Duration,
+        volume: f32,
+    ) -> Result<Box<dyn TimelinePlayer>, String>;
+
+    /// Drop backend output resources.
+    fn reset_output(&mut self);
+}
+
+/// Default rodio-backed output backend used on Windows.
+#[cfg(windows)]
 #[derive(Default)]
+struct RodioTimelineAudioBackend {
+    sink: Option<MixerDeviceSink>,
+}
+
+/// `TimelinePlayer` adapter around `rodio::Player`.
+#[cfg(windows)]
+struct RodioTimelinePlayer {
+    player: Player,
+}
+
+#[cfg(windows)]
+impl TimelinePlayer for RodioTimelinePlayer {
+    fn play(&self) {
+        self.player.play();
+    }
+
+    fn pause(&self) {
+        self.player.pause();
+    }
+
+    fn set_volume(&self, volume: f32) {
+        self.player.set_volume(volume);
+    }
+
+    fn get_pos(&self) -> Duration {
+        self.player.get_pos()
+    }
+
+    fn try_seek(&self, target: Duration) -> bool {
+        self.player.try_seek(target).is_ok()
+    }
+
+    fn stop(&self) {
+        self.player.stop();
+    }
+}
+
+#[cfg(windows)]
+impl TimelineAudioBackend for RodioTimelineAudioBackend {
+    fn start_player(
+        &mut self,
+        clip: &LoadedWavClip,
+        target: Duration,
+        volume: f32,
+    ) -> Result<Box<dyn TimelinePlayer>, String> {
+        if self.sink.is_none() {
+            let sink = DeviceSinkBuilder::open_default_sink()
+                .map_err(|err| format!("failed to open default output sink: {err}"))?;
+            self.sink = Some(sink);
+        }
+        let Some(sink) = self.sink.as_ref() else {
+            return Err("audio output sink was not initialized".to_string());
+        };
+        let player = Player::connect_new(sink.mixer());
+        let source = SamplesBuffer::new(clip.channels, clip.sample_rate, clip.samples.clone())
+            .repeat_infinite();
+        player.append(source);
+        player.set_volume(volume);
+        let _ = player.try_seek(target);
+        Ok(Box::new(RodioTimelinePlayer { player }))
+    }
+
+    fn reset_output(&mut self) {
+        self.sink = None;
+    }
+}
+
+/// Timeline audio preview controller.
+#[cfg_attr(not(windows), derive(Default))]
 pub(crate) struct TimelineAudioPreview {
     #[cfg(windows)]
-    sink: Option<MixerDeviceSink>,
+    backend: Box<dyn TimelineAudioBackend>,
     #[cfg(windows)]
-    player: Option<Player>,
+    player: Option<Box<dyn TimelinePlayer>>,
     #[cfg(windows)]
     clip: Option<LoadedWavClip>,
     #[cfg(windows)]
     clip_path: Option<PathBuf>,
     #[cfg(windows)]
     last_frame_index: Option<u32>,
+}
+
+#[cfg(windows)]
+impl Default for TimelineAudioPreview {
+    fn default() -> Self {
+        #[cfg(windows)]
+        {
+            return Self {
+                backend: Box::new(RodioTimelineAudioBackend::default()),
+                player: None,
+                clip: None,
+                clip_path: None,
+                last_frame_index: None,
+            };
+        }
+        #[cfg(not(windows))]
+        {
+            Self {}
+        }
+    }
 }
 
 impl TimelineAudioPreview {
@@ -86,7 +208,7 @@ impl TimelineAudioPreview {
             if let Some(player) = self.player.take() {
                 player.stop();
             }
-            self.sink = None;
+            self.backend.reset_output();
         }
     }
 
@@ -113,26 +235,16 @@ impl TimelineAudioPreview {
         let Some(clip) = self.clip.as_ref() else {
             return false;
         };
-        if self.sink.is_none() {
-            match DeviceSinkBuilder::open_default_sink() {
-                Ok(sink) => self.sink = Some(sink),
-                Err(err) => {
-                    eprintln!("[audio] failed to open default output sink: {err}");
-                    return false;
-                }
+        match self.backend.start_player(clip, target, volume) {
+            Ok(player) => {
+                self.player = Some(player);
+                true
+            }
+            Err(err) => {
+                eprintln!("[audio] {err}");
+                false
             }
         }
-        let Some(sink) = self.sink.as_ref() else {
-            return false;
-        };
-        let player = Player::connect_new(sink.mixer());
-        let source = SamplesBuffer::new(clip.channels, clip.sample_rate, clip.samples.clone())
-            .repeat_infinite();
-        player.append(source);
-        player.set_volume(volume);
-        let _ = player.try_seek(target);
-        self.player = Some(player);
-        true
     }
 
     #[cfg(windows)]
@@ -210,6 +322,32 @@ impl TimelineAudioPreview {
             let _ = player.try_seek(target);
         }
         self.last_frame_index = Some(frame_index);
+    }
+}
+
+#[cfg(all(test, windows))]
+impl TimelineAudioPreview {
+    /// Build one preview controller with an injected fake backend.
+    fn with_backend_for_tests(backend: Box<dyn TimelineAudioBackend>) -> Self {
+        Self {
+            backend,
+            player: None,
+            clip: None,
+            clip_path: None,
+            last_frame_index: None,
+        }
+    }
+
+    /// Install one synthetic clip directly for deterministic sync tests.
+    fn set_clip_for_tests(&mut self, duration: Duration) {
+        self.clip = Some(LoadedWavClip {
+            channels: NonZeroU16::new(1).expect("non-zero channels"),
+            sample_rate: NonZeroU32::new(48_000).expect("non-zero sample rate"),
+            samples: vec![0.0, 0.0],
+            duration,
+        });
+        // Keep `None` so default export-menu path does not trigger reloads.
+        self.clip_path = None;
     }
 }
 
@@ -369,5 +507,163 @@ mod tests {
             period,
         );
         assert!((diff.as_secs_f64() - 0.2).abs() < 1e-6);
+    }
+
+    #[cfg(windows)]
+    mod windows_sync {
+        use super::super::{TimelineAudioBackend, TimelineAudioPreview, TimelinePlayer};
+        use crate::gui::state::ExportMenuState;
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+
+        #[derive(Debug, Default)]
+        struct FakeAudioState {
+            start_calls: usize,
+            play_calls: usize,
+            pause_calls: usize,
+            stop_calls: usize,
+            volumes: Vec<f32>,
+            seeks: Vec<Duration>,
+            current_pos: Duration,
+        }
+
+        #[derive(Clone, Debug)]
+        struct FakeTimelineAudioBackend {
+            state: Arc<Mutex<FakeAudioState>>,
+        }
+
+        #[derive(Debug)]
+        struct FakeTimelinePlayer {
+            state: Arc<Mutex<FakeAudioState>>,
+        }
+
+        impl TimelinePlayer for FakeTimelinePlayer {
+            fn play(&self) {
+                let mut state = self.state.lock().expect("lock fake state");
+                state.play_calls = state.play_calls.saturating_add(1);
+            }
+
+            fn pause(&self) {
+                let mut state = self.state.lock().expect("lock fake state");
+                state.pause_calls = state.pause_calls.saturating_add(1);
+            }
+
+            fn set_volume(&self, volume: f32) {
+                let mut state = self.state.lock().expect("lock fake state");
+                state.volumes.push(volume);
+            }
+
+            fn get_pos(&self) -> Duration {
+                self.state.lock().expect("lock fake state").current_pos
+            }
+
+            fn try_seek(&self, target: Duration) -> bool {
+                let mut state = self.state.lock().expect("lock fake state");
+                state.seeks.push(target);
+                state.current_pos = target;
+                true
+            }
+
+            fn stop(&self) {
+                let mut state = self.state.lock().expect("lock fake state");
+                state.stop_calls = state.stop_calls.saturating_add(1);
+            }
+        }
+
+        impl TimelineAudioBackend for FakeTimelineAudioBackend {
+            fn start_player(
+                &mut self,
+                _clip: &super::super::LoadedWavClip,
+                target: Duration,
+                volume: f32,
+            ) -> Result<Box<dyn TimelinePlayer>, String> {
+                {
+                    let mut state = self.state.lock().expect("lock fake state");
+                    state.start_calls = state.start_calls.saturating_add(1);
+                    state.volumes.push(volume);
+                    state.seeks.push(target);
+                    state.current_pos = target;
+                }
+                Ok(Box::new(FakeTimelinePlayer {
+                    state: Arc::clone(&self.state),
+                }))
+            }
+
+            fn reset_output(&mut self) {}
+        }
+
+        fn build_preview_with_fake_backend() -> (
+            TimelineAudioPreview,
+            Arc<Mutex<FakeAudioState>>,
+            ExportMenuState,
+        ) {
+            let state = Arc::new(Mutex::new(FakeAudioState::default()));
+            let backend = FakeTimelineAudioBackend {
+                state: Arc::clone(&state),
+            };
+            let mut preview = TimelineAudioPreview::with_backend_for_tests(Box::new(backend));
+            preview.set_clip_for_tests(Duration::from_secs_f64(10.0));
+            let mut menu = ExportMenuState::closed();
+            menu.audio_volume = "0.75".to_string();
+            (preview, state, menu)
+        }
+
+        #[test]
+        fn paused_sync_seeks_only_when_frame_changes() {
+            let (mut preview, state, menu) = build_preview_with_fake_backend();
+            preview.sync(&menu, false, 0, 100, 60);
+            {
+                let snapshot = state.lock().expect("lock fake state");
+                assert_eq!(snapshot.start_calls, 1);
+                assert_eq!(snapshot.seeks.len(), 1);
+            }
+            {
+                let mut edit = state.lock().expect("lock fake state");
+                edit.current_pos = Duration::from_secs_f64(2.0);
+            }
+            preview.sync(&menu, true, 10, 100, 60);
+            {
+                let snapshot = state.lock().expect("lock fake state");
+                assert!(snapshot.pause_calls >= 1);
+                assert_eq!(snapshot.seeks.len(), 2);
+                let last_seek = snapshot.seeks.last().copied().expect("seek exists");
+                assert!((last_seek.as_secs_f64() - 1.0).abs() < 1e-6);
+            }
+            preview.sync(&menu, true, 10, 100, 60);
+            {
+                let snapshot = state.lock().expect("lock fake state");
+                assert_eq!(snapshot.seeks.len(), 2);
+            }
+        }
+
+        #[test]
+        fn playing_sync_resyncs_when_drift_exceeds_threshold() {
+            let (mut preview, state, menu) = build_preview_with_fake_backend();
+            preview.sync(&menu, false, 0, 100, 60);
+            {
+                let mut edit = state.lock().expect("lock fake state");
+                edit.current_pos = Duration::from_secs_f64(0.25);
+            }
+            preview.sync(&menu, false, 50, 100, 60);
+            let snapshot = state.lock().expect("lock fake state");
+            assert_eq!(snapshot.seeks.len(), 2);
+            let last_seek = snapshot.seeks.last().copied().expect("seek exists");
+            assert!((last_seek.as_secs_f64() - 5.0).abs() < 1e-6);
+        }
+
+        #[test]
+        fn playing_sync_resyncs_on_loop_wrap_even_with_low_drift() {
+            let (mut preview, state, menu) = build_preview_with_fake_backend();
+            preview.sync(&menu, false, 90, 100, 60);
+            {
+                let mut edit = state.lock().expect("lock fake state");
+                edit.current_pos = Duration::from_secs_f64(0.5005);
+            }
+            preview.sync(&menu, false, 5, 100, 60);
+            let snapshot = state.lock().expect("lock fake state");
+            assert_eq!(snapshot.seeks.len(), 2);
+            let last_seek = snapshot.seeks.last().copied().expect("seek exists");
+            assert!((last_seek.as_secs_f64() - 0.5).abs() < 1e-6);
+        }
     }
 }
