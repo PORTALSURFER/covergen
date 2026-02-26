@@ -1693,23 +1693,31 @@ fn handle_drag_input(
     if input.left_clicked {
         changed |= begin_drag_if_node_hit(input, project, panel_width, panel_height, state);
     }
+    let dragged_node_ids = state
+        .drag
+        .map(|drag| drag_selection_node_ids(state, drag.node_id))
+        .unwrap_or_default();
+    let is_group_drag = dragged_node_ids.len() > 1;
     if !input.left_down {
         if let Some(drag) = state.drag {
-            if let Some(link) = resolve_insert_link_on_release(
-                input,
-                project,
-                panel_width,
-                panel_height,
-                state,
-                drag.node_id,
-            ) {
-                changed |= project.insert_node_on_primary_link(
+            if !is_group_drag {
+                if let Some(link) = resolve_insert_link_on_release(
+                    input,
+                    project,
+                    panel_width,
+                    panel_height,
+                    state,
                     drag.node_id,
-                    link.source_id,
-                    link.target_id,
-                );
+                ) {
+                    changed |= project.insert_node_on_primary_link(
+                        drag.node_id,
+                        link.source_id,
+                        link.target_id,
+                    );
+                }
+                changed |=
+                    snap_dragged_node_out_of_overlap(project, drag, panel_width, panel_height);
             }
-            changed |= snap_dragged_node_out_of_overlap(project, drag, panel_width, panel_height);
         }
         changed |= state.drag.is_some();
         state.drag = None;
@@ -1729,21 +1737,94 @@ fn handle_drag_input(
         return changed;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let node_x = graph_x - drag.offset_x;
-    let node_y = graph_y - drag.offset_y;
-    changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
-    let next_insert_hover = hover_insert_link_at_cursor(
-        project,
+    if is_group_drag {
+        changed |= move_drag_selection_by_anchor_delta(
+            project,
+            drag,
+            dragged_node_ids.as_slice(),
+            graph_x,
+            graph_y,
+            panel_width,
+            panel_height,
+        );
+        changed |= state.hover_insert_link.take().is_some();
+    } else {
+        let node_x = graph_x - drag.offset_x;
+        let node_y = graph_y - drag.offset_y;
+        changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
+        let next_insert_hover = hover_insert_link_at_cursor(
+            project,
+            panel_width,
+            panel_height,
+            state,
+            mx,
+            my,
+            drag.node_id,
+        );
+        if state.hover_insert_link != next_insert_hover {
+            state.hover_insert_link = next_insert_hover;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Return drag group ids for one anchor node.
+///
+/// Multi-node dragging is enabled only when the anchor node is part of the
+/// current selection and at least two nodes are selected.
+fn drag_selection_node_ids(state: &PreviewState, anchor_node_id: u32) -> Vec<u32> {
+    if state.selected_nodes.len() > 1 && state.selected_nodes.contains(&anchor_node_id) {
+        return state.selected_nodes.clone();
+    }
+    vec![anchor_node_id]
+}
+
+/// Move selected drag nodes by the anchor node cursor delta.
+///
+/// The anchor node follows the cursor first; the resolved delta is then applied
+/// to the remaining selected nodes to keep group movement coherent.
+fn move_drag_selection_by_anchor_delta(
+    project: &mut GuiProject,
+    drag: super::state::DragState,
+    dragged_node_ids: &[u32],
+    graph_x: i32,
+    graph_y: i32,
+    panel_width: usize,
+    panel_height: usize,
+) -> bool {
+    let Some(anchor_before) = project.node(drag.node_id) else {
+        return false;
+    };
+    let anchor_before_x = anchor_before.x();
+    let anchor_before_y = anchor_before.y();
+    let desired_x = graph_x - drag.offset_x;
+    let desired_y = graph_y - drag.offset_y;
+    let mut changed = project.move_node(
+        drag.node_id,
+        desired_x,
+        desired_y,
         panel_width,
         panel_height,
-        state,
-        mx,
-        my,
-        drag.node_id,
     );
-    if state.hover_insert_link != next_insert_hover {
-        state.hover_insert_link = next_insert_hover;
-        changed = true;
+    let Some(anchor_after) = project.node(drag.node_id) else {
+        return changed;
+    };
+    let dx = anchor_after.x() - anchor_before_x;
+    let dy = anchor_after.y() - anchor_before_y;
+    if dx == 0 && dy == 0 {
+        return changed;
+    }
+    for node_id in dragged_node_ids.iter().copied() {
+        if node_id == drag.node_id {
+            continue;
+        }
+        let Some(node) = project.node(node_id) else {
+            continue;
+        };
+        let next_x = node.x().saturating_add(dx);
+        let next_y = node.y().saturating_add(dy);
+        changed |= project.move_node(node_id, next_x, next_y, panel_width, panel_height);
     }
     changed
 }
@@ -3199,6 +3280,35 @@ mod tests {
         assert!(state.hover_insert_link.is_none());
         assert_eq!(project.input_source_node_id(xform), Some(solid));
         assert_eq!(project.input_source_node_id(out), Some(xform));
+    }
+
+    #[test]
+    fn dragging_selected_nodes_moves_selection_as_one_group() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let first = project.add_node(ProjectNodeKind::TexTransform2D, 40, 80, 420, 480);
+        let second = project.add_node(ProjectNodeKind::TexSolid, 180, 120, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.selected_nodes = vec![first, second];
+        state.drag = Some(DragState {
+            node_id: first,
+            offset_x: 0,
+            offset_y: 0,
+            origin_x: 40,
+            origin_y: 80,
+        });
+
+        let drag = InputSnapshot {
+            mouse_pos: Some((90, 130)),
+            left_down: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_drag_input(&drag, &mut project, 420, 480, &mut state));
+        let first_node = project.node(first).expect("first node should exist");
+        let second_node = project.node(second).expect("second node should exist");
+        assert_eq!(first_node.x(), 90);
+        assert_eq!(first_node.y(), 130);
+        assert_eq!(second_node.x(), 230);
+        assert_eq!(second_node.y(), 170);
     }
 
     #[test]
