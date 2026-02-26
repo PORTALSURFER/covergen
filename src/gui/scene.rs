@@ -84,9 +84,11 @@ const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
+const PARAM_WIRE_ROUTE_LEAD_PX: i32 = 12;
+const PARAM_WIRE_ENDPOINT_STRAIGHT_PX: i32 = 10;
 const PARAM_WIRE_CORNER_RADIUS_MIN_PX: i32 = 3;
 const PARAM_WIRE_CORNER_RADIUS_MAX_PX: i32 = 8;
-const PARAM_WIRE_CURVE_STEPS: usize = 2;
+const PARAM_WIRE_CURVE_STEPS: usize = 4;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
 const FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
 
@@ -180,6 +182,14 @@ struct ParamRouteCacheKey {
     target_id: u32,
     param_index: usize,
     obstacle_epoch: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ParamWireAnchors {
+    source_exit: (i32, i32),
+    route_start: (i32, i32),
+    route_end: (i32, i32),
+    target_entry: (i32, i32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1043,14 +1053,16 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
+        let defer_routing_while_dragging = state.drag.is_some();
         let obstacle_epoch = param_route_obstacle_epoch(project, state);
-        if self.param_route_cache_epoch != Some(obstacle_epoch) {
+        if !defer_routing_while_dragging && self.param_route_cache_epoch != Some(obstacle_epoch) {
             self.param_route_cache_epoch = Some(obstacle_epoch);
             self.param_route_cache.clear();
             let obstacles = collect_panel_node_obstacles(project, state);
             self.param_route_obstacle_map =
                 wire_route::RouteObstacleMap::from_obstacles(&obstacles);
         }
+        let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
@@ -1071,43 +1083,49 @@ impl SceneBuilder {
                 let (gx, gy) = (row.x + row.w - 4, row.y + row.h / 2);
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
-                let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
-                let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-                let route_key = ParamRouteCacheKey {
-                    source_id,
-                    target_id: target.id(),
-                    param_index,
-                    obstacle_epoch,
-                };
-                live_route_keys.insert(route_key);
-                if !self.param_route_cache.contains_key(&route_key) {
-                    let route = wire_route::route_param_path_with_map(
-                        (exit_x, from_y),
-                        (entry_x, to_y),
-                        &self.param_route_obstacle_map,
-                    );
-                    let smooth_route = smooth_param_wire_path_with_end_caps(
+                let anchors = param_wire_anchors(from_x, from_y, to_x, to_y);
+                let smooth_route = if defer_routing_while_dragging {
+                    let provisional = provisional_param_route(anchors);
+                    build_smoothed_param_wire(
                         (from_x, from_y),
-                        route.as_slice(),
+                        provisional.as_slice(),
                         (to_x, to_y),
-                    );
-                    self.param_route_cache
-                        .insert(route_key, Arc::from(smooth_route));
-                }
-                let Some(smooth_route) = self.param_route_cache.get(&route_key).cloned() else {
-                    continue;
+                    )
+                } else {
+                    let route_key = ParamRouteCacheKey {
+                        source_id,
+                        target_id: target.id(),
+                        param_index,
+                        obstacle_epoch: active_epoch,
+                    };
+                    live_route_keys.insert(route_key);
+                    if !self.param_route_cache.contains_key(&route_key) {
+                        let route = wire_route::route_param_path_with_map(
+                            anchors.route_start,
+                            anchors.route_end,
+                            &self.param_route_obstacle_map,
+                        );
+                        self.param_route_cache.insert(route_key, Arc::from(route));
+                    }
+                    let Some(route) = self.param_route_cache.get(&route_key) else {
+                        continue;
+                    };
+                    build_smoothed_param_wire((from_x, from_y), route.as_ref(), (to_x, to_y))
                 };
-                let color = if path_intersects_cut_line(state, smooth_route.as_ref()) {
+                let color = if path_intersects_cut_line(state, smooth_route.as_slice()) {
                     CUT_EDGE_COLOR
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_path_lines(smooth_route.as_ref(), color);
+                self.push_path_lines(smooth_route.as_slice(), color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
-        self.param_route_cache
-            .retain(|key, _| key.obstacle_epoch == obstacle_epoch && live_route_keys.contains(key));
+        if !defer_routing_while_dragging {
+            self.param_route_cache.retain(|key, _| {
+                key.obstacle_epoch == active_epoch && live_route_keys.contains(key)
+            });
+        }
     }
 
     fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
@@ -1493,18 +1511,76 @@ fn is_orthogonal_turn(prev: (i32, i32), corner: (i32, i32), next: (i32, i32)) ->
     incoming_horizontal != outgoing_horizontal
 }
 
-/// Smooth one routed parameter wire including endpoint tail joins.
+/// Return fixed pin-tail and route-anchor points for one parameter wire.
+fn param_wire_anchors(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> ParamWireAnchors {
+    let source_exit = (from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX), from_y);
+    let route_start = (
+        source_exit.0.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX),
+        from_y,
+    );
+    let target_entry = (to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX), to_y);
+    let route_end = (
+        target_entry.0.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX),
+        to_y,
+    );
+    ParamWireAnchors {
+        source_exit,
+        route_start,
+        route_end,
+        target_entry,
+    }
+}
+
+/// Build one low-cost provisional route used while dragging nodes.
+fn provisional_param_route(anchors: ParamWireAnchors) -> Vec<(i32, i32)> {
+    let bypass_x = anchors
+        .route_start
+        .0
+        .max(anchors.route_end.0)
+        .saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
+    let mut route = Vec::with_capacity(4);
+    route.push(anchors.route_start);
+    route.push((bypass_x, anchors.route_start.1));
+    if anchors.route_start.1 != anchors.route_end.1 {
+        route.push((bypass_x, anchors.route_end.1));
+    }
+    route.push(anchors.route_end);
+    dedupe_adjacent_points(&mut route);
+    route
+}
+
+/// Build one smoothed parameter wire polyline with guaranteed straight pin tails.
+fn build_smoothed_param_wire(
+    start: (i32, i32),
+    route: &[(i32, i32)],
+    end: (i32, i32),
+) -> Vec<(i32, i32)> {
+    let anchors = param_wire_anchors(start.0, start.1, end.0, end.1);
+    let mut full = Vec::with_capacity(route.len().saturating_add(6));
+    full.push(start);
+    full.push(anchors.source_exit);
+    full.push(anchors.route_start);
+    if !route.is_empty() {
+        full.extend(route.iter().copied());
+    } else {
+        full.push(anchors.route_end);
+    }
+    if full.last().copied() != Some(anchors.route_end) {
+        full.push(anchors.route_end);
+    }
+    full.push(anchors.target_entry);
+    full.push(end);
+    dedupe_adjacent_points(&mut full);
+    smooth_param_wire_path(full.as_slice())
+}
+
+/// Backward-compatible wrapper for call sites that provide route-only points.
 fn smooth_param_wire_path_with_end_caps(
     start: (i32, i32),
     route: &[(i32, i32)],
     end: (i32, i32),
 ) -> Vec<(i32, i32)> {
-    let mut full = Vec::with_capacity(route.len().saturating_add(2));
-    full.push(start);
-    full.extend(route.iter().copied());
-    full.push(end);
-    dedupe_adjacent_points(&mut full);
-    smooth_param_wire_path(full.as_slice())
+    build_smoothed_param_wire(start, route, end)
 }
 
 fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
@@ -1534,7 +1610,13 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
                 PARAM_WIRE_CORNER_RADIUS_MIN_PX,
                 PARAM_WIRE_CORNER_RADIUS_MAX_PX,
             );
-        let local_max = in_len.min(out_len).saturating_sub(1);
+        let mut local_max = in_len.min(out_len).saturating_sub(1);
+        if index == 1 {
+            local_max = local_max.min(in_len.saturating_sub(PARAM_WIRE_ENDPOINT_STRAIGHT_PX));
+        }
+        if index + 2 == points.len() {
+            local_max = local_max.min(out_len.saturating_sub(PARAM_WIRE_ENDPOINT_STRAIGHT_PX));
+        }
         let radius = target_radius.min(local_max);
         if radius <= 0 {
             out.push(corner);
@@ -1566,7 +1648,9 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::smooth_param_wire_path;
+    use super::{
+        build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+    };
 
     #[test]
     fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
@@ -1588,6 +1672,42 @@ mod tests {
         let points = [(0, 0), (8, 0), (16, 0)];
         let smooth = smooth_param_wire_path(&points);
         assert_eq!(smooth, points);
+    }
+
+    #[test]
+    fn param_wire_smoothing_preserves_straight_pin_tails() {
+        let route = [(30, 0), (30, 32), (70, 32)];
+        let start = (0, 0);
+        let end = (40, 40);
+        let smooth = build_smoothed_param_wire(start, route.as_slice(), end);
+        assert_eq!(smooth.first().copied(), Some(start));
+        assert_eq!(smooth.last().copied(), Some(end));
+
+        let mut start_tail_max_x = start.0;
+        for point in smooth.iter().copied() {
+            if point.1 != start.1 {
+                break;
+            }
+            start_tail_max_x = start_tail_max_x.max(point.0);
+        }
+        assert!(
+            start_tail_max_x - start.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+            "start tail too short: {}",
+            start_tail_max_x - start.0
+        );
+
+        let mut end_tail_max_x = end.0;
+        for point in smooth.iter().rev().copied() {
+            if point.1 != end.1 {
+                break;
+            }
+            end_tail_max_x = end_tail_max_x.max(point.0);
+        }
+        assert!(
+            end_tail_max_x - end.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+            "end tail too short: {}",
+            end_tail_max_x - end.0
+        );
     }
 }
 

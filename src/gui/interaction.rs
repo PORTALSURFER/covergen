@@ -28,6 +28,7 @@ const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
+const PARAM_WIRE_ROUTE_LEAD_PX: i32 = 12;
 const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
 const NODE_OVERLAP_SNAP_GAP_PX: i32 = 12;
 
@@ -1673,10 +1674,12 @@ fn collect_cut_links_for_target(
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
         let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
+        let route_start_x = exit_x.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
         let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
+        let route_end_x = entry_x.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
         let route = super::scene::wire_route::route_param_path(
-            (exit_x, from_y),
-            (entry_x, to_y),
+            (route_start_x, from_y),
+            (route_end_x, to_y),
             obstacles,
         );
         if segments_intersect(
@@ -1688,7 +1691,26 @@ fn collect_cut_links_for_target(
             from_y,
             exit_x,
             from_y,
+        ) || segments_intersect(
+            cut.start_x,
+            cut.start_y,
+            cut.cursor_x,
+            cut.cursor_y,
+            exit_x,
+            from_y,
+            route_start_x,
+            from_y,
         ) || cut_intersects_path(cut, route.as_slice())
+            || segments_intersect(
+                cut.start_x,
+                cut.start_y,
+                cut.cursor_x,
+                cut.cursor_y,
+                route_end_x,
+                to_y,
+                entry_x,
+                to_y,
+            )
             || segments_intersect(
                 cut.start_x,
                 cut.start_y,
