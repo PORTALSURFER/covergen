@@ -34,6 +34,8 @@ use nvenc::sys::result::NVencError;
 #[cfg(windows)]
 use nvenc::sys::version::{NVENC_MAJOR_VERSION, NVENC_MINOR_VERSION};
 #[cfg(windows)]
+use windows::core::Interface;
+#[cfg(windows)]
 use windows::Win32::Foundation::HMODULE;
 #[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::{
@@ -45,7 +47,7 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 #[cfg(windows)]
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
+    CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
     DXGI_ERROR_NOT_FOUND,
 };
 
@@ -661,8 +663,10 @@ fn decode_nvenc_api_version(version: u32) -> (u16, u8) {
 fn create_nvenc_device() -> Result<ID3D11Device, Box<dyn Error>> {
     let preferred_adapter = find_nvenc_adapter()?;
     if let Some(adapter) = preferred_adapter.as_ref() {
-        if let Ok(device) = create_d3d11_device(Some(adapter), D3D_DRIVER_TYPE_UNKNOWN) {
-            return Ok(device);
+        if let Ok(base_adapter) = adapter.cast::<IDXGIAdapter>() {
+            if let Ok(device) = create_d3d11_device(Some(&base_adapter), D3D_DRIVER_TYPE_UNKNOWN) {
+                return Ok(device);
+            }
         }
     }
 
@@ -682,7 +686,7 @@ fn create_nvenc_device() -> Result<ID3D11Device, Box<dyn Error>> {
 
 #[cfg(windows)]
 fn create_d3d11_device(
-    adapter: Option<&IDXGIAdapter1>,
+    adapter: Option<&IDXGIAdapter>,
     driver_type: windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE,
 ) -> Result<ID3D11Device, Box<dyn Error>> {
     let mut device = None;
@@ -716,7 +720,7 @@ fn find_nvenc_adapter() -> Result<Option<IDXGIAdapter1>, Box<dyn Error>> {
         index = index.saturating_add(1);
         let desc = unsafe { adapter.GetDesc1() }
             .map_err(|err| format!("failed to query DXGI adapter info: {err}"))?;
-        let is_software = (desc.Flags.0 & DXGI_ADAPTER_FLAG_SOFTWARE.0) != 0;
+        let is_software = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0;
         if desc.VendorId == NVIDIA_VENDOR_ID && !is_software {
             return Ok(Some(adapter));
         }
