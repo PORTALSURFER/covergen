@@ -64,13 +64,13 @@ impl TimelineAudioPreview {
             if requested_path != self.clip_path {
                 self.reload_clip(requested_path.as_deref());
             }
-            let Some(clip) = self.clip.as_ref() else {
+            let Some(clip_duration) = self.clip.as_ref().map(|clip| clip.duration) else {
                 self.stop();
                 self.last_frame_index = Some(frame_index);
                 return;
             };
             let volume = export_menu.parsed_audio_volume();
-            let target = timeline_position(frame_index, timeline_fps, clip.duration);
+            let target = timeline_position(frame_index, timeline_fps, clip_duration);
 
             if paused {
                 if let Some(player) = self.player.as_ref() {
@@ -97,7 +97,7 @@ impl TimelineAudioPreview {
 
             player.play();
             player.set_volume(volume);
-            let current = wrapped_duration(player.get_pos(), clip.duration);
+            let current = wrapped_duration(player.get_pos(), clip_duration);
             let drift = duration_diff(current, target);
             let loop_wrapped = self
                 .last_frame_index
