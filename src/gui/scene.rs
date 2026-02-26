@@ -1000,24 +1000,23 @@ impl SceneBuilder {
                         (entry_x, to_y),
                         &self.param_route_obstacle_map,
                     );
-                    let smooth_route = smooth_param_wire_path(route.as_slice());
+                    let smooth_route = smooth_param_wire_path_with_end_caps(
+                        (from_x, from_y),
+                        route.as_slice(),
+                        (to_x, to_y),
+                    );
                     self.param_route_cache
                         .insert(route_key, Arc::from(smooth_route));
                 }
                 let Some(smooth_route) = self.param_route_cache.get(&route_key).cloned() else {
                     continue;
                 };
-                let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
-                    || path_intersects_cut_line(state, smooth_route.as_ref())
-                    || edge_intersects_cut_line(state, entry_x, to_y, to_x, to_y)
-                {
+                let color = if path_intersects_cut_line(state, smooth_route.as_ref()) {
                     CUT_EDGE_COLOR
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_line(from_x, from_y, exit_x, from_y, color);
                 self.push_path_lines(smooth_route.as_ref(), color);
-                self.push_line(entry_x, to_y, to_x, to_y, color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
@@ -1038,8 +1037,9 @@ impl SceneBuilder {
 
     fn push_signal_wire_right_exit(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
         let exit_x = x0.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
-        self.push_line(x0, y0, exit_x, y0, color);
-        self.push_rounded_signal_wire(exit_x, y0, x1, y1, color);
+        let route = [(exit_x, y0), (exit_x, y1)];
+        let smooth = smooth_param_wire_path_with_end_caps((x0, y0), route.as_slice(), (x1, y1));
+        self.push_path_lines(smooth.as_slice(), color);
     }
 
     fn push_signal_wire_right_exit_entry(
@@ -1052,35 +1052,9 @@ impl SceneBuilder {
     ) {
         let exit_x = x0.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
         let entry_x = x1.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-        self.push_line(x0, y0, exit_x, y0, color);
-        self.push_rounded_signal_wire(exit_x, y0, entry_x, y1, color);
-        self.push_line(entry_x, y1, x1, y1, color);
-    }
-
-    fn push_rounded_signal_wire(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
-        let dx = x1 - x0;
-        let dy = y1 - y0;
-        if dx.abs() < 8 || dy.abs() < 8 {
-            self.push_line(x0, y0, x1, y1, color);
-            return;
-        }
-        let step = (dx.abs() / 2).max(24);
-        let bend_x = if dx >= 0 { x0 + step } else { x0 - step };
-        let r1 = rounded_corner_radius(x0, y0, bend_x, y0, bend_x, y1);
-        let r2 = rounded_corner_radius(bend_x, y0, bend_x, y1, x1, y1);
-        let sx = bend_x - dx.signum() * r1;
-        let sy = y0;
-        let cx1 = bend_x;
-        let cy1 = y0 + dy.signum() * r1;
-        let cx2 = bend_x;
-        let cy2 = y1 - dy.signum() * r2;
-        let ex = bend_x + (x1 - bend_x).signum() * r2;
-        let ey = y1;
-        self.push_line(x0, y0, sx, sy, color);
-        self.push_line(sx, sy, cx1, cy1, color);
-        self.push_line(cx1, cy1, cx2, cy2, color);
-        self.push_line(cx2, cy2, ex, ey, color);
-        self.push_line(ex, ey, x1, y1, color);
+        let route = [(exit_x, y0), (entry_x, y0), (entry_x, y1)];
+        let smooth = smooth_param_wire_path_with_end_caps((x0, y0), route.as_slice(), (x1, y1));
+        self.push_path_lines(smooth.as_slice(), color);
     }
 
     fn push_straight_wire_with_round_caps(
@@ -1416,6 +1390,20 @@ fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -
     (in_len.min(out_len) / 2).clamp(2, 12)
 }
 
+/// Smooth one routed parameter wire including endpoint tail joins.
+fn smooth_param_wire_path_with_end_caps(
+    start: (i32, i32),
+    route: &[(i32, i32)],
+    end: (i32, i32),
+) -> Vec<(i32, i32)> {
+    let mut full = Vec::with_capacity(route.len().saturating_add(2));
+    full.push(start);
+    full.extend(route.iter().copied());
+    full.push(end);
+    dedupe_adjacent_points(&mut full);
+    smooth_param_wire_path(full.as_slice())
+}
+
 fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
     if points.len() < 3 {
         return points.to_vec();
@@ -1463,6 +1451,21 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
         }
     }
     out
+}
+
+fn dedupe_adjacent_points(points: &mut Vec<(i32, i32)>) {
+    if points.len() < 2 {
+        return;
+    }
+    let mut write = 1usize;
+    for read in 1..points.len() {
+        if points[read] == points[write - 1] {
+            continue;
+        }
+        points[write] = points[read];
+        write += 1;
+    }
+    points.truncate(write);
 }
 
 fn step_towards_point(from: (i32, i32), to: (i32, i32), distance: i32) -> (i32, i32) {
