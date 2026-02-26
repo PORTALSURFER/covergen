@@ -396,7 +396,9 @@ impl GuiCompiledRuntime {
                                     time_secs,
                                     eval_stack,
                                 )
-                                .unwrap_or(0.01),
+                                .unwrap_or(0.01)
+                                .max(0.0)
+                                * zoom,
                             noise_amount: mesh_state.noise_amount,
                             noise_freq: mesh_state.noise_freq,
                             noise_phase: mesh_state.noise_phase,
@@ -429,7 +431,8 @@ impl GuiCompiledRuntime {
                                     eval_stack,
                                 )
                                 .unwrap_or(0.01)
-                                * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35),
+                                * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35)
+                                * zoom,
                             line_width: (mesh_state.line_width * entity_state.scale * zoom)
                                 .max(0.0005),
                             noise_amount: mesh_state.noise_amount,
