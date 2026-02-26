@@ -28,6 +28,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowBuilder;
 
 use crate::runtime_config::{V2Args, V2Config};
+use crate::telemetry;
 
 use app::GuiApp;
 
@@ -36,14 +37,18 @@ const MAX_PREVIEW_DIM: u32 = 900;
 
 /// Launch the realtime split-panel GUI using standard runtime arguments.
 pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> {
+    let startup_begin = std::time::Instant::now();
     let config = V2Config::from_args(args)?;
+    let event_loop_begin = std::time::Instant::now();
     let event_loop = EventLoop::new()?;
+    telemetry::record_timing("gui.startup.event_loop_init", event_loop_begin.elapsed());
     let (preview_width, preview_height) =
         preview_size(config.width, config.height, MAX_PREVIEW_DIM);
     let window_size = LogicalSize::new(
         (preview_width as usize + PANEL_WIDTH) as f64,
         preview_height as f64,
     );
+    let window_begin = std::time::Instant::now();
     let window = Arc::new(
         WindowBuilder::new()
             .with_title("covergen graph")
@@ -51,7 +56,14 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
             .with_resizable(true)
             .build(&event_loop)?,
     );
+    telemetry::record_timing("gui.startup.window_build", window_begin.elapsed());
+    let app_begin = std::time::Instant::now();
     let mut app = GuiApp::new(config, PANEL_WIDTH, window.clone()).await?;
+    telemetry::record_timing("gui.startup.app_init", app_begin.elapsed());
+    telemetry::record_timing(
+        "gui.startup.total_until_event_loop",
+        startup_begin.elapsed(),
+    );
 
     event_loop.run(move |event, target| {
         target.set_control_flow(ControlFlow::WaitUntil(app.frame_deadline()));

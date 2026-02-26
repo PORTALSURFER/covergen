@@ -260,6 +260,7 @@ impl GuiApp {
     ) -> Result<Self, Box<dyn Error>> {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
         let panel_width = clamp_panel_width(panel_width, renderer.width());
+        let project_load_begin = Instant::now();
         let mut project = match load_autosaved_project(panel_width, renderer.height()) {
             Ok(Some(project)) => {
                 println!(
@@ -276,6 +277,7 @@ impl GuiApp {
         };
         let benchmark_node =
             maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
+        telemetry::record_timing("gui.startup.project_load", project_load_begin.elapsed());
         let state = PreviewState::new(&config);
         let frame_budget = frame_budget(GUI_LOCKED_FPS);
         let now = Instant::now();
@@ -544,6 +546,11 @@ impl GuiApp {
             hit_test_scans,
             ui_alloc_bytes,
         );
+        if self.frame_counter == 0 {
+            telemetry::record_timing("gui.startup.first_frame.total", total_elapsed);
+            telemetry::record_timing("gui.startup.first_frame.scene", scene_elapsed);
+            telemetry::record_timing("gui.startup.first_frame.render", render_elapsed);
+        }
         self.update_loop_policy();
         self.update_title(frame_start);
         self.needs_redraw = false;

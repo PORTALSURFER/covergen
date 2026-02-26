@@ -13,6 +13,7 @@ use winit::window::Window;
 
 use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::runtime_config::GuiVsync;
+use crate::telemetry;
 
 use super::scene::{Color, SceneFrame, SceneLayer};
 use super::text::GuiTextRenderer;
@@ -249,7 +250,12 @@ impl GuiRenderer {
     pub(crate) async fn new(window: Arc<Window>, vsync: GuiVsync) -> Result<Self, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let surface = instance.create_surface(window.clone())?;
+        let adapter_begin = std::time::Instant::now();
         let adapter = request_hardware_adapter(&instance, &surface).await?;
+        telemetry::record_timing(
+            "gui.startup.renderer.adapter_request",
+            adapter_begin.elapsed(),
+        );
         let caps = surface.get_capabilities(&adapter);
         let format = preferred_surface_format(&caps.formats);
         let present_mode = select_present_mode(&caps.present_modes, vsync);
@@ -263,6 +269,7 @@ impl GuiRenderer {
         } else {
             wgpu::Features::empty()
         };
+        let device_begin = std::time::Instant::now();
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -273,6 +280,11 @@ impl GuiRenderer {
                 None,
             )
             .await?;
+        telemetry::record_timing(
+            "gui.startup.renderer.device_request",
+            device_begin.elapsed(),
+        );
+        let pipeline_begin = std::time::Instant::now();
         let initial_size = window.inner_size();
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -313,6 +325,10 @@ impl GuiRenderer {
         let timeline_geometry = LayerGpuGeometry::new(&device, "timeline", 1024);
         let hud_geometry = LayerGpuGeometry::new(&device, "hud", 512);
         let main_pass_timestamps = OptionalGpuTimestampQueries::new(&device, "gui-main-pass", 8);
+        telemetry::record_timing(
+            "gui.startup.renderer.pipeline_setup",
+            pipeline_begin.elapsed(),
+        );
 
         Ok(Self {
             surface,
