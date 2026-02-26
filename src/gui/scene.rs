@@ -769,6 +769,13 @@ impl SceneBuilder {
                         menu_label_scratch.push_str(state.export_menu.audio_wav.as_str());
                     }
                 }
+                ExportMenuItem::AudioVolume => {
+                    let _ = write!(
+                        &mut menu_label_scratch,
+                        "Audio Volume: {:.2}",
+                        state.export_menu.parsed_audio_volume()
+                    );
+                }
                 ExportMenuItem::Bpm => {
                     menu_label_scratch.push_str("Timeline BPM: ");
                     menu_label_scratch.push_str(state.export_menu.bpm.as_str());
@@ -963,13 +970,14 @@ impl SceneBuilder {
         label.clear();
         let _ = write!(
             &mut label,
-            "Frame {}  [{}, {}]  |  {:.2} BPM x {} bars ({} / bar)",
+            "Frame {}  [{}, {}]  |  {:.2} BPM x {} bars ({} / bar)  |  vol {:.2}",
             state.frame_index,
             TIMELINE_START_FRAME,
             end_frame,
             state.export_menu.parsed_bpm(),
             state.export_menu.parsed_bars(),
-            state.export_menu.parsed_beats_per_bar()
+            state.export_menu.parsed_beats_per_bar(),
+            state.export_menu.parsed_audio_volume()
         );
         self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
         self.label_scratch = label;

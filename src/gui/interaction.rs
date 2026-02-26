@@ -683,6 +683,7 @@ fn apply_export_menu_text_input(input: &InputSnapshot, state: &mut PreviewState)
         ExportMenuItem::Directory => Some(&mut state.export_menu.directory),
         ExportMenuItem::FileName => Some(&mut state.export_menu.file_name),
         ExportMenuItem::AudioWav => Some(&mut state.export_menu.audio_wav),
+        ExportMenuItem::AudioVolume => Some(&mut state.export_menu.audio_volume),
         ExportMenuItem::Bpm => Some(&mut state.export_menu.bpm),
         ExportMenuItem::Bars => Some(&mut state.export_menu.bars),
         ExportMenuItem::BeatsPerBar => Some(&mut state.export_menu.beats_per_bar),
@@ -759,6 +760,7 @@ fn activate_export_menu_selection(state: &mut PreviewState) -> bool {
         ExportMenuItem::Directory
         | ExportMenuItem::FileName
         | ExportMenuItem::AudioWav
+        | ExportMenuItem::AudioVolume
         | ExportMenuItem::Bpm
         | ExportMenuItem::Bars
         | ExportMenuItem::BeatsPerBar

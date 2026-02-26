@@ -17,6 +17,7 @@ use crate::{
     animation::mux_wav_audio_into_mp4, animation::RawVideoEncoder, animation::StreamFrameFormat,
 };
 
+use super::audio::TimelineAudioPreview;
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
@@ -118,6 +119,7 @@ struct OverlaysLayerState {
     export_file_name: String,
     export_status: String,
     export_audio_wav: String,
+    export_audio_volume: String,
     export_bpm: String,
     export_bars: String,
     export_beats_per_bar: String,
@@ -228,6 +230,7 @@ impl SceneInvalidationSnapshot {
                 export_file_name: state.export_menu.file_name.clone(),
                 export_status: state.export_menu.status.clone(),
                 export_audio_wav: state.export_menu.audio_wav.clone(),
+                export_audio_volume: state.export_menu.audio_volume.clone(),
                 export_bpm: state.export_menu.bpm.clone(),
                 export_bars: state.export_menu.bars.clone(),
                 export_beats_per_bar: state.export_menu.beats_per_bar.clone(),
@@ -269,6 +272,7 @@ pub(crate) struct GuiApp {
     benchmark_node: Option<u32>,
     export_session: Option<GuiExportSession>,
     start_export_requested: bool,
+    timeline_audio: TimelineAudioPreview,
     export_bgra_scratch: Vec<u8>,
     export_gray_scratch: Vec<u8>,
     close_requested: bool,
@@ -345,6 +349,7 @@ impl GuiApp {
             benchmark_node,
             export_session: None,
             start_export_requested: false,
+            timeline_audio: TimelineAudioPreview::default(),
             export_bgra_scratch: Vec::new(),
             export_gray_scratch: Vec::new(),
             close_requested: false,
@@ -521,6 +526,7 @@ impl GuiApp {
             self.state.export_menu.preview_total = timeline_total_frames;
             scene_dirty = true;
         }
+        self.sync_timeline_audio_preview();
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         self.apply_scoped_invalidation(
             project_invalidation_before,
@@ -666,6 +672,7 @@ impl GuiApp {
 
     /// Flush trace output before event-loop shutdown.
     pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        self.timeline_audio.stop();
         let _ = self.stop_export_session("stopped");
         if !is_benchmark_mode(&self.config) {
             save_autosaved_project(&self.project)?;
@@ -1061,6 +1068,15 @@ impl GuiApp {
             CursorIcon::Default
         };
         self.window.set_cursor_icon(icon);
+    }
+
+    fn sync_timeline_audio_preview(&mut self) {
+        self.timeline_audio.sync(
+            &self.state.export_menu,
+            self.state.paused,
+            self.state.frame_index,
+            self.config.animation.fps,
+        );
     }
 
     fn update_loop_policy(&mut self) {

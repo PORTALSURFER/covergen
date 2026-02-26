@@ -4,6 +4,7 @@
 //! node dragging remains responsive under load.
 
 mod app;
+mod audio;
 mod geometry;
 mod help;
 mod input;

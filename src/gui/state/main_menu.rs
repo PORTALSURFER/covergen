@@ -26,6 +26,7 @@ const EXPORT_MENU_PREVIEW_GAP: i32 = 8;
 const EXPORT_DEFAULT_BPM: &str = "120";
 const EXPORT_DEFAULT_BARS: &str = "15";
 const EXPORT_DEFAULT_BEATS_PER_BAR: &str = "4";
+const EXPORT_DEFAULT_AUDIO_VOLUME: &str = "1.0";
 
 /// Selectable main-menu rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +65,7 @@ pub(crate) enum ExportMenuItem {
     Directory,
     FileName,
     AudioWav,
+    AudioVolume,
     Bpm,
     Bars,
     BeatsPerBar,
@@ -72,10 +74,11 @@ pub(crate) enum ExportMenuItem {
     Preview,
 }
 
-const EXPORT_MENU_ITEMS: [ExportMenuItem; 9] = [
+const EXPORT_MENU_ITEMS: [ExportMenuItem; 10] = [
     ExportMenuItem::Directory,
     ExportMenuItem::FileName,
     ExportMenuItem::AudioWav,
+    ExportMenuItem::AudioVolume,
     ExportMenuItem::Bpm,
     ExportMenuItem::Bars,
     ExportMenuItem::BeatsPerBar,
@@ -192,6 +195,7 @@ pub(crate) struct ExportMenuState {
     pub(crate) directory: String,
     pub(crate) file_name: String,
     pub(crate) audio_wav: String,
+    pub(crate) audio_volume: String,
     pub(crate) bpm: String,
     pub(crate) bars: String,
     pub(crate) beats_per_bar: String,
@@ -216,6 +220,7 @@ impl ExportMenuState {
             },
             file_name: "export.mp4".to_string(),
             audio_wav: String::new(),
+            audio_volume: EXPORT_DEFAULT_AUDIO_VOLUME.to_string(),
             bpm: EXPORT_DEFAULT_BPM.to_string(),
             bars: EXPORT_DEFAULT_BARS.to_string(),
             beats_per_bar: EXPORT_DEFAULT_BEATS_PER_BAR.to_string(),
@@ -363,6 +368,12 @@ impl ExportMenuState {
     /// Return parsed beats-per-bar value, falling back to defaults when invalid.
     pub(crate) fn parsed_beats_per_bar(&self) -> u32 {
         parse_positive_u32_or_default(self.beats_per_bar.as_str(), EXPORT_DEFAULT_BEATS_PER_BAR)
+    }
+
+    /// Return parsed audio output volume in `[0.0, 2.0]`.
+    pub(crate) fn parsed_audio_volume(&self) -> f32 {
+        parse_positive_f32_or_default(self.audio_volume.as_str(), EXPORT_DEFAULT_AUDIO_VOLUME)
+            .clamp(0.0, 2.0)
     }
 
     /// Return derived timeline frame count from the current music settings.
