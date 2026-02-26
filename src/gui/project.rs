@@ -593,14 +593,13 @@ impl GuiProject {
         let mut id_map = HashMap::new();
 
         for persisted_node in &nodes {
-            let kind = ProjectNodeKind::from_stable_id(persisted_node.kind.as_str()).ok_or_else(
-                || {
+            let kind =
+                ProjectNodeKind::from_stable_id(persisted_node.kind.as_str()).ok_or_else(|| {
                     PersistedProjectLoadError::new(format!(
                         "unknown node kind '{}'",
                         persisted_node.kind
                     ))
-                },
-            )?;
+                })?;
             if id_map.contains_key(&persisted_node.id) {
                 return Err(PersistedProjectLoadError::new(format!(
                     "duplicate persisted node id {}",
@@ -650,15 +649,12 @@ impl GuiProject {
                 let Some(source_id) = id_map.get(&source_old_id).copied() else {
                     continue;
                 };
-                let Some(param_index) = project
-                    .node(target_id)
-                    .and_then(|target| {
-                        target
-                            .params
-                            .iter()
-                            .position(|slot| slot.key == persisted_param.key.as_str())
-                    })
-                else {
+                let Some(param_index) = project.node(target_id).and_then(|target| {
+                    target
+                        .params
+                        .iter()
+                        .position(|slot| slot.key == persisted_param.key.as_str())
+                }) else {
                     continue;
                 };
                 let _ = project.connect_signal_link_to_param(source_id, target_id, param_index);
@@ -954,7 +950,10 @@ impl GuiProject {
             return false;
         };
         let changed = match source_kind {
-            ResourceKind::Buffer | ResourceKind::Entity | ResourceKind::Scene | ResourceKind::Texture2D => {
+            ResourceKind::Buffer
+            | ResourceKind::Entity
+            | ResourceKind::Scene
+            | ResourceKind::Texture2D => {
                 if target.kind.input_resource_kind() != Some(source_kind) {
                     return false;
                 }
@@ -1100,7 +1099,11 @@ impl GuiProject {
     /// Return resource kind for one explicit source -> target link.
     ///
     /// Returns `None` when no such link exists.
-    pub(crate) fn link_resource_kind(&self, source_id: u32, target_id: u32) -> Option<ResourceKind> {
+    pub(crate) fn link_resource_kind(
+        &self,
+        source_id: u32,
+        target_id: u32,
+    ) -> Option<ResourceKind> {
         let target = self.node(target_id)?;
         if target.texture_input == Some(source_id) {
             let source = self.node(source_id)?;
@@ -1309,7 +1312,10 @@ impl GuiProject {
         let Some(node) = self.node(node_id) else {
             return false;
         };
-        let Some(slot) = node.params.get(param_index.min(node.params.len().saturating_sub(1))) else {
+        let Some(slot) = node
+            .params
+            .get(param_index.min(node.params.len().saturating_sub(1)))
+        else {
             return false;
         };
         slot.widget.is_dropdown()
@@ -1721,6 +1727,8 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("speed_hz", "speed_hz", 0.35, 0.0, 16.0, 0.05),
             param("phase", "phase", 0.0, -8.0, 8.0, 0.05),
             param("seed", "seed", 1.0, 0.0, 1024.0, 1.0),
+            param("twist", "twist", 0.0, -8.0, 8.0, 0.05),
+            param("stretch", "stretch", 0.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
@@ -1852,7 +1860,8 @@ fn adjust_slot_value(slot: &mut NodeParamSlot, steps: f32) -> bool {
             return false;
         }
         let direction = if steps.is_sign_positive() { 1 } else { -1 };
-        let current = dropdown_selected_index(slot).unwrap_or_else(|| nearest_dropdown_index(options, slot.value));
+        let current = dropdown_selected_index(slot)
+            .unwrap_or_else(|| nearest_dropdown_index(options, slot.value));
         let next = if direction > 0 {
             (current + 1).min(options.len().saturating_sub(1))
         } else {
@@ -2134,9 +2143,18 @@ mod tests {
         assert!(project.connect_image_link(entity, scene));
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
-        assert_eq!(project.link_resource_kind(sphere, entity), Some(ResourceKind::Buffer));
-        assert_eq!(project.link_resource_kind(entity, scene), Some(ResourceKind::Entity));
-        assert_eq!(project.link_resource_kind(scene, pass), Some(ResourceKind::Scene));
+        assert_eq!(
+            project.link_resource_kind(sphere, entity),
+            Some(ResourceKind::Buffer)
+        );
+        assert_eq!(
+            project.link_resource_kind(entity, scene),
+            Some(ResourceKind::Entity)
+        );
+        assert_eq!(
+            project.link_resource_kind(scene, pass),
+            Some(ResourceKind::Scene)
+        );
         assert_eq!(
             project.link_resource_kind(pass, out),
             Some(ResourceKind::Texture2D)
@@ -2157,8 +2175,14 @@ mod tests {
         assert!(project.connect_image_link(scene, camera));
         assert!(project.connect_image_link(camera, pass));
         assert!(project.connect_image_link(pass, out));
-        assert_eq!(project.link_resource_kind(scene, camera), Some(ResourceKind::Scene));
-        assert_eq!(project.link_resource_kind(camera, pass), Some(ResourceKind::Scene));
+        assert_eq!(
+            project.link_resource_kind(scene, camera),
+            Some(ResourceKind::Scene)
+        );
+        assert_eq!(
+            project.link_resource_kind(camera, pass),
+            Some(ResourceKind::Scene)
+        );
     }
 
     #[test]
@@ -2174,9 +2198,18 @@ mod tests {
         assert!(project.connect_image_link(entity, scene));
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
-        assert_eq!(project.link_resource_kind(circle, entity), Some(ResourceKind::Buffer));
-        assert_eq!(project.link_resource_kind(entity, scene), Some(ResourceKind::Entity));
-        assert_eq!(project.link_resource_kind(scene, pass), Some(ResourceKind::Scene));
+        assert_eq!(
+            project.link_resource_kind(circle, entity),
+            Some(ResourceKind::Buffer)
+        );
+        assert_eq!(
+            project.link_resource_kind(entity, scene),
+            Some(ResourceKind::Entity)
+        );
+        assert_eq!(
+            project.link_resource_kind(scene, pass),
+            Some(ResourceKind::Scene)
+        );
         assert_eq!(
             project.link_resource_kind(pass, out),
             Some(ResourceKind::Texture2D)
@@ -2200,8 +2233,14 @@ mod tests {
         assert!(project.connect_image_link(entity, scene));
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
-        assert_eq!(project.link_resource_kind(sphere, noise), Some(ResourceKind::Buffer));
-        assert_eq!(project.link_resource_kind(noise, entity), Some(ResourceKind::Buffer));
+        assert_eq!(
+            project.link_resource_kind(sphere, noise),
+            Some(ResourceKind::Buffer)
+        );
+        assert_eq!(
+            project.link_resource_kind(noise, entity),
+            Some(ResourceKind::Buffer)
+        );
     }
 
     #[test]
@@ -2474,7 +2513,8 @@ mod tests {
         assert!(project.set_param_value(noise, 1, 4.5));
 
         let persisted = project.to_persisted();
-        let restored = GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
+        let restored =
+            GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
         assert_eq!(restored.node_count(), project.node_count());
         assert_eq!(restored.edge_count(), project.edge_count());
         assert_eq!(restored.render_signature(), project.render_signature());

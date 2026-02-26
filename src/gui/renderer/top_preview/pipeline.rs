@@ -83,6 +83,7 @@ struct TopOpUniform {
     p1: vec4<f32>,
     p2: vec4<f32>,
     p3: vec4<f32>,
+    p4: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -139,25 +140,49 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
     let feather = max(u_op.p0.w, 0.0001);
-    let delta = v.uv - center;
-    let dist = length(delta);
+    let noise_amount = clamp(u_op.p3.y, 0.0, 2.0);
+    let noise_freq = max(u_op.p3.z, 0.01);
+    let noise_phase = u_op.p3.w;
+    let noise_twist = u_op.p4.x;
+    let noise_stretch = clamp(u_op.p4.y, 0.0, 1.0);
+    let src_delta = v.uv - center;
     let pi = 3.14159265359;
     let tau = 6.28318530718;
+    let src_dist = length(src_delta);
+    let src_theta = atan2(src_delta.y, src_delta.x);
+    let safe_radius = max(radius, 0.0001);
+    let twist_theta = src_theta + noise_twist * (src_dist / safe_radius);
+    let c = cos(twist_theta);
+    let s = sin(twist_theta);
+    let local = vec2(
+        c * src_delta.x + s * src_delta.y,
+        -s * src_delta.x + c * src_delta.y
+    );
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase * 0.37));
+    let stretched_local = vec2(local.x * stretch_scale, local.y / stretch_scale);
+    let delta = vec2(
+        c * stretched_local.x - s * stretched_local.y,
+        s * stretched_local.x + c * stretched_local.y
+    );
+    let dist = length(delta);
+    let theta = atan2(delta.y, delta.x);
+    let noise_wave = sin(theta * noise_freq + noise_phase) * 0.7
+        + sin(theta * (noise_freq * 2.17) - noise_phase * 0.61) * 0.3;
+    let noisy_radius = radius * (1.0 + noise_amount * 0.35 * noise_wave);
 
-    var boundary = radius;
+    var boundary = noisy_radius;
     let segments = u_op.p2.z;
     if (segments >= 3.0) {
         let n = floor(segments);
         let half_sector = pi / n;
         let sector = tau / n;
-        let theta = atan2(delta.y, delta.x);
         let wrapped = fract((theta + pi) / sector) * sector;
         let local = abs(wrapped - half_sector);
-        boundary = radius * cos(half_sector) / max(cos(local), 0.0001);
+        boundary = noisy_radius * cos(half_sector) / max(cos(local), 0.0001);
     }
 
     let edge = smoothstep(boundary + feather, boundary - feather, dist);
-    let theta_norm = fract((atan2(delta.y, delta.x) + pi) / tau);
+    let theta_norm = fract((theta + pi) / tau);
     let start_norm = fract(u_op.p2.x / 360.0);
     let end_norm = fract(u_op.p2.y / 360.0);
     let arc_span = abs(u_op.p2.y - u_op.p2.x);
@@ -189,13 +214,39 @@ fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
     let edge_softness = max(u_op.p0.w, 0.0);
-    let dist = distance(v.uv, center);
-    let edge = smoothstep(radius + edge_softness, radius - edge_softness, dist);
+    let noise_amount = clamp(u_op.p3.x, 0.0, 2.0);
+    let noise_freq = max(u_op.p3.y, 0.01);
+    let noise_phase = u_op.p3.z;
+    let noise_twist = u_op.p3.w;
+    let noise_stretch = clamp(u_op.p4.x, 0.0, 1.0);
+    let src_delta = v.uv - center;
+    let src_dist = length(src_delta);
+    let src_theta = atan2(src_delta.y, src_delta.x);
+    let safe_radius = max(radius, 0.0001);
+    let twist_theta = src_theta + noise_twist * (src_dist / safe_radius);
+    let c = cos(twist_theta);
+    let s = sin(twist_theta);
+    let local = vec2(
+        c * src_delta.x + s * src_delta.y,
+        -s * src_delta.x + c * src_delta.y
+    );
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase * 0.31));
+    let stretched_local = vec2(local.x * stretch_scale, local.y / stretch_scale);
+    let delta = vec2(
+        c * stretched_local.x - s * stretched_local.y,
+        s * stretched_local.x + c * stretched_local.y
+    );
+    let dist = length(delta);
+    let theta = atan2(delta.y, delta.x);
+    let noise_wave = sin(theta * noise_freq + noise_phase) * 0.7
+        + sin(theta * (noise_freq * 2.17) - noise_phase * 0.61) * 0.3;
+    let boundary = radius * (1.0 + noise_amount * 0.35 * noise_wave);
+    let edge = smoothstep(boundary + edge_softness, boundary - edge_softness, dist);
     if (edge <= 0.0001) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
-    let rel = (v.uv - center) / radius;
+    let rel = delta / max(boundary, 0.001);
     let rr = dot(rel, rel);
     let z = sqrt(max(1.0 - rr, 0.0));
     let n = normalize(vec3<f32>(rel.x, rel.y, z));

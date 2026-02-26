@@ -22,6 +22,11 @@ pub(crate) enum TopRuntimeOp {
         radius: f32,
         feather: f32,
         line_width: f32,
+        noise_amount: f32,
+        noise_freq: f32,
+        noise_phase: f32,
+        noise_twist: f32,
+        noise_stretch: f32,
         arc_start_deg: f32,
         arc_end_deg: f32,
         segment_count: f32,
@@ -37,6 +42,11 @@ pub(crate) enum TopRuntimeOp {
         center_y: f32,
         radius: f32,
         edge_softness: f32,
+        noise_amount: f32,
+        noise_freq: f32,
+        noise_phase: f32,
+        noise_twist: f32,
+        noise_stretch: f32,
         light_x: f32,
         light_y: f32,
         light_z: f32,
@@ -55,10 +65,7 @@ pub(crate) enum TopRuntimeOp {
         alpha_mul: f32,
     },
     /// `tex.feedback` one-frame delayed feedback operation.
-    Feedback {
-        node_id: u32,
-        mix: f32,
-    },
+    Feedback { node_id: u32, mix: f32 },
 }
 
 /// One compiled step in GUI TOP runtime order.
@@ -109,6 +116,11 @@ struct SceneMeshState {
     arc_start_deg: f32,
     arc_end_deg: f32,
     line_width: f32,
+    noise_amount: f32,
+    noise_freq: f32,
+    noise_phase: f32,
+    noise_twist: f32,
+    noise_stretch: f32,
     order: f32,
     segment_count: f32,
     arc_open: bool,
@@ -191,6 +203,11 @@ impl GuiCompiledRuntime {
                             .node_param_value(step.node_id, "feather", time_secs, eval_stack)
                             .unwrap_or(0.06),
                         line_width: 0.0,
+                        noise_amount: 0.0,
+                        noise_freq: 1.0,
+                        noise_phase: 0.0,
+                        noise_twist: 0.0,
+                        noise_stretch: 0.0,
                         arc_start_deg: 0.0,
                         arc_end_deg: 360.0,
                         segment_count: 0.0,
@@ -220,6 +237,11 @@ impl GuiCompiledRuntime {
                         arc_start_deg: 0.0,
                         arc_end_deg: 360.0,
                         line_width: 0.0,
+                        noise_amount: 0.0,
+                        noise_freq: 1.0,
+                        noise_phase: 0.0,
+                        noise_twist: 0.0,
+                        noise_stretch: 0.0,
                         order: 3.0,
                         segment_count: 0.0,
                         arc_open: false,
@@ -261,6 +283,11 @@ impl GuiCompiledRuntime {
                         arc_start_deg,
                         arc_end_deg,
                         line_width,
+                        noise_amount: 0.0,
+                        noise_freq: 1.0,
+                        noise_phase: 0.0,
+                        noise_twist: 0.0,
+                        noise_stretch: 0.0,
                         order,
                         segment_count,
                         arc_open,
@@ -289,10 +316,22 @@ impl GuiCompiledRuntime {
                     let seed = project
                         .node_param_value(step.node_id, "seed", time_secs, eval_stack)
                         .unwrap_or(1.0);
+                    let twist = project
+                        .node_param_value(step.node_id, "twist", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        .clamp(-8.0, 8.0);
+                    let stretch = project
+                        .node_param_value(step.node_id, "stretch", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0);
                     let t = time_secs * speed_hz * std::f32::consts::TAU;
-                    let noise = layered_sine_noise(t, frequency, phase, seed);
-                    let radius_scale = (1.0 + amplitude * noise).clamp(0.15, 4.0);
-                    mesh_state.radius = (mesh_state.radius * radius_scale).max(0.005);
+                    let phase_warp = layered_sine_noise(t * 0.37, frequency, phase, seed);
+                    mesh_state.noise_amount = amplitude;
+                    mesh_state.noise_freq = frequency;
+                    mesh_state.noise_phase =
+                        t + phase * std::f32::consts::TAU + seed * 0.173 + phase_warp * 0.65;
+                    mesh_state.noise_twist = twist;
+                    mesh_state.noise_stretch = stretch;
                     mesh = Some(mesh_state);
                     scene_ready = false;
                 }
@@ -351,8 +390,18 @@ impl GuiCompiledRuntime {
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
                             edge_softness: project
-                                .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
+                                .node_param_value(
+                                    step.node_id,
+                                    "edge_softness",
+                                    time_secs,
+                                    eval_stack,
+                                )
                                 .unwrap_or(0.01),
+                            noise_amount: mesh_state.noise_amount,
+                            noise_freq: mesh_state.noise_freq,
+                            noise_phase: mesh_state.noise_phase,
+                            noise_twist: mesh_state.noise_twist,
+                            noise_stretch: mesh_state.noise_stretch,
                             light_x: project
                                 .node_param_value(step.node_id, "light_x", time_secs, eval_stack)
                                 .unwrap_or(0.4),
@@ -373,11 +422,21 @@ impl GuiCompiledRuntime {
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
                             feather: project
-                                .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
+                                .node_param_value(
+                                    step.node_id,
+                                    "edge_softness",
+                                    time_secs,
+                                    eval_stack,
+                                )
                                 .unwrap_or(0.01)
                                 * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35),
                             line_width: (mesh_state.line_width * entity_state.scale * zoom)
                                 .max(0.0005),
+                            noise_amount: mesh_state.noise_amount,
+                            noise_freq: mesh_state.noise_freq,
+                            noise_phase: mesh_state.noise_phase,
+                            noise_twist: mesh_state.noise_twist,
+                            noise_stretch: mesh_state.noise_stretch,
                             arc_start_deg: mesh_state.arc_start_deg,
                             arc_end_deg: mesh_state.arc_end_deg,
                             segment_count: mesh_state.segment_count,
@@ -827,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_noise_deforms_mesh_radius() {
+    fn buffer_noise_deforms_mesh_shape_parameters() {
         let mut project = GuiProject::new_empty(640, 480);
         let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
         let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 40, 420, 480);
@@ -845,6 +904,8 @@ mod tests {
         assert!(project.set_param_value(noise, 1, 3.0));
         assert!(project.set_param_value(noise, 2, 1.0));
         assert!(project.set_param_value(noise, 4, 17.0));
+        assert!(project.set_param_value(noise, 5, 2.5));
+        assert!(project.set_param_value(noise, 6, 0.4));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
         let mut eval_stack = Vec::new();
@@ -852,14 +913,29 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops_t0);
         let mut ops_t1 = Vec::new();
         runtime.evaluate_ops(&project, 0.5, &mut eval_stack, &mut ops_t1);
-        let r0 = match ops_t0[0] {
-            TopRuntimeOp::Sphere { radius, .. } => radius,
+        let (r0, phase0, twist0, stretch0) = match ops_t0[0] {
+            TopRuntimeOp::Sphere {
+                radius,
+                noise_phase,
+                noise_twist,
+                noise_stretch,
+                ..
+            } => (radius, noise_phase, noise_twist, noise_stretch),
             _ => panic!("expected sphere op"),
         };
-        let r1 = match ops_t1[0] {
-            TopRuntimeOp::Sphere { radius, .. } => radius,
+        let (r1, phase1, twist1, stretch1) = match ops_t1[0] {
+            TopRuntimeOp::Sphere {
+                radius,
+                noise_phase,
+                noise_twist,
+                noise_stretch,
+                ..
+            } => (radius, noise_phase, noise_twist, noise_stretch),
             _ => panic!("expected sphere op"),
         };
-        assert_ne!(r0, r1);
+        assert_eq!(r0, r1);
+        assert_ne!(phase0, phase1);
+        assert!(twist0 > 2.4 && twist1 > 2.4);
+        assert!(stretch0 > 0.39 && stretch1 > 0.39);
     }
 }

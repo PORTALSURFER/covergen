@@ -29,6 +29,7 @@ struct TopOpUniform {
     p1: [f32; 4],
     p2: [f32; 4],
     p3: [f32; 4],
+    p4: [f32; 4],
 }
 
 impl TopOpUniform {
@@ -47,6 +48,7 @@ impl TopOpUniform {
             p1: [0.0; 4],
             p2: [0.0; 4],
             p3: [0.0; 4],
+            p4: [0.0; 4],
         }
     }
 
@@ -57,6 +59,11 @@ impl TopOpUniform {
             radius,
             feather,
             line_width,
+            noise_amount,
+            noise_freq,
+            noise_phase,
+            noise_twist,
+            noise_stretch,
             arc_start_deg,
             arc_end_deg,
             segment_count,
@@ -73,7 +80,8 @@ impl TopOpUniform {
             p0: [center_x, center_y, radius, feather],
             p1: [color_r, color_g, color_b, alpha],
             p2: [arc_start_deg, arc_end_deg, segment_count, arc_open],
-            p3: [line_width, 0.0, 0.0, 0.0],
+            p3: [line_width, noise_amount, noise_freq, noise_phase],
+            p4: [noise_twist, noise_stretch, 0.0, 0.0],
         }
     }
 
@@ -83,6 +91,11 @@ impl TopOpUniform {
             center_y,
             radius,
             edge_softness,
+            noise_amount,
+            noise_freq,
+            noise_phase,
+            noise_twist,
+            noise_stretch,
             light_x,
             light_y,
             light_z,
@@ -99,7 +112,8 @@ impl TopOpUniform {
             p0: [center_x, center_y, radius, edge_softness],
             p1: [light_x, light_y, light_z, ambient],
             p2: [color_r, color_g, color_b, alpha],
-            p3: [0.0; 4],
+            p3: [noise_amount, noise_freq, noise_phase, noise_twist],
+            p4: [noise_stretch, 0.0, 0.0, 0.0],
         }
     }
 
@@ -119,6 +133,7 @@ impl TopOpUniform {
             p1: [alpha_mul, 0.0, 0.0, 0.0],
             p2: [0.0; 4],
             p3: [0.0; 4],
+            p4: [0.0; 4],
         }
     }
 
@@ -131,6 +146,7 @@ impl TopOpUniform {
             p1: [0.0; 4],
             p2: [0.0; 4],
             p3: [0.0; 4],
+            p4: [0.0; 4],
         }
     }
 }
@@ -238,7 +254,8 @@ impl TopPreviewRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_group = Self::create_op_uniform_bind_group(device, &self.op_uniform_layout, &buffer);
+        let bind_group =
+            Self::create_op_uniform_bind_group(device, &self.op_uniform_layout, &buffer);
         self.op_uniform_buffer = buffer;
         self.op_uniform_bind_group = bind_group;
         self.op_uniform_capacity = next_capacity;
