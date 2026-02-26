@@ -493,7 +493,8 @@ impl GuiApp {
         let mut submit_count = 0u32;
         let mut upload_bytes = 0u64;
         let mut ui_alloc_bytes = 0u64;
-        if scene_dirty || self.needs_redraw {
+        let export_active = self.export_session.is_some() || self.start_export_requested;
+        if scene_dirty || self.needs_redraw || export_active {
             self.top_view.update(
                 &self.project,
                 TopViewerUpdate {
@@ -733,6 +734,7 @@ impl GuiApp {
         self.state
             .export_menu
             .set_status(format!("Exporting: {}", output_path.display()));
+        self.state.invalidation.invalidate_overlays();
         self.start_export_requested = false;
         Ok(())
     }
@@ -748,6 +750,7 @@ impl GuiApp {
                 self.state
                     .export_menu
                     .set_status("Export failed: preview texture unavailable");
+                self.state.invalidation.invalidate_overlays();
                 return Ok(());
             }
             Err(err) => {
@@ -755,6 +758,7 @@ impl GuiApp {
                 self.state
                     .export_menu
                     .set_status(format!("Export failed: {err}"));
+                self.state.invalidation.invalidate_overlays();
                 return Ok(());
             }
         };
@@ -779,10 +783,12 @@ impl GuiApp {
             self.state
                 .export_menu
                 .set_status(format!("Export failed: {err}"));
+            self.state.invalidation.invalidate_overlays();
             return Ok(());
         }
         session.next_frame = session.next_frame.saturating_add(1);
         self.state.export_menu.preview_frame = session.next_frame.min(session.total_frames);
+        self.state.invalidation.invalidate_overlays();
         if session.next_frame >= session.total_frames {
             let _ = self.stop_export_session("completed");
         }
@@ -816,6 +822,7 @@ impl GuiApp {
                     .set_status(format!("Export failed: {err}"));
             }
         }
+        self.state.invalidation.invalidate_overlays();
         true
     }
 
