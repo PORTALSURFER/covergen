@@ -72,6 +72,7 @@ impl TopOpUniform {
             color_g,
             color_b,
             alpha,
+            ..
         } = op
         else {
             return Self::zeroed();
@@ -104,6 +105,7 @@ impl TopOpUniform {
             color_g,
             color_b,
             alpha,
+            ..
         } = op
         else {
             return Self::zeroed();

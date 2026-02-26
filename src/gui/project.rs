@@ -52,6 +52,17 @@ const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
         value: 1.0,
     },
 ];
+/// Background compositing modes exposed by the `render.scene_pass` node.
+const SCENE_PASS_BG_MODE_OPTIONS: [NodeParamOption; 2] = [
+    NodeParamOption {
+        label: "with_bg",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "alpha_clip",
+        value: 1.0,
+    },
+];
 
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2092,6 +2103,9 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("res_width", "res_width", 0.0, 0.0, 8192.0, 1.0),
             // `0` keeps project preview resolution.
             param("res_height", "res_height", 0.0, 0.0, 8192.0, 1.0),
+            // `with_bg` preserves the preview background clear; `alpha_clip`
+            // clears transparent so only rendered scene objects remain.
+            param_dropdown("bg_mode", "bg_mode", 0, &SCENE_PASS_BG_MODE_OPTIONS),
             param("edge_softness", "edge_soft", 0.01, 0.0, 0.25, 0.005),
             param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
             param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
@@ -2952,6 +2966,23 @@ mod tests {
         assert_eq!(project.node_param_raw_text(circle, 3), Some("open_arc"));
         assert!(project.adjust_param(circle, 3, -1.0));
         assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
+    }
+
+    #[test]
+    fn render_scene_pass_bg_mode_uses_dropdown_options() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 40, 40, 420, 480);
+        assert!(project.param_is_dropdown(pass, 2));
+        assert!(!project.param_supports_text_edit(pass, 2));
+        let options = project
+            .node_param_dropdown_options(pass, 2)
+            .expect("dropdown options should exist");
+        assert_eq!(options.len(), 2);
+        assert_eq!(project.node_param_raw_text(pass, 2), Some("with_bg"));
+        assert!(project.set_param_dropdown_index(pass, 2, 1));
+        assert_eq!(project.node_param_raw_text(pass, 2), Some("alpha_clip"));
+        assert!(project.adjust_param(pass, 2, -1.0));
+        assert_eq!(project.node_param_raw_text(pass, 2), Some("with_bg"));
     }
 
     #[test]

@@ -7,6 +7,13 @@ use super::super::viewer;
 use super::pipeline::create_preview_texture_bundle;
 use super::{RenderTargetRef, TopOpUniform, TopPreviewRenderer, PREVIEW_BG};
 
+const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.0,
+};
+
 impl TopPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
     pub(in crate::gui::renderer) fn prepare(
@@ -95,6 +102,7 @@ impl TopPreviewRenderer {
             let Ok(dynamic_offset) = u32::try_from(uniform_offset) else {
                 return None;
             };
+            let clear_color = op_clear_color(op);
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gui-top-preview-op-pass"),
@@ -102,7 +110,7 @@ impl TopPreviewRenderer {
                     view: target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(PREVIEW_BG),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -390,5 +398,17 @@ impl TopPreviewRenderer {
                 depth_or_array_layers: 1,
             },
         );
+    }
+}
+
+fn op_clear_color(op: TopViewerOp) -> wgpu::Color {
+    match op {
+        TopViewerOp::Sphere {
+            alpha_clip: true, ..
+        }
+        | TopViewerOp::Circle {
+            alpha_clip: true, ..
+        } => TRANSPARENT_BG,
+        _ => PREVIEW_BG,
     }
 }

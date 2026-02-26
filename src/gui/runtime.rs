@@ -35,6 +35,7 @@ pub(crate) enum TopRuntimeOp {
         color_g: f32,
         color_b: f32,
         alpha: f32,
+        alpha_clip: bool,
     },
     /// `render.scene_pass` sphere shading operation.
     Sphere {
@@ -55,6 +56,7 @@ pub(crate) enum TopRuntimeOp {
         color_g: f32,
         color_b: f32,
         alpha: f32,
+        alpha_clip: bool,
     },
     /// `tex.transform_2d` operation.
     Transform {
@@ -224,6 +226,7 @@ impl GuiCompiledRuntime {
                         alpha: project
                             .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
                             .unwrap_or(1.0),
+                        alpha_clip: false,
                     });
                 }
                 CompiledStepKind::SphereBuffer => {
@@ -381,6 +384,10 @@ impl GuiCompiledRuntime {
                     let (Some(mesh_state), Some(entity_state)) = (mesh, entity) else {
                         continue;
                     };
+                    let alpha_clip = project
+                        .node_param_value(step.node_id, "bg_mode", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        >= 0.5;
                     let zoom = camera_zoom.max(0.1);
                     let center_x = (entity_state.pos_x - 0.5) * zoom + 0.5;
                     let center_y = (entity_state.pos_y - 0.5) * zoom + 0.5;
@@ -418,6 +425,7 @@ impl GuiCompiledRuntime {
                             color_g: entity_state.color_g,
                             color_b: entity_state.color_b,
                             alpha: entity_state.alpha,
+                            alpha_clip,
                         }),
                         SceneMeshProfile::CircleNurbs => out_ops.push(TopRuntimeOp::Circle {
                             center_x,
@@ -448,6 +456,7 @@ impl GuiCompiledRuntime {
                             color_g: entity_state.color_g,
                             color_b: entity_state.color_b,
                             alpha: entity_state.alpha,
+                            alpha_clip,
                         }),
                     }
                 }
@@ -805,6 +814,53 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopRuntimeOp::Sphere { .. }));
+    }
+
+    #[test]
+    fn scene_pass_bg_mode_controls_alpha_clip_flag() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        match ops[0] {
+            TopRuntimeOp::Sphere { alpha_clip, .. } => assert!(!alpha_clip),
+            _ => panic!("expected sphere op"),
+        }
+
+        assert!(project.set_param_dropdown_index(pass, 2, 1));
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        match ops[0] {
+            TopRuntimeOp::Sphere { alpha_clip, .. } => assert!(alpha_clip),
+            _ => panic!("expected sphere op"),
+        }
+    }
+
+    #[test]
+    fn tex_circle_op_keeps_alpha_clip_disabled() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 20, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 180, 40, 420, 480);
+        assert!(project.connect_image_link(circle, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        match ops[0] {
+            TopRuntimeOp::Circle { alpha_clip, .. } => assert!(!alpha_clip),
+            _ => panic!("expected circle op"),
+        }
     }
 
     #[test]
