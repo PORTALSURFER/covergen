@@ -14,6 +14,7 @@ missing_docs_in_private_items = "warn"
 [dependencies]
 bytemuck = { version = "1.15", features = ["derive"] }
 clap = { version = "4.5", features = ["derive"] }
+ffmpeg-sidecar = "2.4.0"
 image = "0.24"
 mp4 = "0.14"
 openh264 = "0.9.3"

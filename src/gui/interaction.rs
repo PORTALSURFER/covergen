@@ -111,8 +111,13 @@ pub(crate) fn apply_preview_actions(
         return changed;
     }
 
-    let (timeline_changed, timeline_consumed) =
-        handle_timeline_input(&input, viewport_width, panel_height, state);
+    let (timeline_changed, timeline_consumed) = handle_timeline_input(
+        &input,
+        viewport_width,
+        panel_height,
+        config.animation.fps,
+        state,
+    );
     changed |= timeline_changed;
     if timeline_consumed {
         state.drag = None;
@@ -308,6 +313,7 @@ pub(crate) fn step_timeline_if_running(
     state: &mut PreviewState,
     frame_delta: Duration,
     timeline_fps: u32,
+    timeline_total_frames: u32,
 ) -> bool {
     let mut advanced = false;
     if !state.paused {
@@ -315,7 +321,7 @@ pub(crate) fn step_timeline_if_running(
         state.timeline_accum_secs += frame_delta.as_secs_f32();
         while state.timeline_accum_secs >= tick_secs {
             state.timeline_accum_secs -= tick_secs;
-            state.frame_index = next_looped_frame(state.frame_index);
+            state.frame_index = next_looped_frame(state.frame_index, timeline_total_frames);
             advanced = true;
         }
     }
@@ -326,6 +332,7 @@ fn handle_timeline_input(
     input: &InputSnapshot,
     viewport_width: usize,
     panel_height: usize,
+    timeline_fps: u32,
     state: &mut PreviewState,
 ) -> (bool, bool) {
     let mut changed = false;
@@ -334,6 +341,7 @@ fn handle_timeline_input(
     let play = play_button_rect(timeline);
     let pause = pause_button_rect(timeline);
     let track = track_rect(timeline);
+    let total_frames = state.export_menu.timeline_total_frames(timeline_fps);
     let mouse_pos = input.mouse_pos;
     if !input.left_down && state.timeline_scrub_active {
         state.timeline_scrub_active = false;
@@ -353,10 +361,10 @@ fn handle_timeline_input(
         if input.left_clicked && track.contains(mx, my) {
             state.timeline_scrub_active = true;
             consumed = true;
-            changed |= scrub_frame_from_timeline(track, mx, state);
+            changed |= scrub_frame_from_timeline(track, mx, total_frames, state);
         } else if state.timeline_scrub_active && input.left_down {
             consumed = true;
-            changed |= scrub_frame_from_timeline(track, mx, state);
+            changed |= scrub_frame_from_timeline(track, mx, total_frames, state);
         }
         if input.left_clicked && timeline.contains(mx, my) {
             consumed = true;
@@ -367,8 +375,13 @@ fn handle_timeline_input(
     (changed, consumed)
 }
 
-fn scrub_frame_from_timeline(track: Rect, mouse_x: i32, state: &mut PreviewState) -> bool {
-    let frame = frame_from_track_x(track, mouse_x);
+fn scrub_frame_from_timeline(
+    track: Rect,
+    mouse_x: i32,
+    total_frames: u32,
+    state: &mut PreviewState,
+) -> bool {
+    let frame = frame_from_track_x(track, mouse_x, total_frames);
     if frame == state.frame_index {
         return false;
     }
@@ -669,6 +682,10 @@ fn apply_export_menu_text_input(input: &InputSnapshot, state: &mut PreviewState)
     let target = match selected {
         ExportMenuItem::Directory => Some(&mut state.export_menu.directory),
         ExportMenuItem::FileName => Some(&mut state.export_menu.file_name),
+        ExportMenuItem::AudioWav => Some(&mut state.export_menu.audio_wav),
+        ExportMenuItem::Bpm => Some(&mut state.export_menu.bpm),
+        ExportMenuItem::Bars => Some(&mut state.export_menu.bars),
+        ExportMenuItem::BeatsPerBar => Some(&mut state.export_menu.beats_per_bar),
         _ => None,
     };
     let Some(target) = target else {
@@ -741,6 +758,10 @@ fn activate_export_menu_selection(state: &mut PreviewState) -> bool {
     match state.export_menu.selected_item() {
         ExportMenuItem::Directory
         | ExportMenuItem::FileName
+        | ExportMenuItem::AudioWav
+        | ExportMenuItem::Bpm
+        | ExportMenuItem::Bars
+        | ExportMenuItem::BeatsPerBar
         | ExportMenuItem::Codec
         | ExportMenuItem::Preview => false,
         ExportMenuItem::StartStop => {
@@ -2877,6 +2898,7 @@ mod tests {
         AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink, HoverParamTarget,
         InputSnapshot, LinkCutState, ParamEditState, PreviewState, WireDragState,
     };
+    use crate::gui::timeline::editor_panel_height;
     use crate::runtime_config::V2Config;
 
     #[test]
@@ -3101,8 +3123,10 @@ mod tests {
         assert!(handle_main_export_menu_input(
             &drag_move, 420, 480, &mut state
         ));
+        let expected_max_y =
+            (editor_panel_height(480) as i32 - state.export_menu.rect().h - 8).max(8);
         assert_eq!(state.export_menu.x, 8);
-        assert_eq!(state.export_menu.y, 148);
+        assert_eq!(state.export_menu.y, expected_max_y);
 
         let release = InputSnapshot {
             left_down: false,

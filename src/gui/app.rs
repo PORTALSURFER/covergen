@@ -13,7 +13,9 @@ use winit::window::{CursorIcon, Fullscreen, Window};
 
 use crate::runtime_config::V2Config;
 use crate::telemetry;
-use crate::{animation::RawVideoEncoder, animation::StreamFrameFormat};
+use crate::{
+    animation::mux_wav_audio_into_mp4, animation::RawVideoEncoder, animation::StreamFrameFormat,
+};
 
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
@@ -26,7 +28,7 @@ use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PendingAppAction, PreviewState};
 use super::tex_view::TexViewerGenerator;
 use super::tex_view::TexViewerUpdate;
-use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
+use super::timeline::{clamp_frame, editor_panel_height};
 
 const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
@@ -45,6 +47,7 @@ struct GuiExportSession {
     total_frames: u32,
     restore_paused: bool,
     output_path: PathBuf,
+    audio_wav_path: Option<PathBuf>,
 }
 
 /// Active divider drag metadata for panel resizing.
@@ -114,6 +117,10 @@ struct OverlaysLayerState {
     export_directory: String,
     export_file_name: String,
     export_status: String,
+    export_audio_wav: String,
+    export_bpm: String,
+    export_bars: String,
+    export_beats_per_bar: String,
     hover_export_menu_item: Option<usize>,
     hover_export_menu_close: bool,
 }
@@ -122,8 +129,12 @@ struct OverlaysLayerState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TimelineLayerState {
     frame_index: u32,
+    total_frames: u32,
     paused: bool,
     timeline_scrub_active: bool,
+    bpm_bits: u32,
+    bars: u32,
+    beats_per_bar: u32,
 }
 
 /// Snapshot of all scene-related state dependencies used for scoped invalidation.
@@ -137,7 +148,7 @@ struct SceneInvalidationSnapshot {
 
 impl SceneInvalidationSnapshot {
     /// Capture state dependencies before/after one update tick.
-    fn capture(state: &PreviewState) -> Self {
+    fn capture(state: &PreviewState, timeline_fps: u32) -> Self {
         Self {
             nodes: NodesLayerState {
                 pan_x_bits: state.pan_x.to_bits(),
@@ -216,13 +227,21 @@ impl SceneInvalidationSnapshot {
                 export_directory: state.export_menu.directory.clone(),
                 export_file_name: state.export_menu.file_name.clone(),
                 export_status: state.export_menu.status.clone(),
+                export_audio_wav: state.export_menu.audio_wav.clone(),
+                export_bpm: state.export_menu.bpm.clone(),
+                export_bars: state.export_menu.bars.clone(),
+                export_beats_per_bar: state.export_menu.beats_per_bar.clone(),
                 hover_export_menu_item: state.hover_export_menu_item,
                 hover_export_menu_close: state.hover_export_menu_close,
             },
             timeline: TimelineLayerState {
                 frame_index: state.frame_index,
+                total_frames: state.export_menu.timeline_total_frames(timeline_fps),
                 paused: state.paused,
                 timeline_scrub_active: state.timeline_scrub_active,
+                bpm_bits: state.export_menu.parsed_bpm().to_bits(),
+                bars: state.export_menu.parsed_bars(),
+                beats_per_bar: state.export_menu.parsed_beats_per_bar(),
             },
         }
     }
@@ -431,7 +450,8 @@ impl GuiApp {
 
         let update_start = Instant::now();
         let project_invalidation_before = self.project.invalidation();
-        let scene_invalidation_before = SceneInvalidationSnapshot::capture(&self.state);
+        let scene_invalidation_before =
+            SceneInvalidationSnapshot::capture(&self.state, self.config.animation.fps);
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
         if consume_editor_input {
@@ -478,9 +498,28 @@ impl GuiApp {
         if self.config.gui.benchmark_drag {
             scene_dirty |= self.apply_synthetic_drag();
         }
+        let timeline_total_frames = self
+            .state
+            .export_menu
+            .timeline_total_frames(self.config.animation.fps);
         if self.export_session.is_none() && !self.start_export_requested {
-            scene_dirty |=
-                step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
+            scene_dirty |= step_timeline_if_running(
+                &mut self.state,
+                frame_delta,
+                self.config.animation.fps,
+                timeline_total_frames,
+            );
+        }
+        let clamped_frame = clamp_frame(self.state.frame_index, timeline_total_frames);
+        if clamped_frame != self.state.frame_index {
+            self.state.frame_index = clamped_frame;
+            scene_dirty = true;
+        }
+        if self.export_session.is_none()
+            && self.state.export_menu.preview_total != timeline_total_frames
+        {
+            self.state.export_menu.preview_total = timeline_total_frames;
+            scene_dirty = true;
         }
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         self.apply_scoped_invalidation(
@@ -505,6 +544,7 @@ impl GuiApp {
                     viewport_height: self.renderer.height(),
                     panel_width: self.panel_width,
                     frame_index: self.state.frame_index,
+                    timeline_total_frames,
                     timeline_fps: self.config.animation.fps,
                     tex_eval_epoch: self.state.invalidation.tex_eval,
                 },
@@ -517,6 +557,7 @@ impl GuiApp {
                 self.renderer.width(),
                 self.renderer.height(),
                 self.panel_width,
+                self.config.animation.fps,
             );
             scene_elapsed = scene_start.elapsed();
             ui_alloc_bytes = frame.ui_alloc_bytes;
@@ -599,7 +640,8 @@ impl GuiApp {
             self.state.invalidation.invalidate_tex_eval();
         }
 
-        let state_after = SceneInvalidationSnapshot::capture(&self.state);
+        let state_after =
+            SceneInvalidationSnapshot::capture(&self.state, self.config.animation.fps);
         if state_before.nodes != state_after.nodes {
             self.state.invalidation.invalidate_nodes();
         }
@@ -698,6 +740,33 @@ impl GuiApp {
             return Ok(());
         };
         let output_path = self.state.export_menu.output_path();
+        let total_frames = self
+            .state
+            .export_menu
+            .timeline_total_frames(self.config.animation.fps);
+        let audio_wav_path = self.state.export_menu.audio_wav_path();
+        if let Some(audio_path) = audio_wav_path.as_ref() {
+            if !audio_path.exists() {
+                self.state.export_menu.set_status(format!(
+                    "Export failed: audio file not found: {}",
+                    audio_path.display()
+                ));
+                self.start_export_requested = false;
+                return Ok(());
+            }
+            let is_wav = audio_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.eq_ignore_ascii_case("wav"))
+                .unwrap_or(false);
+            if !is_wav {
+                self.state
+                    .export_menu
+                    .set_status("Export failed: audio file must be a .wav path for timeline sync");
+                self.start_export_requested = false;
+                return Ok(());
+            }
+        }
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() {
                 if let Err(err) = fs::create_dir_all(parent) {
@@ -727,13 +796,14 @@ impl GuiApp {
         self.export_session = Some(GuiExportSession {
             encoder,
             next_frame: 0,
-            total_frames: TIMELINE_TOTAL_FRAMES,
+            total_frames,
             restore_paused: self.state.paused,
             output_path: output_path.clone(),
+            audio_wav_path,
         });
         self.state.export_menu.exporting = true;
         self.state.export_menu.preview_frame = 0;
-        self.state.export_menu.preview_total = TIMELINE_TOTAL_FRAMES;
+        self.state.export_menu.preview_total = total_frames;
         self.state
             .export_menu
             .set_status(format!("Exporting: {}", output_path.display()));
@@ -813,12 +883,38 @@ impl GuiApp {
             .export_menu
             .preview_frame
             .min(session.total_frames);
+        let should_mux_audio = reason != "failed";
         match session.encoder.finish() {
             Ok(()) => {
-                self.state.export_menu.set_status(format!(
-                    "Export {reason}: {}",
-                    session.output_path.display()
-                ));
+                let audio_mux_status = if should_mux_audio {
+                    if let Some(audio_path) = session.audio_wav_path.as_ref() {
+                        mux_wav_audio_into_mp4(session.output_path.as_path(), audio_path.as_path())
+                            .map(|_| {
+                                format!(
+                                    "Export {reason}: {} (audio: {})",
+                                    session.output_path.display(),
+                                    audio_path.display()
+                                )
+                            })
+                    } else {
+                        Ok(format!(
+                            "Export {reason}: {}",
+                            session.output_path.display()
+                        ))
+                    }
+                } else {
+                    Ok(format!(
+                        "Export {reason}: {}",
+                        session.output_path.display()
+                    ))
+                };
+                match audio_mux_status {
+                    Ok(status) => self.state.export_menu.set_status(status),
+                    Err(err) => self.state.export_menu.set_status(format!(
+                        "Export {reason}: {} (audio mux failed: {err})",
+                        session.output_path.display()
+                    )),
+                }
             }
             Err(err) => {
                 self.state

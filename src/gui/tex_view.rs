@@ -5,7 +5,7 @@
 
 use super::project::GuiProject;
 use super::runtime::{GuiCompiledRuntime, TexRuntimeFrameContext};
-use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
+use super::timeline::editor_panel_height;
 
 /// Re-exported tex operation type consumed by preview rendering.
 pub(crate) use super::runtime::TexRuntimeOp as TexViewerOp;
@@ -70,6 +70,8 @@ pub(crate) struct TexViewerUpdate {
     pub(crate) panel_width: usize,
     /// Current timeline frame index.
     pub(crate) frame_index: u32,
+    /// Total timeline frame count.
+    pub(crate) timeline_total_frames: u32,
     /// Timeline playback rate used for time conversion.
     pub(crate) timeline_fps: u32,
     /// Epoch token for tex evaluation invalidation.
@@ -126,7 +128,7 @@ impl TexViewerGenerator {
                 time_secs,
                 Some(TexRuntimeFrameContext {
                     frame_index: dynamic_frame,
-                    frame_total: TIMELINE_TOTAL_FRAMES,
+                    frame_total: update.timeline_total_frames.max(1),
                 }),
                 &mut self.eval_stack,
                 &mut self.ops,
@@ -191,6 +193,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -220,6 +223,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -250,6 +254,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -280,6 +285,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -311,6 +317,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -328,6 +335,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 60,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -356,6 +364,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -389,6 +398,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -424,6 +434,7 @@ mod tests {
                 viewport_height: 700,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -454,6 +465,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -489,6 +501,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -525,6 +538,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -543,6 +557,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 60,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -572,6 +587,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -586,6 +602,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -600,6 +617,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -618,6 +636,7 @@ mod tests {
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },
@@ -640,6 +659,7 @@ mod tests {
                 viewport_height: 900,
                 panel_width: 420,
                 frame_index: 0,
+                timeline_total_frames: 1_800,
                 timeline_fps: 60,
                 tex_eval_epoch: project.invalidation().tex_eval,
             },

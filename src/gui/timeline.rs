@@ -4,10 +4,8 @@ use super::geometry::Rect;
 
 /// First frame index on the timeline.
 pub(crate) const TIMELINE_START_FRAME: u32 = 0;
-/// Total frame count represented by the timeline.
-pub(crate) const TIMELINE_TOTAL_FRAMES: u32 = 1_800;
-/// Last frame index on the timeline (inclusive).
-pub(crate) const TIMELINE_END_FRAME: u32 = TIMELINE_START_FRAME + TIMELINE_TOTAL_FRAMES - 1;
+/// Default timeline frame count (30s at 60fps).
+pub(crate) const TIMELINE_DEFAULT_TOTAL_FRAMES: u32 = 1_800;
 /// Fixed timeline strip height in panel pixels.
 pub(crate) const TIMELINE_HEIGHT_PX: i32 = 30;
 
@@ -18,6 +16,22 @@ const TRANSPORT_GAP: i32 = 6;
 const TRACK_LEFT_GAP: i32 = 12;
 const TRACK_RIGHT_PAD: i32 = 12;
 const TRACK_HEIGHT: i32 = 6;
+
+/// Convert music timing (`bpm`, `bars`, `beats_per_bar`) to total frame count.
+pub(crate) fn total_frames_from_music(fps: u32, bpm: f32, bars: u32, beats_per_bar: u32) -> u32 {
+    if fps == 0 || !bpm.is_finite() || bpm <= 0.0 || bars == 0 || beats_per_bar == 0 {
+        return TIMELINE_DEFAULT_TOTAL_FRAMES.max(1);
+    }
+    let total_beats = bars as f64 * beats_per_bar as f64;
+    let duration_secs = total_beats * 60.0 / bpm as f64;
+    let frames = (duration_secs * fps as f64).round();
+    frames.clamp(1.0, u32::MAX as f64) as u32
+}
+
+/// Return last frame index for one timeline length.
+pub(crate) fn end_frame(total_frames: u32) -> u32 {
+    TIMELINE_START_FRAME + total_frames.max(1) - 1
+}
 
 /// Return panel height available for content above the timeline strip.
 pub(crate) fn editor_panel_height(panel_height: usize) -> usize {
@@ -66,13 +80,14 @@ pub(crate) fn track_rect(timeline: Rect) -> Rect {
 }
 
 /// Clamp one frame to timeline bounds.
-pub(crate) fn clamp_frame(frame: u32) -> u32 {
-    frame.clamp(TIMELINE_START_FRAME, TIMELINE_END_FRAME)
+pub(crate) fn clamp_frame(frame: u32, total_frames: u32) -> u32 {
+    frame.clamp(TIMELINE_START_FRAME, end_frame(total_frames))
 }
 
 /// Advance one timeline frame with loop wrap at the end.
-pub(crate) fn next_looped_frame(frame: u32) -> u32 {
-    if frame >= TIMELINE_END_FRAME {
+pub(crate) fn next_looped_frame(frame: u32, total_frames: u32) -> u32 {
+    let end = end_frame(total_frames);
+    if frame >= end {
         TIMELINE_START_FRAME
     } else {
         frame + 1
@@ -80,23 +95,26 @@ pub(crate) fn next_looped_frame(frame: u32) -> u32 {
 }
 
 /// Convert one x-position on the track to the nearest timeline frame.
-pub(crate) fn frame_from_track_x(track: Rect, x: i32) -> u32 {
+pub(crate) fn frame_from_track_x(track: Rect, x: i32, total_frames: u32) -> u32 {
     if track.w <= 1 {
         return TIMELINE_START_FRAME;
     }
     let clamped_x = x.clamp(track.x, track.x + track.w - 1);
     let t = (clamped_x - track.x) as f32 / (track.w - 1) as f32;
-    let range = (TIMELINE_END_FRAME - TIMELINE_START_FRAME) as f32;
-    clamp_frame((TIMELINE_START_FRAME as f32 + t * range).round() as u32)
+    let range = (end_frame(total_frames) - TIMELINE_START_FRAME) as f32;
+    clamp_frame(
+        (TIMELINE_START_FRAME as f32 + t * range).round() as u32,
+        total_frames,
+    )
 }
 
 /// Convert one frame index to an x-position on the track.
-pub(crate) fn track_x_for_frame(track: Rect, frame: u32) -> i32 {
+pub(crate) fn track_x_for_frame(track: Rect, frame: u32, total_frames: u32) -> i32 {
     if track.w <= 1 {
         return track.x;
     }
-    let frame = clamp_frame(frame);
-    let range = (TIMELINE_END_FRAME - TIMELINE_START_FRAME).max(1) as f32;
+    let frame = clamp_frame(frame, total_frames);
+    let range = (end_frame(total_frames) - TIMELINE_START_FRAME).max(1) as f32;
     let t = (frame - TIMELINE_START_FRAME) as f32 / range;
     track.x + (t * (track.w - 1) as f32).round() as i32
 }

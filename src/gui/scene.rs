@@ -22,8 +22,8 @@ use super::state::{
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
 use super::timeline::{
-    editor_panel_height, pause_button_rect, play_button_rect, timeline_rect, track_rect,
-    track_x_for_frame, TIMELINE_END_FRAME, TIMELINE_START_FRAME,
+    editor_panel_height, end_frame, pause_button_rect, play_button_rect, timeline_rect, track_rect,
+    track_x_for_frame, TIMELINE_START_FRAME,
 };
 
 const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
@@ -228,6 +228,7 @@ impl SceneBuilder {
         width: usize,
         height: usize,
         panel_width: usize,
+        timeline_fps: u32,
     ) -> &SceneFrame {
         self.frame.clear = Some(PREVIEW_BG);
         self.frame.export_preview_rect = state
@@ -264,7 +265,7 @@ impl SceneBuilder {
         if self.cached_timeline_epoch != Some(timeline_epoch) {
             self.cached_timeline_epoch = Some(timeline_epoch);
             self.frame.dirty.timeline = true;
-            self.rebuild_timeline_layer(state, width, height);
+            self.rebuild_timeline_layer(state, width, height, timeline_fps);
         }
         self.frame.ui_alloc_bytes = self.frame_alloc_bytes;
         &self.frame
@@ -333,11 +334,12 @@ impl SceneBuilder {
         state: &PreviewState,
         viewport_width: usize,
         height: usize,
+        timeline_fps: u32,
     ) {
         let before = self.layer_capacity(ActiveLayer::Timeline);
         self.set_active_layer(ActiveLayer::Timeline);
         self.clear_active_layer();
-        self.push_timeline(state, viewport_width, height);
+        self.push_timeline(state, viewport_width, height, timeline_fps);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Timeline));
     }
 
@@ -759,6 +761,26 @@ impl SceneBuilder {
                     menu_label_scratch.push_str("File Name: ");
                     menu_label_scratch.push_str(state.export_menu.file_name.as_str());
                 }
+                ExportMenuItem::AudioWav => {
+                    menu_label_scratch.push_str("Audio WAV: ");
+                    if state.export_menu.audio_wav.trim().is_empty() {
+                        menu_label_scratch.push_str("(none)");
+                    } else {
+                        menu_label_scratch.push_str(state.export_menu.audio_wav.as_str());
+                    }
+                }
+                ExportMenuItem::Bpm => {
+                    menu_label_scratch.push_str("Timeline BPM: ");
+                    menu_label_scratch.push_str(state.export_menu.bpm.as_str());
+                }
+                ExportMenuItem::Bars => {
+                    menu_label_scratch.push_str("Timeline Bars: ");
+                    menu_label_scratch.push_str(state.export_menu.bars.as_str());
+                }
+                ExportMenuItem::BeatsPerBar => {
+                    menu_label_scratch.push_str("Beats / Bar: ");
+                    menu_label_scratch.push_str(state.export_menu.beats_per_bar.as_str());
+                }
                 ExportMenuItem::Codec => {
                     menu_label_scratch.push_str("Video: H.264 (OpenH264)");
                 }
@@ -772,7 +794,7 @@ impl SceneBuilder {
                 ExportMenuItem::Preview => {
                     let _ = write!(
                         &mut menu_label_scratch,
-                        "Preview: {}/{}",
+                        "Preview: {}/{} frames",
                         state.export_menu.preview_frame, state.export_menu.preview_total
                     );
                 }
@@ -859,7 +881,13 @@ impl SceneBuilder {
         }
     }
 
-    fn push_timeline(&mut self, state: &PreviewState, viewport_width: usize, panel_height: usize) {
+    fn push_timeline(
+        &mut self,
+        state: &PreviewState,
+        viewport_width: usize,
+        panel_height: usize,
+        timeline_fps: u32,
+    ) {
         if viewport_width == 0 || panel_height == 0 {
             return;
         }
@@ -867,6 +895,8 @@ impl SceneBuilder {
         let play_btn = play_button_rect(timeline);
         let pause_btn = pause_button_rect(timeline);
         let track = track_rect(timeline);
+        let total_frames = state.export_menu.timeline_total_frames(timeline_fps);
+        let end_frame = end_frame(total_frames);
         self.push_rect(timeline, TIMELINE_BG);
         self.push_border(timeline, TIMELINE_BORDER);
 
@@ -918,7 +948,7 @@ impl SceneBuilder {
 
         self.push_rect(track, TIMELINE_TRACK_BG);
         self.push_border(track, TIMELINE_BORDER);
-        let thumb_x = track_x_for_frame(track, state.frame_index);
+        let thumb_x = track_x_for_frame(track, state.frame_index, total_frames);
         let fill_w = (thumb_x - track.x + 1).max(1).min(track.w);
         self.push_rect(
             Rect::new(track.x, track.y, fill_w, track.h),
@@ -933,8 +963,13 @@ impl SceneBuilder {
         label.clear();
         let _ = write!(
             &mut label,
-            "Frame {}  [{}, {}]",
-            state.frame_index, TIMELINE_START_FRAME, TIMELINE_END_FRAME
+            "Frame {}  [{}, {}]  |  {:.2} BPM x {} bars ({} / bar)",
+            state.frame_index,
+            TIMELINE_START_FRAME,
+            end_frame,
+            state.export_menu.parsed_bpm(),
+            state.export_menu.parsed_bars(),
+            state.export_menu.parsed_beats_per_bar()
         );
         self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
         self.label_scratch = label;

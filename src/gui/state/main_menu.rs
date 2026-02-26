@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::gui::geometry::Rect;
+use crate::gui::timeline::{total_frames_from_music, TIMELINE_DEFAULT_TOTAL_FRAMES};
 
 /// Main-menu popup geometry constants.
 pub(crate) const MAIN_MENU_WIDTH: i32 = 180;
@@ -22,6 +23,9 @@ const EXPORT_MENU_STATUS_HEIGHT: i32 = 20;
 const EXPORT_MENU_PREVIEW_WIDTH: i32 = 180;
 const EXPORT_MENU_PREVIEW_HEIGHT: i32 = 101;
 const EXPORT_MENU_PREVIEW_GAP: i32 = 8;
+const EXPORT_DEFAULT_BPM: &str = "120";
+const EXPORT_DEFAULT_BARS: &str = "15";
+const EXPORT_DEFAULT_BEATS_PER_BAR: &str = "4";
 
 /// Selectable main-menu rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,14 +63,22 @@ const MAIN_MENU_ITEMS: [MainMenuItem; 5] = [
 pub(crate) enum ExportMenuItem {
     Directory,
     FileName,
+    AudioWav,
+    Bpm,
+    Bars,
+    BeatsPerBar,
     Codec,
     StartStop,
     Preview,
 }
 
-const EXPORT_MENU_ITEMS: [ExportMenuItem; 5] = [
+const EXPORT_MENU_ITEMS: [ExportMenuItem; 9] = [
     ExportMenuItem::Directory,
     ExportMenuItem::FileName,
+    ExportMenuItem::AudioWav,
+    ExportMenuItem::Bpm,
+    ExportMenuItem::Bars,
+    ExportMenuItem::BeatsPerBar,
     ExportMenuItem::Codec,
     ExportMenuItem::StartStop,
     ExportMenuItem::Preview,
@@ -179,6 +191,10 @@ pub(crate) struct ExportMenuState {
     pub(crate) selected: usize,
     pub(crate) directory: String,
     pub(crate) file_name: String,
+    pub(crate) audio_wav: String,
+    pub(crate) bpm: String,
+    pub(crate) bars: String,
+    pub(crate) beats_per_bar: String,
     pub(crate) exporting: bool,
     pub(crate) preview_frame: u32,
     pub(crate) preview_total: u32,
@@ -199,9 +215,13 @@ impl ExportMenuState {
                 ".".to_string()
             },
             file_name: "export.mp4".to_string(),
+            audio_wav: String::new(),
+            bpm: EXPORT_DEFAULT_BPM.to_string(),
+            bars: EXPORT_DEFAULT_BARS.to_string(),
+            beats_per_bar: EXPORT_DEFAULT_BEATS_PER_BAR.to_string(),
             exporting: false,
             preview_frame: 0,
-            preview_total: 0,
+            preview_total: TIMELINE_DEFAULT_TOTAL_FRAMES,
             status: String::new(),
         }
     }
@@ -330,6 +350,42 @@ impl ExportMenuState {
         self.status = status.into();
     }
 
+    /// Return parsed BPM value, falling back to defaults when invalid.
+    pub(crate) fn parsed_bpm(&self) -> f32 {
+        parse_positive_f32_or_default(self.bpm.as_str(), EXPORT_DEFAULT_BPM)
+    }
+
+    /// Return parsed bars value, falling back to defaults when invalid.
+    pub(crate) fn parsed_bars(&self) -> u32 {
+        parse_positive_u32_or_default(self.bars.as_str(), EXPORT_DEFAULT_BARS)
+    }
+
+    /// Return parsed beats-per-bar value, falling back to defaults when invalid.
+    pub(crate) fn parsed_beats_per_bar(&self) -> u32 {
+        parse_positive_u32_or_default(self.beats_per_bar.as_str(), EXPORT_DEFAULT_BEATS_PER_BAR)
+    }
+
+    /// Return derived timeline frame count from the current music settings.
+    pub(crate) fn timeline_total_frames(&self, fps: u32) -> u32 {
+        total_frames_from_music(
+            fps,
+            self.parsed_bpm(),
+            self.parsed_bars(),
+            self.parsed_beats_per_bar(),
+        )
+        .max(1)
+    }
+
+    /// Return configured WAV path when the field is non-empty.
+    pub(crate) fn audio_wav_path(&self) -> Option<PathBuf> {
+        let trimmed = self.audio_wav.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    }
+
     /// Move the popup to `x/y`, clamped to editor panel bounds.
     pub(crate) fn move_to(
         &mut self,
@@ -366,6 +422,22 @@ pub(crate) fn export_menu_height() -> i32 {
         + EXPORT_MENU_PREVIEW_HEIGHT
         + EXPORT_MENU_STATUS_HEIGHT
         + EXPORT_MENU_BOTTOM_PADDING
+}
+
+fn parse_positive_f32_or_default(raw: &str, fallback: &str) -> f32 {
+    let parsed = raw.trim().parse::<f32>().ok().filter(|value| *value > 0.0);
+    if let Some(value) = parsed {
+        return value;
+    }
+    fallback.parse::<f32>().unwrap_or(120.0)
+}
+
+fn parse_positive_u32_or_default(raw: &str, fallback: &str) -> u32 {
+    let parsed = raw.trim().parse::<u32>().ok().filter(|value| *value > 0);
+    if let Some(value) = parsed {
+        return value;
+    }
+    fallback.parse::<u32>().unwrap_or(1)
 }
 
 #[cfg(test)]
