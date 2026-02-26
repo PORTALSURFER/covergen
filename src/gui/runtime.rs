@@ -333,7 +333,7 @@ impl GuiCompiledRuntime {
     /// Evaluate compiled steps into GPU runtime operations for one frame.
     ///
     /// When `frame` is provided, loop-mode temporal nodes can lock animation to
-    /// timeline phase and guarantee seam-free wrap at clip boundaries.
+    /// timeline phase and guarantee seam-free first/last frame matching.
     pub(crate) fn evaluate_ops_with_frame(
         &self,
         project: &GuiProject,
@@ -1438,10 +1438,10 @@ fn layered_loop_sine_noise(loop_phase: f32, frequency: f32, phase: f32, seed: f3
     (n0 * 0.62 + n1 * 0.28 + n2 * 0.10).clamp(-1.0, 1.0)
 }
 
-/// Convert frame-clock context to a deterministic `[0, TAU)` loop phase.
+/// Convert frame-clock context to a deterministic `[0, TAU]` loop phase.
 ///
-/// The phase is end-exclusive so the last frame stays distinct and the next
-/// wrapped frame resolves back to frame `0` without a duplicated endpoint.
+/// The phase is end-inclusive so the first and last timeline frames resolve to
+/// identical loop positions for seam-free clip wraps.
 fn timeline_loop_phase(frame: Option<TexRuntimeFrameContext>, time_secs: f32) -> f32 {
     let progress = match frame {
         Some(ctx) => normalized_loop_progress(ctx.frame_index, ctx.frame_total),
@@ -1461,8 +1461,9 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
     if frame_total <= 1 {
         return 0.0;
     }
+    let max_index = frame_total - 1;
     let wrapped = frame_index % frame_total;
-    wrapped as f32 / frame_total as f32
+    wrapped as f32 / max_index as f32
 }
 
 #[cfg(test)]
@@ -1987,7 +1988,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_noise_loop_mode_wraps_without_duplicating_last_frame() {
+    fn buffer_noise_loop_mode_matches_first_and_last_timeline_frame() {
         let mut project = GuiProject::new_empty(640, 480);
         let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
         let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 40, 420, 480);
@@ -2056,8 +2057,8 @@ mod tests {
             _ => panic!("expected sphere op"),
         };
         assert!(
-            (phase_first - phase_last).abs() > 1e-3,
-            "loop mode should keep the final frame distinct: first={phase_first}, last={phase_last}"
+            (phase_first - phase_last).abs() < 1e-4,
+            "loop mode should match first/last frame phase: first={phase_first}, last={phase_last}"
         );
         assert!(
             (phase_first - phase_wrapped).abs() < 1e-4,
