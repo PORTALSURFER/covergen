@@ -4,8 +4,10 @@ use super::geometry::Rect;
 
 /// First frame index on the timeline.
 pub(crate) const TIMELINE_START_FRAME: u32 = 0;
+/// Total frame count represented by the timeline.
+pub(crate) const TIMELINE_TOTAL_FRAMES: u32 = 1_800;
 /// Last frame index on the timeline (inclusive).
-pub(crate) const TIMELINE_END_FRAME: u32 = 300;
+pub(crate) const TIMELINE_END_FRAME: u32 = TIMELINE_START_FRAME + TIMELINE_TOTAL_FRAMES - 1;
 /// Fixed timeline strip height in panel pixels.
 pub(crate) const TIMELINE_HEIGHT_PX: i32 = 46;
 

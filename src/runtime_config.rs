@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::art_direction::{ArtDirectionArgs, ArtDirectionConfig};
 
 const DEFAULT_GUI_TARGET_FPS: u32 = 60;
+const DEFAULT_ANIMATION_SECONDS: u32 = 30;
+const DEFAULT_ANIMATION_FPS: u32 = 60;
 
 /// Runtime profile used by graph execution and preset generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
@@ -116,10 +118,10 @@ pub struct V2Args {
     #[arg(long)]
     animate: bool,
     /// Clip length in seconds.
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = DEFAULT_ANIMATION_SECONDS)]
     seconds: u32,
     /// Clip frame rate.
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = DEFAULT_ANIMATION_FPS)]
     fps: u32,
     /// Keep intermediate frame PNGs after mp4 assembly.
     #[arg(long)]

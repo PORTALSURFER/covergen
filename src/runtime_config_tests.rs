@@ -58,6 +58,13 @@ fn gui_target_fps_defaults_to_sixty() {
 }
 
 #[test]
+fn animation_defaults_to_thirty_seconds_at_sixty_fps() {
+    let cfg = V2Config::parse(Vec::new()).expect("default configuration");
+    assert_eq!(cfg.animation.seconds, 30);
+    assert_eq!(cfg.animation.fps, 60);
+}
+
+#[test]
 fn parse_exploration_flags() {
     let cfg = V2Config::parse(vec![
         "--explore-candidates".to_string(),
