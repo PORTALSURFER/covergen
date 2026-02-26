@@ -133,6 +133,7 @@ pub(crate) struct ColoredLine {
 #[derive(Debug, Default)]
 pub(crate) struct SceneFrame {
     pub(crate) clear: Option<Color>,
+    pub(crate) export_preview_rect: Option<Rect>,
     pub(crate) static_panel: SceneLayer,
     pub(crate) edges: SceneLayer,
     pub(crate) nodes: SceneLayer,
@@ -229,6 +230,10 @@ impl SceneBuilder {
         panel_width: usize,
     ) -> &SceneFrame {
         self.frame.clear = Some(PREVIEW_BG);
+        self.frame.export_preview_rect = state
+            .export_menu
+            .open
+            .then(|| state.export_menu.preview_viewport_rect());
         self.frame.dirty = SceneLayerDirty::default();
         self.frame_alloc_bytes = 0;
 
@@ -774,6 +779,16 @@ impl SceneBuilder {
             }
             self.push_text(row.x + 6, row.y + 6, menu_label_scratch.as_str(), MENU_TEXT);
         }
+        let preview = state.export_menu.preview_viewport_rect();
+        let preview_label_y = (preview.y - 14).max(rect.y + 8);
+        self.push_text(
+            preview.x,
+            preview_label_y,
+            "Export Preview",
+            MENU_CATEGORY_TEXT,
+        );
+        self.push_rect(preview, PARAM_VALUE_BG);
+        self.push_border(preview, MENU_BORDER);
         if !state.export_menu.status.is_empty() {
             self.push_text(
                 rect.x + MENU_INNER_PADDING + 6,

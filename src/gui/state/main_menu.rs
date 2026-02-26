@@ -18,6 +18,10 @@ const EXPORT_MENU_INNER_PADDING: i32 = 6;
 const EXPORT_MENU_TITLE_HEIGHT: i32 = 24;
 const EXPORT_MENU_BOTTOM_PADDING: i32 = 8;
 const EXPORT_MENU_CLOSE_SIZE: i32 = 14;
+const EXPORT_MENU_STATUS_HEIGHT: i32 = 20;
+const EXPORT_MENU_PREVIEW_WIDTH: i32 = 180;
+const EXPORT_MENU_PREVIEW_HEIGHT: i32 = 101;
+const EXPORT_MENU_PREVIEW_GAP: i32 = 8;
 
 /// Selectable main-menu rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,6 +238,17 @@ impl ExportMenuState {
         EXPORT_MENU_ITEMS[self.selected.min(EXPORT_MENU_ITEMS.len() - 1)]
     }
 
+    /// Return export-preview viewport rectangle in panel coordinates.
+    pub(crate) fn preview_viewport_rect(&self) -> Rect {
+        let rect = self.rect();
+        let x = rect.x + rect.w - EXPORT_MENU_INNER_PADDING - EXPORT_MENU_PREVIEW_WIDTH;
+        let y = rect.y + rect.h
+            - EXPORT_MENU_BOTTOM_PADDING
+            - EXPORT_MENU_STATUS_HEIGHT
+            - EXPORT_MENU_PREVIEW_HEIGHT;
+        Rect::new(x, y, EXPORT_MENU_PREVIEW_WIDTH, EXPORT_MENU_PREVIEW_HEIGHT)
+    }
+
     /// Return row item at cursor coordinates.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
         for index in 0..EXPORT_MENU_ITEMS.len() {
@@ -343,6 +358,9 @@ pub(crate) fn main_menu_height() -> i32 {
 pub(crate) fn export_menu_height() -> i32 {
     EXPORT_MENU_TITLE_HEIGHT
         + EXPORT_MENU_ITEM_HEIGHT * EXPORT_MENU_ITEMS.len() as i32
+        + EXPORT_MENU_PREVIEW_GAP
+        + EXPORT_MENU_PREVIEW_HEIGHT
+        + EXPORT_MENU_STATUS_HEIGHT
         + EXPORT_MENU_BOTTOM_PADDING
 }
 

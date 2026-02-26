@@ -27,10 +27,12 @@ impl TopPreviewRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         top_view: Option<TopViewerFrame<'_>>,
+        export_preview_rect: Option<Rect>,
         encoder: &mut wgpu::CommandEncoder,
     ) -> u64 {
         let Some(top_view) = top_view else {
             self.viewer_visible = false;
+            self.export_preview_visible = false;
             return 0;
         };
         if top_view.width == 0
@@ -39,6 +41,7 @@ impl TopPreviewRenderer {
             || top_view.texture_height == 0
         {
             self.viewer_visible = false;
+            self.export_preview_visible = false;
             return 0;
         }
         let mut upload_bytes = 0u64;
@@ -52,6 +55,23 @@ impl TopPreviewRenderer {
         let quad = viewer::quad_vertices(rect);
         upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
         queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
+        if let Some(preview_rect) = export_preview_rect {
+            if preview_rect.w > 1 && preview_rect.h > 1 {
+                let preview_quad = viewer::quad_vertices(preview_rect);
+                upload_bytes =
+                    upload_bytes.saturating_add(std::mem::size_of_val(&preview_quad) as u64);
+                queue.write_buffer(
+                    &self.export_preview_quad_buffer,
+                    0,
+                    bytemuck::cast_slice(&preview_quad),
+                );
+                self.export_preview_visible = true;
+            } else {
+                self.export_preview_visible = false;
+            }
+        } else {
+            self.export_preview_visible = false;
+        }
 
         let TopViewerPayload::GpuOps(ops) = top_view.payload;
         if let Some(op_upload_bytes) = self.encode_gpu_ops(

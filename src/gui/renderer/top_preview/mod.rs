@@ -252,6 +252,8 @@ pub(super) struct TopPreviewRenderer {
     viewer_texture_size: (u32, u32),
     viewer_quad_buffer: wgpu::Buffer,
     viewer_visible: bool,
+    export_preview_quad_buffer: wgpu::Buffer,
+    export_preview_visible: bool,
 
     op_uniform_layout: wgpu::BindGroupLayout,
     op_uniform_buffer: wgpu::Buffer,
@@ -484,6 +486,7 @@ impl TopPreviewRenderer {
             surface_format,
         );
         let viewer_quad_buffer = viewer::create_vertex_buffer(device);
+        let export_preview_quad_buffer = viewer::create_vertex_buffer(device);
 
         let op_uniform_stride = Self::op_uniform_stride(device);
         let op_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -522,6 +525,8 @@ impl TopPreviewRenderer {
             viewer_texture_size: (0, 0),
             viewer_quad_buffer,
             viewer_visible: false,
+            export_preview_quad_buffer,
+            export_preview_visible: false,
             op_uniform_layout,
             op_uniform_buffer,
             op_uniform_bind_group,
@@ -570,6 +575,10 @@ impl TopPreviewRenderer {
         pass.set_bind_group(1, bind_group, &[]);
         pass.set_vertex_buffer(0, self.viewer_quad_buffer.slice(..));
         pass.draw(0..6, 0..1);
+        if self.export_preview_visible {
+            pass.set_vertex_buffer(0, self.export_preview_quad_buffer.slice(..));
+            pass.draw(0..6, 0..1);
+        }
     }
 
     /// Return current viewer render target texture and size.

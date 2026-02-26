@@ -19,6 +19,7 @@ use super::scene::{Color, SceneFrame, SceneLayer};
 use super::text::GuiTextRenderer;
 use super::timeline::editor_panel_height;
 use super::top_view::TopViewerFrame;
+use crate::gui::geometry::Rect;
 use setup::{
     create_pipeline, create_uniform_bind_group, create_vertex_buffer, grow_capacity,
     preferred_surface_format, push_rect_triangles, request_hardware_adapter, select_present_mode,
@@ -424,6 +425,7 @@ impl GuiRenderer {
             frame.clear.unwrap_or(Color::argb(0xFF000000)),
             panel_width,
             top_view,
+            frame.export_preview_rect,
         )?;
         self.frame_perf.upload_bytes = self
             .frame_perf
@@ -580,6 +582,7 @@ impl GuiRenderer {
         clear: Color,
         panel_width: usize,
         top_view: Option<TopViewerFrame<'_>>,
+        export_preview_rect: Option<Rect>,
     ) -> Result<u64, Box<dyn Error>> {
         let surface_tex = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -600,9 +603,13 @@ impl GuiRenderer {
                 label: Some("gui-render-encoder"),
             });
 
-        let top_preview_upload_bytes =
-            self.top_preview
-                .prepare(&self.device, &self.queue, top_view, &mut encoder);
+        let top_preview_upload_bytes = self.top_preview.prepare(
+            &self.device,
+            &self.queue,
+            top_view,
+            export_preview_rect,
+            &mut encoder,
+        );
 
         self.main_pass_timestamps.begin_frame();
         let timestamp_parts = self.main_pass_timestamps.next_render_pass_parts();
