@@ -20,6 +20,39 @@ const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
 
 const TEX_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TexOpUniform>();
 
+/// Planned data used by staged tex-op dispatch.
+#[derive(Debug)]
+struct PlannedGpuDispatch {
+    steps: Vec<PlannedStep>,
+    render_ops: Vec<PlannedRenderOp>,
+    upload_bytes: u64,
+}
+
+/// Mutable per-frame dispatch state shared across staged execution helpers.
+#[derive(Clone, Copy, Debug, Default)]
+struct GpuDispatchState {
+    source_target: Option<RenderTargetRef>,
+    scratch_flip: bool,
+    rendered_count: usize,
+}
+
+/// Render-pass inputs resolved during target preparation.
+#[derive(Clone, Copy, Debug)]
+struct PreparedRenderOp {
+    planned_op: PlannedRenderOp,
+    feedback_history_key: Option<FeedbackHistoryKey>,
+    target: RenderTargetRef,
+    dynamic_offset: u32,
+}
+
+/// Shared per-frame context passed through staged dispatch helpers.
+struct DispatchContext<'a> {
+    device: &'a wgpu::Device,
+    encoder: &'a mut wgpu::CommandEncoder,
+    width: u32,
+    height: u32,
+}
+
 impl TexPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
     pub(in crate::gui::renderer) fn prepare(
@@ -103,175 +136,270 @@ impl TexPreviewRenderer {
             return None;
         }
         self.op_pass_timestamps.begin_frame();
-        let result = (|| {
-            self.blend_source_aliases.clear();
-            let mut planned_steps = Vec::new();
-            let mut planned_render_ops = Vec::new();
-            build_execution_plan(ops, &mut planned_steps, &mut planned_render_ops);
-            if planned_render_ops.is_empty() {
-                return None;
-            }
-            self.ensure_op_pipelines(device);
-            self.ensure_dummy_bind_group(device);
-            self.ensure_op_uniform_capacity(device, planned_render_ops.len());
-            let upload_bytes = self.write_planned_op_uniforms(queue, &planned_render_ops);
-            if planned_render_ops.len() > 1 {
-                self.ensure_scratch_textures(device, width, height);
-            }
-            let mut source_target: Option<RenderTargetRef> = None;
-            let mut scratch_flip = false;
-            let mut rendered_count = 0usize;
-            for step in planned_steps {
-                let render_index = match step {
-                    PlannedStep::Render { render_index } => render_index,
-                    PlannedStep::StoreTexture { texture_node_id } => {
-                        let src_target = source_target?;
-                        self.bind_blend_source_alias(texture_node_id, src_target);
-                        continue;
-                    }
-                };
-                let planned_op = *planned_render_ops.get(render_index)?;
-                let feedback_history_key = Self::feedback_key_for_planned(planned_op);
-                if let Some(history_key) = feedback_history_key {
-                    self.ensure_feedback_history_slot(device, encoder, history_key, width, height);
-                }
-                let last = rendered_count + 1 == planned_render_ops.len();
-                let mut target = if last {
-                    RenderTargetRef::Viewer
-                } else {
-                    self.choose_intermediate_target(&mut scratch_flip)
-                };
-                if let Some(history_key) = feedback_history_key {
-                    target = self.feedback_history_write_target(history_key)?;
-                }
-                self.materialize_blend_source_aliases_for_target(
-                    device, encoder, target, width, height,
-                );
-                let uniform_offset = self.op_uniform_offset(rendered_count);
-                let Ok(dynamic_offset) = u32::try_from(uniform_offset) else {
-                    return None;
-                };
-                let clear_color = Self::op_clear_color_for_planned(planned_op);
-                let timestamp_parts = self.op_pass_timestamps.next_render_pass_parts();
-                let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
-                    wgpu::RenderPassTimestampWrites {
-                        query_set: query_set.as_ref(),
-                        beginning_of_pass_write_index: Some(*begin),
-                        end_of_pass_write_index: Some(*end),
-                    }
-                });
-                let target_view = self.target_view(target)?;
-
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("gui-tex-preview-op-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: target_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(clear_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes,
-                });
-
-                match planned_op {
-                    PlannedRenderOp::Runtime(TexViewerOp::Solid { .. }) => {
-                        pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Circle { .. }) => {
-                        pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Sphere { .. }) => {
-                        pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Transform { .. }) => {
-                        let src_target = source_target?;
-                        let src_bind_group = self.target_bind_group(src_target)?;
-                        pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, src_bind_group, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Level { .. }) => {
-                        let src_target = source_target?;
-                        let src_bind_group = self.target_bind_group(src_target)?;
-                        pass.set_pipeline(self.op_level_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, src_bind_group, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::TransformPair { .. } => {
-                        let src_target = source_target?;
-                        let src_bind_group = self.target_bind_group(src_target)?;
-                        pass.set_pipeline(self.op_transform_fused_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, src_bind_group, &[]);
-                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }) => {
-                        let src_target = source_target?;
-                        let src_bind_group = self.target_bind_group(src_target)?;
-                        let history_key = feedback_history_key?;
-                        let history_bind_group =
-                            self.feedback_history_read_bind_group(history_key)?;
-                        pass.set_pipeline(self.op_feedback_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, src_bind_group, &[]);
-                        pass.set_bind_group(2, history_bind_group, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::Blend {
-                        base_texture_node_id,
-                        layer_texture_node_id,
-                        ..
-                    }) => {
-                        let base_bind_group = self
-                            .blend_source_bind_group_for_texture(base_texture_node_id)
-                            .or_else(|| {
-                                source_target
-                                    .and_then(|target_ref| self.target_bind_group(target_ref))
-                            })?;
-                        let layer_bind_group = layer_texture_node_id
-                            .and_then(|id| self.blend_source_bind_group_for_texture(id))
-                            .unwrap_or(self.dummy_bind_group.as_ref()?);
-                        pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
-                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                        pass.set_bind_group(1, base_bind_group, &[]);
-                        pass.set_bind_group(2, layer_bind_group, &[]);
-                    }
-                    PlannedRenderOp::Runtime(TexViewerOp::StoreTexture { .. }) => {
-                        return None;
-                    }
-                }
-                pass.draw(0..6, 0..1);
-                drop(pass);
-                source_target = if let Some(history_key) = feedback_history_key {
-                    self.swap_feedback_history(history_key)
-                } else {
-                    Some(target)
-                };
-                rendered_count += 1;
-            }
-            if let Some(final_target) = source_target {
-                self.copy_target_to_viewer(encoder, final_target, width, height);
-            } else {
-                return None;
-            }
-            Some(upload_bytes)
-        })();
+        let result = self.encode_gpu_ops_staged(device, queue, encoder, ops, width, height);
         self.op_pass_timestamps.resolve_and_reset(encoder);
         result
+    }
+
+    /// Run staged tex-op dispatch: plan -> prepare targets -> encode passes -> finalize.
+    fn encode_gpu_ops_staged(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        ops: &[TexViewerOp],
+        width: u32,
+        height: u32,
+    ) -> Option<u64> {
+        let planned = self.plan_gpu_dispatch(device, queue, ops, width, height)?;
+        let mut dispatch = DispatchContext {
+            device,
+            encoder,
+            width,
+            height,
+        };
+        let mut state = GpuDispatchState::default();
+        for step in planned.steps.iter().copied() {
+            self.dispatch_planned_step(
+                &mut dispatch,
+                step,
+                planned.render_ops.as_slice(),
+                &mut state,
+            )?;
+        }
+        self.finalize_gpu_dispatch(
+            dispatch.encoder,
+            state.source_target,
+            dispatch.width,
+            dispatch.height,
+        )?;
+        Some(planned.upload_bytes)
+    }
+
+    /// Build a render plan and allocate resources needed for this frame.
+    fn plan_gpu_dispatch(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        ops: &[TexViewerOp],
+        width: u32,
+        height: u32,
+    ) -> Option<PlannedGpuDispatch> {
+        self.blend_source_aliases.clear();
+        let mut steps = Vec::new();
+        let mut render_ops = Vec::new();
+        build_execution_plan(ops, &mut steps, &mut render_ops);
+        if render_ops.is_empty() {
+            return None;
+        }
+        self.ensure_op_pipelines(device);
+        self.ensure_dummy_bind_group(device);
+        self.ensure_op_uniform_capacity(device, render_ops.len());
+        let upload_bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
+        if render_ops.len() > 1 {
+            self.ensure_scratch_textures(device, width, height);
+        }
+        Some(PlannedGpuDispatch {
+            steps,
+            render_ops,
+            upload_bytes,
+        })
+    }
+
+    /// Apply one planned step, including store-texture aliases and render passes.
+    fn dispatch_planned_step(
+        &mut self,
+        dispatch: &mut DispatchContext<'_>,
+        step: PlannedStep,
+        render_ops: &[PlannedRenderOp],
+        state: &mut GpuDispatchState,
+    ) -> Option<()> {
+        let render_index = match step {
+            PlannedStep::Render { render_index } => render_index,
+            PlannedStep::StoreTexture { texture_node_id } => {
+                let src_target = state.source_target?;
+                self.bind_blend_source_alias(texture_node_id, src_target);
+                return Some(());
+            }
+        };
+        let planned_op = *render_ops.get(render_index)?;
+        let prepared =
+            self.prepare_targets_for_op(dispatch, planned_op, render_ops.len(), state)?;
+        self.encode_pass_for_op(dispatch.encoder, prepared, state.source_target)?;
+        state.source_target = if let Some(history_key) = prepared.feedback_history_key {
+            self.swap_feedback_history(history_key)
+        } else {
+            Some(prepared.target)
+        };
+        state.rendered_count = state.rendered_count.saturating_add(1);
+        Some(())
+    }
+
+    /// Resolve render target routing and per-op dynamic uniform offset.
+    fn prepare_targets_for_op(
+        &mut self,
+        dispatch: &mut DispatchContext<'_>,
+        planned_op: PlannedRenderOp,
+        render_op_count: usize,
+        state: &mut GpuDispatchState,
+    ) -> Option<PreparedRenderOp> {
+        let feedback_history_key = Self::feedback_key_for_planned(planned_op);
+        if let Some(history_key) = feedback_history_key {
+            self.ensure_feedback_history_slot(
+                dispatch.device,
+                dispatch.encoder,
+                history_key,
+                dispatch.width,
+                dispatch.height,
+            );
+        }
+        let last = state.rendered_count.saturating_add(1) == render_op_count;
+        let mut target = if last {
+            RenderTargetRef::Viewer
+        } else {
+            self.choose_intermediate_target(&mut state.scratch_flip)
+        };
+        if let Some(history_key) = feedback_history_key {
+            target = self.feedback_history_write_target(history_key)?;
+        }
+        self.materialize_blend_source_aliases_for_target(
+            dispatch.device,
+            dispatch.encoder,
+            target,
+            dispatch.width,
+            dispatch.height,
+        );
+        let uniform_offset = self.op_uniform_offset(state.rendered_count);
+        let dynamic_offset = u32::try_from(uniform_offset).ok()?;
+        Some(PreparedRenderOp {
+            planned_op,
+            feedback_history_key,
+            target,
+            dynamic_offset,
+        })
+    }
+
+    /// Encode one render pass for one planned operation.
+    fn encode_pass_for_op(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        prepared: PreparedRenderOp,
+        source_target: Option<RenderTargetRef>,
+    ) -> Option<()> {
+        let clear_color = Self::op_clear_color_for_planned(prepared.planned_op);
+        let timestamp_parts = self.op_pass_timestamps.next_render_pass_parts();
+        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
+            wgpu::RenderPassTimestampWrites {
+                query_set: query_set.as_ref(),
+                beginning_of_pass_write_index: Some(*begin),
+                end_of_pass_write_index: Some(*end),
+            }
+        });
+        let target_view = self.target_view(prepared.target)?;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("gui-tex-preview-op-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear_color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes,
+        });
+        match prepared.planned_op {
+            PlannedRenderOp::Runtime(TexViewerOp::Solid { .. }) => {
+                pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Circle { .. }) => {
+                pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Sphere { .. }) => {
+                pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. }) => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Level { .. }) => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                pass.set_pipeline(self.op_level_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::TransformPair { .. } => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                pass.set_pipeline(self.op_transform_fused_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }) => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                let history_key = prepared.feedback_history_key?;
+                let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
+                pass.set_pipeline(self.op_feedback_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, history_bind_group, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::Blend {
+                base_texture_node_id,
+                layer_texture_node_id,
+                ..
+            }) => {
+                let base_bind_group = self
+                    .blend_source_bind_group_for_texture(base_texture_node_id)
+                    .or_else(|| {
+                        source_target.and_then(|target_ref| self.target_bind_group(target_ref))
+                    })?;
+                let layer_bind_group = layer_texture_node_id
+                    .and_then(|id| self.blend_source_bind_group_for_texture(id))
+                    .unwrap_or(self.dummy_bind_group.as_ref()?);
+                pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, base_bind_group, &[]);
+                pass.set_bind_group(2, layer_bind_group, &[]);
+            }
+            PlannedRenderOp::Runtime(TexViewerOp::StoreTexture { .. }) => {
+                return None;
+            }
+        }
+        pass.draw(0..6, 0..1);
+        Some(())
+    }
+
+    /// Copy final render target into viewer output.
+    fn finalize_gpu_dispatch(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        final_target: Option<RenderTargetRef>,
+        width: u32,
+        height: u32,
+    ) -> Option<()> {
+        let final_target = final_target?;
+        self.copy_target_to_viewer(encoder, final_target, width, height);
+        Some(())
     }
 
     fn op_uniform_for_fused_transform_pair(
