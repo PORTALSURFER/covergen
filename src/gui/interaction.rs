@@ -1375,8 +1375,8 @@ fn activate_add_menu_selection(
         }
         AddNodeMenuEntry::Option(option_index) => {
             let option = ADD_NODE_OPTIONS[option_index];
-            let spawn_x = state.menu.x + 8;
-            let spawn_y = (state.menu.y + state.menu.rect().h + 8).min(panel_height as i32 - 32);
+            let (spawn_x, spawn_y) =
+                screen_to_graph(state.menu.open_cursor_x, state.menu.open_cursor_y, state);
             project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
             state.menu = AddNodeMenuState::closed();
             state.hover_menu_item = None;
@@ -2398,6 +2398,9 @@ mod tests {
     fn add_menu_category_then_secondary_picker_spawns_node() {
         let mut project = GuiProject::new_empty(640, 480);
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.pan_x = 48.0;
+        state.pan_y = 30.0;
+        state.zoom = 2.0;
         state.menu = AddNodeMenuState::open_at(120, 100, 420, 480);
         let entries = state.menu.visible_entries();
         let control_index = entries
@@ -2443,14 +2446,14 @@ mod tests {
             480,
             &mut state
         ));
-        let mut has_lfo = false;
+        let mut spawned_lfo = None;
         for node in project.nodes() {
             if node.kind() == ProjectNodeKind::CtlLfo {
-                has_lfo = true;
+                spawned_lfo = Some((node.x(), node.y()));
                 break;
             }
         }
-        assert!(has_lfo);
+        assert_eq!(spawned_lfo, Some((36, 35)));
         assert!(!state.menu.open);
     }
 }
