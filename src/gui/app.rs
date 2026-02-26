@@ -34,6 +34,9 @@ const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
 const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
 const GUI_PROJECT_SAVE_FILE: &str = ".covergen_gui_project.json";
+const EXPORT_PREVIEW_BG_B: u8 = 8;
+const EXPORT_PREVIEW_BG_G: u8 = 8;
+const EXPORT_PREVIEW_BG_R: u8 = 8;
 
 /// Active export session metadata for GUI H.264 streaming.
 struct GuiExportSession {
@@ -766,6 +769,7 @@ impl GuiApp {
         let Some(session) = self.export_session.as_mut() else {
             return Ok(());
         };
+        composite_export_bgra_over_preview_bg(&mut self.export_bgra_scratch);
         let write_result = match session.encoder.frame_format() {
             StreamFrameFormat::Gray8 => {
                 fill_gray_from_bgra(
@@ -1134,6 +1138,32 @@ fn fill_gray_from_bgra(src_bgra: &[u8], width: u32, height: u32, dst_gray: &mut 
         let r = pixel[2] as u16;
         let luma = (r * 77 + g * 150 + b * 29) / 256;
         dst_gray[index] = luma as u8;
+    }
+}
+
+fn composite_export_bgra_over_preview_bg(frame_bgra: &mut [u8]) {
+    for px in frame_bgra.chunks_exact_mut(4) {
+        let alpha = px[3] as u16;
+        if alpha >= 255 {
+            continue;
+        }
+        let inv_alpha = 255u16.saturating_sub(alpha);
+        let b = ((px[0] as u16).saturating_mul(alpha)
+            + (EXPORT_PREVIEW_BG_B as u16).saturating_mul(inv_alpha)
+            + 127)
+            / 255;
+        let g = ((px[1] as u16).saturating_mul(alpha)
+            + (EXPORT_PREVIEW_BG_G as u16).saturating_mul(inv_alpha)
+            + 127)
+            / 255;
+        let r = ((px[2] as u16).saturating_mul(alpha)
+            + (EXPORT_PREVIEW_BG_R as u16).saturating_mul(inv_alpha)
+            + 127)
+            / 255;
+        px[0] = b as u8;
+        px[1] = g as u8;
+        px[2] = r as u8;
+        px[3] = 255;
     }
 }
 

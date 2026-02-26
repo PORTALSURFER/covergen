@@ -643,7 +643,8 @@ impl GuiRenderer {
             let editor_scissor_w = panel_width.min(self.config.width as usize) as u32;
             let editor_scissor_h = editor_panel_height(self.config.height as usize).max(1) as u32;
 
-            self.top_preview.draw(&mut pass, &self.uniform_bind_group);
+            self.top_preview
+                .draw_main_viewer(&mut pass, &self.uniform_bind_group);
 
             pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
             self.draw_layer(&mut pass, &self.static_panel_geometry);
@@ -654,6 +655,9 @@ impl GuiRenderer {
             pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
             self.draw_layer(&mut pass, &self.timeline_geometry);
             self.draw_layer(&mut pass, &self.hud_geometry);
+            pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
+            self.top_preview
+                .draw_export_preview(&mut pass, &self.uniform_bind_group);
         }
         self.main_pass_timestamps.resolve_and_reset(&mut encoder);
         self.queue.submit(std::iter::once(encoder.finish()));

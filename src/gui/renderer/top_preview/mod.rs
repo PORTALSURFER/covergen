@@ -557,8 +557,8 @@ impl TopPreviewRenderer {
         }
     }
 
-    /// Draw prepared viewer texture into the right-side panel.
-    pub(super) fn draw<'a>(
+    /// Draw prepared main viewer texture into the right-side panel.
+    pub(super) fn draw_main_viewer<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         uniform_bind_group: &'a wgpu::BindGroup,
@@ -575,10 +575,25 @@ impl TopPreviewRenderer {
         pass.set_bind_group(1, bind_group, &[]);
         pass.set_vertex_buffer(0, self.viewer_quad_buffer.slice(..));
         pass.draw(0..6, 0..1);
-        if self.export_preview_visible {
-            pass.set_vertex_buffer(0, self.export_preview_quad_buffer.slice(..));
-            pass.draw(0..6, 0..1);
+    }
+
+    /// Draw prepared export preview texture clone into the export popup slot.
+    pub(super) fn draw_export_preview<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        uniform_bind_group: &'a wgpu::BindGroup,
+    ) {
+        if !self.viewer_visible || !self.export_preview_visible {
+            return;
         }
+        let Some(bind_group) = self.viewer_bind_group.as_ref() else {
+            return;
+        };
+        pass.set_pipeline(&self.viewer_pipeline);
+        pass.set_bind_group(0, uniform_bind_group, &[]);
+        pass.set_bind_group(1, bind_group, &[]);
+        pass.set_vertex_buffer(0, self.export_preview_quad_buffer.slice(..));
+        pass.draw(0..6, 0..1);
     }
 
     /// Return current viewer render target texture and size.
