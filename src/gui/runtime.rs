@@ -67,7 +67,19 @@ pub(crate) enum TopRuntimeOp {
         alpha_mul: f32,
     },
     /// `tex.feedback` one-frame delayed feedback operation.
-    Feedback { node_id: u32, mix: f32 },
+    Feedback {
+        mix: f32,
+        history: TopRuntimeFeedbackHistoryBinding,
+    },
+}
+
+/// History storage binding for one feedback operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum TopRuntimeFeedbackHistoryBinding {
+    /// Internal history slot owned by this feedback node.
+    Internal { feedback_node_id: u32 },
+    /// External history slot keyed by a texture-node id.
+    External { texture_node_id: u32 },
 }
 
 /// One compiled step in GUI TOP runtime order.
@@ -480,12 +492,22 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::Feedback => {
+                    let history = project
+                        .texture_source_for_param_key(step.node_id, "target_tex")
+                        .map_or(
+                            TopRuntimeFeedbackHistoryBinding::Internal {
+                                feedback_node_id: step.node_id,
+                            },
+                            |texture_node_id| TopRuntimeFeedbackHistoryBinding::External {
+                                texture_node_id,
+                            },
+                        );
                     out_ops.push(TopRuntimeOp::Feedback {
-                        node_id: step.node_id,
                         mix: project
                             .node_param_value(step.node_id, "feedback", time_secs, eval_stack)
                             .unwrap_or(0.95)
                             .clamp(0.0, 1.0),
+                        history,
                     });
                 }
             }
@@ -608,9 +630,7 @@ fn compile_node(
             }
         }
         ProjectNodeKind::TexFeedback => {
-            let source_id = project
-                .texture_source_for_param_key(node_id, "target_tex")
-                .or_else(|| project.input_source_node_id(node_id));
+            let source_id = project.input_source_node_id(node_id);
             let Some(source_id) = source_id else {
                 return false;
             };
@@ -706,7 +726,7 @@ fn layered_sine_noise(t: f32, frequency: f32, phase: f32, seed: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{GuiCompiledRuntime, TopRuntimeOp};
+    use super::{GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding, TopRuntimeOp};
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
     #[test]
@@ -754,11 +774,17 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
-        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::Feedback {
+                history: TopRuntimeFeedbackHistoryBinding::Internal { feedback_node_id },
+                ..
+            } if feedback_node_id == feedback
+        ));
     }
 
     #[test]
-    fn feedback_pipeline_compiles_from_target_tex_param_binding() {
+    fn feedback_pipeline_requires_primary_input_even_with_target_tex_binding() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
@@ -766,17 +792,11 @@ mod tests {
         assert!(project.connect_texture_link_to_param(solid, feedback, 0));
         assert!(project.connect_image_link(feedback, out));
 
-        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
-        let mut ops = Vec::new();
-        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
-        assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
-        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
+        assert!(GuiCompiledRuntime::compile(&project).is_none());
     }
 
     #[test]
-    fn feedback_target_tex_binding_takes_precedence_over_primary_input() {
+    fn feedback_target_tex_binding_does_not_override_primary_input_source() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
         let circle = project.add_node(ProjectNodeKind::TexCircle, 120, 40, 420, 480);
@@ -791,8 +811,14 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
-        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::Feedback {
+                history: TopRuntimeFeedbackHistoryBinding::External { texture_node_id },
+                ..
+            } if texture_node_id == circle
+        ));
     }
 
     #[test]

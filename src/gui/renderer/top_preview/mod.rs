@@ -10,6 +10,7 @@ use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
+use crate::gui::runtime::TopRuntimeFeedbackHistoryBinding;
 use crate::gui::top_view::TopViewerOp;
 
 use super::viewer;
@@ -160,6 +161,26 @@ enum RenderTargetRef {
     ScratchB,
 }
 
+/// Stable storage key for one feedback history texture slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum FeedbackHistoryKey {
+    Internal { feedback_node_id: u32 },
+    External { texture_node_id: u32 },
+}
+
+impl FeedbackHistoryKey {
+    fn from_binding(binding: TopRuntimeFeedbackHistoryBinding) -> Self {
+        match binding {
+            TopRuntimeFeedbackHistoryBinding::Internal { feedback_node_id } => {
+                Self::Internal { feedback_node_id }
+            }
+            TopRuntimeFeedbackHistoryBinding::External { texture_node_id } => {
+                Self::External { texture_node_id }
+            }
+        }
+    }
+}
+
 /// Persistent history texture for one feedback node.
 #[derive(Debug)]
 struct FeedbackHistorySlot {
@@ -203,7 +224,7 @@ pub(super) struct TopPreviewRenderer {
     scratch_view_b: Option<wgpu::TextureView>,
     scratch_bind_group_b: Option<wgpu::BindGroup>,
     scratch_texture_size: (u32, u32),
-    feedback_history: HashMap<u32, FeedbackHistorySlot>,
+    feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
 }
 
 impl TopPreviewRenderer {

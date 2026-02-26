@@ -1101,7 +1101,7 @@ impl GuiProject {
         if source.kind().output_resource_kind() != Some(ResourceKind::Texture2D) {
             return false;
         }
-        let source_label = source.kind().label();
+        let source_label = texture_source_display_label(source);
         let Some(target) = self.node_mut(target_id) else {
             return false;
         };
@@ -2209,13 +2209,14 @@ fn assert_param_label_fits(label: &'static str) {
     );
 }
 
-fn bind_texture_target_slot(slot: &mut NodeParamSlot, source: Option<(u32, &str)>) -> bool {
+fn bind_texture_target_slot(slot: &mut NodeParamSlot, source: Option<(u32, String)>) -> bool {
     if !slot.widget.is_texture_target() {
         return false;
     }
-    let next_source = source.map(|(source_id, _)| source_id);
+    let next_source = source.as_ref().map(|(source_id, _)| *source_id);
     let next_label = source
-        .map(|(_, label)| label)
+        .as_ref()
+        .map(|(_, label)| label.as_str())
         .unwrap_or(texture_target_placeholder());
     if slot.texture_source == next_source && slot.value_text == next_label {
         return false;
@@ -2224,6 +2225,10 @@ fn bind_texture_target_slot(slot: &mut NodeParamSlot, source: Option<(u32, &str)
     slot.value_text.clear();
     slot.value_text.push_str(next_label);
     true
+}
+
+fn texture_source_display_label(source: &ProjectNode) -> String {
+    format!("{}#{}", source.kind().label(), source.id())
 }
 
 /// Set one slot value while respecting widget semantics.
@@ -2380,10 +2385,10 @@ fn collect_output_kinds(nodes: &[ProjectNode]) -> HashMap<u32, ResourceKind> {
     out
 }
 
-fn collect_output_labels(nodes: &[ProjectNode]) -> HashMap<u32, &'static str> {
+fn collect_output_labels(nodes: &[ProjectNode]) -> HashMap<u32, String> {
     let mut out = HashMap::new();
     for node in nodes {
-        out.insert(node.id(), node.kind.label());
+        out.insert(node.id(), texture_source_display_label(node));
     }
     out
 }
@@ -2412,7 +2417,7 @@ fn rewire_or_clear_deleted_links(
     removed_ids: &[u32],
     removed_primary_inputs: &HashMap<u32, Option<u32>>,
     output_kinds: &HashMap<u32, ResourceKind>,
-    output_labels: &HashMap<u32, &'static str>,
+    output_labels: &HashMap<u32, String>,
 ) -> bool {
     let mut changed = false;
     if let Some(source) = node.texture_input {
@@ -2443,8 +2448,8 @@ fn rewire_or_clear_deleted_links(
                 if let Some(source_id) = replacement {
                     let source_label = output_labels
                         .get(&source_id)
-                        .copied()
-                        .unwrap_or_else(texture_target_placeholder);
+                        .cloned()
+                        .unwrap_or_else(|| texture_target_placeholder().to_string());
                     changed |= bind_texture_target_slot(slot, Some((source_id, source_label)));
                 } else {
                     changed |= bind_texture_target_slot(slot, None);
@@ -2827,6 +2832,10 @@ mod tests {
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 40, 420, 480);
         assert!(project.connect_texture_link_to_param(solid, feedback, 0));
         assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+        assert_eq!(
+            project.node_param_raw_text(feedback, 0),
+            Some("tex.solid#1")
+        );
         assert_eq!(
             project.param_link_source_for_param(feedback, 0),
             Some((solid, ResourceKind::Texture2D))

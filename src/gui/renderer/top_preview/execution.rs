@@ -5,7 +5,7 @@ use crate::gui::top_view::{TopViewerFrame, TopViewerOp, TopViewerPayload};
 
 use super::super::viewer;
 use super::pipeline::create_preview_texture_bundle;
-use super::{RenderTargetRef, TopOpUniform, TopPreviewRenderer, PREVIEW_BG};
+use super::{FeedbackHistoryKey, RenderTargetRef, TopOpUniform, TopPreviewRenderer, PREVIEW_BG};
 
 const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -94,8 +94,14 @@ impl TopPreviewRenderer {
                 scratch_flip = true;
                 RenderTargetRef::ScratchA
             };
-            if let TopViewerOp::Feedback { node_id, .. } = op {
-                self.ensure_feedback_history_slot(device, encoder, node_id, width, height);
+            let feedback_history_key = match op {
+                TopViewerOp::Feedback { history, .. } => {
+                    Some(FeedbackHistoryKey::from_binding(history))
+                }
+                _ => None,
+            };
+            if let Some(history_key) = feedback_history_key {
+                self.ensure_feedback_history_slot(device, encoder, history_key, width, height);
             }
             let target_view = self.target_view(target)?;
             let uniform_offset = self.op_uniform_offset(index);
@@ -174,10 +180,11 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(1, src_bind_group, &[]);
                     pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
-                TopViewerOp::Feedback { node_id, .. } => {
+                TopViewerOp::Feedback { .. } => {
                     let src_target = source_target?;
                     let src_bind_group = self.target_bind_group(src_target)?;
-                    let history_bind_group = self.feedback_history_bind_group(node_id)?;
+                    let history_key = feedback_history_key?;
+                    let history_bind_group = self.feedback_history_bind_group(history_key)?;
                     upload_bytes =
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
@@ -193,8 +200,8 @@ impl TopPreviewRenderer {
             }
             pass.draw(0..6, 0..1);
             drop(pass);
-            if let TopViewerOp::Feedback { node_id, .. } = op {
-                self.copy_target_to_feedback_history(encoder, target, node_id, width, height);
+            if let Some(history_key) = feedback_history_key {
+                self.copy_target_to_feedback_history(encoder, target, history_key, width, height);
             }
             source_target = Some(target);
         }
@@ -315,13 +322,13 @@ impl TopPreviewRenderer {
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        node_id: u32,
+        key: FeedbackHistoryKey,
         width: u32,
         height: u32,
     ) {
         if self
             .feedback_history
-            .get(&node_id)
+            .get(&key)
             .map(|slot| slot.size == (width, height))
             .unwrap_or(false)
         {
@@ -350,7 +357,7 @@ impl TopPreviewRenderer {
             timestamp_writes: None,
         });
         self.feedback_history.insert(
-            node_id,
+            key,
             super::FeedbackHistorySlot {
                 texture,
                 bind_group,
@@ -359,24 +366,22 @@ impl TopPreviewRenderer {
         );
     }
 
-    fn feedback_history_bind_group(&self, node_id: u32) -> Option<&wgpu::BindGroup> {
-        self.feedback_history
-            .get(&node_id)
-            .map(|slot| &slot.bind_group)
+    fn feedback_history_bind_group(&self, key: FeedbackHistoryKey) -> Option<&wgpu::BindGroup> {
+        self.feedback_history.get(&key).map(|slot| &slot.bind_group)
     }
 
     fn copy_target_to_feedback_history(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: RenderTargetRef,
-        node_id: u32,
+        key: FeedbackHistoryKey,
         width: u32,
         height: u32,
     ) {
         let Some(src_texture) = self.target_texture(target) else {
             return;
         };
-        let Some(slot) = self.feedback_history.get(&node_id) else {
+        let Some(slot) = self.feedback_history.get(&key) else {
             return;
         };
         encoder.copy_texture_to_texture(
