@@ -1019,6 +1019,71 @@ impl GuiProject {
         })
     }
 
+    /// Return node ids whose cards overlap one graph-space rectangle.
+    ///
+    /// This uses the cached node-bin index for broad-phase candidate lookup and
+    /// runs exact card-rectangle overlap checks as a narrow phase.
+    pub(crate) fn node_ids_overlapping_graph_rect(
+        &self,
+        min_x: i32,
+        min_y: i32,
+        max_x: i32,
+        max_y: i32,
+    ) -> Vec<u32> {
+        let (min_x, max_x) = if min_x <= max_x {
+            (min_x, max_x)
+        } else {
+            (max_x, min_x)
+        };
+        let (min_y, max_y) = if min_y <= max_y {
+            (min_y, max_y)
+        } else {
+            (max_y, min_y)
+        };
+        self.ensure_hit_test_cache();
+        let cache = self.hit_test_cache.borrow();
+        let mut candidates = Vec::new();
+        for by in hit_bin_coord(min_y)..=hit_bin_coord(max_y) {
+            for bx in hit_bin_coord(min_x)..=hit_bin_coord(max_x) {
+                let Some(ids) = cache.node_bins.get(&hit_bin_key(bx, by)) else {
+                    continue;
+                };
+                self.bump_hit_test_scan_count(ids.len() as u64);
+                candidates.extend_from_slice(ids.as_slice());
+            }
+        }
+        if candidates.is_empty() {
+            return candidates;
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates.sort_unstable_by_key(|node_id| {
+            cache
+                .node_index_by_id
+                .get(node_id)
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
+
+        let mut out = Vec::new();
+        for node_id in candidates {
+            let Some(index) = cache.node_index_by_id.get(&node_id).copied() else {
+                continue;
+            };
+            let Some(node) = self.nodes.get(index) else {
+                continue;
+            };
+            let nx0 = node.x();
+            let ny0 = node.y();
+            let nx1 = nx0.saturating_add(NODE_WIDTH);
+            let ny1 = ny0.saturating_add(node.card_height());
+            if min_x <= nx1 && max_x >= nx0 && min_y <= ny1 && max_y >= ny0 {
+                out.push(node_id);
+            }
+        }
+        out
+    }
+
     /// Return the node id whose output pin is hit by the cursor.
     pub(crate) fn output_pin_at(&self, x: i32, y: i32, radius_px: i32) -> Option<u32> {
         self.pin_at(x, y, radius_px, None, output_pin_center, PinHitKind::Output)
@@ -2769,6 +2834,18 @@ mod tests {
         assert_eq!(project.output_pin_at(ox, oy, 10), Some(solid));
         assert_eq!(project.input_pin_at(ix, iy, 10, None), Some(out));
         assert_eq!(project.input_pin_at(ix, iy, 10, Some(out)), None);
+    }
+
+    #[test]
+    fn node_rect_query_returns_overlapping_nodes_only() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let a = project.add_node(ProjectNodeKind::TexSolid, 40, 40, 420, 480);
+        let b = project.add_node(ProjectNodeKind::TexCircle, 280, 180, 420, 480);
+        let c = project.add_node(ProjectNodeKind::IoWindowOut, 360, 40, 420, 480);
+        let overlaps = project.node_ids_overlapping_graph_rect(20, 20, 250, 170);
+        assert_eq!(overlaps, vec![a]);
+        let overlaps_multi = project.node_ids_overlapping_graph_rect(260, 20, 620, 260);
+        assert_eq!(overlaps_multi, vec![b, c]);
     }
 
     #[test]

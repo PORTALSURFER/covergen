@@ -838,17 +838,7 @@ fn collect_marquee_nodes(
         marquee.cursor_y,
         state,
     );
-    let mut out = Vec::new();
-    for node in project.nodes() {
-        let nx0 = node.x();
-        let ny0 = node.y();
-        let nx1 = nx0 + NODE_WIDTH;
-        let ny1 = ny0 + node.card_height();
-        if rects_overlap(rect.0, rect.1, rect.2, rect.3, nx0, ny0, nx1, ny1) {
-            out.push(node.id());
-        }
-    }
-    out
+    project.node_ids_overlapping_graph_rect(rect.0, rect.1, rect.2, rect.3)
 }
 
 fn screen_rect_to_graph_rect(
@@ -863,7 +853,19 @@ fn screen_rect_to_graph_rect(
     (gx0.min(gx1), gy0.min(gy1), gx0.max(gx1), gy0.max(gy1))
 }
 
+/// Convert current editor panel bounds to one graph-space rectangle.
+fn panel_graph_rect(
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+) -> (i32, i32, i32, i32) {
+    let max_x = panel_width.saturating_sub(1) as i32;
+    let max_y = editor_panel_height(panel_height).saturating_sub(1) as i32;
+    screen_rect_to_graph_rect(0, 0, max_x, max_y, state)
+}
+
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 fn rects_overlap(
     ax0: i32,
     ay0: i32,
@@ -1404,7 +1406,7 @@ fn handle_link_cut(
         }
     }
     if !input.left_down {
-        let cut_links = collect_cut_links(project, state, cut);
+        let cut_links = collect_cut_links(project, panel_width, panel_height, state, cut);
         for link in cut_links {
             if let Some(param_index) = link.param_index {
                 let _ = project.disconnect_param_link_from_param(link.target_id, param_index);
@@ -1421,100 +1423,138 @@ fn handle_link_cut(
 
 fn collect_cut_links(
     project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
     state: &PreviewState,
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
     let obstacles = collect_panel_node_obstacles(project, state);
-    for target in project.nodes() {
-        let target_id = target.id();
-        if let Some(texture_source_id) = project.input_source_node_id(target_id) {
-            let Some((to_x, to_y)) = input_pin_center(target) else {
-                continue;
-            };
-            let Some(source) = project.node(texture_source_id) else {
-                continue;
-            };
-            let Some((from_x, from_y)) = output_pin_center(source) else {
-                continue;
-            };
-            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-            let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-            if segments_intersect(
-                cut.start_x,
-                cut.start_y,
-                cut.cursor_x,
-                cut.cursor_y,
-                from_x,
-                from_y,
-                to_x,
-                to_y,
-            ) {
-                links.push(CutLink {
-                    source_id: texture_source_id,
-                    target_id,
-                    param_index: None,
-                });
-            }
-        }
-        for param_index in 0..target.param_count() {
-            let Some((source_id, _resource_kind)) =
-                project.param_link_source_for_param(target_id, param_index)
-            else {
-                continue;
-            };
-            let Some(source) = project.node(source_id) else {
-                continue;
-            };
-            let Some((from_x, from_y)) = output_pin_center(source) else {
-                continue;
-            };
-            let Some(row) = node_param_row_rect(target, param_index) else {
-                continue;
-            };
-            let to_x = row.x + row.w - 4;
-            let to_y = row.y + row.h / 2;
-            let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-            let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
-            let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-            let route = super::scene::wire_route::route_param_path(
-                (exit_x, from_y),
-                (entry_x, to_y),
+    let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
+    let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
+    for target_id in target_ids.iter().copied() {
+        collect_cut_links_for_target(
+            project,
+            state,
+            cut,
+            obstacles.as_slice(),
+            target_id,
+            &mut links,
+        );
+    }
+    let cut_outside_panel = !inside_panel(cut.start_x, cut.start_y, panel_width, panel_height)
+        || !inside_panel(cut.cursor_x, cut.cursor_y, panel_width, panel_height);
+    if (links.is_empty() || cut_outside_panel) && target_ids.len() < project.node_count() {
+        for target in project.nodes() {
+            collect_cut_links_for_target(
+                project,
+                state,
+                cut,
                 obstacles.as_slice(),
+                target.id(),
+                &mut links,
             );
-            if segments_intersect(
-                cut.start_x,
-                cut.start_y,
-                cut.cursor_x,
-                cut.cursor_y,
-                from_x,
-                from_y,
-                exit_x,
-                from_y,
-            ) || cut_intersects_path(cut, route.as_slice())
-                || segments_intersect(
-                    cut.start_x,
-                    cut.start_y,
-                    cut.cursor_x,
-                    cut.cursor_y,
-                    entry_x,
-                    to_y,
-                    to_x,
-                    to_y,
-                )
-            {
-                links.push(CutLink {
-                    source_id,
-                    target_id,
-                    param_index: Some(param_index),
-                });
-            }
         }
     }
     links.sort_unstable();
     links.dedup();
     links
+}
+
+fn collect_cut_links_for_target(
+    project: &GuiProject,
+    state: &PreviewState,
+    cut: LinkCutState,
+    obstacles: &[super::scene::wire_route::NodeObstacle],
+    target_id: u32,
+    links: &mut Vec<CutLink>,
+) {
+    let Some(target) = project.node(target_id) else {
+        return;
+    };
+    if let Some(texture_source_id) = project.input_source_node_id(target_id) {
+        let Some((to_x, to_y)) = input_pin_center(target) else {
+            return;
+        };
+        let Some(source) = project.node(texture_source_id) else {
+            return;
+        };
+        let Some((from_x, from_y)) = output_pin_center(source) else {
+            return;
+        };
+        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+        if segments_intersect(
+            cut.start_x,
+            cut.start_y,
+            cut.cursor_x,
+            cut.cursor_y,
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+        ) {
+            links.push(CutLink {
+                source_id: texture_source_id,
+                target_id,
+                param_index: None,
+            });
+        }
+    }
+    for param_index in 0..target.param_count() {
+        let Some((source_id, _resource_kind)) =
+            project.param_link_source_for_param(target_id, param_index)
+        else {
+            continue;
+        };
+        let Some(source) = project.node(source_id) else {
+            continue;
+        };
+        let Some((from_x, from_y)) = output_pin_center(source) else {
+            continue;
+        };
+        let Some(row) = node_param_row_rect(target, param_index) else {
+            continue;
+        };
+        let to_x = row.x + row.w - 4;
+        let to_y = row.y + row.h / 2;
+        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+        let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
+        let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
+        let route = super::scene::wire_route::route_param_path(
+            (exit_x, from_y),
+            (entry_x, to_y),
+            obstacles,
+        );
+        if segments_intersect(
+            cut.start_x,
+            cut.start_y,
+            cut.cursor_x,
+            cut.cursor_y,
+            from_x,
+            from_y,
+            exit_x,
+            from_y,
+        ) || cut_intersects_path(cut, route.as_slice())
+            || segments_intersect(
+                cut.start_x,
+                cut.start_y,
+                cut.cursor_x,
+                cut.cursor_y,
+                entry_x,
+                to_y,
+                to_x,
+                to_y,
+            )
+        {
+            links.push(CutLink {
+                source_id,
+                target_id,
+                param_index: Some(param_index),
+            });
+        }
+    }
 }
 
 fn cut_intersects_path(cut: LinkCutState, path: &[(i32, i32)]) -> bool {
@@ -1691,7 +1731,15 @@ fn handle_drag_input(
     let node_x = graph_x - drag.offset_x;
     let node_y = graph_y - drag.offset_y;
     changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
-    let next_insert_hover = hover_insert_link_at_cursor(project, state, mx, my, drag.node_id);
+    let next_insert_hover = hover_insert_link_at_cursor(
+        project,
+        panel_width,
+        panel_height,
+        state,
+        mx,
+        my,
+        drag.node_id,
+    );
     if state.hover_insert_link != next_insert_hover {
         state.hover_insert_link = next_insert_hover;
         changed = true;
@@ -1993,6 +2041,8 @@ fn rects_overlap_strict(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> boo
 /// Resolve one hovered wire insertion candidate at cursor position.
 fn hover_insert_link_at_cursor(
     project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
     state: &PreviewState,
     cursor_x: i32,
     cursor_y: i32,
@@ -2000,49 +2050,89 @@ fn hover_insert_link_at_cursor(
 ) -> Option<HoverInsertLink> {
     let mut best: Option<(HoverInsertLink, f32)> = None;
     let threshold_sq = (INSERT_WIRE_HOVER_RADIUS_PX * INSERT_WIRE_HOVER_RADIUS_PX) as f32;
-    for target in project.nodes() {
-        let target_id = target.id();
-        let Some(source_id) = project.input_source_node_id(target_id) else {
-            continue;
-        };
-        if !can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id) {
-            continue;
-        }
-        let Some(source) = project.node(source_id) else {
-            continue;
-        };
-        let Some((from_x, from_y)) = output_pin_center(source) else {
-            continue;
-        };
-        let Some((to_x, to_y)) = input_pin_center(target) else {
-            continue;
-        };
-        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        let dist_sq = point_to_segment_distance_sq(
-            cursor_x as f32,
-            cursor_y as f32,
-            from_x as f32,
-            from_y as f32,
-            to_x as f32,
-            to_y as f32,
-        );
-        if dist_sq > threshold_sq {
-            continue;
-        }
-        let candidate = HoverInsertLink {
-            source_id,
+    let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
+    let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
+    for target_id in target_ids.iter().copied() {
+        consider_hover_insert_candidate(
+            project,
+            state,
+            cursor_x,
+            cursor_y,
+            threshold_sq,
+            dragged_node_id,
             target_id,
-        };
-        if best
-            .as_ref()
-            .map(|(_, best_sq)| dist_sq < *best_sq)
-            .unwrap_or(true)
-        {
-            best = Some((candidate, dist_sq));
+            &mut best,
+        );
+    }
+    if best.is_none() && target_ids.len() < project.node_count() {
+        for target in project.nodes() {
+            consider_hover_insert_candidate(
+                project,
+                state,
+                cursor_x,
+                cursor_y,
+                threshold_sq,
+                dragged_node_id,
+                target.id(),
+                &mut best,
+            );
         }
     }
     best.map(|(link, _)| link)
+}
+
+fn consider_hover_insert_candidate(
+    project: &GuiProject,
+    state: &PreviewState,
+    cursor_x: i32,
+    cursor_y: i32,
+    threshold_sq: f32,
+    dragged_node_id: u32,
+    target_id: u32,
+    best: &mut Option<(HoverInsertLink, f32)>,
+) {
+    let Some(target) = project.node(target_id) else {
+        return;
+    };
+    let Some(source_id) = project.input_source_node_id(target_id) else {
+        return;
+    };
+    if !can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id) {
+        return;
+    }
+    let Some(source) = project.node(source_id) else {
+        return;
+    };
+    let Some((from_x, from_y)) = output_pin_center(source) else {
+        return;
+    };
+    let Some((to_x, to_y)) = input_pin_center(target) else {
+        return;
+    };
+    let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+    let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+    let dist_sq = point_to_segment_distance_sq(
+        cursor_x as f32,
+        cursor_y as f32,
+        from_x as f32,
+        from_y as f32,
+        to_x as f32,
+        to_y as f32,
+    );
+    if dist_sq > threshold_sq {
+        return;
+    }
+    let candidate = HoverInsertLink {
+        source_id,
+        target_id,
+    };
+    if best
+        .as_ref()
+        .map(|(_, best_sq)| dist_sq < *best_sq)
+        .unwrap_or(true)
+    {
+        *best = Some((candidate, dist_sq));
+    }
 }
 
 /// Return true when `dragged_node_id` can be inserted on `source -> target`.
@@ -2098,7 +2188,15 @@ fn resolve_insert_link_on_release(
     if !inside_panel(mx, my, panel_width, panel_height) {
         return None;
     }
-    hover_insert_link_at_cursor(project, state, mx, my, dragged_node_id)
+    hover_insert_link_at_cursor(
+        project,
+        panel_width,
+        panel_height,
+        state,
+        mx,
+        my,
+        dragged_node_id,
+    )
 }
 
 /// Return squared distance from point `p` to line segment `ab`.
