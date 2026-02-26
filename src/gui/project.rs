@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 /// Width of one graph node card in the editor canvas.
-pub(crate) const NODE_WIDTH: i32 = 128;
+pub(crate) const NODE_WIDTH: i32 = 208;
 /// Height of one graph node card in the editor canvas.
 pub(crate) const NODE_HEIGHT: i32 = 44;
 /// Width/height of node header expand/collapse toggle in graph-space pixels.
@@ -2544,7 +2544,7 @@ mod tests {
             Some(GraphBounds {
                 min_x: 40,
                 min_y: 80,
-                max_x: 328,
+                max_x: 200 + super::NODE_WIDTH,
                 max_y: 204,
             })
         );
