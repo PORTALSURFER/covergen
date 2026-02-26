@@ -291,6 +291,28 @@ fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(rgb, a);
 }
 
+fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) -> vec4<f32> {
+    let brightness = transform.x;
+    let gain_r = transform.y;
+    let gain_g = transform.z;
+    let gain_b = transform.w;
+    let rgb = vec3<f32>(
+        clamp(src.r * gain_r * brightness, 0.0, 1.0),
+        clamp(src.g * gain_g * brightness, 0.0, 1.0),
+        clamp(src.b * gain_b * brightness, 0.0, 1.0)
+    );
+    let a = clamp(src.a * alpha_mul, 0.0, 1.0);
+    return vec4<f32>(rgb, a);
+}
+
+@fragment
+fn fs_transform_fused(v: VertexOut) -> @location(0) vec4<f32> {
+    let src = textureSample(t_src, s_src, v.uv);
+    let first = apply_transform_step(src, u_op.p0, u_op.p1.x);
+    let second = apply_transform_step(first, u_op.p2, u_op.p3.x);
+    return second;
+}
+
 @fragment
 fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);

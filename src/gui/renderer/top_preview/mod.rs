@@ -4,6 +4,7 @@
 //! chains emitted by `gui::top_view` directly on the device.
 
 mod execution;
+mod execution_plan;
 mod pipeline;
 
 use bytemuck::{Pod, Zeroable};
@@ -239,6 +240,7 @@ pub(super) struct TopPreviewRenderer {
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_pipeline: Option<wgpu::RenderPipeline>,
+    op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
 
@@ -254,6 +256,7 @@ pub(super) struct TopPreviewRenderer {
     scratch_texture_size: (u32, u32),
     feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
     blend_source_slots: HashMap<u32, CachedTextureSlot>,
+    blend_source_aliases: HashMap<u32, RenderTargetRef>,
 }
 
 impl TopPreviewRenderer {
@@ -324,6 +327,7 @@ impl TopPreviewRenderer {
             && self.op_circle_pipeline.is_some()
             && self.op_sphere_pipeline.is_some()
             && self.op_transform_pipeline.is_some()
+            && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
         {
@@ -368,6 +372,13 @@ impl TopPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_transform",
+            self.op_surface_format,
+        ));
+        self.op_transform_fused_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_transform_fused",
             self.op_surface_format,
         ));
         self.op_feedback_pipeline = Some(create_op_pipeline(
@@ -486,6 +497,7 @@ impl TopPreviewRenderer {
             op_circle_pipeline: None,
             op_sphere_pipeline: None,
             op_transform_pipeline: None,
+            op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_blend_pipeline: None,
             dummy_texture: None,
@@ -499,6 +511,7 @@ impl TopPreviewRenderer {
             scratch_texture_size: (0, 0),
             feedback_history: HashMap::new(),
             blend_source_slots: HashMap::new(),
+            blend_source_aliases: HashMap::new(),
         }
     }
 

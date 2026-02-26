@@ -4,6 +4,7 @@ use crate::gui::geometry::Rect;
 use crate::gui::top_view::{TopViewerFrame, TopViewerOp, TopViewerPayload};
 
 use super::super::viewer;
+use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
 use super::pipeline::create_preview_texture_bundle;
 use super::{
     CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef, TopOpUniform,
@@ -81,56 +82,55 @@ impl TopPreviewRenderer {
         if ops.is_empty() {
             return None;
         }
+        self.blend_source_aliases.clear();
+        let mut planned_steps = Vec::new();
+        let mut planned_render_ops = Vec::new();
+        build_execution_plan(ops, &mut planned_steps, &mut planned_render_ops);
+        if planned_render_ops.is_empty() {
+            return None;
+        }
         self.ensure_op_pipelines(device);
         self.ensure_dummy_bind_group(device);
-        self.ensure_op_uniform_capacity(device, ops.len());
-        let upload_bytes = self.write_op_uniforms(queue, ops);
-        if ops.len() > 1 {
+        self.ensure_op_uniform_capacity(device, planned_render_ops.len());
+        let upload_bytes = self.write_planned_op_uniforms(queue, &planned_render_ops);
+        if planned_render_ops.len() > 1 {
             self.ensure_scratch_textures(device, width, height);
         }
         let mut source_target: Option<RenderTargetRef> = None;
         let mut scratch_flip = false;
-        for (index, op) in ops.iter().copied().enumerate() {
-            if let TopViewerOp::StoreTexture { texture_node_id } = op {
-                let src_target = source_target?;
-                self.ensure_blend_source_slot(device, encoder, texture_node_id, width, height);
-                self.copy_target_to_blend_source(
-                    encoder,
-                    src_target,
-                    texture_node_id,
-                    width,
-                    height,
-                );
-                continue;
-            }
-            let feedback_history_key = match op {
-                TopViewerOp::Feedback { history, .. } => {
-                    Some(FeedbackHistoryKey::from_binding(history))
+        let mut rendered_count = 0usize;
+        for step in planned_steps {
+            let render_index = match step {
+                PlannedStep::Render { render_index } => render_index,
+                PlannedStep::StoreTexture { texture_node_id } => {
+                    let src_target = source_target?;
+                    self.bind_blend_source_alias(texture_node_id, src_target);
+                    continue;
                 }
-                _ => None,
             };
+            let planned_op = *planned_render_ops.get(render_index)?;
+            let feedback_history_key = Self::feedback_key_for_planned(planned_op);
             if let Some(history_key) = feedback_history_key {
                 self.ensure_feedback_history_slot(device, encoder, history_key, width, height);
             }
-            let last = index + 1 == ops.len();
+            let last = rendered_count + 1 == planned_render_ops.len();
             let mut target = if last {
                 RenderTargetRef::Viewer
-            } else if scratch_flip {
-                scratch_flip = false;
-                RenderTargetRef::ScratchB
             } else {
-                scratch_flip = true;
-                RenderTargetRef::ScratchA
+                self.choose_intermediate_target(&mut scratch_flip)
             };
             if let Some(history_key) = feedback_history_key {
                 target = self.feedback_history_write_target(history_key)?;
             }
+            self.materialize_blend_source_aliases_for_target(
+                device, encoder, target, width, height,
+            );
             let target_view = self.target_view(target)?;
-            let uniform_offset = self.op_uniform_offset(index);
+            let uniform_offset = self.op_uniform_offset(rendered_count);
             let Ok(dynamic_offset) = u32::try_from(uniform_offset) else {
                 return None;
             };
-            let clear_color = op_clear_color(op);
+            let clear_color = Self::op_clear_color_for_planned(planned_op);
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gui-top-preview-op-pass"),
@@ -147,26 +147,26 @@ impl TopPreviewRenderer {
                 timestamp_writes: None,
             });
 
-            match op {
-                TopViewerOp::Solid { .. } => {
+            match planned_op {
+                PlannedRenderOp::Runtime(TopViewerOp::Solid { .. }) => {
                     pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                     pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
-                TopViewerOp::Circle { .. } => {
+                PlannedRenderOp::Runtime(TopViewerOp::Circle { .. }) => {
                     pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                     pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
-                TopViewerOp::Sphere { .. } => {
+                PlannedRenderOp::Runtime(TopViewerOp::Sphere { .. }) => {
                     pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                     pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
-                TopViewerOp::Transform { .. } => {
+                PlannedRenderOp::Runtime(TopViewerOp::Transform { .. }) => {
                     let src_target = source_target?;
                     let src_bind_group = self.target_bind_group(src_target)?;
                     pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
@@ -174,7 +174,15 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(1, src_bind_group, &[]);
                     pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
-                TopViewerOp::Feedback { .. } => {
+                PlannedRenderOp::TransformPair { .. } => {
+                    let src_target = source_target?;
+                    let src_bind_group = self.target_bind_group(src_target)?;
+                    pass.set_pipeline(self.op_transform_fused_pipeline.as_ref()?);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
+                    pass.set_bind_group(1, src_bind_group, &[]);
+                    pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                }
+                PlannedRenderOp::Runtime(TopViewerOp::Feedback { .. }) => {
                     let src_target = source_target?;
                     let src_bind_group = self.target_bind_group(src_target)?;
                     let history_key = feedback_history_key?;
@@ -184,25 +192,25 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(1, src_bind_group, &[]);
                     pass.set_bind_group(2, history_bind_group, &[]);
                 }
-                TopViewerOp::Blend {
+                PlannedRenderOp::Runtime(TopViewerOp::Blend {
                     base_texture_node_id,
                     layer_texture_node_id,
                     ..
-                } => {
+                }) => {
                     let base_bind_group = self
-                        .blend_source_bind_group(base_texture_node_id)
+                        .blend_source_bind_group_for_texture(base_texture_node_id)
                         .or_else(|| {
                             source_target.and_then(|target_ref| self.target_bind_group(target_ref))
                         })?;
                     let layer_bind_group = layer_texture_node_id
-                        .and_then(|id| self.blend_source_bind_group(id))
+                        .and_then(|id| self.blend_source_bind_group_for_texture(id))
                         .unwrap_or(self.dummy_bind_group.as_ref()?);
                     pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, base_bind_group, &[]);
                     pass.set_bind_group(2, layer_bind_group, &[]);
                 }
-                TopViewerOp::StoreTexture { .. } => {
+                PlannedRenderOp::Runtime(TopViewerOp::StoreTexture { .. }) => {
                     return None;
                 }
             }
@@ -213,6 +221,7 @@ impl TopPreviewRenderer {
             } else {
                 Some(target)
             };
+            rendered_count += 1;
         }
         if let Some(final_target) = source_target {
             self.copy_target_to_viewer(encoder, final_target, width, height);
@@ -222,30 +231,57 @@ impl TopPreviewRenderer {
         Some(upload_bytes)
     }
 
-    fn op_uniform_for(op: TopViewerOp) -> TopOpUniform {
-        match op {
-            TopViewerOp::Solid { .. } => TopOpUniform::solid(op),
-            TopViewerOp::Circle { .. } => TopOpUniform::circle(op),
-            TopViewerOp::Sphere { .. } => TopOpUniform::sphere(op),
-            TopViewerOp::Transform { .. } => TopOpUniform::transform(op),
-            TopViewerOp::Feedback { .. } => TopOpUniform::feedback(op),
-            TopViewerOp::Blend { .. } => TopOpUniform::blend(op),
-            TopViewerOp::StoreTexture { .. } => TopOpUniform::solid(op),
+    fn op_uniform_for_fused_transform_pair(
+        first: TransformParams,
+        second: TransformParams,
+    ) -> TopOpUniform {
+        TopOpUniform {
+            p0: [first.brightness, first.gain_r, first.gain_g, first.gain_b],
+            p1: [first.alpha_mul, 0.0, 0.0, 0.0],
+            p2: [
+                second.brightness,
+                second.gain_r,
+                second.gain_g,
+                second.gain_b,
+            ],
+            p3: [second.alpha_mul, 0.0, 0.0, 0.0],
+            p4: [0.0; 4],
         }
     }
 
-    fn write_op_uniforms(&mut self, queue: &wgpu::Queue, ops: &[TopViewerOp]) -> u64 {
-        if ops.is_empty() {
+    fn op_uniform_for_planned(op: PlannedRenderOp) -> TopOpUniform {
+        match op {
+            PlannedRenderOp::Runtime(runtime_op) => match runtime_op {
+                TopViewerOp::Solid { .. } => TopOpUniform::solid(runtime_op),
+                TopViewerOp::Circle { .. } => TopOpUniform::circle(runtime_op),
+                TopViewerOp::Sphere { .. } => TopOpUniform::sphere(runtime_op),
+                TopViewerOp::Transform { .. } => TopOpUniform::transform(runtime_op),
+                TopViewerOp::Feedback { .. } => TopOpUniform::feedback(runtime_op),
+                TopViewerOp::Blend { .. } => TopOpUniform::blend(runtime_op),
+                TopViewerOp::StoreTexture { .. } => TopOpUniform::solid(runtime_op),
+            },
+            PlannedRenderOp::TransformPair { first, second } => {
+                Self::op_uniform_for_fused_transform_pair(first, second)
+            }
+        }
+    }
+
+    fn write_planned_op_uniforms(
+        &mut self,
+        queue: &wgpu::Queue,
+        planned_render_ops: &[PlannedRenderOp],
+    ) -> u64 {
+        if planned_render_ops.is_empty() {
             return 0;
         }
         let stride = self.op_uniform_stride as usize;
-        let upload_len = stride.saturating_mul(ops.len());
+        let upload_len = stride.saturating_mul(planned_render_ops.len());
         self.op_uniform_staging.resize(upload_len, 0);
-        for (index, op) in ops.iter().copied().enumerate() {
+        for (index, op) in planned_render_ops.iter().copied().enumerate() {
             let offset = stride.saturating_mul(index);
             let chunk = &mut self.op_uniform_staging[offset..offset + stride];
             chunk.fill(0);
-            let uniform = Self::op_uniform_for(op);
+            let uniform = Self::op_uniform_for_planned(op);
             chunk[..TOP_OP_UNIFORM_SIZE].copy_from_slice(bytemuck::bytes_of(&uniform));
         }
         queue.write_buffer(
@@ -254,6 +290,79 @@ impl TopPreviewRenderer {
             &self.op_uniform_staging[..upload_len],
         );
         upload_len as u64
+    }
+
+    fn feedback_key_for_planned(op: PlannedRenderOp) -> Option<FeedbackHistoryKey> {
+        let PlannedRenderOp::Runtime(runtime_op) = op else {
+            return None;
+        };
+        match runtime_op {
+            TopViewerOp::Feedback { history, .. } => {
+                Some(FeedbackHistoryKey::from_binding(history))
+            }
+            _ => None,
+        }
+    }
+
+    fn op_clear_color_for_planned(op: PlannedRenderOp) -> wgpu::Color {
+        let PlannedRenderOp::Runtime(runtime_op) = op else {
+            return PREVIEW_BG;
+        };
+        op_clear_color(runtime_op)
+    }
+
+    fn choose_intermediate_target(&self, scratch_flip: &mut bool) -> RenderTargetRef {
+        let preferred = if *scratch_flip {
+            RenderTargetRef::ScratchB
+        } else {
+            RenderTargetRef::ScratchA
+        };
+        *scratch_flip = !*scratch_flip;
+        if !self.has_blend_alias_target(preferred) {
+            return preferred;
+        }
+        let alternate = match preferred {
+            RenderTargetRef::ScratchA => RenderTargetRef::ScratchB,
+            RenderTargetRef::ScratchB => RenderTargetRef::ScratchA,
+            _ => preferred,
+        };
+        if !self.has_blend_alias_target(alternate) {
+            return alternate;
+        }
+        preferred
+    }
+
+    fn has_blend_alias_target(&self, target: RenderTargetRef) -> bool {
+        self.blend_source_aliases
+            .values()
+            .copied()
+            .any(|alias| alias == target)
+    }
+
+    fn bind_blend_source_alias(&mut self, texture_node_id: u32, target: RenderTargetRef) {
+        self.blend_source_aliases.insert(texture_node_id, target);
+    }
+
+    fn materialize_blend_source_aliases_for_target(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        target: RenderTargetRef,
+        width: u32,
+        height: u32,
+    ) {
+        let materialize = self
+            .blend_source_aliases
+            .iter()
+            .filter_map(|(&texture_node_id, &alias_target)| {
+                (alias_target == target).then_some(texture_node_id)
+            })
+            .collect::<Vec<_>>();
+        for texture_node_id in materialize {
+            self.ensure_blend_source_slot(device, encoder, texture_node_id, width, height);
+            self.copy_target_to_blend_source(encoder, target, texture_node_id, width, height);
+            self.blend_source_aliases.remove(&texture_node_id);
+        }
     }
 
     fn clear_viewer_target(&mut self, encoder: &mut wgpu::CommandEncoder) {
@@ -607,6 +716,17 @@ impl TopPreviewRenderer {
         self.blend_source_slots
             .get(&texture_node_id)
             .map(|slot| &slot.bind_group)
+    }
+
+    fn blend_source_bind_group_for_texture(
+        &self,
+        texture_node_id: u32,
+    ) -> Option<&wgpu::BindGroup> {
+        self.blend_source_aliases
+            .get(&texture_node_id)
+            .copied()
+            .and_then(|target| self.target_bind_group(target))
+            .or_else(|| self.blend_source_bind_group(texture_node_id))
     }
 }
 
