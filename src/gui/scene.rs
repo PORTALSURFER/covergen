@@ -1391,6 +1391,22 @@ fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -
     (in_len.min(out_len) / 2).clamp(2, 12)
 }
 
+fn axis_segment_len(a: (i32, i32), b: (i32, i32)) -> Option<i32> {
+    if a.0 == b.0 {
+        Some((a.1 - b.1).abs())
+    } else if a.1 == b.1 {
+        Some((a.0 - b.0).abs())
+    } else {
+        None
+    }
+}
+
+fn is_orthogonal_turn(prev: (i32, i32), corner: (i32, i32), next: (i32, i32)) -> bool {
+    let incoming_horizontal = prev.1 == corner.1;
+    let outgoing_horizontal = next.1 == corner.1;
+    incoming_horizontal != outgoing_horizontal
+}
+
 /// Smooth one routed parameter wire including endpoint tail joins.
 fn smooth_param_wire_path_with_end_caps(
     start: (i32, i32),
@@ -1415,17 +1431,25 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
         let prev = points[index - 1];
         let corner = points[index];
         let next = points[index + 1];
-        let in_axis = prev.0 == corner.0 || prev.1 == corner.1;
-        let out_axis = corner.0 == next.0 || corner.1 == next.1;
-        if !in_axis || !out_axis {
+        let Some(in_len) = axis_segment_len(prev, corner) else {
+            out.push(corner);
+            continue;
+        };
+        let Some(out_len) = axis_segment_len(corner, next) else {
+            out.push(corner);
+            continue;
+        };
+        if !is_orthogonal_turn(prev, corner, next) {
             out.push(corner);
             continue;
         }
-        let radius = rounded_corner_radius(prev.0, prev.1, corner.0, corner.1, next.0, next.1)
-            .clamp(
+        let target_radius =
+            rounded_corner_radius(prev.0, prev.1, corner.0, corner.1, next.0, next.1).clamp(
                 PARAM_WIRE_CORNER_RADIUS_MIN_PX,
                 PARAM_WIRE_CORNER_RADIUS_MAX_PX,
             );
+        let local_max = in_len.min(out_len).saturating_sub(1);
+        let radius = target_radius.min(local_max);
         if radius <= 0 {
             out.push(corner);
             continue;
@@ -1452,6 +1476,33 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::smooth_param_wire_path;
+
+    #[test]
+    fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
+        let points = [(0, 0), (4, 0), (4, 2), (10, 2)];
+        let smooth = smooth_param_wire_path(&points);
+        assert_eq!(smooth.first().copied(), Some((0, 0)));
+        assert_eq!(smooth.last().copied(), Some((10, 2)));
+        for segment in smooth.windows(2) {
+            assert!(
+                segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1,
+                "segment is not axis aligned: {:?}",
+                segment
+            );
+        }
+    }
+
+    #[test]
+    fn param_wire_smoothing_skips_rounding_for_straight_path_points() {
+        let points = [(0, 0), (8, 0), (16, 0)];
+        let smooth = smooth_param_wire_path(&points);
+        assert_eq!(smooth, points);
+    }
 }
 
 fn dedupe_adjacent_points(points: &mut Vec<(i32, i32)>) {
