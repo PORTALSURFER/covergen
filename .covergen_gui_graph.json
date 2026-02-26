@@ -1,0 +1,427 @@
+{
+  "version": 1,
+  "name": "Untitled-1772065602",
+  "preview_width": 1024,
+  "preview_height": 1024,
+  "nodes": [
+    {
+      "id": 1,
+      "kind": "scene.entity",
+      "x": 9,
+      "y": 421,
+      "texture_input": 8,
+      "selected_param": 6,
+      "expanded": false,
+      "params": [
+        {
+          "key": "pos_x",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "pos_y",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "scale",
+          "value": 0.45999992,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "ambient",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_r",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_g",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_b",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "alpha",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "scene.build",
+      "x": 280,
+      "y": 611,
+      "texture_input": 1,
+      "selected_param": 0,
+      "expanded": false,
+      "params": []
+    },
+    {
+      "id": 3,
+      "kind": "buf.circle_nurbs",
+      "x": -482,
+      "y": 492,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": false,
+      "params": [
+        {
+          "key": "radius",
+          "value": 0.95,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "arc_start",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "arc_end",
+          "value": 360.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "arc_style",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "line_width",
+          "value": 0.01,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "order",
+          "value": 2.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "divisions",
+          "value": 75.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "io.window_out",
+      "x": 1553,
+      "y": 1048,
+      "texture_input": 10,
+      "selected_param": 0,
+      "expanded": false,
+      "params": []
+    },
+    {
+      "id": 5,
+      "kind": "render.scene_pass",
+      "x": 377,
+      "y": 818,
+      "texture_input": 6,
+      "selected_param": 2,
+      "expanded": false,
+      "params": [
+        {
+          "key": "res_width",
+          "value": 2048.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "res_height",
+          "value": 2048.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_mode",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "edge_softness",
+          "value": 0.02,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "light_x",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "light_y",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "light_z",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "kind": "render.camera",
+      "x": 138,
+      "y": 815,
+      "texture_input": 2,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        {
+          "key": "zoom",
+          "value": 0.5500001,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "kind": "tex.transform_2d",
+      "x": 973,
+      "y": 1004,
+      "texture_input": 9,
+      "selected_param": 4,
+      "expanded": true,
+      "params": [
+        {
+          "key": "brightness",
+          "value": 1.1,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_r",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_g",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_b",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "alpha_mul",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "kind": "buf.noise",
+      "x": -226,
+      "y": 479,
+      "texture_input": 3,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        {
+          "key": "amplitude",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "frequency",
+          "value": 0.2,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "speed_hz",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "phase",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "seed",
+          "value": 5.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "twist",
+          "value": 0.1,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "stretch",
+          "value": 0.3,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "loop_cyc",
+          "value": 20.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "loop_mode",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "kind": "tex.feedback",
+      "x": 767,
+      "y": 843,
+      "texture_input": 5,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        {
+          "key": "accumulation_tex",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": 10
+        },
+        {
+          "key": "feedback",
+          "value": 0.8,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "kind": "tex.blend",
+      "x": 1232,
+      "y": 935,
+      "texture_input": 7,
+      "selected_param": 4,
+      "expanded": true,
+      "params": [
+        {
+          "key": "blend_tex",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "blend_mode",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "opacity",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_r",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_g",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_b",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_a",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "kind": "ctl.lfo",
+      "x": 806,
+      "y": 1237,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        {
+          "key": "rate_hz",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "amplitude",
+          "value": 0.6,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "phase",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bias",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    }
+  ]
+}
