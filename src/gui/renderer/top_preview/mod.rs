@@ -24,6 +24,8 @@ const PREVIEW_BG: wgpu::Color = wgpu::Color {
     b: 8.0 / 255.0,
     a: 1.0,
 };
+pub(super) const TOP_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
+    wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -414,7 +416,7 @@ impl TopPreviewRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: TOP_PREVIEW_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -484,7 +486,7 @@ impl TopPreviewRenderer {
             viewer_texture_layout,
             viewer_sampler,
             op_sampler,
-            op_surface_format: surface_format,
+            op_surface_format: TOP_PREVIEW_TEXTURE_FORMAT,
             viewer_bind_group: None,
             viewer_texture: None,
             viewer_texture_view: None,

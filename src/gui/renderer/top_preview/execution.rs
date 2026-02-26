@@ -8,7 +8,7 @@ use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, 
 use super::pipeline::create_preview_texture_bundle;
 use super::{
     CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef, TopOpUniform,
-    TopPreviewRenderer, PREVIEW_BG,
+    TopPreviewRenderer, PREVIEW_BG, TOP_PREVIEW_TEXTURE_FORMAT,
 };
 
 const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
@@ -415,7 +415,7 @@ impl TopPreviewRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: TOP_PREVIEW_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
