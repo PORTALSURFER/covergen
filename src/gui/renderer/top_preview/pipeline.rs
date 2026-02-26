@@ -304,4 +304,55 @@ fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
     return vec4<f32>(out_rgb, out_a);
 }
+
+fn blend_mode_rgb(base: vec3<f32>, layer: vec3<f32>, mode: i32) -> vec3<f32> {
+    if (mode == 1) {
+        return clamp(base + layer, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    if (mode == 2) {
+        return clamp(base - layer, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    if (mode == 3) {
+        return base * layer;
+    }
+    if (mode == 4) {
+        return vec3<f32>(1.0) - (vec3<f32>(1.0) - base) * (vec3<f32>(1.0) - layer);
+    }
+    if (mode == 5) {
+        let low = 2.0 * base * layer;
+        let high = vec3<f32>(1.0) - 2.0 * (vec3<f32>(1.0) - base) * (vec3<f32>(1.0) - layer);
+        let mask = step(vec3<f32>(0.5), base);
+        return mix(low, high, mask);
+    }
+    if (mode == 6) {
+        return min(base, layer);
+    }
+    if (mode == 7) {
+        return max(base, layer);
+    }
+    if (mode == 8) {
+        return abs(base - layer);
+    }
+    return layer;
+}
+
+@fragment
+fn fs_blend(v: VertexOut) -> @location(0) vec4<f32> {
+    let base = textureSample(t_src, s_src, v.uv);
+    let layer = textureSample(t_feedback, s_feedback, v.uv);
+    let mode = i32(round(clamp(u_op.p0.x, 0.0, 8.0)));
+    let opacity = clamp(u_op.p0.y, 0.0, 1.0);
+
+    let base_pm = base.rgb * base.a;
+    let blend_rgb = blend_mode_rgb(base.rgb, layer.rgb, mode);
+    let layer_pm = blend_rgb * layer.a;
+    let over_pm = layer_pm + base_pm * (1.0 - layer.a);
+    let over_a = layer.a + base.a * (1.0 - layer.a);
+
+    let out_a = mix(base.a, over_a, opacity);
+    let out_pm = mix(base_pm, over_pm, opacity);
+    let safe_a = max(out_a, 1e-6);
+    let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
+    return vec4<f32>(out_rgb, out_a);
+}
 "#;

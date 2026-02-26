@@ -152,6 +152,19 @@ impl TopOpUniform {
             p4: [0.0; 4],
         }
     }
+
+    fn blend(op: TopViewerOp) -> Self {
+        let TopViewerOp::Blend { mode, opacity, .. } = op else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [mode, opacity, 0.0, 0.0],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,9 +194,9 @@ impl FeedbackHistoryKey {
     }
 }
 
-/// Persistent history texture for one feedback node.
+/// Cached texture slot used by preview runtime operations.
 #[derive(Debug)]
-struct FeedbackHistorySlot {
+struct CachedTextureSlot {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     size: (u32, u32),
@@ -213,6 +226,7 @@ pub(super) struct TopPreviewRenderer {
     op_sphere_pipeline: wgpu::RenderPipeline,
     op_transform_pipeline: wgpu::RenderPipeline,
     op_feedback_pipeline: wgpu::RenderPipeline,
+    op_blend_pipeline: wgpu::RenderPipeline,
 
     dummy_texture: wgpu::Texture,
     dummy_bind_group: wgpu::BindGroup,
@@ -224,7 +238,8 @@ pub(super) struct TopPreviewRenderer {
     scratch_view_b: Option<wgpu::TextureView>,
     scratch_bind_group_b: Option<wgpu::BindGroup>,
     scratch_texture_size: (u32, u32),
-    feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
+    feedback_history: HashMap<FeedbackHistoryKey, CachedTextureSlot>,
+    blend_source_slots: HashMap<u32, CachedTextureSlot>,
 }
 
 impl TopPreviewRenderer {
@@ -385,6 +400,13 @@ impl TopPreviewRenderer {
             "fs_feedback",
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
+        let op_blend_pipeline = create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_blend",
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
 
         let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gui-top-preview-dummy-texture"),
@@ -429,6 +451,7 @@ impl TopPreviewRenderer {
             op_sphere_pipeline,
             op_transform_pipeline,
             op_feedback_pipeline,
+            op_blend_pipeline,
             dummy_texture,
             dummy_bind_group,
             scratch_texture_a: None,
@@ -439,6 +462,7 @@ impl TopPreviewRenderer {
             scratch_bind_group_b: None,
             scratch_texture_size: (0, 0),
             feedback_history: HashMap::new(),
+            blend_source_slots: HashMap::new(),
         }
     }
 

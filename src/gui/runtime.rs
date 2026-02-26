@@ -7,6 +7,7 @@ use super::project::{GuiProject, ProjectNodeKind};
 
 const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const DEFAULT_LOOP_FPS: u32 = 60;
 
 /// One GPU operation emitted by GUI runtime evaluation.
@@ -75,6 +76,15 @@ pub(crate) enum TopRuntimeOp {
         mix: f32,
         history: TopRuntimeFeedbackHistoryBinding,
     },
+    /// Cache the current operation output under one texture-node id.
+    StoreTexture { texture_node_id: u32 },
+    /// `tex.blend` two-texture compositing operation.
+    Blend {
+        mode: f32,
+        opacity: f32,
+        base_texture_node_id: u32,
+        layer_texture_node_id: Option<u32>,
+    },
 }
 
 /// History storage binding for one feedback operation.
@@ -116,6 +126,11 @@ enum CompiledStepKind {
     ScenePass,
     Transform,
     Feedback,
+    StoreTexture,
+    Blend {
+        base_source_id: u32,
+        layer_source_id: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -576,6 +591,29 @@ impl GuiCompiledRuntime {
                         history,
                     });
                 }
+                CompiledStepKind::StoreTexture => {
+                    out_ops.push(TopRuntimeOp::StoreTexture {
+                        texture_node_id: step.node_id,
+                    });
+                }
+                CompiledStepKind::Blend {
+                    base_source_id,
+                    layer_source_id,
+                } => {
+                    out_ops.push(TopRuntimeOp::Blend {
+                        mode: project
+                            .node_param_value(step.node_id, "blend_mode", time_secs, eval_stack)
+                            .unwrap_or(0.0)
+                            .round()
+                            .clamp(0.0, 8.0),
+                        opacity: project
+                            .node_param_value(step.node_id, "opacity", time_secs, eval_stack)
+                            .unwrap_or(0.0)
+                            .clamp(0.0, 1.0),
+                        base_texture_node_id: base_source_id,
+                        layer_texture_node_id: layer_source_id,
+                    });
+                }
             }
         }
     }
@@ -710,6 +748,59 @@ fn compile_node(
                 true
             }
         }
+        ProjectNodeKind::TexBlend => {
+            let Some(base_source_id) = project.input_source_node_id(node_id) else {
+                return false;
+            };
+            let layer_source_id =
+                project.texture_source_for_param_key(node_id, BLEND_LAYER_PARAM_KEY);
+            let compile_layer_first = layer_source_id
+                .map(|layer_id| node_depends_on(project, base_source_id, layer_id))
+                .unwrap_or(false);
+            if compile_layer_first {
+                if let Some(layer_id) = layer_source_id {
+                    if !compile_node(project, layer_id, visiting, visited, out_steps) {
+                        return false;
+                    }
+                    out_steps.push(CompiledStep {
+                        node_id: layer_id,
+                        kind: CompiledStepKind::StoreTexture,
+                    });
+                }
+                if !compile_node(project, base_source_id, visiting, visited, out_steps) {
+                    return false;
+                }
+                out_steps.push(CompiledStep {
+                    node_id: base_source_id,
+                    kind: CompiledStepKind::StoreTexture,
+                });
+            } else {
+                if !compile_node(project, base_source_id, visiting, visited, out_steps) {
+                    return false;
+                }
+                out_steps.push(CompiledStep {
+                    node_id: base_source_id,
+                    kind: CompiledStepKind::StoreTexture,
+                });
+                if let Some(layer_id) = layer_source_id {
+                    if !compile_node(project, layer_id, visiting, visited, out_steps) {
+                        return false;
+                    }
+                    out_steps.push(CompiledStep {
+                        node_id: layer_id,
+                        kind: CompiledStepKind::StoreTexture,
+                    });
+                }
+            }
+            out_steps.push(CompiledStep {
+                node_id,
+                kind: CompiledStepKind::Blend {
+                    base_source_id,
+                    layer_source_id,
+                },
+            });
+            true
+        }
         ProjectNodeKind::SceneEntity => {
             let source_id = match project.input_source_node_id(node_id) {
                 Some(id) => id,
@@ -777,6 +868,30 @@ fn compile_node(
         visited.push(node_id);
     }
     ok
+}
+
+fn node_depends_on(project: &GuiProject, start_node_id: u32, target_node_id: u32) -> bool {
+    if start_node_id == target_node_id {
+        return true;
+    }
+    let mut stack = vec![start_node_id];
+    let mut visited = Vec::new();
+    while let Some(node_id) = stack.pop() {
+        if node_id == target_node_id {
+            return true;
+        }
+        if visited.contains(&node_id) {
+            continue;
+        }
+        visited.push(node_id);
+        let Some(node) = project.node(node_id) else {
+            continue;
+        };
+        for input in node.inputs() {
+            stack.push(*input);
+        }
+    }
+    false
 }
 
 /// Deterministic, lightweight pseudo-noise for buffer deformation previews.
@@ -861,6 +976,83 @@ mod tests {
                 && gain_g == 1.0
                 && gain_b == 1.0
                 && alpha_mul == 1.0
+        ));
+    }
+
+    #[test]
+    fn blend_pipeline_compiles_to_store_and_blend_ops() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 120, 40, 420, 480);
+        let blend = project.add_node(ProjectNodeKind::TexBlend, 280, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 440, 40, 420, 480);
+        assert!(project.connect_image_link(solid, blend));
+        assert!(project.connect_texture_link_to_param(circle, blend, 0));
+        assert!(project.connect_image_link(blend, out));
+        assert!(project.set_param_dropdown_index(blend, 1, 1));
+        assert!(project.set_param_value(blend, 2, 0.75));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
+        ));
+        assert!(matches!(ops[2], TopRuntimeOp::Circle { .. }));
+        assert!(matches!(
+            ops[3],
+            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == circle
+        ));
+        assert!(matches!(
+            ops[4],
+            TopRuntimeOp::Blend {
+                mode,
+                opacity,
+                base_texture_node_id,
+                layer_texture_node_id: Some(layer_id),
+            } if mode == 1.0
+                && (opacity - 0.75).abs() < 1e-6
+                && base_texture_node_id == solid
+                && layer_id == circle
+        ));
+    }
+
+    #[test]
+    fn blend_pipeline_orders_branch_compilation_for_dependent_inputs() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let blend = project.add_node(ProjectNodeKind::TexBlend, 340, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
+        assert!(project.connect_image_link(solid, xform));
+        assert!(project.connect_image_link(xform, blend));
+        assert!(project.connect_texture_link_to_param(solid, blend, 0));
+        assert!(project.connect_image_link(blend, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
+        ));
+        assert!(matches!(ops[2], TopRuntimeOp::Transform { .. }));
+        assert!(matches!(
+            ops[3],
+            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform
+        ));
+        assert!(matches!(
+            ops[4],
+            TopRuntimeOp::Blend {
+                base_texture_node_id,
+                layer_texture_node_id: Some(layer_id),
+                ..
+            } if base_texture_node_id == xform && layer_id == solid
         ));
     }
 

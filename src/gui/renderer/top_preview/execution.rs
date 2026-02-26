@@ -84,6 +84,18 @@ impl TopPreviewRenderer {
         let mut source_target = None;
         let mut scratch_flip = false;
         for (index, op) in ops.iter().copied().enumerate() {
+            if let TopViewerOp::StoreTexture { texture_node_id } = op {
+                let src_target = source_target?;
+                self.ensure_blend_source_slot(device, encoder, texture_node_id, width, height);
+                self.copy_target_to_blend_source(
+                    encoder,
+                    src_target,
+                    texture_node_id,
+                    width,
+                    height,
+                );
+                continue;
+            }
             let last = index + 1 == ops.len();
             let target = if last {
                 RenderTargetRef::Viewer
@@ -196,6 +208,34 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, src_bind_group, &[]);
                     pass.set_bind_group(2, history_bind_group, &[]);
+                }
+                TopViewerOp::Blend {
+                    base_texture_node_id,
+                    layer_texture_node_id,
+                    ..
+                } => {
+                    let base_bind_group = self
+                        .blend_source_bind_group(base_texture_node_id)
+                        .or_else(|| {
+                            source_target.and_then(|target_ref| self.target_bind_group(target_ref))
+                        })?;
+                    let layer_bind_group = layer_texture_node_id
+                        .and_then(|id| self.blend_source_bind_group(id))
+                        .unwrap_or(&self.dummy_bind_group);
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
+                    queue.write_buffer(
+                        &self.op_uniform_buffer,
+                        uniform_offset,
+                        bytemuck::bytes_of(&TopOpUniform::blend(op)),
+                    );
+                    pass.set_pipeline(&self.op_blend_pipeline);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
+                    pass.set_bind_group(1, base_bind_group, &[]);
+                    pass.set_bind_group(2, layer_bind_group, &[]);
+                }
+                TopViewerOp::StoreTexture { .. } => {
+                    return None;
                 }
             }
             pass.draw(0..6, 0..1);
@@ -358,7 +398,7 @@ impl TopPreviewRenderer {
         });
         self.feedback_history.insert(
             key,
-            super::FeedbackHistorySlot {
+            super::CachedTextureSlot {
                 texture,
                 bind_group,
                 size: (width, height),
@@ -382,6 +422,95 @@ impl TopPreviewRenderer {
             return;
         };
         let Some(slot) = self.feedback_history.get(&key) else {
+            return;
+        };
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: src_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: &slot.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn ensure_blend_source_slot(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        texture_node_id: u32,
+        width: u32,
+        height: u32,
+    ) {
+        if self
+            .blend_source_slots
+            .get(&texture_node_id)
+            .map(|slot| slot.size == (width, height))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let (texture, view, bind_group) = create_preview_texture_bundle(
+            device,
+            width,
+            height,
+            "gui-top-preview-blend-source",
+            &self.viewer_texture_layout,
+            &self.op_sampler,
+        );
+        let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("gui-top-preview-blend-source-clear-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(TRANSPARENT_BG),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        self.blend_source_slots.insert(
+            texture_node_id,
+            super::CachedTextureSlot {
+                texture,
+                bind_group,
+                size: (width, height),
+            },
+        );
+    }
+
+    fn blend_source_bind_group(&self, texture_node_id: u32) -> Option<&wgpu::BindGroup> {
+        self.blend_source_slots
+            .get(&texture_node_id)
+            .map(|slot| &slot.bind_group)
+    }
+
+    fn copy_target_to_blend_source(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: RenderTargetRef,
+        texture_node_id: u32,
+        width: u32,
+        height: u32,
+    ) {
+        let Some(src_texture) = self.target_texture(target) else {
+            return;
+        };
+        let Some(slot) = self.blend_source_slots.get(&texture_node_id) else {
             return;
         };
         encoder.copy_texture_to_texture(

@@ -43,6 +43,8 @@ const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
 const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
+const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
+const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
 
 /// Arc style options exposed by the `buf.circle_nurbs` node.
 const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
@@ -75,6 +77,45 @@ const SCENE_PASS_BG_MODE_OPTIONS: [NodeParamOption; 2] = [
     NodeParamOption {
         label: "alpha_clip",
         value: 1.0,
+    },
+];
+/// Blend/composite modes exposed by the `tex.blend` node.
+const TEX_BLEND_MODE_OPTIONS: [NodeParamOption; 9] = [
+    NodeParamOption {
+        label: "normal",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "add",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "subtract",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "multiply",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "screen",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "overlay",
+        value: 5.0,
+    },
+    NodeParamOption {
+        label: "darken",
+        value: 6.0,
+    },
+    NodeParamOption {
+        label: "lighten",
+        value: 7.0,
+    },
+    NodeParamOption {
+        label: "difference",
+        value: 8.0,
     },
 ];
 
@@ -124,6 +165,8 @@ pub(crate) enum ProjectNodeKind {
     TexTransform2D,
     /// `tex.feedback` one-frame delayed texture feedback node.
     TexFeedback,
+    /// `tex.blend` two-texture composite node.
+    TexBlend,
     /// `scene.entity` mesh + transform + material binding node.
     SceneEntity,
     /// `scene.build` scene aggregation node.
@@ -149,6 +192,7 @@ impl ProjectNodeKind {
             Self::BufNoise => "buf.noise",
             Self::TexTransform2D => "tex.transform_2d",
             Self::TexFeedback => "tex.feedback",
+            Self::TexBlend => "tex.blend",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
             Self::RenderCamera => "render.camera",
@@ -168,6 +212,7 @@ impl ProjectNodeKind {
             "buf.noise" => Some(Self::BufNoise),
             "tex.transform_2d" => Some(Self::TexTransform2D),
             "tex.feedback" => Some(Self::TexFeedback),
+            "tex.blend" => Some(Self::TexBlend),
             "scene.entity" => Some(Self::SceneEntity),
             "scene.build" => Some(Self::SceneBuild),
             "render.camera" => Some(Self::RenderCamera),
@@ -189,6 +234,7 @@ impl ProjectNodeKind {
             Self::BufNoise => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
             Self::TexFeedback => ExecutionKind::Render,
+            Self::TexBlend => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
             Self::RenderCamera => ExecutionKind::Control,
@@ -206,7 +252,7 @@ impl ProjectNodeKind {
     /// Return required primary input resource kind for this node, if any.
     pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
         match self {
-            Self::TexTransform2D | Self::TexFeedback | Self::IoWindowOut => {
+            Self::TexTransform2D | Self::TexFeedback | Self::TexBlend | Self::IoWindowOut => {
                 Some(ResourceKind::Texture2D)
             }
             Self::BufNoise => Some(ResourceKind::Buffer),
@@ -229,6 +275,7 @@ impl ProjectNodeKind {
                 | Self::BufNoise
                 | Self::TexTransform2D
                 | Self::TexFeedback
+                | Self::TexBlend
                 | Self::SceneEntity
                 | Self::RenderCamera
                 | Self::RenderScenePass
@@ -261,6 +308,7 @@ impl ProjectNodeKind {
             | Self::TexCircle
             | Self::TexTransform2D
             | Self::TexFeedback
+            | Self::TexBlend
             | Self::RenderScenePass => Some(ResourceKind::Texture2D),
             Self::CtlLfo => Some(ResourceKind::Signal),
             Self::IoWindowOut => None,
@@ -2117,6 +2165,13 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
         ],
+        ProjectNodeKind::TexBlend => vec![
+            // Optional secondary composite input for blend operations.
+            param_texture_target(BLEND_LAYER_PARAM_KEY, BLEND_LAYER_PARAM_LABEL),
+            param_dropdown("blend_mode", "blend_mode", 0, &TEX_BLEND_MODE_OPTIONS),
+            // Keep blend as identity by default until users increase opacity.
+            param("opacity", "opacity", 0.0, 0.0, 1.0, 0.01),
+        ],
         ProjectNodeKind::SceneEntity => vec![
             param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
             param("pos_y", "pos_y", 0.5, 0.0, 1.0, 0.01),
@@ -3070,6 +3125,23 @@ mod tests {
     }
 
     #[test]
+    fn tex_blend_mode_uses_dropdown_options() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let blend = project.add_node(ProjectNodeKind::TexBlend, 40, 40, 420, 480);
+        assert!(project.param_is_dropdown(blend, 1));
+        assert!(!project.param_supports_text_edit(blend, 1));
+        let options = project
+            .node_param_dropdown_options(blend, 1)
+            .expect("dropdown options should exist");
+        assert_eq!(options.len(), 9);
+        assert_eq!(project.node_param_raw_text(blend, 1), Some("normal"));
+        assert!(project.set_param_dropdown_index(blend, 1, 7));
+        assert_eq!(project.node_param_raw_text(blend, 1), Some("lighten"));
+        assert!(project.adjust_param(blend, 1, -1.0));
+        assert_eq!(project.node_param_raw_text(blend, 1), Some("darken"));
+    }
+
+    #[test]
     fn all_default_parameter_labels_fit_length_budget() {
         let mut project = GuiProject::new_empty(640, 480);
         let kinds = [
@@ -3080,6 +3152,7 @@ mod tests {
             ProjectNodeKind::BufNoise,
             ProjectNodeKind::TexTransform2D,
             ProjectNodeKind::TexFeedback,
+            ProjectNodeKind::TexBlend,
             ProjectNodeKind::SceneEntity,
             ProjectNodeKind::SceneBuild,
             ProjectNodeKind::RenderCamera,
