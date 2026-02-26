@@ -14,6 +14,11 @@ use serde::{Deserialize, Serialize};
 pub(crate) const NODE_WIDTH: i32 = 208;
 /// Height of one graph node card in the editor canvas.
 pub(crate) const NODE_HEIGHT: i32 = 44;
+/// Maximum allowed length for one parameter label.
+///
+/// New parameter labels should fit in this budget to keep row naming
+/// consistent and avoid text-overflow behavior in node cards.
+pub(crate) const PARAM_LABEL_MAX_LEN: usize = 10;
 /// Width/height of node header expand/collapse toggle in graph-space pixels.
 pub(crate) const NODE_TOGGLE_SIZE: i32 = 8;
 /// Top-left inset from node origin to toggle origin in graph-space pixels.
@@ -2012,7 +2017,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("res_width", "res_width", 0.0, 0.0, 8192.0, 1.0),
             // `0` keeps project preview resolution.
             param("res_height", "res_height", 0.0, 0.0, 8192.0, 1.0),
-            param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
+            param("edge_softness", "edge_soft", 0.01, 0.0, 0.25, 0.005),
             param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
             param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
             param("light_z", "light_z", 1.0, 0.0, 2.0, 0.02),
@@ -2035,6 +2040,7 @@ fn param(
     max: f32,
     step: f32,
 ) -> NodeParamSlot {
+    assert_param_label_fits(label);
     NodeParamSlot {
         key,
         label,
@@ -2051,6 +2057,7 @@ fn param(
 
 /// Build one texture-target parameter slot.
 fn param_texture_target(key: &'static str, label: &'static str) -> NodeParamSlot {
+    assert_param_label_fits(label);
     NodeParamSlot {
         key,
         label,
@@ -2072,6 +2079,7 @@ fn param_dropdown(
     default_index: usize,
     options: &'static [NodeParamOption],
 ) -> NodeParamSlot {
+    assert_param_label_fits(label);
     let index = default_index.min(options.len().saturating_sub(1));
     let selected = options.get(index).copied().unwrap_or(NodeParamOption {
         label: "n/a",
@@ -2103,6 +2111,13 @@ fn format_param_value_text(value: f32) -> String {
 
 fn texture_target_placeholder() -> &'static str {
     TEXTURE_TARGET_PLACEHOLDER
+}
+
+fn assert_param_label_fits(label: &'static str) {
+    assert!(
+        label.len() <= PARAM_LABEL_MAX_LEN,
+        "parameter label '{label}' exceeds {PARAM_LABEL_MAX_LEN} chars"
+    );
 }
 
 fn bind_texture_target_slot(slot: &mut NodeParamSlot, source: Option<(u32, &str)>) -> bool {
@@ -2332,6 +2347,7 @@ mod tests {
     use super::{
         input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
         GraphBounds, GuiProject, PersistedGuiProject, ProjectNodeKind, ResourceKind, NODE_HEIGHT,
+        PARAM_LABEL_MAX_LEN,
     };
 
     #[test]
@@ -2702,6 +2718,46 @@ mod tests {
         assert_eq!(project.node_param_raw_text(circle, 3), Some("open_arc"));
         assert!(project.adjust_param(circle, 3, -1.0));
         assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
+    }
+
+    #[test]
+    fn all_default_parameter_labels_fit_length_budget() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let kinds = [
+            ProjectNodeKind::TexSolid,
+            ProjectNodeKind::TexCircle,
+            ProjectNodeKind::BufSphere,
+            ProjectNodeKind::BufCircleNurbs,
+            ProjectNodeKind::BufNoise,
+            ProjectNodeKind::TexTransform2D,
+            ProjectNodeKind::TexFeedback,
+            ProjectNodeKind::SceneEntity,
+            ProjectNodeKind::SceneBuild,
+            ProjectNodeKind::RenderCamera,
+            ProjectNodeKind::RenderScenePass,
+            ProjectNodeKind::CtlLfo,
+            ProjectNodeKind::IoWindowOut,
+        ];
+        let mut x = 20;
+        for kind in kinds {
+            let node_id = project.add_node(kind, x, 40, 420, 480);
+            x += 20;
+            let node = project.node(node_id).expect("node should exist");
+            for row in node.param_views() {
+                assert!(
+                    row.label.len() <= PARAM_LABEL_MAX_LEN,
+                    "label '{}' exceeds {} chars",
+                    row.label,
+                    PARAM_LABEL_MAX_LEN
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "parameter label")]
+    fn parameter_constructor_rejects_labels_longer_than_budget() {
+        let _ = super::param("key", "label_too_long", 0.0, 0.0, 1.0, 0.1);
     }
 
     #[test]
