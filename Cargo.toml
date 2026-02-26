@@ -27,8 +27,9 @@ winit = "0.29"
 
 [target.'cfg(windows)'.dependencies]
 nvenc = "0.1.0"
-windows = { version = "0.58.0", features = [
+windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
 ] }
