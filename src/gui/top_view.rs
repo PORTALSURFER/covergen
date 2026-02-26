@@ -71,18 +71,26 @@ impl TopViewerGenerator {
     ) {
         let panel_w = viewport_width.saturating_sub(panel_width) as u32;
         let panel_h = viewport_height as u32;
-        let texture_width = project.preview_width.max(1);
-        let texture_height = project.preview_height.max(1);
-        let (view_width, view_height) =
-            fit_aspect_in_rect(panel_w, panel_h, texture_width, texture_height);
-        let x = panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
-        let y = (panel_h.saturating_sub(view_height) / 2) as i32;
         let render_signature = project.render_signature();
         let dynamic_frame = if project.has_signal_bindings() || project.has_feedback_nodes() {
             frame_index
         } else {
             0
         };
+        if self.compiled_signature != Some(render_signature) {
+            self.compiled_runtime = GuiCompiledRuntime::compile(project);
+            self.compiled_signature = Some(render_signature);
+        }
+        let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
+        let (texture_width, texture_height) = self
+            .compiled_runtime
+            .as_ref()
+            .map(|runtime| runtime.output_texture_size(project, time_secs, &mut self.eval_stack))
+            .unwrap_or((project.preview_width.max(1), project.preview_height.max(1)));
+        let (view_width, view_height) =
+            fit_aspect_in_rect(panel_w, panel_h, texture_width, texture_height);
+        let x = panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
+        let y = (panel_h.saturating_sub(view_height) / 2) as i32;
         let key = ViewerCacheKey {
             panel_width: panel_w,
             panel_height: panel_h,
@@ -102,14 +110,8 @@ impl TopViewerGenerator {
         self.width = view_width;
         self.height = view_height;
 
-        if self.compiled_signature != Some(render_signature) {
-            self.compiled_runtime = GuiCompiledRuntime::compile(project);
-            self.compiled_signature = Some(render_signature);
-        }
-
         self.ops.clear();
         if let Some(compiled_runtime) = &self.compiled_runtime {
-            let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
             compiled_runtime.evaluate_ops(project, time_secs, &mut self.eval_stack, &mut self.ops);
         }
     }
@@ -283,6 +285,28 @@ mod tests {
         };
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+    }
+
+    #[test]
+    fn scene_pass_resolution_overrides_output_texture_size() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 220, 80, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 380, 80, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 540, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 700, 80, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert!(project.set_param_value(pass, 0, 1024.0));
+        assert!(project.set_param_value(pass, 1, 256.0));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 1200, 700, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        assert_eq!(frame.texture_width, 1024);
+        assert_eq!(frame.texture_height, 256);
     }
 
     #[test]

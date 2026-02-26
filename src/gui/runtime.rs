@@ -420,6 +420,44 @@ impl GuiCompiledRuntime {
             }
         }
     }
+
+    /// Return resolved render-texture size for this compiled output chain.
+    ///
+    /// The current implementation uses `render.scene_pass` `res_width`/`res_height`
+    /// when present, with `0` meaning "use project preview size".
+    pub(crate) fn output_texture_size(
+        &self,
+        project: &GuiProject,
+        time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+    ) -> (u32, u32) {
+        eval_stack.clear();
+        let default_w = project.preview_width.max(1);
+        let default_h = project.preview_height.max(1);
+        for step in self.steps.iter().rev() {
+            if step.kind != CompiledStepKind::ScenePass {
+                continue;
+            }
+            let raw_w = project
+                .node_param_value(step.node_id, "res_width", time_secs, eval_stack)
+                .unwrap_or(0.0);
+            let raw_h = project
+                .node_param_value(step.node_id, "res_height", time_secs, eval_stack)
+                .unwrap_or(0.0);
+            let width = if raw_w >= 1.0 {
+                raw_w.round().clamp(1.0, 8192.0) as u32
+            } else {
+                default_w
+            };
+            let height = if raw_h >= 1.0 {
+                raw_h.round().clamp(1.0, 8192.0) as u32
+            } else {
+                default_h
+            };
+            return (width.max(1), height.max(1));
+        }
+        (default_w, default_h)
+    }
 }
 
 fn compile_node(
@@ -698,6 +736,28 @@ mod tests {
             _ => panic!("expected sphere op"),
         };
         assert!(radius_zoomed > radius_default * 1.9);
+    }
+
+    #[test]
+    fn scene_pass_resolution_defaults_to_project_size_when_zero() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let (w, h) = runtime.output_texture_size(&project, 0.0, &mut eval_stack);
+        assert_eq!((w, h), (640, 480));
+        assert!(project.set_param_value(pass, 0, 320.0));
+        assert!(project.set_param_value(pass, 1, 200.0));
+        let (w2, h2) = runtime.output_texture_size(&project, 0.0, &mut eval_stack);
+        assert_eq!((w2, h2), (320, 200));
     }
 
     #[test]

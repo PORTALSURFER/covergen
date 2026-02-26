@@ -1749,6 +1749,10 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             vec![param("zoom", "zoom", 1.0, 0.1, 8.0, 0.05)]
         }
         ProjectNodeKind::RenderScenePass => vec![
+            // `0` keeps project preview resolution.
+            param("res_width", "res_width", 0.0, 0.0, 8192.0, 1.0),
+            // `0` keeps project preview resolution.
+            param("res_height", "res_height", 0.0, 0.0, 8192.0, 1.0),
             param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
             param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
             param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
