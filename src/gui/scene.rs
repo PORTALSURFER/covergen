@@ -320,25 +320,16 @@ impl SceneBuilder {
                 };
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let link_kind = project.link_resource_kind(*source_id, target.id());
-                let (to_x, to_y, signal_path) = if link_kind == Some(ResourceKind::Signal) {
-                    let (gx, gy) = signal_target_graph_point(project, target, *source_id);
-                    let (px, py) = graph_point_to_panel(gx, gy, state);
-                    (px, py, true)
-                } else {
-                    (default_to_x, default_to_y, false)
-                };
+                if link_kind == Some(ResourceKind::Signal) {
+                    continue;
+                }
+                let (to_x, to_y) = (default_to_x, default_to_y);
                 let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
                     CUT_EDGE_COLOR
-                } else if signal_path {
-                    PARAM_EDGE_COLOR
                 } else {
                     EDGE_COLOR
                 };
-                if signal_path {
-                    continue;
-                } else {
-                    self.push_straight_wire_with_round_caps(from_x, from_y, to_x, to_y, color);
-                }
+                self.push_straight_wire_with_round_caps(from_x, from_y, to_x, to_y, color);
             }
         }
     }
@@ -841,18 +832,21 @@ impl SceneBuilder {
         }
         let obstacles = collect_panel_node_obstacles(project, state);
         for target in project.nodes() {
-            for source_id in target.inputs() {
-                let Some(source) = project.node(*source_id) else {
+            for param_index in 0..target.param_count() {
+                let Some(source_id) = project.signal_source_for_param(target.id(), param_index)
+                else {
+                    continue;
+                };
+                let Some(source) = project.node(source_id) else {
                     continue;
                 };
                 let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
-                if project.link_resource_kind(*source_id, target.id()) != Some(ResourceKind::Signal)
-                {
+                let Some(row) = node_param_row_rect(target, param_index) else {
                     continue;
-                }
-                let (gx, gy) = signal_target_graph_point(project, target, *source_id);
+                };
+                let (gx, gy) = (row.x + row.w - 4, row.y + row.h / 2);
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
                 let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
@@ -1373,22 +1367,6 @@ fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
     let chip_w = (text_width + 26).clamp(58, item.w);
     let chip_h = (item.h - 2).max(16);
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
-}
-
-fn signal_target_graph_point(
-    project: &GuiProject,
-    target: &ProjectNode,
-    source_id: u32,
-) -> (i32, i32) {
-    if let Some(index) = project.signal_param_index_for_source(source_id, target.id()) {
-        if let Some(row) = node_param_row_rect(target, index) {
-            return (row.x + row.w - 4, row.y + row.h / 2);
-        }
-    }
-    (
-        target.x() + NODE_WIDTH - 4,
-        target.y() + target.card_height() / 2,
-    )
 }
 
 fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i32 {

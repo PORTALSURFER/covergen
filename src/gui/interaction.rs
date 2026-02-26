@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, output_pin_center,
-    GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
+    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
+    output_pin_center, GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+    NODE_WIDTH,
 };
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState,
@@ -24,6 +25,13 @@ const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
 const DROPDOWN_ITEM_MIN_PX: i32 = 12;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct CutLink {
+    source_id: u32,
+    target_id: u32,
+    param_index: Option<usize>,
+}
 
 /// Apply one frame of input actions to project/editor state.
 ///
@@ -450,7 +458,7 @@ fn handle_delete_selected_nodes(
 #[allow(unused_assignments)]
 fn handle_right_selection(
     input: &InputSnapshot,
-    project: &GuiProject,
+    project: &mut GuiProject,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
@@ -465,6 +473,25 @@ fn handle_right_selection(
         }
         let (graph_x, graph_y) = screen_to_graph(mx, my, state);
         if let Some(node_id) = project.node_at(graph_x, graph_y) {
+            if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+                if project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
+                    && project
+                        .signal_source_for_param(node_id, param_index)
+                        .is_some()
+                {
+                    changed |= project.disconnect_signal_link_from_param(node_id, param_index);
+                    changed |= set_single_selection(state, node_id);
+                    state.active_node = Some(node_id);
+                    state.right_marquee = None;
+                    state.drag = None;
+                    state.wire_drag = None;
+                    state.hover_param_target = None;
+                    state.param_edit = None;
+                    state.param_dropdown = None;
+                    state.hover_dropdown_item = None;
+                    return true;
+                }
+            }
             changed |= set_single_selection(state, node_id);
             state.active_node = Some(node_id);
             state.right_marquee = None;
@@ -1095,8 +1122,12 @@ fn handle_link_cut(
     }
     if !input.left_down {
         let cut_links = collect_cut_links(project, state, cut);
-        for (source_id, target_id) in cut_links {
-            let _ = project.disconnect_link(source_id, target_id);
+        for link in cut_links {
+            if let Some(param_index) = link.param_index {
+                let _ = project.disconnect_signal_link_from_param(link.target_id, param_index);
+            } else {
+                let _ = project.disconnect_link(link.source_id, link.target_id);
+            }
         }
         state.link_cut = None;
         return true;
@@ -1109,20 +1140,21 @@ fn collect_cut_links(
     project: &GuiProject,
     state: &PreviewState,
     cut: LinkCutState,
-) -> Vec<(u32, u32)> {
+) -> Vec<CutLink> {
     let mut links = Vec::new();
     for target in project.nodes() {
-        let Some((to_x, to_y)) = input_pin_center(target) else {
-            continue;
-        };
-        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        for source_id in target.inputs() {
-            let Some(source) = project.node(*source_id) else {
+        let target_id = target.id();
+        if let Some(texture_source_id) = project.input_source_node_id(target_id) {
+            let Some((to_x, to_y)) = input_pin_center(target) else {
+                continue;
+            };
+            let Some(source) = project.node(texture_source_id) else {
                 continue;
             };
             let Some((from_x, from_y)) = output_pin_center(source) else {
                 continue;
             };
+            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
             let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
             if segments_intersect(
                 cut.start_x,
@@ -1134,7 +1166,45 @@ fn collect_cut_links(
                 to_x,
                 to_y,
             ) {
-                links.push((*source_id, target.id()));
+                links.push(CutLink {
+                    source_id: texture_source_id,
+                    target_id,
+                    param_index: None,
+                });
+            }
+        }
+        for param_index in 0..target.param_count() {
+            let Some(source_id) = project.signal_source_for_param(target_id, param_index) else {
+                continue;
+            };
+            let Some(source) = project.node(source_id) else {
+                continue;
+            };
+            let Some((from_x, from_y)) = output_pin_center(source) else {
+                continue;
+            };
+            let Some(row) = node_param_row_rect(target, param_index) else {
+                continue;
+            };
+            let to_x = row.x + row.w - 4;
+            let to_y = row.y + row.h / 2;
+            let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+            let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+            if segments_intersect(
+                cut.start_x,
+                cut.start_y,
+                cut.cursor_x,
+                cut.cursor_y,
+                from_x,
+                from_y,
+                to_x,
+                to_y,
+            ) {
+                links.push(CutLink {
+                    source_id,
+                    target_id,
+                    param_index: Some(param_index),
+                });
             }
         }
     }
@@ -1711,14 +1781,17 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
-        handle_delete_selected_nodes, handle_param_wheel_input, handle_wire_input,
-        insert_param_char, marquee_moved, move_param_cursor_left, move_param_cursor_right,
-        rects_overlap, segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+        handle_delete_selected_nodes, handle_link_cut, handle_param_wheel_input,
+        handle_right_selection, handle_wire_input, insert_param_char, marquee_moved,
+        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
+        update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
-    use crate::gui::project::{node_param_value_rect, GuiProject, ProjectNodeKind};
+    use crate::gui::project::{
+        node_param_row_rect, node_param_value_rect, output_pin_center, GuiProject, ProjectNodeKind,
+    };
     use crate::gui::state::{
-        AddNodeMenuState, HoverParamTarget, InputSnapshot, ParamEditState, PreviewState,
-        WireDragState,
+        AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState,
+        PreviewState, WireDragState,
     };
     use crate::runtime_config::V2Config;
 
@@ -1991,6 +2064,66 @@ mod tests {
         let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
         let value = project.node_param_value(circle, "radius", 0.5, &mut Vec::new());
         assert_eq!(source, value);
+    }
+
+    #[test]
+    fn right_click_on_bound_param_value_unbinds_parameter() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(circle, 420, 480));
+        assert!(project.connect_signal_link_to_param(lfo, circle, 2));
+        let value_rect = {
+            let node = project.node(circle).expect("circle node should exist");
+            node_param_value_rect(node, 2).expect("value rect should exist")
+        };
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let input = InputSnapshot {
+            mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+            right_clicked: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_right_selection(
+            &input,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(project.signal_source_for_param(circle, 2), None);
+    }
+
+    #[test]
+    fn alt_cut_unbinds_parameter_link_when_cut_crosses_param_wire() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(circle, 420, 480));
+        assert!(project.connect_signal_link_to_param(lfo, circle, 2));
+
+        let (from_x, from_y) = {
+            let source = project.node(lfo).expect("lfo node should exist");
+            output_pin_center(source).expect("source output pin should exist")
+        };
+        let (to_x, to_y) = {
+            let target = project.node(circle).expect("circle node should exist");
+            let row = node_param_row_rect(target, 2).expect("row rect should exist");
+            (row.x + row.w - 4, row.y + row.h / 2)
+        };
+        let cut_x = (from_x + to_x) / 2;
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.link_cut = Some(LinkCutState {
+            start_x: cut_x,
+            start_y: from_y.min(to_y) - 24,
+            cursor_x: cut_x,
+            cursor_y: from_y.max(to_y) + 24,
+        });
+        let input = InputSnapshot {
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_link_cut(&input, &mut project, 420, 480, &mut state));
+        assert_eq!(project.signal_source_for_param(circle, 2), None);
     }
 
     #[test]

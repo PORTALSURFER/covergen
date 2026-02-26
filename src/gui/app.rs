@@ -96,7 +96,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, timeline(play/pause + scrub)"
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, timeline(play/pause + scrub)"
         );
         Ok(Self {
             config,

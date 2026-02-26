@@ -1120,6 +1120,7 @@ impl GuiProject {
     }
 
     /// Return parameter index bound from `source_id` into `target_id`, if any.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn signal_param_index_for_source(
         &self,
         source_id: u32,
@@ -1130,6 +1131,40 @@ impl GuiProject {
             .params
             .iter()
             .position(|slot| slot.signal_source == Some(source_id))
+    }
+
+    /// Return signal source node id bound to one target parameter row, if any.
+    pub(crate) fn signal_source_for_param(
+        &self,
+        target_id: u32,
+        param_index: usize,
+    ) -> Option<u32> {
+        let target = self.node(target_id)?;
+        let slot = target.params.get(param_index)?;
+        slot.signal_source
+    }
+
+    /// Disconnect one explicit signal binding from a target parameter row.
+    ///
+    /// Returns `true` when the target parameter binding changed.
+    pub(crate) fn disconnect_signal_link_from_param(
+        &mut self,
+        target_id: u32,
+        param_index: usize,
+    ) -> bool {
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        let Some(slot) = target.params.get_mut(param_index) else {
+            return false;
+        };
+        if slot.signal_source.is_none() {
+            return false;
+        }
+        slot.signal_source = None;
+        rebuild_node_inputs(target);
+        self.recount_edges();
+        true
     }
 
     /// Toggle one node expanded/collapsed state.
@@ -2284,6 +2319,22 @@ mod tests {
         let value = project.node_param_value(circle, "color_g", 0.25, &mut Vec::new());
         assert_eq!(source, value);
         assert!(!project.connect_signal_link_to_param(lfo, circle, 5));
+    }
+
+    #[test]
+    fn disconnect_signal_link_from_param_only_unbinds_target_row() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 160, 40, 420, 480);
+        assert!(project.connect_signal_link_to_param(lfo, circle, 0));
+        assert!(project.connect_signal_link_to_param(lfo, circle, 1));
+        assert_eq!(project.signal_source_for_param(circle, 0), Some(lfo));
+        assert_eq!(project.signal_source_for_param(circle, 1), Some(lfo));
+
+        assert!(project.disconnect_signal_link_from_param(circle, 0));
+        assert_eq!(project.signal_source_for_param(circle, 0), None);
+        assert_eq!(project.signal_source_for_param(circle, 1), Some(lfo));
+        assert!(!project.disconnect_signal_link_from_param(circle, 0));
     }
 
     #[test]
