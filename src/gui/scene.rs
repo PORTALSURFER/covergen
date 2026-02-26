@@ -68,6 +68,9 @@ const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
 const PARAM_DROPDOWN_SELECTED: Color = Color::argb(0x663B82F6);
 const PARAM_DROPDOWN_HOVER: Color = Color::argb(0x3342A5F5);
+const NODE_LFO_BADGE_BG: Color = Color::argb(0x1A4A88D9);
+const NODE_LFO_BADGE_BORDER: Color = Color::argb(0x664A88D9);
+const NODE_LFO_WAVE: Color = Color::argb(0xFF9ED0FF);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
@@ -426,9 +429,48 @@ impl SceneBuilder {
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.expanded() {
+                self.push_expanded_lfo_badge(node, state);
                 self.push_node_params(node, state);
             }
             self.push_pins(node, state);
+        }
+    }
+
+    fn push_expanded_lfo_badge(&mut self, node: &ProjectNode, state: &PreviewState) {
+        let rect = node_rect(node, state);
+        let badge_w = ((46.0 * state.zoom).round() as i32).clamp(30, 64);
+        let badge_h = ((14.0 * state.zoom).round() as i32).clamp(8, 20);
+        let pad_x = ((6.0 * state.zoom).round() as i32).clamp(4, 10);
+        let pad_y = ((5.0 * state.zoom).round() as i32).clamp(3, 8);
+        let badge = Rect::new(
+            rect.x + rect.w - badge_w - pad_x,
+            rect.y + pad_y,
+            badge_w,
+            badge_h,
+        );
+        self.push_rect(badge, NODE_LFO_BADGE_BG);
+        self.push_border(badge, NODE_LFO_BADGE_BORDER);
+
+        let inner = Rect::new(badge.x + 2, badge.y + 2, badge.w - 4, badge.h - 4);
+        if inner.w < 8 || inner.h < 4 {
+            return;
+        }
+        let phase = (node.id() as f32 % 64.0) / 64.0 * std::f32::consts::TAU;
+        let amplitude = (inner.h as f32 * 0.36).max(1.0);
+        let mid_y = inner.y + inner.h / 2;
+        let segments = 14;
+        for step in 0..segments {
+            let t0 = step as f32 / segments as f32;
+            let t1 = (step + 1) as f32 / segments as f32;
+            let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
+            let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
+            let w0 = (t0 * std::f32::consts::TAU * 1.5 + phase).sin()
+                + 0.35 * (t0 * std::f32::consts::TAU * 3.0 + phase * 0.7).sin();
+            let w1 = (t1 * std::f32::consts::TAU * 1.5 + phase).sin()
+                + 0.35 * (t1 * std::f32::consts::TAU * 3.0 + phase * 0.7).sin();
+            let y0 = mid_y - (w0 * amplitude).round() as i32;
+            let y1 = mid_y - (w1 * amplitude).round() as i32;
+            self.push_line(x0, y0, x1, y1, NODE_LFO_WAVE);
         }
     }
 
