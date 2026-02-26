@@ -385,6 +385,7 @@ fn fs_blend(v: VertexOut) -> @location(0) vec4<f32> {
     let layer = textureSample(t_feedback, s_feedback, v.uv);
     let mode = i32(round(clamp(u_op.p0.x, 0.0, 8.0)));
     let opacity = clamp(u_op.p0.y, 0.0, 1.0);
+    let bg = vec4<f32>(clamp(u_op.p1.xyz, vec3<f32>(0.0), vec3<f32>(1.0)), clamp(u_op.p1.w, 0.0, 1.0));
 
     let base_pm = base.rgb * base.a;
     let blend_rgb = blend_mode_rgb(base.rgb, layer.rgb, mode);
@@ -392,8 +393,12 @@ fn fs_blend(v: VertexOut) -> @location(0) vec4<f32> {
     let over_pm = layer_pm + base_pm * (1.0 - layer.a);
     let over_a = layer.a + base.a * (1.0 - layer.a);
 
-    let out_a = mix(base.a, over_a, opacity);
-    let out_pm = mix(base_pm, over_pm, opacity);
+    let composite_a = mix(base.a, over_a, opacity);
+    let composite_pm = mix(base_pm, over_pm, opacity);
+    // Optional background fill behind the blend result.
+    let bg_pm = bg.rgb * bg.a;
+    let out_a = composite_a + bg.a * (1.0 - composite_a);
+    let out_pm = composite_pm + bg_pm * (1.0 - composite_a);
     let safe_a = max(out_a, 1e-6);
     let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
     return vec4<f32>(out_rgb, out_a);

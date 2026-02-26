@@ -2415,6 +2415,12 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param_dropdown("blend_mode", "blend_mode", 0, &TEX_BLEND_MODE_OPTIONS),
             // Keep blend as identity by default until users increase opacity.
             param("opacity", "opacity", 0.0, 0.0, 1.0, 0.01),
+            // Optional post-composite background fill color.
+            param("bg_r", "bg_r", 0.0, 0.0, 1.0, 0.01),
+            param("bg_g", "bg_g", 0.0, 0.0, 1.0, 0.01),
+            param("bg_b", "bg_b", 0.0, 0.0, 1.0, 0.01),
+            // `0` keeps the output alpha unchanged; `1` fully fills background.
+            param("bg_a", "bg_a", 0.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::SceneEntity => vec![
             param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),

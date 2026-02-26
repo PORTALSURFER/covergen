@@ -178,12 +178,21 @@ impl TopOpUniform {
     }
 
     fn blend(op: TexViewerOp) -> Self {
-        let TexViewerOp::Blend { mode, opacity, .. } = op else {
+        let TexViewerOp::Blend {
+            mode,
+            opacity,
+            bg_r,
+            bg_g,
+            bg_b,
+            bg_a,
+            ..
+        } = op
+        else {
             return Self::zeroed();
         };
         Self {
             p0: [mode, opacity, 0.0, 0.0],
-            p1: [0.0; 4],
+            p1: [bg_r, bg_g, bg_b, bg_a],
             p2: [0.0; 4],
             p3: [0.0; 4],
             p4: [0.0; 4],

@@ -136,6 +136,14 @@ Optional secondary texture input used by blend operations.
 Blend equation preset (normal/add/subtract/multiply/screen/overlay/darken/lighten/difference).
 ### Param `opacity`
 Blend contribution amount from `blend_tex`.
+### Param `bg_r`
+Background fill red channel.
+### Param `bg_g`
+Background fill green channel.
+### Param `bg_b`
+Background fill blue channel.
+### Param `bg_a`
+Background fill alpha amount applied behind blend output.
 
 ## Node `scene.entity`
 Binds buffer geometry into scene entity data with transform/material-like controls.

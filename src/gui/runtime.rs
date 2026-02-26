@@ -112,9 +112,13 @@ const FEEDBACK_PARAM_KEYS: [&str; 3] = [
 const FEEDBACK_MIX_SLOT: usize = 0;
 const FEEDBACK_HISTORY_SLOT: usize = 1;
 const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
-const BLEND_PARAM_KEYS: [&str; 2] = ["blend_mode", "opacity"];
+const BLEND_PARAM_KEYS: [&str; 6] = ["blend_mode", "opacity", "bg_r", "bg_g", "bg_b", "bg_a"];
 const BLEND_MODE_SLOT: usize = 0;
 const BLEND_OPACITY_SLOT: usize = 1;
+const BLEND_BG_R_SLOT: usize = 2;
+const BLEND_BG_G_SLOT: usize = 3;
+const BLEND_BG_B_SLOT: usize = 4;
+const BLEND_BG_A_SLOT: usize = 5;
 
 /// Compile-time resolved parameter slot index for one node parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -200,6 +204,10 @@ pub(crate) enum TexRuntimeOp {
     Blend {
         mode: f32,
         opacity: f32,
+        bg_r: f32,
+        bg_g: f32,
+        bg_b: f32,
+        bg_a: f32,
         base_texture_node_id: u32,
         layer_texture_node_id: Option<u32>,
     },
@@ -1023,6 +1031,42 @@ impl GuiCompiledRuntime {
                         )
                         .unwrap_or(0.0)
                         .clamp(0.0, 1.0),
+                        bg_r: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_BG_R_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
+                        bg_g: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_BG_G_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
+                        bg_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_BG_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
+                        bg_a: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_BG_A_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
                         base_texture_node_id: base_source_id,
                         layer_texture_node_id: layer_source_id,
                     });
@@ -1589,6 +1633,10 @@ mod tests {
         assert!(project.connect_image_link(blend, out));
         assert!(project.set_param_dropdown_index(blend, 1, 1));
         assert!(project.set_param_value(blend, 2, 0.75));
+        assert!(project.set_param_value(blend, 3, 0.2));
+        assert!(project.set_param_value(blend, 4, 0.3));
+        assert!(project.set_param_value(blend, 5, 0.4));
+        assert!(project.set_param_value(blend, 6, 0.5));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
         let mut eval_stack = Vec::new();
@@ -1609,10 +1657,18 @@ mod tests {
             TexRuntimeOp::Blend {
                 mode,
                 opacity,
+                bg_r,
+                bg_g,
+                bg_b,
+                bg_a,
                 base_texture_node_id,
                 layer_texture_node_id: Some(layer_id),
             } if mode == 1.0
                 && (opacity - 0.75).abs() < 1e-6
+                && (bg_r - 0.2).abs() < 1e-6
+                && (bg_g - 0.3).abs() < 1e-6
+                && (bg_b - 0.4).abs() < 1e-6
+                && (bg_a - 0.5).abs() < 1e-6
                 && base_texture_node_id == solid
                 && layer_id == circle
         ));
