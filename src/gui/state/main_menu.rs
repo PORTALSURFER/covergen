@@ -193,7 +193,11 @@ impl ExportMenuState {
             x: 0,
             y: 0,
             selected: 0,
-            directory: ".".to_string(),
+            directory: if cfg!(windows) {
+                "C:\\temp".to_string()
+            } else {
+                ".".to_string()
+            },
             file_name: "export.mp4".to_string(),
             exporting: false,
             preview_frame: 0,
