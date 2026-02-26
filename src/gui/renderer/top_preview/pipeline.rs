@@ -130,10 +130,39 @@ fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
 fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
-    let feather = max(u_op.p0.w, 0.0);
-    let dist = distance(v.uv, center);
-    let edge = smoothstep(radius + feather, radius - feather, dist);
-    let alpha = clamp(edge * clamp(u_op.p1.w, 0.0, 1.0), 0.0, 1.0);
+    let feather = max(u_op.p0.w, 0.0001);
+    let delta = v.uv - center;
+    let dist = length(delta);
+    let pi = 3.14159265359;
+    let tau = 6.28318530718;
+
+    var boundary = radius;
+    let segments = u_op.p2.z;
+    if (segments >= 3.0) {
+        let n = floor(segments);
+        let half_sector = pi / n;
+        let sector = tau / n;
+        let theta = atan2(delta.y, delta.x);
+        let wrapped = fract((theta + pi) / sector) * sector;
+        let local = abs(wrapped - half_sector);
+        boundary = radius * cos(half_sector) / max(cos(local), 0.0001);
+    }
+
+    let edge = smoothstep(boundary + feather, boundary - feather, dist);
+    let theta_norm = fract((atan2(delta.y, delta.x) + pi) / tau);
+    let start_norm = fract(u_op.p2.x / 360.0);
+    let end_norm = fract(u_op.p2.y / 360.0);
+    let arc_span = abs(u_op.p2.y - u_op.p2.x);
+    var arc_mask = 1.0;
+    if (arc_span < 359.9) {
+        if (start_norm <= end_norm) {
+            arc_mask = select(0.0, 1.0, theta_norm >= start_norm && theta_norm <= end_norm);
+        } else {
+            arc_mask = select(0.0, 1.0, theta_norm >= start_norm || theta_norm <= end_norm);
+        }
+    }
+
+    let alpha = clamp(edge * arc_mask * clamp(u_op.p1.w, 0.0, 1.0), 0.0, 1.0);
     let fg = clamp(u_op.p1.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(fg, alpha);
 }

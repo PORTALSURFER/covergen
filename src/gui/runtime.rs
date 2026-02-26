@@ -21,6 +21,9 @@ pub(crate) enum TopRuntimeOp {
         center_y: f32,
         radius: f32,
         feather: f32,
+        arc_start_deg: f32,
+        arc_end_deg: f32,
+        segment_count: f32,
         color_r: f32,
         color_g: f32,
         color_b: f32,
@@ -94,6 +97,10 @@ enum SceneMeshProfile {
 struct SceneMeshState {
     profile: SceneMeshProfile,
     radius: f32,
+    arc_start_deg: f32,
+    arc_end_deg: f32,
+    order: f32,
+    segment_count: f32,
 }
 
 /// Compiled GUI runtime graph rooted at `io.window_out`.
@@ -171,6 +178,9 @@ impl GuiCompiledRuntime {
                         feather: project
                             .node_param_value(step.node_id, "feather", time_secs, eval_stack)
                             .unwrap_or(0.06),
+                        arc_start_deg: 0.0,
+                        arc_end_deg: 360.0,
+                        segment_count: 0.0,
                         color_r: project
                             .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
                             .unwrap_or(0.9),
@@ -193,6 +203,10 @@ impl GuiCompiledRuntime {
                     mesh = Some(SceneMeshState {
                         profile: SceneMeshProfile::Sphere,
                         radius,
+                        arc_start_deg: 0.0,
+                        arc_end_deg: 360.0,
+                        order: 3.0,
+                        segment_count: 0.0,
                     });
                     scene_ready = false;
                 }
@@ -201,9 +215,29 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "radius", time_secs, eval_stack)
                         .unwrap_or(0.28)
                         .max(0.01);
+                    let arc_start_deg = project
+                        .node_param_value(step.node_id, "arc_start", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 360.0);
+                    let arc_end_deg = project
+                        .node_param_value(step.node_id, "arc_end", time_secs, eval_stack)
+                        .unwrap_or(360.0)
+                        .clamp(0.0, 360.0);
+                    let order = project
+                        .node_param_value(step.node_id, "order", time_secs, eval_stack)
+                        .unwrap_or(3.0)
+                        .clamp(2.0, 5.0);
+                    let segment_count = project
+                        .node_param_value(step.node_id, "divisions", time_secs, eval_stack)
+                        .unwrap_or(64.0)
+                        .clamp(3.0, 512.0);
                     mesh = Some(SceneMeshState {
                         profile: SceneMeshProfile::CircleNurbs,
                         radius,
+                        arc_start_deg,
+                        arc_end_deg,
+                        order,
+                        segment_count,
                     });
                     scene_ready = false;
                 }
@@ -305,7 +339,11 @@ impl GuiCompiledRuntime {
                             radius: (mesh_state.radius * entity_state.scale).max(0.01),
                             feather: project
                                 .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
-                                .unwrap_or(0.01),
+                                .unwrap_or(0.01)
+                                * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35),
+                            arc_start_deg: mesh_state.arc_start_deg,
+                            arc_end_deg: mesh_state.arc_end_deg,
+                            segment_count: mesh_state.segment_count,
                             color_r: entity_state.color_r,
                             color_g: entity_state.color_g,
                             color_b: entity_state.color_b,
@@ -553,6 +591,45 @@ mod tests {
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
+    }
+
+    #[test]
+    fn circle_nurbs_params_propagate_to_circle_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+        assert!(project.connect_image_link(circle, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        assert!(project.set_param_value(circle, 1, 30.0));
+        assert!(project.set_param_value(circle, 2, 150.0));
+        assert!(project.set_param_value(circle, 3, 2.0));
+        assert!(project.set_param_value(circle, 4, 12.0));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        match ops[0] {
+            TopRuntimeOp::Circle {
+                arc_start_deg,
+                arc_end_deg,
+                segment_count,
+                feather,
+                ..
+            } => {
+                assert_eq!(arc_start_deg, 30.0);
+                assert_eq!(arc_end_deg, 150.0);
+                assert_eq!(segment_count, 12.0);
+                assert!(feather > 0.01);
+            }
+            _ => panic!("expected circle op"),
+        }
     }
 
     #[test]
