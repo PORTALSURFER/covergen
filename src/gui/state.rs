@@ -1,5 +1,6 @@
 //! Shared GUI session state and per-frame input models.
 
+use super::help::HelpModalContent;
 use crate::runtime_config::V2Config;
 
 mod add_menu;
@@ -39,6 +40,7 @@ pub(crate) struct InputSnapshot {
     pub(crate) toggle_pause: bool,
     pub(crate) new_project: bool,
     pub(crate) focus_all: bool,
+    pub(crate) open_help: bool,
     pub(crate) toggle_node_open: bool,
     pub(crate) toggle_add_menu: bool,
     pub(crate) toggle_main_menu: bool,
@@ -215,6 +217,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_export_menu_item: Option<usize>,
     pub(crate) pending_app_action: Option<PendingAppAction>,
     pub(crate) request_new_project: bool,
+    pub(crate) help_modal: Option<HelpModalContent>,
     pub(crate) invalidation: GuiInvalidation,
 }
 
@@ -255,6 +258,7 @@ impl PreviewState {
             hover_export_menu_item: None,
             pending_app_action: None,
             request_new_project: false,
+            help_modal: None,
             invalidation: GuiInvalidation {
                 nodes: 1,
                 wires: 1,

@@ -5,6 +5,7 @@
 
 mod app;
 mod geometry;
+mod help;
 mod input;
 mod interaction;
 mod perf;

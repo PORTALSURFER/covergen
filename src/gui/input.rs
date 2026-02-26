@@ -25,6 +25,7 @@ pub(crate) struct InputCollector {
     toggle_pause: bool,
     new_project: bool,
     focus_all: bool,
+    open_help: bool,
     toggle_node_open: bool,
     toggle_add_menu: bool,
     toggle_main_menu: bool,
@@ -100,6 +101,7 @@ impl InputCollector {
             toggle_pause: self.toggle_pause,
             new_project: self.new_project,
             focus_all: self.focus_all,
+            open_help: self.open_help,
             toggle_node_open: self.toggle_node_open,
             toggle_add_menu: self.toggle_add_menu,
             toggle_main_menu: self.toggle_main_menu,
@@ -122,6 +124,7 @@ impl InputCollector {
         self.toggle_pause = false;
         self.new_project = false;
         self.focus_all = false;
+        self.open_help = false;
         self.toggle_node_open = false;
         self.toggle_add_menu = false;
         self.toggle_main_menu = false;
@@ -219,6 +222,7 @@ impl InputCollector {
             KeyCode::Tab => self.toggle_node_open = true,
             KeyCode::KeyP => self.toggle_pause = true,
             KeyCode::KeyF => self.focus_all = true,
+            KeyCode::F1 => self.open_help = true,
             KeyCode::ArrowUp => self.menu_up = true,
             KeyCode::ArrowDown => self.menu_down = true,
             KeyCode::ArrowLeft => self.param_dec = true,

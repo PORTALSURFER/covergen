@@ -458,6 +458,31 @@ pub(crate) struct NodeParamSlot {
     widget: NodeParamWidget,
 }
 
+/// Immutable descriptor for one node-parameter row.
+#[derive(Clone, Debug)]
+pub(crate) struct NodeParamDescriptor {
+    /// Stable parameter key.
+    pub(crate) key: &'static str,
+    /// User-facing row label.
+    pub(crate) label: &'static str,
+    /// Current scalar value after edits/bind resolution.
+    pub(crate) value: f32,
+    /// Cached formatted UI text for the current value.
+    pub(crate) value_text: String,
+    /// Lower clamp bound.
+    pub(crate) min: f32,
+    /// Upper clamp bound.
+    pub(crate) max: f32,
+    /// Increment/decrement step size.
+    pub(crate) step: f32,
+    /// Source node id for signal binds when present.
+    pub(crate) signal_source: Option<u32>,
+    /// Source node id for texture binds when present.
+    pub(crate) texture_source: Option<u32>,
+    /// Parameter widget flavor.
+    pub(crate) widget: NodeParamWidget,
+}
+
 /// Read-only parameter view for rendering node UI.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeParamView<'a> {
@@ -1999,6 +2024,32 @@ impl GuiProject {
         }
         let index = param_index.min(node.params.len().saturating_sub(1));
         node.params.get(index).map(|slot| slot.value_text.as_str())
+    }
+
+    /// Return full descriptor details for one parameter row.
+    pub(crate) fn node_param_descriptor(
+        &self,
+        node_id: u32,
+        param_index: usize,
+    ) -> Option<NodeParamDescriptor> {
+        let node = self.node(node_id)?;
+        if node.params.is_empty() {
+            return None;
+        }
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        let slot = node.params.get(index)?;
+        Some(NodeParamDescriptor {
+            key: slot.key,
+            label: slot.label,
+            value: slot.value,
+            value_text: slot.value_text.clone(),
+            min: slot.min,
+            max: slot.max,
+            step: slot.step,
+            signal_source: slot.signal_source,
+            texture_source: slot.texture_source,
+            widget: slot.widget,
+        })
     }
 
     /// Return true when a node is currently expanded.

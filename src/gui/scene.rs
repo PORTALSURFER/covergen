@@ -47,6 +47,11 @@ const MENU_CATEGORY_TEXT: Color = Color::argb(0xFFBEBEBE);
 const MENU_CATEGORY_CHIP_TEXT: Color = Color::argb(0xFF111111);
 const MENU_CATEGORY_CHIP_BORDER: Color = Color::argb(0xFF0A0A0A);
 const MENU_SEARCH_BG: Color = Color::argb(0xFF121212);
+const HELP_BACKDROP: Color = Color::argb(0x88000000);
+const HELP_PANEL_BG: Color = Color::argb(0xFF111111);
+const HELP_TITLE: Color = Color::argb(0xFFEAEAEA);
+const HELP_TEXT: Color = Color::argb(0xFFD0D0D0);
+const HELP_HINT: Color = Color::argb(0xFFA7A7A7);
 const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
@@ -237,7 +242,7 @@ impl SceneBuilder {
         if self.cached_overlays_epoch != Some(overlays_epoch) {
             self.cached_overlays_epoch = Some(overlays_epoch);
             self.frame.dirty.overlays = true;
-            self.rebuild_overlays_layer(project, state);
+            self.rebuild_overlays_layer(project, state, panel_width, height);
         }
 
         let timeline_epoch = state.invalidation.timeline;
@@ -286,7 +291,13 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
     }
 
-    fn rebuild_overlays_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+    fn rebuild_overlays_layer(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        panel_width: usize,
+        panel_height: usize,
+    ) {
         let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
         self.clear_active_layer();
@@ -298,6 +309,7 @@ impl SceneBuilder {
         self.push_menu(state);
         self.push_main_menu(state);
         self.push_export_menu(state);
+        self.push_help_modal(state, panel_width, panel_height);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
     }
 
@@ -746,6 +758,65 @@ impl SceneBuilder {
             );
         }
         self.label_scratch = menu_label_scratch;
+    }
+
+    fn push_help_modal(&mut self, state: &PreviewState, panel_width: usize, panel_height: usize) {
+        let Some(help) = state.help_modal.as_ref() else {
+            return;
+        };
+        let editor_h = editor_panel_height(panel_height) as i32;
+        if panel_width == 0 || editor_h <= 0 {
+            return;
+        }
+        let panel_rect = Rect::new(0, 0, panel_width as i32, editor_h);
+        self.push_rect(panel_rect, HELP_BACKDROP);
+
+        let max_modal_w = (panel_width as i32 - 32).max(280);
+        let modal_w = max_modal_w.clamp(280, 560);
+        let title_h = 18;
+        let line_h = 14;
+        let footer_h = 16;
+        let pad = 10;
+        let min_modal_h = 112;
+        let desired_h = min_modal_h + (help.lines.len() as i32 * line_h);
+        let max_modal_h = (editor_h - 28).max(min_modal_h);
+        let modal_h = desired_h.min(max_modal_h);
+        let modal_x = ((panel_width as i32 - modal_w) / 2).max(8);
+        let modal_y = ((editor_h - modal_h) / 2).max(8);
+        let modal = Rect::new(modal_x, modal_y, modal_w, modal_h);
+        self.push_rect(modal, HELP_PANEL_BG);
+        self.push_border(modal, MENU_BORDER);
+
+        self.push_text(
+            modal.x + pad,
+            modal.y + pad,
+            help.title.as_str(),
+            HELP_TITLE,
+        );
+        let hint = "F1/click to close";
+        self.push_text(
+            modal.x + modal.w - self.text_renderer.measure_text_width(hint, 1.0) - pad,
+            modal.y + pad,
+            hint,
+            HELP_HINT,
+        );
+
+        let body_y = modal.y + pad + title_h;
+        let body_h = modal.h - title_h - footer_h - (pad * 2);
+        let visible_lines = (body_h / line_h).max(0) as usize;
+        let mut y = body_y;
+        for line in help.lines.iter().take(visible_lines) {
+            self.push_text(modal.x + pad, y, line.as_str(), HELP_TEXT);
+            y += line_h;
+        }
+        if help.lines.len() > visible_lines && visible_lines > 0 {
+            self.push_text(
+                modal.x + pad,
+                modal.y + modal.h - pad - footer_h,
+                "...",
+                HELP_HINT,
+            );
+        }
     }
 
     fn push_timeline(&mut self, state: &PreviewState, viewport_width: usize, panel_height: usize) {

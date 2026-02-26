@@ -4,6 +4,7 @@ use crate::runtime_config::V2Config;
 use std::time::Duration;
 
 use super::geometry::Rect;
+use super::help::{build_global_help_modal, build_node_help_modal, build_param_help_modal};
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
     output_pin_center, GraphBounds, GuiProject, ProjectNode, ResourceKind,
@@ -35,6 +36,12 @@ struct CutLink {
     source_id: u32,
     target_id: u32,
     param_index: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HelpTarget {
+    Node(u32),
+    Param { node_id: u32, param_index: usize },
 }
 
 /// Apply one frame of input actions to project/editor state.
@@ -89,8 +96,17 @@ pub(crate) fn apply_preview_actions(
         state.hover_main_menu_item = None;
         state.hover_export_menu_item = None;
         state.pending_app_action = None;
+        state.help_modal = None;
         state.invalidation.invalidate_all();
         changed = true;
+    }
+
+    let (help_changed, help_consumed) =
+        handle_help_input(&input, project, panel_width, panel_height, state);
+    changed |= help_changed;
+    if help_consumed {
+        state.prev_left_down = input.left_down;
+        return changed;
     }
 
     let (timeline_changed, timeline_consumed) =
@@ -198,6 +214,89 @@ pub(crate) fn apply_preview_actions(
     }
     state.prev_left_down = input.left_down;
     changed
+}
+
+fn handle_help_input(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    let close_requested = input.open_help || input.left_clicked || input.right_clicked;
+    if state.help_modal.is_some() {
+        if close_requested {
+            state.help_modal = None;
+            state.invalidation.invalidate_overlays();
+            return (true, true);
+        }
+        return (false, true);
+    }
+    if !input.open_help {
+        return (false, false);
+    }
+    let modal = match resolve_help_target(input, project, panel_width, panel_height, state) {
+        Some(HelpTarget::Param {
+            node_id,
+            param_index,
+        }) => build_param_help_modal(project, node_id, param_index)
+            .or_else(|| build_node_help_modal(project, node_id))
+            .unwrap_or_else(build_global_help_modal),
+        Some(HelpTarget::Node(node_id)) => {
+            build_node_help_modal(project, node_id).unwrap_or_else(build_global_help_modal)
+        }
+        None => build_global_help_modal(),
+    };
+    state.help_modal = Some(modal);
+    state.menu = AddNodeMenuState::closed();
+    state.main_menu = MainMenuState::closed();
+    state.export_menu = super::state::ExportMenuState::closed();
+    state.drag = None;
+    state.wire_drag = None;
+    state.link_cut = None;
+    state.pan_drag = None;
+    state.right_marquee = None;
+    state.param_edit = None;
+    state.param_dropdown = None;
+    state.hover_param_target = None;
+    state.hover_dropdown_item = None;
+    state.invalidation.invalidate_overlays();
+    (true, true)
+}
+
+fn resolve_help_target(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+) -> Option<HelpTarget> {
+    if let Some((mx, my)) = input.mouse_pos {
+        if inside_panel(mx, my, panel_width, panel_height) {
+            let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+            if let Some(node_id) = project.node_at(graph_x, graph_y) {
+                if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+                    return Some(HelpTarget::Param {
+                        node_id,
+                        param_index,
+                    });
+                }
+                return Some(HelpTarget::Node(node_id));
+            }
+        }
+    }
+    if let Some(target) = state.hover_param_target {
+        return Some(HelpTarget::Param {
+            node_id: target.node_id,
+            param_index: target.param_index,
+        });
+    }
+    state
+        .hover_node
+        .or(state.hover_input_pin)
+        .or(state.hover_output_pin)
+        .or(state.active_node)
+        .map(HelpTarget::Node)
 }
 
 /// Advance timeline frame counter at the configured playback frame rate.
@@ -2675,11 +2774,11 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
-        handle_delete_selected_nodes, handle_drag_input, handle_link_cut, handle_node_open_toggle,
-        handle_param_edit_input, handle_param_wheel_input, handle_right_selection,
-        handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
-        move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
-        AddNodeMenuEntry, RightMarqueeState,
+        handle_delete_selected_nodes, handle_drag_input, handle_help_input, handle_link_cut,
+        handle_node_open_toggle, handle_param_edit_input, handle_param_wheel_input,
+        handle_right_selection, handle_wire_input, insert_param_char, marquee_moved,
+        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
+        update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::geometry::Rect;
     use crate::gui::project::{
@@ -2803,6 +2902,43 @@ mod tests {
         assert_eq!(project.edge_count(), 0);
         assert!(state.selected_nodes.is_empty());
         assert!(state.active_node.is_none());
+    }
+
+    #[test]
+    fn f1_over_node_opens_help_modal() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let input = InputSnapshot {
+            mouse_pos: Some((90, 90)),
+            open_help: true,
+            ..InputSnapshot::default()
+        };
+        let (changed, consumed) = handle_help_input(&input, &project, 420, 480, &mut state);
+        assert!(changed);
+        assert!(consumed);
+        let modal = state.help_modal.as_ref().expect("help modal should open");
+        assert!(modal.title.starts_with("Node Help:"));
+        assert!(modal
+            .lines
+            .iter()
+            .any(|line| line.contains(&format!("#{solid}"))));
+    }
+
+    #[test]
+    fn help_modal_closes_on_click() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let _solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.help_modal = Some(crate::gui::help::build_global_help_modal());
+        let close = InputSnapshot {
+            left_clicked: true,
+            ..InputSnapshot::default()
+        };
+        let (changed, consumed) = handle_help_input(&close, &project, 420, 480, &mut state);
+        assert!(changed);
+        assert!(consumed);
+        assert!(state.help_modal.is_none());
     }
 
     #[test]
