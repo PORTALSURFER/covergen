@@ -968,14 +968,19 @@ impl SceneBuilder {
 
         let mut label = std::mem::take(&mut self.label_scratch);
         label.clear();
+        let bars_label = if let Some(audio_bars) = state.export_menu.derived_bars_from_audio() {
+            format!("{audio_bars:.2} bars (wav)")
+        } else {
+            format!("{} bars", state.export_menu.parsed_bars())
+        };
         let _ = write!(
             &mut label,
-            "Frame {}  [{}, {}]  |  {:.2} BPM x {} bars ({} / bar)  |  vol {:.2}",
+            "Frame {}  [{}, {}]  |  {:.2} BPM x {} ({} / bar)  |  vol {:.2}",
             state.frame_index,
             TIMELINE_START_FRAME,
             end_frame,
             state.export_menu.parsed_bpm(),
-            state.export_menu.parsed_bars(),
+            bars_label,
             state.export_menu.parsed_beats_per_bar(),
             state.export_menu.parsed_audio_volume()
         );

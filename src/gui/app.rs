@@ -379,6 +379,11 @@ impl GuiApp {
         }
         match event {
             WindowEvent::CloseRequested => true,
+            WindowEvent::DroppedFile(path) => {
+                self.handle_dropped_file(path.as_path());
+                self.needs_redraw = true;
+                false
+            }
             WindowEvent::Resized(size) => {
                 self.renderer.resize(size.width, size.height);
                 self.panel_width = clamp_panel_width(self.panel_width, self.renderer.width());
@@ -404,6 +409,38 @@ impl GuiApp {
                 false
             }
         }
+    }
+
+    /// Assign a dropped `.wav` file path into the export audio field.
+    fn handle_dropped_file(&mut self, path: &Path) {
+        if !is_wav_path(path) {
+            self.state.export_menu.set_status(format!(
+                "Ignored dropped file (expected .wav): {}",
+                path.display()
+            ));
+            self.state.invalidation.invalidate_overlays();
+            return;
+        }
+        self.state.export_menu.audio_wav = path.to_string_lossy().to_string();
+        self.state.export_menu.refresh_audio_duration_cache();
+        let timeline_frames = self
+            .state
+            .export_menu
+            .timeline_total_frames(self.config.animation.fps);
+        self.state.export_menu.preview_total = timeline_frames;
+        if let Some(duration_secs) = self.state.export_menu.audio_duration_secs() {
+            self.state.export_menu.set_status(format!(
+                "Audio WAV assigned: {} ({duration_secs:.2}s)",
+                path.display()
+            ));
+        } else {
+            self.state.export_menu.set_status(format!(
+                "Audio WAV assigned: {} (duration unavailable)",
+                path.display()
+            ));
+        }
+        self.state.invalidation.invalidate_timeline();
+        self.state.invalidation.invalidate_overlays();
     }
 
     /// Toggle window fullscreen mode on `F11` key press.
@@ -486,6 +523,7 @@ impl GuiApp {
             );
         }
         scene_dirty |= self.handle_pending_app_actions()?;
+        self.state.export_menu.refresh_audio_duration_cache();
         if self.start_export_requested && self.export_session.is_none() {
             if self.state.frame_index != 0 {
                 self.state.frame_index = 0;
@@ -761,12 +799,7 @@ impl GuiApp {
                 self.start_export_requested = false;
                 return Ok(());
             }
-            let is_wav = audio_path
-                .extension()
-                .and_then(|value| value.to_str())
-                .map(|value| value.eq_ignore_ascii_case("wav"))
-                .unwrap_or(false);
-            if !is_wav {
+            if !is_wav_path(audio_path.as_path()) {
                 self.state
                     .export_menu
                     .set_status("Export failed: audio file must be a .wav path for timeline sync");
@@ -1170,6 +1203,13 @@ fn benchmark_frame_limit(config: &V2Config) -> Option<u64> {
 
 fn is_benchmark_mode(config: &V2Config) -> bool {
     config.gui.benchmark_drag || config.gui.benchmark_frames > 0
+}
+
+fn is_wav_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("wav"))
+        .unwrap_or(false)
 }
 
 /// Return autosave file path in the process working directory.
