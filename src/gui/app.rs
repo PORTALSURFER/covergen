@@ -21,6 +21,7 @@ use super::project::{GuiProject, PersistedGuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PreviewState};
+use super::timeline::editor_panel_height;
 use super::top_view::TopViewerGenerator;
 
 const MIN_PANEL_WIDTH: usize = 260;
@@ -233,6 +234,7 @@ impl GuiApp {
                 &self.config,
                 snapshot,
                 &mut self.project,
+                self.renderer.width(),
                 self.panel_width,
                 self.renderer.height(),
                 &mut self.state,
@@ -532,7 +534,8 @@ fn clamp_panel_width(requested: usize, viewport_width: usize) -> usize {
 }
 
 fn on_panel_divider(mx: i32, my: i32, panel_width: usize, panel_height: usize) -> bool {
-    if my < 0 || my >= panel_height as i32 {
+    let editor_h = editor_panel_height(panel_height) as i32;
+    if my < 0 || my >= editor_h {
         return false;
     }
     let divider_x = panel_width as i32 - 1;

@@ -13,6 +13,7 @@ use crate::runtime_config::GuiVsync;
 
 use super::scene::{Color, SceneFrame, SceneLayer};
 use super::text::GuiTextRenderer;
+use super::timeline::editor_panel_height;
 use super::top_view::TopViewerFrame;
 use setup::{
     create_pipeline, create_uniform_bind_group, create_vertex_buffer, grow_capacity,
@@ -204,6 +205,7 @@ pub(crate) struct GuiRenderer {
     edges_geometry: LayerGpuGeometry,
     nodes_geometry: LayerGpuGeometry,
     overlays_geometry: LayerGpuGeometry,
+    timeline_geometry: LayerGpuGeometry,
     hud_geometry: LayerGpuGeometry,
     hud_layer: SceneLayer,
     hud_text: GuiTextRenderer,
@@ -273,6 +275,7 @@ impl GuiRenderer {
         let edges_geometry = LayerGpuGeometry::new(&device, "edges", 2048);
         let nodes_geometry = LayerGpuGeometry::new(&device, "nodes", 8192);
         let overlays_geometry = LayerGpuGeometry::new(&device, "overlays", 2048);
+        let timeline_geometry = LayerGpuGeometry::new(&device, "timeline", 1024);
         let hud_geometry = LayerGpuGeometry::new(&device, "hud", 512);
 
         Ok(Self {
@@ -289,6 +292,7 @@ impl GuiRenderer {
             edges_geometry,
             nodes_geometry,
             overlays_geometry,
+            timeline_geometry,
             hud_geometry,
             hud_layer: SceneLayer::default(),
             hud_text: GuiTextRenderer::default(),
@@ -421,6 +425,16 @@ impl GuiRenderer {
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
             stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
+        if frame.dirty.timeline {
+            let layer = self.timeline_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.timeline,
+                "timeline",
+            );
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
+        }
         stats
     }
 
@@ -474,7 +488,7 @@ impl GuiRenderer {
                 timestamp_writes: None,
             });
             let editor_scissor_w = panel_width.min(self.config.width as usize) as u32;
-            let editor_scissor_h = self.config.height;
+            let editor_scissor_h = editor_panel_height(self.config.height as usize).max(1) as u32;
 
             self.top_preview.draw(&mut pass, &self.uniform_bind_group);
 
@@ -485,6 +499,7 @@ impl GuiRenderer {
             self.draw_layer(&mut pass, &self.overlays_geometry);
 
             pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+            self.draw_layer(&mut pass, &self.timeline_geometry);
             self.draw_layer(&mut pass, &self.hud_geometry);
         }
         self.queue.submit(std::iter::once(encoder.finish()));

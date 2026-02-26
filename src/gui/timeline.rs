@@ -9,28 +9,28 @@ pub(crate) const TIMELINE_TOTAL_FRAMES: u32 = 1_800;
 /// Last frame index on the timeline (inclusive).
 pub(crate) const TIMELINE_END_FRAME: u32 = TIMELINE_START_FRAME + TIMELINE_TOTAL_FRAMES - 1;
 /// Fixed timeline strip height in panel pixels.
-pub(crate) const TIMELINE_HEIGHT_PX: i32 = 46;
+pub(crate) const TIMELINE_HEIGHT_PX: i32 = 30;
 
-const TIMELINE_PAD_X: i32 = 8;
-const TIMELINE_PAD_Y: i32 = 8;
-const TRANSPORT_BTN_W: i32 = 24;
+const TIMELINE_PAD_X: i32 = 6;
+const TIMELINE_PAD_Y: i32 = 4;
+const TRANSPORT_BTN_W: i32 = 20;
 const TRANSPORT_GAP: i32 = 6;
 const TRACK_LEFT_GAP: i32 = 12;
-const TRACK_RIGHT_PAD: i32 = 40;
-const TRACK_HEIGHT: i32 = 8;
+const TRACK_RIGHT_PAD: i32 = 12;
+const TRACK_HEIGHT: i32 = 6;
 
-/// Return panel height available for node editing above the timeline.
+/// Return panel height available for content above the timeline strip.
 pub(crate) fn editor_panel_height(panel_height: usize) -> usize {
     panel_height.saturating_sub(TIMELINE_HEIGHT_PX.max(0) as usize)
 }
 
-/// Return bottom timeline rectangle for the left editor pane.
-pub(crate) fn timeline_rect(panel_width: usize, panel_height: usize) -> Rect {
+/// Return bottom timeline rectangle across the full root viewport.
+pub(crate) fn timeline_rect(viewport_width: usize, panel_height: usize) -> Rect {
     let height = TIMELINE_HEIGHT_PX.min(panel_height as i32).max(1);
     Rect::new(
         0,
         panel_height as i32 - height,
-        panel_width as i32,
+        viewport_width as i32,
         height.max(1),
     )
 }

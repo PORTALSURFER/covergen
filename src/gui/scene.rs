@@ -21,8 +21,8 @@ use super::state::{
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
 use super::timeline::{
-    pause_button_rect, play_button_rect, timeline_rect, track_rect, track_x_for_frame,
-    TIMELINE_END_FRAME, TIMELINE_START_FRAME,
+    editor_panel_height, pause_button_rect, play_button_rect, timeline_rect, track_rect,
+    track_x_for_frame, TIMELINE_END_FRAME, TIMELINE_START_FRAME,
 };
 
 const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
@@ -123,6 +123,7 @@ pub(crate) struct SceneFrame {
     pub(crate) edges: SceneLayer,
     pub(crate) nodes: SceneLayer,
     pub(crate) overlays: SceneLayer,
+    pub(crate) timeline: SceneLayer,
     pub(crate) dirty: SceneLayerDirty,
     pub(crate) ui_alloc_bytes: u64,
 }
@@ -141,12 +142,13 @@ pub(crate) struct SceneLayerDirty {
     pub(crate) edges: bool,
     pub(crate) nodes: bool,
     pub(crate) overlays: bool,
+    pub(crate) timeline: bool,
 }
 
 impl SceneLayerDirty {
     /// Return true when any retained layer needs a GPU buffer update.
     pub(crate) fn any(self) -> bool {
-        self.static_panel || self.edges || self.nodes || self.overlays
+        self.static_panel || self.edges || self.nodes || self.overlays || self.timeline
     }
 }
 
@@ -157,6 +159,7 @@ enum ActiveLayer {
     #[default]
     Nodes,
     Overlays,
+    Timeline,
 }
 
 /// Stateful scene builder that reuses allocation capacity across frames.
@@ -168,6 +171,7 @@ pub(crate) struct SceneBuilder {
     cached_nodes_key: Option<u64>,
     cached_edges_key: Option<u64>,
     cached_overlays_key: Option<u64>,
+    cached_timeline_key: Option<u64>,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
@@ -208,7 +212,14 @@ impl SceneBuilder {
         if self.cached_overlays_key != Some(overlays_key) {
             self.cached_overlays_key = Some(overlays_key);
             self.frame.dirty.overlays = true;
-            self.rebuild_overlays_layer(project, state, panel_width, height);
+            self.rebuild_overlays_layer(project, state);
+        }
+
+        let timeline_key = timeline_layer_key(state, width, height);
+        if self.cached_timeline_key != Some(timeline_key) {
+            self.cached_timeline_key = Some(timeline_key);
+            self.frame.dirty.timeline = true;
+            self.rebuild_timeline_layer(state, width, height);
         }
         self.frame.ui_alloc_bytes = self.frame_alloc_bytes;
         &self.frame
@@ -224,9 +235,12 @@ impl SceneBuilder {
         let before = self.layer_capacity(ActiveLayer::StaticPanel);
         self.set_active_layer(ActiveLayer::StaticPanel);
         self.clear_active_layer();
-        self.push_rect(Rect::new(0, 0, panel_width as i32, height as i32), PANEL_BG);
-        let x = panel_width as i32 - 1;
-        self.push_line(x, 0, x, height as i32 - 1, BORDER_COLOR);
+        let editor_h = editor_panel_height(height) as i32;
+        if editor_h > 0 {
+            self.push_rect(Rect::new(0, 0, panel_width as i32, editor_h), PANEL_BG);
+            let x = panel_width as i32 - 1;
+            self.push_line(x, 0, x, editor_h.saturating_sub(1), BORDER_COLOR);
+        }
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::StaticPanel));
     }
 
@@ -247,13 +261,7 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
     }
 
-    fn rebuild_overlays_layer(
-        &mut self,
-        project: &GuiProject,
-        state: &PreviewState,
-        panel_width: usize,
-        panel_height: usize,
-    ) {
+    fn rebuild_overlays_layer(&mut self, project: &GuiProject, state: &PreviewState) {
         let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
         self.clear_active_layer();
@@ -263,8 +271,20 @@ impl SceneBuilder {
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
-        self.push_timeline(state, panel_width, panel_height);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
+    }
+
+    fn rebuild_timeline_layer(
+        &mut self,
+        state: &PreviewState,
+        viewport_width: usize,
+        height: usize,
+    ) {
+        let before = self.layer_capacity(ActiveLayer::Timeline);
+        self.set_active_layer(ActiveLayer::Timeline);
+        self.clear_active_layer();
+        self.push_timeline(state, viewport_width, height);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Timeline));
     }
 
     fn set_active_layer(&mut self, layer: ActiveLayer) {
@@ -592,11 +612,11 @@ impl SceneBuilder {
         self.label_scratch = menu_label_scratch;
     }
 
-    fn push_timeline(&mut self, state: &PreviewState, panel_width: usize, panel_height: usize) {
-        if panel_width == 0 || panel_height == 0 {
+    fn push_timeline(&mut self, state: &PreviewState, viewport_width: usize, panel_height: usize) {
+        if viewport_width == 0 || panel_height == 0 {
             return;
         }
-        let timeline = timeline_rect(panel_width, panel_height);
+        let timeline = timeline_rect(viewport_width, panel_height);
         let play_btn = play_button_rect(timeline);
         let pause_btn = pause_button_rect(timeline);
         let track = track_rect(timeline);
@@ -664,25 +684,12 @@ impl SceneBuilder {
 
         let mut label = std::mem::take(&mut self.label_scratch);
         label.clear();
-        let _ = write!(&mut label, "{}", TIMELINE_START_FRAME);
-        self.push_text(track.x, timeline.y + 4, label.as_str(), TIMELINE_TEXT);
-        label.clear();
-        let _ = write!(&mut label, "{}", TIMELINE_END_FRAME);
-        self.push_text(
-            track.x + track.w - 22,
-            timeline.y + 4,
-            label.as_str(),
-            TIMELINE_TEXT,
+        let _ = write!(
+            &mut label,
+            "Frame {}  [{}, {}]",
+            state.frame_index, TIMELINE_START_FRAME, TIMELINE_END_FRAME
         );
-        label.clear();
-        label.push_str("Frame ");
-        let _ = write!(&mut label, "{}", state.frame_index);
-        self.push_text(
-            track.x,
-            timeline.y + timeline.h - 16,
-            label.as_str(),
-            TIMELINE_TEXT,
-        );
+        self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
         self.label_scratch = label;
     }
 
@@ -1072,6 +1079,7 @@ impl SceneBuilder {
             ActiveLayer::Edges => &self.frame.edges,
             ActiveLayer::Nodes => &self.frame.nodes,
             ActiveLayer::Overlays => &self.frame.overlays,
+            ActiveLayer::Timeline => &self.frame.timeline,
         };
         (data.rects.capacity(), data.lines.capacity())
     }
@@ -1131,6 +1139,7 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
         ActiveLayer::Edges => &mut frame.edges,
         ActiveLayer::Nodes => &mut frame.nodes,
         ActiveLayer::Overlays => &mut frame.overlays,
+        ActiveLayer::Timeline => &mut frame.timeline,
     }
 }
 
@@ -1224,6 +1233,13 @@ fn overlays_layer_key(
     }
     hash = hash_u64(hash, panel_width as u64);
     hash = hash_u64(hash, panel_height as u64);
+    hash
+}
+
+fn timeline_layer_key(state: &PreviewState, viewport_width: usize, viewport_height: usize) -> u64 {
+    let mut hash = hash_start();
+    hash = hash_u64(hash, viewport_width as u64);
+    hash = hash_u64(hash, viewport_height as u64);
     hash = hash_u64(hash, state.frame_index as u64);
     hash = hash_u64(hash, state.paused as u64);
     hash = hash_u64(hash, state.timeline_scrub_active as u64);

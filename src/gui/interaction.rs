@@ -42,6 +42,7 @@ pub(crate) fn apply_preview_actions(
     config: &V2Config,
     input: InputSnapshot,
     project: &mut GuiProject,
+    viewport_width: usize,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
@@ -80,7 +81,7 @@ pub(crate) fn apply_preview_actions(
     }
 
     let (timeline_changed, timeline_consumed) =
-        handle_timeline_input(&input, panel_width, panel_height, state);
+        handle_timeline_input(&input, viewport_width, panel_height, state);
     changed |= timeline_changed;
     if timeline_consumed {
         state.drag = None;
@@ -204,13 +205,13 @@ pub(crate) fn step_timeline_if_running(
 
 fn handle_timeline_input(
     input: &InputSnapshot,
-    panel_width: usize,
+    viewport_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
 ) -> (bool, bool) {
     let mut changed = false;
     let mut consumed = false;
-    let timeline = timeline_rect(panel_width, panel_height);
+    let timeline = timeline_rect(viewport_width, panel_height);
     let play = play_button_rect(timeline);
     let pause = pause_button_rect(timeline);
     let track = track_rect(timeline);
@@ -367,7 +368,7 @@ fn handle_add_menu_toggle(
     let (x, y) = input
         .mouse_pos
         .unwrap_or((panel_width as i32 / 2, panel_height as i32 / 3));
-    state.menu = AddNodeMenuState::open_at(x, y, panel_width, panel_height);
+    state.menu = AddNodeMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;

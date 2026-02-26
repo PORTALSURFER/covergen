@@ -5,6 +5,7 @@
 
 use super::project::GuiProject;
 use super::runtime::GuiCompiledRuntime;
+use super::timeline::editor_panel_height;
 
 /// Re-exported TOP operation type consumed by preview rendering.
 pub(crate) use super::runtime::TopRuntimeOp as TopViewerOp;
@@ -70,7 +71,7 @@ impl TopViewerGenerator {
         timeline_fps: u32,
     ) {
         let panel_w = viewport_width.saturating_sub(panel_width) as u32;
-        let panel_h = viewport_height as u32;
+        let panel_h = editor_panel_height(viewport_height) as u32;
         let render_signature = project.render_signature();
         let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
             frame_index
@@ -432,6 +433,6 @@ mod tests {
         assert_eq!(frame.width, 780);
         assert_eq!(frame.height, 438);
         assert_eq!(frame.x, 420);
-        assert_eq!(frame.y, 231);
+        assert_eq!(frame.y, 216);
     }
 }
