@@ -5,6 +5,8 @@
 
 use std::error::Error;
 use std::fs::File;
+#[cfg(windows)]
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -218,6 +220,8 @@ pub struct RawVideoEncoder {
     data_path: ExportDataPath,
     width: u32,
     height: u32,
+    #[cfg(windows)]
+    fps: u32,
     frame_duration_ticks: u32,
     frame_ticks_accumulator: u64,
     frame_index: u64,
@@ -262,6 +266,8 @@ impl RawVideoEncoder {
             data_path,
             width,
             height,
+            #[cfg(windows)]
+            fps,
             frame_duration_ticks: MP4_MOVIE_TIMESCALE / fps,
             frame_ticks_accumulator: 0,
             frame_index: 0,
@@ -335,14 +341,44 @@ impl RawVideoEncoder {
                 frame_bgra,
             )?,
             #[cfg(windows)]
-            RawEncoderBackend::Nvenc(state) => Self::encode_nvenc_frame(
-                state,
-                self.width,
-                self.height,
-                self.frame_index,
-                self.frame_ticks_accumulator,
-                frame_bgra,
-            )?,
+            RawEncoderBackend::Nvenc(state) => {
+                match Self::encode_nvenc_frame_guarded(
+                    state,
+                    self.width,
+                    self.height,
+                    self.frame_index,
+                    self.frame_ticks_accumulator,
+                    frame_bgra,
+                ) {
+                    Ok(encoded) => encoded,
+                    Err(err) => {
+                        // We can safely switch codecs only before writing the first sample.
+                        if self.frame_index == 0 {
+                            eprintln!(
+                                "[export] NVENC frame encode failed, falling back to OpenH264: {err}"
+                            );
+                            let mut fallback =
+                                create_compatible_encoder(self.width, self.height, self.fps)?;
+                            let mut yuv = YUVBuffer::new(self.width as usize, self.height as usize);
+                            let encoded = Self::encode_openh264_frame(
+                                &mut fallback,
+                                &mut yuv,
+                                self.width,
+                                self.height,
+                                self.frame_index,
+                                frame_bgra,
+                            )?;
+                            self.backend = RawEncoderBackend::OpenH264 {
+                                encoder: fallback,
+                                yuv,
+                            };
+                            encoded
+                        } else {
+                            return Err(err.into());
+                        }
+                    }
+                }
+            }
         };
         if let Some(sps) = encoded.sps {
             self.sps = Some(sps);
@@ -405,6 +441,33 @@ impl RawVideoEncoder {
             }
         }
         Ok(payload)
+    }
+
+    #[cfg(windows)]
+    fn encode_nvenc_frame_guarded(
+        state: &mut NvencEncoderState,
+        width: u32,
+        height: u32,
+        frame_index: u64,
+        frame_timestamp: u64,
+        frame_bgra: &[u8],
+    ) -> Result<EncodedFramePayload, String> {
+        match panic::catch_unwind(AssertUnwindSafe(|| {
+            Self::encode_nvenc_frame(
+                state,
+                width,
+                height,
+                frame_index,
+                frame_timestamp,
+                frame_bgra,
+            )
+        })) {
+            Ok(result) => result.map_err(|err| err.to_string()),
+            Err(payload) => Err(format!(
+                "NVENC panicked while encoding frame {frame_index}: {}",
+                panic_payload_message(payload)
+            )),
+        }
     }
 
     #[cfg(windows)]
@@ -1033,6 +1096,17 @@ fn strip_annex_b_start_code(nal: &[u8]) -> &[u8] {
         return &nal[3..];
     }
     nal
+}
+
+#[cfg(windows)]
+fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(msg) = payload.downcast_ref::<&str>() {
+        return (*msg).to_string();
+    }
+    if let Some(msg) = payload.downcast_ref::<String>() {
+        return msg.clone();
+    }
+    "unknown panic payload".to_string()
 }
 
 #[cfg(test)]
