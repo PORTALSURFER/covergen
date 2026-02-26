@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    output_pin_center, GraphBounds, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
+    output_pin_center, GraphBounds, GuiProject, ProjectNode, ResourceKind,
     NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
@@ -1526,46 +1526,40 @@ fn resolve_texture_param_target_on_release(
     state: &PreviewState,
     wire: WireDragState,
 ) -> Option<HoverParamTarget> {
-    if let Some(target) = state.hover_param_target {
-        return Some(target);
+    if input.mouse_pos.is_none() {
+        return state.hover_param_target;
     }
     let (mx, my) = input.mouse_pos.unwrap_or((wire.cursor_x, wire.cursor_y));
     if !inside_panel(mx, my, panel_width, panel_height) {
         return None;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let node_id = project.node_at(graph_x, graph_y)?;
-    if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-        if project.param_accepts_texture_link(node_id, param_index) {
-            return Some(HoverParamTarget {
-                node_id,
-                param_index,
-            });
-        }
-    }
-    let node = project.node(node_id)?;
-    if node.kind() == ProjectNodeKind::TexFeedback {
-        // Feedback cards have one texture-target parameter used for loop
-        // sources. Any texture drop on this node should bind that parameter.
-        for param_index in 0..node.param_count() {
-            if project.param_accepts_texture_link(node_id, param_index) {
-                return Some(HoverParamTarget {
-                    node_id,
-                    param_index,
-                });
+    if let Some(target) = state.hover_param_target {
+        let node = project.node(target.node_id)?;
+        if let Some(row) = node_param_row_rect(node, target.param_index) {
+            if row.contains(graph_x, graph_y)
+                && project.param_accepts_texture_link(target.node_id, target.param_index)
+            {
+                return Some(target);
             }
         }
-        return None;
     }
-    // For non-feedback nodes, preserve regular input wiring when the drop
-    // lands on an input pin.
+    let node_id = project.node_at(graph_x, graph_y)?;
+    // Input-pin drops are explicit primary-input links.
     let pin_radius = pin_hit_radius_world(state);
     if project.input_pin_at(graph_x, graph_y, pin_radius, Some(wire.source_node_id))
         == Some(node_id)
     {
         return None;
     }
-    None
+    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
+    if !project.param_accepts_texture_link(node_id, param_index) {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id,
+        param_index,
+    })
 }
 
 fn begin_wire_drag_if_pin_hit(
@@ -2684,7 +2678,7 @@ mod tests {
     }
 
     #[test]
-    fn texture_drop_on_collapsed_feedback_card_binds_target_tex_param() {
+    fn texture_drop_on_collapsed_feedback_card_does_not_create_implicit_binding() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
@@ -2709,12 +2703,12 @@ mod tests {
             480,
             &mut state
         ));
-        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+        assert_eq!(project.texture_source_for_param(feedback, 0), None);
         assert_eq!(project.input_source_node_id(feedback), None);
     }
 
     #[test]
-    fn texture_drop_on_feedback_input_pin_binds_target_tex_parameter() {
+    fn texture_drop_on_feedback_input_pin_keeps_primary_input_wiring() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
@@ -2741,8 +2735,8 @@ mod tests {
             480,
             &mut state
         ));
-        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
-        assert_eq!(project.input_source_node_id(feedback), None);
+        assert_eq!(project.input_source_node_id(feedback), Some(solid));
+        assert_eq!(project.texture_source_for_param(feedback, 0), None);
     }
 
     #[test]
