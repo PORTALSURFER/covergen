@@ -40,6 +40,9 @@ const NODE_PARAM_FOOTER_PAD: i32 = 8;
 const HIT_BIN_SIZE: i32 = 128;
 const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
 const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
+const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
+const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
 
 /// Arc style options exposed by the `buf.circle_nurbs` node.
 const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
@@ -648,11 +651,9 @@ impl GuiProject {
                 continue;
             };
             for persisted_param in &persisted_node.params {
-                let Some(slot) = node
-                    .params
-                    .iter_mut()
-                    .find(|slot| slot.key == persisted_param.key.as_str())
-                else {
+                let Some(slot) = node.params.iter_mut().find(|slot| {
+                    persisted_param_key_matches(slot.key, persisted_param.key.as_str(), node.kind)
+                }) else {
                     continue;
                 };
                 let _ = set_slot_value(slot, persisted_param.value);
@@ -680,10 +681,13 @@ impl GuiProject {
                     continue;
                 };
                 let Some(param_index) = project.node(target_id).and_then(|target| {
-                    target
-                        .params
-                        .iter()
-                        .position(|slot| slot.key == persisted_param.key.as_str())
+                    target.params.iter().position(|slot| {
+                        persisted_param_key_matches(
+                            slot.key,
+                            persisted_param.key.as_str(),
+                            target.kind,
+                        )
+                    })
                 }) else {
                     continue;
                 };
@@ -697,10 +701,13 @@ impl GuiProject {
                     continue;
                 };
                 let Some(param_index) = project.node(target_id).and_then(|target| {
-                    target
-                        .params
-                        .iter()
-                        .position(|slot| slot.key == persisted_param.key.as_str())
+                    target.params.iter().position(|slot| {
+                        persisted_param_key_matches(
+                            slot.key,
+                            persisted_param.key.as_str(),
+                            target.kind,
+                        )
+                    })
                 }) else {
                     continue;
                 };
@@ -2081,7 +2088,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
         ProjectNodeKind::TexFeedback => vec![
-            param_texture_target("target_tex", "target_tex"),
+            param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::SceneEntity => vec![
@@ -2200,6 +2207,19 @@ fn format_param_value_text(value: f32) -> String {
 
 fn texture_target_placeholder() -> &'static str {
     TEXTURE_TARGET_PLACEHOLDER
+}
+
+fn persisted_param_key_matches(
+    slot_key: &'static str,
+    persisted_key: &str,
+    node_kind: ProjectNodeKind,
+) -> bool {
+    if slot_key == persisted_key {
+        return true;
+    }
+    node_kind == ProjectNodeKind::TexFeedback
+        && slot_key == FEEDBACK_HISTORY_PARAM_KEY
+        && persisted_key == LEGACY_FEEDBACK_HISTORY_PARAM_KEY
 }
 
 fn assert_param_label_fits(label: &'static str) {
@@ -3196,6 +3216,50 @@ mod tests {
         assert_eq!(restored.edge_count(), project.edge_count());
         assert_eq!(restored.render_signature(), project.render_signature());
         assert!(restored.has_signal_bindings());
+    }
+
+    #[test]
+    fn from_persisted_maps_legacy_feedback_target_tex_key() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 200, 40, 420, 480);
+        assert!(project.connect_texture_link_to_param(solid, feedback, 0));
+
+        let mut persisted = project.to_persisted();
+        for node in &mut persisted.nodes {
+            if node.kind != ProjectNodeKind::TexFeedback.stable_id() {
+                continue;
+            }
+            for param in &mut node.params {
+                if param.key == super::FEEDBACK_HISTORY_PARAM_KEY {
+                    param.key = super::LEGACY_FEEDBACK_HISTORY_PARAM_KEY.to_string();
+                }
+            }
+        }
+
+        let restored =
+            GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
+        let restored_solid = restored
+            .nodes()
+            .iter()
+            .find(|node| node.kind() == ProjectNodeKind::TexSolid)
+            .expect("solid should exist")
+            .id();
+        let restored_feedback = restored
+            .nodes()
+            .iter()
+            .find(|node| node.kind() == ProjectNodeKind::TexFeedback)
+            .expect("feedback should exist")
+            .id();
+        assert_eq!(
+            restored.texture_source_for_param(restored_feedback, 0),
+            Some(restored_solid)
+        );
+        let expected_label = format!("tex.solid#{restored_solid}");
+        assert_eq!(
+            restored.node_param_raw_text(restored_feedback, 0),
+            Some(expected_label.as_str())
+        );
     }
 
     #[test]

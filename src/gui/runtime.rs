@@ -5,6 +5,9 @@
 
 use super::project::{GuiProject, ProjectNodeKind};
 
+const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
+const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+
 /// One GPU operation emitted by GUI runtime evaluation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TopRuntimeOp {
@@ -493,7 +496,13 @@ impl GuiCompiledRuntime {
                 }
                 CompiledStepKind::Feedback => {
                     let history = project
-                        .texture_source_for_param_key(step.node_id, "target_tex")
+                        .texture_source_for_param_key(step.node_id, FEEDBACK_HISTORY_PARAM_KEY)
+                        .or_else(|| {
+                            project.texture_source_for_param_key(
+                                step.node_id,
+                                LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+                            )
+                        })
                         .map_or(
                             TopRuntimeFeedbackHistoryBinding::Internal {
                                 feedback_node_id: step.node_id,
