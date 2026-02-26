@@ -8,6 +8,10 @@ use std::fs::File;
 #[cfg(windows)]
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::DynamicImage;
@@ -62,6 +66,10 @@ const STREAM_FRAME_FORMAT_ENV: &str = "COVERGEN_STREAM_FRAME_FORMAT";
 const STREAM_ENCODER_ENV: &str = "COVERGEN_STREAM_ENCODER";
 #[cfg(windows)]
 const NVIDIA_VENDOR_ID: u32 = 0x10DE;
+#[cfg(windows)]
+static NVENC_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static NVENC_PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
 
 /// Raw frame layout accepted by the streaming encoder stdin path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -352,6 +360,7 @@ impl RawVideoEncoder {
                 ) {
                     Ok(encoded) => encoded,
                     Err(err) => {
+                        NVENC_RUNTIME_DISABLED.store(true, Ordering::Relaxed);
                         // We can safely switch codecs only before writing the first sample.
                         if self.frame_index == 0 {
                             eprintln!(
@@ -452,7 +461,7 @@ impl RawVideoEncoder {
         frame_timestamp: u64,
         frame_bgra: &[u8],
     ) -> Result<EncodedFramePayload, String> {
-        match panic::catch_unwind(AssertUnwindSafe(|| {
+        match catch_unwind_silent(AssertUnwindSafe(|| {
             Self::encode_nvenc_frame(
                 state,
                 width,
@@ -564,6 +573,18 @@ fn create_stream_backend(
         preference,
         StreamEncoderPreference::Auto | StreamEncoderPreference::Nvenc
     ) {
+        if matches!(preference, StreamEncoderPreference::Auto)
+            && NVENC_RUNTIME_DISABLED.load(Ordering::Relaxed)
+        {
+            let encoder = create_compatible_encoder(width, height, fps)?;
+            return Ok((
+                RawEncoderBackend::OpenH264 {
+                    encoder,
+                    yuv: YUVBuffer::new(width as usize, height as usize),
+                },
+                data_path_for_frame_format(frame_format),
+            ));
+        }
         match create_nvenc_backend(width, height, fps) {
             Ok(state) => {
                 return Ok((
@@ -575,6 +596,7 @@ fn create_stream_backend(
                 return Err(err);
             }
             Err(err) => {
+                NVENC_RUNTIME_DISABLED.store(true, Ordering::Relaxed);
                 eprintln!("[export] NVENC unavailable, falling back to OpenH264: {err}");
             }
         }
@@ -1107,6 +1129,22 @@ fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
         return msg.clone();
     }
     "unknown panic payload".to_string()
+}
+
+#[cfg(windows)]
+fn catch_unwind_silent<F, R>(func: F) -> std::thread::Result<R>
+where
+    F: FnOnce() -> R + std::panic::UnwindSafe,
+{
+    let _hook_guard = match NVENC_PANIC_HOOK_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poison) => poison.into_inner(),
+    };
+    let previous_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+    let result = panic::catch_unwind(func);
+    panic::set_hook(previous_hook);
+    result
 }
 
 #[cfg(test)]
