@@ -19,9 +19,9 @@ use super::viewer;
 use pipeline::{create_op_pipeline, OP_SHADER_SOURCE};
 
 const PREVIEW_BG: wgpu::Color = wgpu::Color {
-    r: 8.0 / 255.0,
-    g: 8.0 / 255.0,
-    b: 8.0 / 255.0,
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
     a: 1.0,
 };
 pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
@@ -481,9 +481,9 @@ impl TexPreviewRenderer {
         let viewer_sampler = viewer::create_texture_sampler(device);
         let op_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gui-tex-preview-op-sampler"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
         let viewer_shader = viewer::create_shader_module(device);
