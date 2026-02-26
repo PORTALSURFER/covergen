@@ -128,6 +128,18 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> VertexOut {
     return out;
 }
 
+fn seamless_angular_noise(theta: f32, freq: f32, phase: f32) -> f32 {
+    let safe_freq = max(freq, 0.01);
+    let low_freq = max(floor(safe_freq), 1.0);
+    let high_freq = low_freq + 1.0;
+    let freq_blend = fract(safe_freq);
+    let low_wave = sin(theta * low_freq + phase) * 0.7
+        + sin(theta * (low_freq * 2.17) - phase * 0.61) * 0.3;
+    let high_wave = sin(theta * high_freq + phase) * 0.7
+        + sin(theta * (high_freq * 2.17) - phase * 0.61) * 0.3;
+    return mix(low_wave, high_wave, freq_blend);
+}
+
 @fragment
 fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
     let fg = clamp(u_op.p0.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -166,8 +178,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     );
     let dist = length(delta);
     let theta = atan2(delta.y, delta.x);
-    let noise_wave = sin(theta * noise_freq + noise_phase) * 0.7
-        + sin(theta * (noise_freq * 2.17) - noise_phase * 0.61) * 0.3;
+    let noise_wave = seamless_angular_noise(theta, noise_freq, noise_phase);
     let noisy_radius = radius * (1.0 + noise_amount * 0.35 * noise_wave);
 
     var boundary = noisy_radius;
@@ -238,8 +249,7 @@ fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
     );
     let dist = length(delta);
     let theta = atan2(delta.y, delta.x);
-    let noise_wave = sin(theta * noise_freq + noise_phase) * 0.7
-        + sin(theta * (noise_freq * 2.17) - noise_phase * 0.61) * 0.3;
+    let noise_wave = seamless_angular_noise(theta, noise_freq, noise_phase);
     let boundary = radius * (1.0 + noise_amount * 0.35 * noise_wave);
     let edge = smoothstep(boundary + edge_softness, boundary - edge_softness, dist);
     if (edge <= 0.0001) {
