@@ -26,13 +26,13 @@ pub(crate) struct GpuLayerRenderer {
     bind_group: wgpu::BindGroup,
     out_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     readback_slots: Vec<ReadbackSlot>,
     width: u32,
     height: u32,
     output_size: u64,
     pending_readbacks: VecDeque<usize>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     next_readback_slot: usize,
     retained: RetainedGpuPost,
     graph_ops: GpuGraphOps,
@@ -45,7 +45,7 @@ pub(crate) struct GpuLayerRenderer {
 }
 
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 struct ReadbackSlot {
     staging_buffer: wgpu::Buffer,
     pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
@@ -71,7 +71,7 @@ pub(crate) struct GraphSubmitStats {
 
 impl GpuLayerRenderer {
     /// Build a compute renderer from an adapter and the configured shader backend.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) async fn new(
         adapter: &wgpu::Adapter,
         width: u32,
@@ -322,7 +322,7 @@ impl GpuLayerRenderer {
     }
 
     /// Read the retained accumulation into `out` using a single map/readback.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) fn collect_retained_image(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
         let receiver = self.retained.begin_readback(&self.device, &self.queue);
         self.wait_for_map(receiver)?;

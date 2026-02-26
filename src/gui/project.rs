@@ -64,7 +64,7 @@ pub(crate) enum ResourceKind {
 
 /// Execution kinds currently represented by GUI nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) enum ExecutionKind {
     /// Node executes in CPU/data-prep domain.
     Cpu,
@@ -148,7 +148,7 @@ impl ProjectNodeKind {
     }
 
     /// Return execution kind for this node.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) const fn execution_kind(self) -> ExecutionKind {
         match self {
             Self::TexSolid => ExecutionKind::Render,
@@ -476,7 +476,7 @@ impl ProjectNode {
     }
 
     /// Return read-only parameter row data for one index.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) fn param_view(&self, param_index: usize) -> Option<NodeParamView<'_>> {
         let slot = self.params.get(param_index)?;
         let selected = param_index == self.selected_param.min(self.params.len().saturating_sub(1));
@@ -2342,18 +2342,18 @@ mod tests {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 120, 420, 480);
-        let circle = project.add_node(ProjectNodeKind::TexCircle, 200, 40, 420, 480);
-        assert!(project.connect_image_link(solid, circle));
-        assert!(project.connect_signal_link_to_param(lfo, circle, 3));
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 200, 40, 420, 480);
+        assert!(project.connect_image_link(solid, xform));
+        assert!(project.connect_signal_link_to_param(lfo, xform, 3));
         assert_eq!(
-            project.link_resource_kind(solid, circle),
+            project.link_resource_kind(solid, xform),
             Some(ResourceKind::Texture2D)
         );
         assert_eq!(
-            project.link_resource_kind(lfo, circle),
+            project.link_resource_kind(lfo, xform),
             Some(ResourceKind::Signal)
         );
-        assert_eq!(project.signal_param_index_for_source(lfo, circle), Some(3));
+        assert_eq!(project.signal_param_index_for_source(lfo, xform), Some(3));
     }
 
     #[test]
@@ -2447,7 +2447,7 @@ mod tests {
         let value = project
             .node_param_raw_value(solid, 1)
             .expect("param value should exist");
-        assert_eq!(value, 0.93);
+        assert!((value - 0.93).abs() < 1e-5);
     }
 
     #[test]

@@ -300,6 +300,7 @@ impl OutputNode {
 
 /// Graph node kinds supported by V2.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum NodeKind {
     GenerateLayer(GenerateLayerNode),
     SourceNoise(SourceNoiseNode),

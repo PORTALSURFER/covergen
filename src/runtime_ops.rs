@@ -22,7 +22,7 @@ pub(crate) fn generate_source_noise(
 ) {
     let width_f = width.max(1) as f32;
     let height_f = height.max(1) as f32;
-    let octaves = octaves.max(1).min(8);
+    let octaves = octaves.clamp(1, 8);
     let scale = scale.max(0.001);
     let amp = amplitude.clamp(0.0, 2.0);
 

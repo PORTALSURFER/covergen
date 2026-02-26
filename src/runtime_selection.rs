@@ -171,8 +171,8 @@ pub(crate) async fn execute_still_with_selection(
         temporal_probe.copy_from_slice(&low_res_buffers.output_gray);
 
         let breakdown = score_candidate(
-            &primary_probe,
-            &temporal_probe,
+            primary_probe,
+            temporal_probe,
             low_res_config.width,
             low_res_config.height,
             &prior_histograms,

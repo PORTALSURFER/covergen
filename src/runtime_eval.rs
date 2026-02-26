@@ -310,6 +310,7 @@ fn evaluate_mixed_graph(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_generate_layer(
     step: &CompiledNodeStep,
     layer: super::node::GenerateLayerNode,

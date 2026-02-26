@@ -87,7 +87,7 @@ fn spirv_root_dir() -> PathBuf {
 }
 
 fn parse_spirv_words(bytes: &[u8], path: &Path) -> Result<Vec<u32>, Box<dyn Error>> {
-    if bytes.len() < 4 || bytes.len() % 4 != 0 {
+    if bytes.len() < 4 || !bytes.len().is_multiple_of(4) {
         return Err(format!(
             "invalid SPIR-V byte length for {}: expected multiple of 4, got {}",
             path.display(),

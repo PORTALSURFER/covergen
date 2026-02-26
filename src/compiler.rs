@@ -19,6 +19,7 @@ mod resource_plan;
 
 /// Executable node operation in compiled graph order.
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum CompiledOp {
     GenerateLayer(GenerateLayerNode),
     SourceNoise(SourceNoiseNode),

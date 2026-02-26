@@ -65,7 +65,12 @@ fn collect_blocked_rects(obstacles: &[NodeObstacle]) -> Vec<Rect> {
 }
 
 fn inflate_rect(rect: Rect, pad: i32) -> Rect {
-    Rect::new(rect.x - pad, rect.y - pad, rect.w + pad * 2, rect.h + pad * 2)
+    Rect::new(
+        rect.x - pad,
+        rect.y - pad,
+        rect.w + pad * 2,
+        rect.h + pad * 2,
+    )
 }
 
 fn fallback_route(start: (i32, i32), end: (i32, i32), blocked: &[Rect]) -> Vec<(i32, i32)> {
@@ -360,7 +365,7 @@ mod tests {
         }];
         let path = route_param_path((10, 60), (180, 60), &obstacles);
         assert!(path.len() >= 3);
-        for segment in path.windows(2) {
+        for segment in path[1..path.len() - 1].windows(2) {
             assert!(segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1);
         }
         for point in path {

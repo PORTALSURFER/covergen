@@ -11,6 +11,7 @@ use crate::sop::{SopCircleNode, SopGeometryNode, SopSphereNode, TopCameraRenderN
 
 /// Payload used when instantiating a node template.
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum NodePayload {
     GenerateLayer(GenerateLayerNode),
     SourceNoise(SourceNoiseNode),

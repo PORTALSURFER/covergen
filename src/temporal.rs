@@ -107,6 +107,7 @@ impl TemporalCurve {
 
 /// Temporal modulation source used by node channels.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum TemporalModulation {
     /// Legacy fixed sine-curve modulation.
     Curve(TemporalCurve),

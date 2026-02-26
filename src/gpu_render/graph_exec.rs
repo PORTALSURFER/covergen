@@ -122,6 +122,7 @@ impl GpuLayerRenderer {
     }
 
     /// Dispatch one fractal layer and write normalized luma into an alias output slot.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_generate_layer_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,
@@ -201,6 +202,7 @@ impl GpuLayerRenderer {
     }
 
     /// Render a deterministic value-noise source map into an alias slot.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_source_noise_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,
@@ -227,7 +229,7 @@ impl GpuLayerRenderer {
         };
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
         uniforms.seed = seed;
-        uniforms.octaves = octaves.max(1).min(8);
+        uniforms.octaves = octaves.clamp(1, 8);
         uniforms.p0 = scale;
         uniforms.p1 = amplitude;
         frame.upload_bytes = frame
@@ -279,6 +281,7 @@ impl GpuLayerRenderer {
     }
 
     /// Blend two luma alias inputs into a destination luma alias output.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_blend_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,

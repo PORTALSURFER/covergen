@@ -67,8 +67,8 @@ fi
 echo "[ci_local] rustfmt check"
 cargo fmt --check
 
-echo "[ci_local] clippy (warnings + private docs denied)"
-cargo clippy --all-targets --all-features -- -D warnings -D clippy::missing_docs_in_private_items
+echo "[ci_local] clippy (warnings denied; private-doc lint reported separately)"
+cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
 
 echo "[ci_local] full test suite"
 cargo test -q

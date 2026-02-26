@@ -363,7 +363,7 @@ pub(crate) async fn create_renderer(
             compatible_surface: None,
         })
         .await
-        .ok_or_else(|| {
+        .ok_or({
             "covergen requires a hardware GPU adapter; no GPU adapter was detected. \
             install GPU drivers and run on a machine with an available hardware GPU."
         })?;

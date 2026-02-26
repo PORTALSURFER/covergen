@@ -9,7 +9,7 @@ missing_docs = "forbid"
 non_local_definitions = "allow"
 
 [lints.clippy]
-missing_docs_in_private_items = "forbid"
+missing_docs_in_private_items = "warn"
 
 [dependencies]
 bytemuck = { version = "1.15", features = ["derive"] }

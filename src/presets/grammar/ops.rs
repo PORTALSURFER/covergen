@@ -106,6 +106,7 @@ pub(super) fn add_feedback_node(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn add_blend_node(
     builder: &mut GraphBuilder,
     ctx: PresetContext<'_>,
@@ -280,7 +281,7 @@ where
             continue;
         }
         seen = seen.saturating_add(1);
-        if rng.next_u32() % seen == 0 {
+        if rng.next_u32().is_multiple_of(seen) {
             selected = Some(index);
         }
     }

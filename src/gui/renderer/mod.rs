@@ -118,18 +118,20 @@ impl LayerGpuGeometry {
             self.line_vertices.len(),
             label_prefix,
         );
-        let mut stats = LayerRebuildStats::default();
-        stats.alloc_bytes = self
-            .triangle_vertices
-            .capacity()
-            .saturating_sub(tri_capacity_before)
-            .saturating_mul(std::mem::size_of::<Vertex>())
-            .saturating_add(
-                self.line_vertices
-                    .capacity()
-                    .saturating_sub(line_capacity_before)
-                    .saturating_mul(std::mem::size_of::<Vertex>()),
-            ) as u64;
+        let mut stats = LayerRebuildStats {
+            alloc_bytes: self
+                .triangle_vertices
+                .capacity()
+                .saturating_sub(tri_capacity_before)
+                .saturating_mul(std::mem::size_of::<Vertex>())
+                .saturating_add(
+                    self.line_vertices
+                        .capacity()
+                        .saturating_sub(line_capacity_before)
+                        .saturating_mul(std::mem::size_of::<Vertex>()),
+                ) as u64,
+            ..LayerRebuildStats::default()
+        };
 
         if !self.triangle_vertices.is_empty() {
             stats.upload_bytes = stats.upload_bytes.saturating_add(
@@ -518,16 +520,19 @@ impl GuiRenderer {
             HUD_TEXT
         };
 
-        let text_w = self.hud_text.measure_text_width(self.hud_label.as_str(), 1.0);
+        let text_w = self
+            .hud_text
+            .measure_text_width(self.hud_label.as_str(), 1.0);
         let metrics = self.hud_text.metrics_scaled(1.0);
         let box_w = text_w + HUD_PAD_X * 2;
         let box_h = metrics.line_height_px + HUD_PAD_Y * 2;
         let x = self.config.width as i32 - HUD_MARGIN_PX - box_w;
         let y = HUD_MARGIN_PX;
         let rect = super::geometry::Rect::new(x, y, box_w, box_h);
-        self.hud_layer
-            .rects
-            .push(super::scene::ColoredRect { rect, color: HUD_BG });
+        self.hud_layer.rects.push(super::scene::ColoredRect {
+            rect,
+            color: HUD_BG,
+        });
         push_border_lines(&mut self.hud_layer, rect, HUD_BORDER);
         self.hud_text.push_text(
             &mut self.hud_layer.rects,

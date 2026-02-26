@@ -153,6 +153,7 @@ fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32
 }
 
 #[cfg(test)]
+#[allow(clippy::infallible_destructuring_match)]
 mod tests {
     use super::{TopViewerGenerator, TopViewerOp, TopViewerPayload};
     use crate::gui::project::{GuiProject, ProjectNodeKind};

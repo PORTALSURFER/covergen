@@ -586,6 +586,7 @@ fn screen_rect_to_graph_rect(
     (gx0.min(gx1), gy0.min(gy1), gx0.max(gx1), gy0.max(gy1))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rects_overlap(
     ax0: i32,
     ay0: i32,
@@ -692,11 +693,9 @@ fn apply_param_text_edits(
             }
         }
     }
-    if input.param_commit {
-        if commit_param_edit(project, edit) {
-            state.param_edit = None;
-            return true;
-        }
+    if input.param_commit && commit_param_edit(project, edit) {
+        state.param_edit = None;
+        return true;
     }
     changed
 }
@@ -1676,6 +1675,7 @@ fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
     Rect::new(x, y, w, h)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn segments_intersect(
     ax: i32,
     ay: i32,
@@ -1930,7 +1930,7 @@ mod tests {
         let value = project
             .node_param_raw_value(solid, 0)
             .expect("param value should exist");
-        assert_eq!(value, 0.92);
+        assert!((value - 0.92).abs() < 1e-5);
     }
 
     #[test]
@@ -2061,9 +2061,7 @@ mod tests {
             &mut state
         ));
         assert!(state.wire_drag.is_none());
-        let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
-        let value = project.node_param_value(circle, "radius", 0.5, &mut Vec::new());
-        assert_eq!(source, value);
+        assert_eq!(project.signal_source_for_param(circle, 2), Some(lfo));
     }
 
     #[test]

@@ -90,10 +90,10 @@ pub(super) fn require_mask_input<'a>(
     require_mask(values, node_id)
 }
 
-pub(super) fn require_luma<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
+pub(super) fn require_luma(
+    values: &HashMap<NodeId, RuntimeValue>,
     node_id: NodeId,
-) -> Result<&'a [f32], Box<dyn Error>> {
+) -> Result<&[f32], Box<dyn Error>> {
     match values.get(&node_id) {
         Some(RuntimeValue::Luma(value)) => Ok(value),
         Some(RuntimeValue::Mask(_)) => {
@@ -109,10 +109,10 @@ pub(super) fn require_luma<'a>(
     }
 }
 
-fn require_mask<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
+fn require_mask(
+    values: &HashMap<NodeId, RuntimeValue>,
     node_id: NodeId,
-) -> Result<&'a [f32], Box<dyn Error>> {
+) -> Result<&[f32], Box<dyn Error>> {
     match values.get(&node_id) {
         Some(RuntimeValue::Mask(value)) => Ok(value),
         Some(RuntimeValue::Luma(_)) => {

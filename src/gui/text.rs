@@ -336,23 +336,9 @@ mod tests {
     fn scaled_text_expands_rect_coverage_when_zoomed_in() {
         let mut text = GuiTextRenderer::default();
         let mut base_rects = Vec::new();
-        text.push_text_scaled(
-            &mut base_rects,
-            0,
-            0,
-            "W",
-            Color::argb(0xFFFFFFFF),
-            1.0,
-        );
+        text.push_text_scaled(&mut base_rects, 0, 0, "W", Color::argb(0xFFFFFFFF), 1.0);
         let mut large_rects = Vec::new();
-        text.push_text_scaled(
-            &mut large_rects,
-            0,
-            0,
-            "W",
-            Color::argb(0xFFFFFFFF),
-            2.0,
-        );
+        text.push_text_scaled(&mut large_rects, 0, 0, "W", Color::argb(0xFFFFFFFF), 2.0);
         let base_width: i32 = base_rects.iter().map(|rect| rect.rect.w).sum();
         let large_width: i32 = large_rects.iter().map(|rect| rect.rect.w).sum();
         assert!(large_width > base_width);

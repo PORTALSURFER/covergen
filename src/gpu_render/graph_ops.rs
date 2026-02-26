@@ -176,6 +176,7 @@ impl GpuGraphOps {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn encode_decode_layer(
         &self,
         device: &wgpu::Device,

@@ -160,6 +160,7 @@ enum ActiveLayer {
 }
 
 /// Stateful scene builder that reuses allocation capacity across frames.
+#[derive(Default)]
 pub(crate) struct SceneBuilder {
     frame: SceneFrame,
     active_layer: ActiveLayer,
@@ -171,23 +172,6 @@ pub(crate) struct SceneBuilder {
     label_scratch: String,
     fitted_label_scratch: String,
     frame_alloc_bytes: u64,
-}
-
-impl Default for SceneBuilder {
-    fn default() -> Self {
-        Self {
-            frame: SceneFrame::default(),
-            active_layer: ActiveLayer::default(),
-            cached_static_key: None,
-            cached_nodes_key: None,
-            cached_edges_key: None,
-            cached_overlays_key: None,
-            text_renderer: GuiTextRenderer::default(),
-            label_scratch: String::new(),
-            fitted_label_scratch: String::new(),
-            frame_alloc_bytes: 0,
-        }
-    }
 }
 
 impl SceneBuilder {
@@ -556,10 +540,10 @@ impl SceneBuilder {
             let Some(item) = state.menu.entry_rect(entry_index) else {
                 continue;
             };
-            if state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index) {
-                if !matches!(entry, AddNodeMenuEntry::Category(_)) {
-                    self.push_rect(item, MENU_SELECTED);
-                }
+            if (state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index))
+                && !matches!(entry, AddNodeMenuEntry::Category(_))
+            {
+                self.push_rect(item, MENU_SELECTED);
             }
             let (text, color) = match entry {
                 AddNodeMenuEntry::Category(category) => {
@@ -1412,6 +1396,7 @@ fn path_intersects_cut_line(state: &PreviewState, points: &[(i32, i32)]) -> bool
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 fn segments_intersect(
     ax: i32,
     ay: i32,

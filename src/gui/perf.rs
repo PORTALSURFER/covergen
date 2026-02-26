@@ -49,6 +49,7 @@ impl GuiPerfRecorder {
     }
 
     /// Store one timing sample for this GUI frame.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn record(
         &mut self,
         frame_index: u64,

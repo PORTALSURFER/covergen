@@ -40,19 +40,15 @@ impl TopPreviewRenderer {
         upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
         queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
 
-        let ops = match top_view.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
-        };
-        if let Some(op_upload_bytes) =
-            self.encode_gpu_ops(
-                device,
-                queue,
-                encoder,
-                ops,
-                top_view.texture_width,
-                top_view.texture_height,
-            )
-        {
+        let TopViewerPayload::GpuOps(ops) = top_view.payload;
+        if let Some(op_upload_bytes) = self.encode_gpu_ops(
+            device,
+            queue,
+            encoder,
+            ops,
+            top_view.texture_width,
+            top_view.texture_height,
+        ) {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
             self.clear_viewer_target(encoder);
@@ -94,9 +90,7 @@ impl TopPreviewRenderer {
             if let TopViewerOp::Feedback { node_id, .. } = op {
                 self.ensure_feedback_history_slot(device, encoder, node_id, width, height);
             }
-            let Some(target_view) = self.target_view(target) else {
-                return None;
-            };
+            let target_view = self.target_view(target)?;
             let uniform_offset = self.op_uniform_offset(index);
             let Ok(dynamic_offset) = u32::try_from(uniform_offset) else {
                 return None;
@@ -158,12 +152,8 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Transform { .. } => {
-                    let Some(src_target) = source_target else {
-                        return None;
-                    };
-                    let Some(src_bind_group) = self.target_bind_group(src_target) else {
-                        return None;
-                    };
+                    let src_target = source_target?;
+                    let src_bind_group = self.target_bind_group(src_target)?;
                     upload_bytes =
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
@@ -177,15 +167,9 @@ impl TopPreviewRenderer {
                     pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Feedback { node_id, .. } => {
-                    let Some(src_target) = source_target else {
-                        return None;
-                    };
-                    let Some(src_bind_group) = self.target_bind_group(src_target) else {
-                        return None;
-                    };
-                    let Some(history_bind_group) = self.feedback_history_bind_group(node_id) else {
-                        return None;
-                    };
+                    let src_target = source_target?;
+                    let src_bind_group = self.target_bind_group(src_target)?;
+                    let history_bind_group = self.feedback_history_bind_group(node_id)?;
                     upload_bytes =
                         upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
                     queue.write_buffer(
@@ -368,7 +352,9 @@ impl TopPreviewRenderer {
     }
 
     fn feedback_history_bind_group(&self, node_id: u32) -> Option<&wgpu::BindGroup> {
-        self.feedback_history.get(&node_id).map(|slot| &slot.bind_group)
+        self.feedback_history
+            .get(&node_id)
+            .map(|slot| &slot.bind_group)
     }
 
     fn copy_target_to_feedback_history(

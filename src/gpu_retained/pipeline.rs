@@ -23,6 +23,7 @@ pub(super) struct RetainedSetup {
     pub(super) final_staging_buffer: wgpu::Buffer,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_setup(
     device: &wgpu::Device,
     out_buffer: &wgpu::Buffer,

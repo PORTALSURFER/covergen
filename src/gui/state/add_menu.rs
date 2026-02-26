@@ -273,7 +273,9 @@ impl AddNodeMenuState {
     /// Return selected entry in current picker stage.
     pub(crate) fn selected_entry(&self) -> Option<AddNodeMenuEntry> {
         let entries = self.visible_entries();
-        entries.get(self.selected.min(entries.len().saturating_sub(1))).copied()
+        entries
+            .get(self.selected.min(entries.len().saturating_sub(1)))
+            .copied()
     }
 
     /// Keep selected row inside current visible entry range.
@@ -390,7 +392,10 @@ mod tests {
     fn category_stage_transitions_and_query_filtering_work() {
         let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
         assert!(menu.open_category(AddNodeCategory::Control));
-        assert!(matches!(menu.selected_entry(), Some(AddNodeMenuEntry::Back)));
+        assert!(matches!(
+            menu.selected_entry(),
+            Some(AddNodeMenuEntry::Back)
+        ));
         assert!(menu.apply_query_input("lfo", false));
         assert!(menu.select_next());
         let Some(AddNodeMenuEntry::Option(option_index)) = menu.selected_entry() else {
