@@ -52,7 +52,7 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 11] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 12] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
         category: AddNodeCategory::Texture,
@@ -80,6 +80,10 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 11] = [
     AddNodeOption {
         kind: ProjectNodeKind::SceneBuild,
         category: AddNodeCategory::Scene,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::RenderCamera,
+        category: AddNodeCategory::Render,
     },
     AddNodeOption {
         kind: ProjectNodeKind::RenderScenePass,

@@ -95,6 +95,8 @@ pub(crate) enum ProjectNodeKind {
     SceneEntity,
     /// `scene.build` scene aggregation node.
     SceneBuild,
+    /// `render.camera` scene-view camera node.
+    RenderCamera,
     /// `render.scene_pass` scene-to-texture render node.
     RenderScenePass,
     /// `ctl.lfo` signal generator node.
@@ -115,6 +117,7 @@ impl ProjectNodeKind {
             Self::TexTransform2D => "tex.transform_2d",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
+            Self::RenderCamera => "render.camera",
             Self::RenderScenePass => "render.scene_pass",
             Self::CtlLfo => "ctl.lfo",
             Self::IoWindowOut => "io.window_out",
@@ -132,6 +135,7 @@ impl ProjectNodeKind {
             "tex.transform_2d" => Some(Self::TexTransform2D),
             "scene.entity" => Some(Self::SceneEntity),
             "scene.build" => Some(Self::SceneBuild),
+            "render.camera" => Some(Self::RenderCamera),
             "render.scene_pass" => Some(Self::RenderScenePass),
             "ctl.lfo" => Some(Self::CtlLfo),
             "io.window_out" => Some(Self::IoWindowOut),
@@ -151,6 +155,7 @@ impl ProjectNodeKind {
             Self::TexTransform2D => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
+            Self::RenderCamera => ExecutionKind::Control,
             Self::RenderScenePass => ExecutionKind::Render,
             Self::CtlLfo => ExecutionKind::Control,
             Self::IoWindowOut => ExecutionKind::Io,
@@ -169,6 +174,7 @@ impl ProjectNodeKind {
             Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Buffer),
             Self::SceneBuild => Some(ResourceKind::Entity),
+            Self::RenderCamera => Some(ResourceKind::Scene),
             Self::RenderScenePass => Some(ResourceKind::Scene),
             _ => None,
         }
@@ -185,6 +191,7 @@ impl ProjectNodeKind {
                 | Self::BufNoise
                 | Self::TexTransform2D
                 | Self::SceneEntity
+                | Self::RenderCamera
                 | Self::RenderScenePass
                 | Self::CtlLfo
         )
@@ -210,7 +217,7 @@ impl ProjectNodeKind {
         match self {
             Self::BufSphere | Self::BufCircleNurbs | Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Entity),
-            Self::SceneBuild => Some(ResourceKind::Scene),
+            Self::SceneBuild | Self::RenderCamera => Some(ResourceKind::Scene),
             Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::RenderScenePass => {
                 Some(ResourceKind::Texture2D)
             }
@@ -1685,6 +1692,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("arc_start", "arc_start", 0.0, 0.0, 360.0, 1.0),
             param("arc_end", "arc_end", 360.0, 0.0, 360.0, 1.0),
             param_dropdown("arc_style", "arc_style", 0, &BUF_CIRCLE_ARC_STYLE_OPTIONS),
+            param("line_width", "line_width", 0.01, 0.0005, 0.35, 0.001),
             param("order", "order", 3.0, 2.0, 5.0, 1.0),
             param("divisions", "divisions", 64.0, 8.0, 512.0, 1.0),
         ],
@@ -1717,6 +1725,9 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::SceneBuild => Vec::new(),
+        ProjectNodeKind::RenderCamera => {
+            vec![param("zoom", "zoom", 1.0, 0.1, 8.0, 0.05)]
+        }
         ProjectNodeKind::RenderScenePass => vec![
             param("edge_softness", "edge_softness", 0.01, 0.0, 0.25, 0.005),
             param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
@@ -2090,6 +2101,24 @@ mod tests {
             project.link_resource_kind(pass, out),
             Some(ResourceKind::Texture2D)
         );
+    }
+
+    #[test]
+    fn camera_node_accepts_scene_and_outputs_scene() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let camera = project.add_node(ProjectNodeKind::RenderCamera, 500, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 660, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, camera));
+        assert!(project.connect_image_link(camera, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert_eq!(project.link_resource_kind(scene, camera), Some(ResourceKind::Scene));
+        assert_eq!(project.link_resource_kind(camera, pass), Some(ResourceKind::Scene));
     }
 
     #[test]

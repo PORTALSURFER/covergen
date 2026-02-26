@@ -27,6 +27,7 @@ struct TopOpUniform {
     p0: [f32; 4],
     p1: [f32; 4],
     p2: [f32; 4],
+    p3: [f32; 4],
 }
 
 impl TopOpUniform {
@@ -44,6 +45,7 @@ impl TopOpUniform {
             p0: [color_r, color_g, color_b, alpha],
             p1: [0.0; 4],
             p2: [0.0; 4],
+            p3: [0.0; 4],
         }
     }
 
@@ -53,6 +55,7 @@ impl TopOpUniform {
             center_y,
             radius,
             feather,
+            line_width,
             arc_start_deg,
             arc_end_deg,
             segment_count,
@@ -69,6 +72,7 @@ impl TopOpUniform {
             p0: [center_x, center_y, radius, feather],
             p1: [color_r, color_g, color_b, alpha],
             p2: [arc_start_deg, arc_end_deg, segment_count, arc_open],
+            p3: [line_width, 0.0, 0.0, 0.0],
         }
     }
 
@@ -94,6 +98,7 @@ impl TopOpUniform {
             p0: [center_x, center_y, radius, edge_softness],
             p1: [light_x, light_y, light_z, ambient],
             p2: [color_r, color_g, color_b, alpha],
+            p3: [0.0; 4],
         }
     }
 
@@ -112,6 +117,7 @@ impl TopOpUniform {
             p0: [brightness, gain_r, gain_g, gain_b],
             p1: [alpha_mul, 0.0, 0.0, 0.0],
             p2: [0.0; 4],
+            p3: [0.0; 4],
         }
     }
 }

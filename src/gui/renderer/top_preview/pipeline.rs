@@ -79,6 +79,7 @@ struct TopOpUniform {
     p0: vec4<f32>,
     p1: vec4<f32>,
     p2: vec4<f32>,
+    p3: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -154,6 +155,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let end_norm = fract(u_op.p2.y / 360.0);
     let arc_span = abs(u_op.p2.y - u_op.p2.x);
     let arc_open = u_op.p2.w >= 0.5;
+    let line_width = max(u_op.p3.x, 0.0005);
     var arc_mask = 1.0;
     if (arc_span < 359.9) {
         if (start_norm <= end_norm) {
@@ -165,8 +167,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
 
     var shape_alpha = edge;
     if (arc_open) {
-        let ring_width = max(feather * 3.0, radius * 0.08);
-        let inner = max(boundary - ring_width, 0.0);
+        let inner = max(boundary - line_width, 0.0);
         let inner_edge = smoothstep(inner + feather, inner - feather, dist);
         shape_alpha = clamp(edge - inner_edge, 0.0, 1.0);
     }

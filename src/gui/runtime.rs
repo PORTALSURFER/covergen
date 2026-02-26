@@ -21,6 +21,7 @@ pub(crate) enum TopRuntimeOp {
         center_y: f32,
         radius: f32,
         feather: f32,
+        line_width: f32,
         arc_start_deg: f32,
         arc_end_deg: f32,
         segment_count: f32,
@@ -72,6 +73,7 @@ enum CompiledStepKind {
     BufferNoise,
     SceneEntity,
     SceneBuild,
+    Camera,
     ScenePass,
     Transform,
 }
@@ -100,6 +102,7 @@ struct SceneMeshState {
     radius: f32,
     arc_start_deg: f32,
     arc_end_deg: f32,
+    line_width: f32,
     order: f32,
     segment_count: f32,
     arc_open: bool,
@@ -148,6 +151,7 @@ impl GuiCompiledRuntime {
         let mut mesh = None;
         let mut entity = None;
         let mut scene_ready = false;
+        let mut camera_zoom = 1.0_f32;
         for step in &self.steps {
             match step.kind {
                 CompiledStepKind::Solid => {
@@ -180,6 +184,7 @@ impl GuiCompiledRuntime {
                         feather: project
                             .node_param_value(step.node_id, "feather", time_secs, eval_stack)
                             .unwrap_or(0.06),
+                        line_width: 0.0,
                         arc_start_deg: 0.0,
                         arc_end_deg: 360.0,
                         segment_count: 0.0,
@@ -208,6 +213,7 @@ impl GuiCompiledRuntime {
                         radius,
                         arc_start_deg: 0.0,
                         arc_end_deg: 360.0,
+                        line_width: 0.0,
                         order: 3.0,
                         segment_count: 0.0,
                         arc_open: false,
@@ -227,6 +233,10 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "arc_end", time_secs, eval_stack)
                         .unwrap_or(360.0)
                         .clamp(0.0, 360.0);
+                    let line_width = project
+                        .node_param_value(step.node_id, "line_width", time_secs, eval_stack)
+                        .unwrap_or(0.01)
+                        .clamp(0.0005, 0.35);
                     let order = project
                         .node_param_value(step.node_id, "order", time_secs, eval_stack)
                         .unwrap_or(3.0)
@@ -244,6 +254,7 @@ impl GuiCompiledRuntime {
                         radius,
                         arc_start_deg,
                         arc_end_deg,
+                        line_width,
                         order,
                         segment_count,
                         arc_open,
@@ -312,6 +323,12 @@ impl GuiCompiledRuntime {
                 CompiledStepKind::SceneBuild => {
                     scene_ready = mesh.is_some() && entity.is_some();
                 }
+                CompiledStepKind::Camera => {
+                    camera_zoom = project
+                        .node_param_value(step.node_id, "zoom", time_secs, eval_stack)
+                        .unwrap_or(1.0)
+                        .clamp(0.1, 8.0);
+                }
                 CompiledStepKind::ScenePass => {
                     if !scene_ready {
                         continue;
@@ -319,11 +336,14 @@ impl GuiCompiledRuntime {
                     let (Some(mesh_state), Some(entity_state)) = (mesh, entity) else {
                         continue;
                     };
+                    let zoom = camera_zoom.max(0.1);
+                    let center_x = (entity_state.pos_x - 0.5) * zoom + 0.5;
+                    let center_y = (entity_state.pos_y - 0.5) * zoom + 0.5;
                     match mesh_state.profile {
                         SceneMeshProfile::Sphere => out_ops.push(TopRuntimeOp::Sphere {
-                            center_x: entity_state.pos_x,
-                            center_y: entity_state.pos_y,
-                            radius: (mesh_state.radius * entity_state.scale).max(0.01),
+                            center_x,
+                            center_y,
+                            radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
                             edge_softness: project
                                 .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
                                 .unwrap_or(0.01),
@@ -343,13 +363,15 @@ impl GuiCompiledRuntime {
                             alpha: entity_state.alpha,
                         }),
                         SceneMeshProfile::CircleNurbs => out_ops.push(TopRuntimeOp::Circle {
-                            center_x: entity_state.pos_x,
-                            center_y: entity_state.pos_y,
-                            radius: (mesh_state.radius * entity_state.scale).max(0.01),
+                            center_x,
+                            center_y,
+                            radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
                             feather: project
                                 .node_param_value(step.node_id, "edge_softness", time_secs, eval_stack)
                                 .unwrap_or(0.01)
                                 * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35),
+                            line_width: (mesh_state.line_width * entity_state.scale * zoom)
+                                .max(0.0005),
                             arc_start_deg: mesh_state.arc_start_deg,
                             arc_end_deg: mesh_state.arc_end_deg,
                             segment_count: mesh_state.segment_count,
@@ -491,6 +513,21 @@ fn compile_node(
                 true
             }
         }
+        ProjectNodeKind::RenderCamera => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, visiting, visited, out_steps) {
+                false
+            } else {
+                out_steps.push(CompiledStep {
+                    node_id,
+                    kind: CompiledStepKind::Camera,
+                });
+                true
+            }
+        }
         ProjectNodeKind::RenderScenePass => {
             let source_id = match project.input_source_node_id(node_id) {
                 Some(id) => id,
@@ -583,6 +620,39 @@ mod tests {
     }
 
     #[test]
+    fn camera_zoom_scales_scene_pass_radius() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+        let camera = project.add_node(ProjectNodeKind::RenderCamera, 500, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 660, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, camera));
+        assert!(project.connect_image_link(camera, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        let radius_default = match ops[0] {
+            TopRuntimeOp::Sphere { radius, .. } => radius,
+            _ => panic!("expected sphere op"),
+        };
+
+        assert!(project.set_param_value(camera, 0, 2.0));
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        let radius_zoomed = match ops[0] {
+            TopRuntimeOp::Sphere { radius, .. } => radius,
+            _ => panic!("expected sphere op"),
+        };
+        assert!(radius_zoomed > radius_default * 1.9);
+    }
+
+    #[test]
     fn circle_nurbs_buffer_pipeline_compiles_to_circle_op() {
         let mut project = GuiProject::new_empty(640, 480);
         let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 20, 40, 420, 480);
@@ -619,8 +689,9 @@ mod tests {
         assert!(project.set_param_value(circle, 1, 30.0));
         assert!(project.set_param_value(circle, 2, 150.0));
         assert!(project.set_param_value(circle, 3, 1.0));
-        assert!(project.set_param_value(circle, 4, 2.0));
-        assert!(project.set_param_value(circle, 5, 12.0));
+        assert!(project.set_param_value(circle, 4, 0.006));
+        assert!(project.set_param_value(circle, 5, 2.0));
+        assert!(project.set_param_value(circle, 6, 12.0));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
         let mut eval_stack = Vec::new();
@@ -632,6 +703,7 @@ mod tests {
                 arc_end_deg,
                 segment_count,
                 arc_open,
+                line_width,
                 feather,
                 ..
             } => {
@@ -639,6 +711,7 @@ mod tests {
                 assert_eq!(arc_end_deg, 150.0);
                 assert_eq!(segment_count, 12.0);
                 assert_eq!(arc_open, 1.0);
+                assert!(line_width <= 0.007);
                 assert!(feather > 0.01);
             }
             _ => panic!("expected circle op"),
