@@ -36,10 +36,17 @@ use nvenc::sys::version::{NVENC_MAJOR_VERSION, NVENC_MINOR_VERSION};
 #[cfg(windows)]
 use windows::Win32::Foundation::HMODULE;
 #[cfg(windows)]
-use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+use windows::Win32::Graphics::Direct3D::{
+    D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0,
+};
 #[cfg(windows)]
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION,
+};
+#[cfg(windows)]
+use windows::Win32::Graphics::Dxgi::{
+    CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
+    DXGI_ERROR_NOT_FOUND,
 };
 
 const MP4_MOVIE_TIMESCALE: u32 = 90_000;
@@ -49,6 +56,8 @@ const H264_NAL_TYPE_SPS: u8 = 7;
 const H264_NAL_TYPE_PPS: u8 = 8;
 const STREAM_FRAME_FORMAT_ENV: &str = "COVERGEN_STREAM_FRAME_FORMAT";
 const STREAM_ENCODER_ENV: &str = "COVERGEN_STREAM_ENCODER";
+#[cfg(windows)]
+const NVIDIA_VENDOR_ID: u32 = 0x10DE;
 
 /// Raw frame layout accepted by the streaming encoder stdin path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -650,11 +659,37 @@ fn decode_nvenc_api_version(version: u32) -> (u16, u8) {
 
 #[cfg(windows)]
 fn create_nvenc_device() -> Result<ID3D11Device, Box<dyn Error>> {
+    let preferred_adapter = find_nvenc_adapter()?;
+    if let Some(adapter) = preferred_adapter.as_ref() {
+        if let Ok(device) = create_d3d11_device(Some(adapter), D3D_DRIVER_TYPE_UNKNOWN) {
+            return Ok(device);
+        }
+    }
+
+    let device = create_d3d11_device(None, D3D_DRIVER_TYPE_HARDWARE).map_err(|err| {
+        if preferred_adapter.is_none() {
+            format!(
+                "failed to create D3D11 device for NVENC: {err}; no NVIDIA DXGI adapter was found"
+            )
+        } else {
+            format!(
+                "failed to create D3D11 device for NVENC: {err}; NVIDIA adapter selection failed"
+            )
+        }
+    })?;
+    Ok(device)
+}
+
+#[cfg(windows)]
+fn create_d3d11_device(
+    adapter: Option<&IDXGIAdapter1>,
+    driver_type: windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE,
+) -> Result<ID3D11Device, Box<dyn Error>> {
     let mut device = None;
     unsafe {
         D3D11CreateDevice(
-            None,
-            D3D_DRIVER_TYPE_HARDWARE,
+            adapter,
+            driver_type,
             HMODULE(std::ptr::null_mut()),
             D3D11_CREATE_DEVICE_FLAG(0),
             Some(&[D3D_FEATURE_LEVEL_11_0]),
@@ -664,8 +699,29 @@ fn create_nvenc_device() -> Result<ID3D11Device, Box<dyn Error>> {
             None,
         )
     }
-    .map_err(|err| format!("failed to create D3D11 device for NVENC: {err}"))?;
-    device.ok_or("D3D11 device creation returned no device".into())
+    .map_err(|err| format!("D3D11CreateDevice failed: {err}"))?;
+    device.ok_or("D3D11CreateDevice returned no device".into())
+}
+
+#[cfg(windows)]
+fn find_nvenc_adapter() -> Result<Option<IDXGIAdapter1>, Box<dyn Error>> {
+    let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1() }?;
+    let mut index = 0u32;
+    loop {
+        let adapter = match unsafe { factory.EnumAdapters1(index) } {
+            Ok(adapter) => adapter,
+            Err(err) if err.code() == DXGI_ERROR_NOT_FOUND => break,
+            Err(err) => return Err(format!("failed to enumerate DXGI adapters: {err}").into()),
+        };
+        index = index.saturating_add(1);
+        let desc = unsafe { adapter.GetDesc1() }
+            .map_err(|err| format!("failed to query DXGI adapter info: {err}"))?;
+        let is_software = (desc.Flags.0 & DXGI_ADAPTER_FLAG_SOFTWARE.0) != 0;
+        if desc.VendorId == NVIDIA_VENDOR_ID && !is_software {
+            return Ok(Some(adapter));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(windows)]
