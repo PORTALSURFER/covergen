@@ -1,7 +1,7 @@
 //! GPU tex preview execution and compositing.
 //!
 //! This module owns preview texture resources and executes GPU operation
-//! chains emitted by `gui::top_view` directly on the device.
+//! chains emitted by `gui::tex_view` directly on the device.
 
 mod execution;
 mod execution_plan;
@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::num::NonZeroU64;
 
 use crate::gpu_timestamp::OptionalGpuTimestampQueries;
-use crate::gui::runtime::TopRuntimeFeedbackHistoryBinding;
-use crate::gui::top_view::TopViewerOp;
+use crate::gui::runtime::TexRuntimeFeedbackHistoryBinding;
+use crate::gui::tex_view::TexViewerOp;
 
 use super::viewer;
 use pipeline::{create_op_pipeline, OP_SHADER_SOURCE};
@@ -24,7 +24,7 @@ const PREVIEW_BG: wgpu::Color = wgpu::Color {
     b: 8.0 / 255.0,
     a: 1.0,
 };
-pub(super) const TOP_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
+pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[repr(C)]
@@ -38,8 +38,8 @@ struct TopOpUniform {
 }
 
 impl TopOpUniform {
-    fn solid(op: TopViewerOp) -> Self {
-        let TopViewerOp::Solid {
+    fn solid(op: TexViewerOp) -> Self {
+        let TexViewerOp::Solid {
             color_r,
             color_g,
             color_b,
@@ -57,8 +57,8 @@ impl TopOpUniform {
         }
     }
 
-    fn circle(op: TopViewerOp) -> Self {
-        let TopViewerOp::Circle {
+    fn circle(op: TexViewerOp) -> Self {
+        let TexViewerOp::Circle {
             center_x,
             center_y,
             radius,
@@ -91,8 +91,8 @@ impl TopOpUniform {
         }
     }
 
-    fn sphere(op: TopViewerOp) -> Self {
-        let TopViewerOp::Sphere {
+    fn sphere(op: TexViewerOp) -> Self {
+        let TexViewerOp::Sphere {
             center_x,
             center_y,
             radius,
@@ -124,8 +124,8 @@ impl TopOpUniform {
         }
     }
 
-    fn transform(op: TopViewerOp) -> Self {
-        let TopViewerOp::Transform {
+    fn transform(op: TexViewerOp) -> Self {
+        let TexViewerOp::Transform {
             brightness,
             gain_r,
             gain_g,
@@ -144,8 +144,8 @@ impl TopOpUniform {
         }
     }
 
-    fn level(op: TopViewerOp) -> Self {
-        let TopViewerOp::Level {
+    fn level(op: TexViewerOp) -> Self {
+        let TexViewerOp::Level {
             in_low,
             in_high,
             gamma,
@@ -164,8 +164,8 @@ impl TopOpUniform {
         }
     }
 
-    fn feedback(op: TopViewerOp) -> Self {
-        let TopViewerOp::Feedback { mix, .. } = op else {
+    fn feedback(op: TexViewerOp) -> Self {
+        let TexViewerOp::Feedback { mix, .. } = op else {
             return Self::zeroed();
         };
         Self {
@@ -177,8 +177,8 @@ impl TopOpUniform {
         }
     }
 
-    fn blend(op: TopViewerOp) -> Self {
-        let TopViewerOp::Blend { mode, opacity, .. } = op else {
+    fn blend(op: TexViewerOp) -> Self {
+        let TexViewerOp::Blend { mode, opacity, .. } = op else {
             return Self::zeroed();
         };
         Self {
@@ -210,12 +210,12 @@ enum FeedbackHistoryKey {
 }
 
 impl FeedbackHistoryKey {
-    fn from_binding(binding: TopRuntimeFeedbackHistoryBinding) -> Self {
+    fn from_binding(binding: TexRuntimeFeedbackHistoryBinding) -> Self {
         match binding {
-            TopRuntimeFeedbackHistoryBinding::Internal { feedback_node_id } => {
+            TexRuntimeFeedbackHistoryBinding::Internal { feedback_node_id } => {
                 Self::Internal { feedback_node_id }
             }
-            TopRuntimeFeedbackHistoryBinding::External { texture_node_id } => {
+            TexRuntimeFeedbackHistoryBinding::External { texture_node_id } => {
                 Self::External { texture_node_id }
             }
         }
@@ -240,7 +240,7 @@ struct FeedbackHistorySlot {
 
 /// GPU-backed tex preview state for GUI rendering.
 #[derive(Debug)]
-pub(super) struct TopPreviewRenderer {
+pub(super) struct TexPreviewRenderer {
     viewer_pipeline: wgpu::RenderPipeline,
     viewer_texture_layout: wgpu::BindGroupLayout,
     viewer_sampler: wgpu::Sampler,
@@ -286,11 +286,11 @@ pub(super) struct TopPreviewRenderer {
     op_pass_timestamps: OptionalGpuTimestampQueries,
 }
 
-impl TopPreviewRenderer {
+impl TexPreviewRenderer {
     /// Return non-zero binding size for one operation uniform payload.
     fn op_uniform_binding_size() -> NonZeroU64 {
         NonZeroU64::new(std::mem::size_of::<TopOpUniform>() as u64)
-            .expect("top op uniform size must be non-zero")
+            .expect("tex op uniform size must be non-zero")
     }
 
     /// Return one dynamic-uniform stride aligned to device limits.
@@ -447,7 +447,7 @@ impl TopPreviewRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: TOP_PREVIEW_TEXTURE_FORMAT,
+            format: TEX_PREVIEW_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -518,7 +518,7 @@ impl TopPreviewRenderer {
             viewer_texture_layout,
             viewer_sampler,
             op_sampler,
-            op_surface_format: TOP_PREVIEW_TEXTURE_FORMAT,
+            op_surface_format: TEX_PREVIEW_TEXTURE_FORMAT,
             viewer_bind_group: None,
             viewer_texture: None,
             viewer_texture_view: None,

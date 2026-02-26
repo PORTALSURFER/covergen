@@ -1,7 +1,7 @@
 //! Pipeline/texture helpers for GPU tex preview execution.
 
 use super::super::viewer;
-use super::TOP_PREVIEW_TEXTURE_FORMAT;
+use super::TEX_PREVIEW_TEXTURE_FORMAT;
 
 /// Create one render pipeline for a fullscreen tex preview operation.
 pub(super) fn create_op_pipeline(
@@ -66,7 +66,7 @@ pub(super) fn create_preview_texture_bundle(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: TOP_PREVIEW_TEXTURE_FORMAT,
+        format: TEX_PREVIEW_TEXTURE_FORMAT,
         usage: wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC

@@ -2971,12 +2971,12 @@ mod tests {
     #[test]
     fn delete_hotkey_removes_selected_nodes() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let tex_source = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
-        assert!(project.connect_image_link(top, out));
+        assert!(project.connect_image_link(tex_source, out));
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
-        state.selected_nodes.push(top);
-        state.active_node = Some(top);
+        state.selected_nodes.push(tex_source);
+        state.active_node = Some(tex_source);
         let input = InputSnapshot {
             param_delete: true,
             ..InputSnapshot::default()
@@ -2986,7 +2986,7 @@ mod tests {
             &mut project,
             &mut state
         ));
-        assert!(project.node(top).is_none());
+        assert!(project.node(tex_source).is_none());
         assert_eq!(project.edge_count(), 0);
         assert!(state.selected_nodes.is_empty());
         assert!(state.active_node.is_none());

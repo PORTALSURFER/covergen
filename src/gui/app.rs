@@ -24,9 +24,9 @@ use super::project::{
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PendingAppAction, PreviewState};
+use super::tex_view::TexViewerGenerator;
+use super::tex_view::TexViewerUpdate;
 use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
-use super::top_view::TopViewerGenerator;
-use super::top_view::TopViewerUpdate;
 
 const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
@@ -240,7 +240,7 @@ pub(crate) struct GuiApp {
     state: PreviewState,
     input: InputCollector,
     scene: SceneBuilder,
-    top_view: TopViewerGenerator,
+    tex_view: TexViewerGenerator,
     perf: GuiPerfRecorder,
     frame_budget: Duration,
     frame_deadline: Instant,
@@ -316,7 +316,7 @@ impl GuiApp {
             state,
             input: InputCollector::default(),
             scene: SceneBuilder::default(),
-            top_view: TopViewerGenerator::default(),
+            tex_view: TexViewerGenerator::default(),
             perf: GuiPerfRecorder::new(None),
             frame_budget,
             frame_deadline: now,
@@ -498,15 +498,15 @@ impl GuiApp {
         let mut ui_alloc_bytes = 0u64;
         let export_active = self.export_session.is_some() || self.start_export_requested;
         if scene_dirty || self.needs_redraw || export_active {
-            self.top_view.update(
+            self.tex_view.update(
                 &self.project,
-                TopViewerUpdate {
+                TexViewerUpdate {
                     viewport_width: self.renderer.width(),
                     viewport_height: self.renderer.height(),
                     panel_width: self.panel_width,
                     frame_index: self.state.frame_index,
                     timeline_fps: self.config.animation.fps,
-                    top_eval_epoch: self.state.invalidation.top_eval,
+                    tex_eval_epoch: self.state.invalidation.tex_eval,
                 },
             );
             self.try_start_export_from_request()?;
@@ -524,7 +524,7 @@ impl GuiApp {
             let render_start = Instant::now();
             self.renderer.render(
                 frame,
-                self.top_view.frame(),
+                self.tex_view.frame(),
                 self.panel_width,
                 self.state.avg_fps,
             )?;
@@ -595,8 +595,8 @@ impl GuiApp {
             self.state.invalidation.invalidate_wires();
             self.state.invalidation.invalidate_overlays();
         }
-        if project_before.top_eval != project_after.top_eval {
-            self.state.invalidation.invalidate_top_eval();
+        if project_before.tex_eval != project_after.tex_eval {
+            self.state.invalidation.invalidate_tex_eval();
         }
 
         let state_after = SceneInvalidationSnapshot::capture(&self.state);
@@ -690,7 +690,7 @@ impl GuiApp {
         if !self.start_export_requested || self.export_session.is_some() {
             return Ok(());
         }
-        let Some(frame) = self.top_view.frame() else {
+        let Some(frame) = self.tex_view.frame() else {
             self.state
                 .export_menu
                 .set_status("Export failed: preview output unavailable");
@@ -745,7 +745,7 @@ impl GuiApp {
     fn capture_export_frame(&mut self) -> Result<(), Box<dyn Error>> {
         let (width, height) = match self
             .renderer
-            .capture_top_preview_bgra(&mut self.export_bgra_scratch)
+            .capture_tex_preview_bgra(&mut self.export_bgra_scratch)
         {
             Ok(Some(size)) => size,
             Ok(None) => {

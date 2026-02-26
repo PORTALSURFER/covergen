@@ -638,7 +638,7 @@ pub(crate) struct GuiProject {
     graph_signature_cache: u64,
     nodes_epoch: u64,
     wires_epoch: u64,
-    top_eval_epoch: u64,
+    tex_eval_epoch: u64,
 }
 
 /// Project-scoped invalidation epochs consumed by GUI retained layers.
@@ -646,7 +646,7 @@ pub(crate) struct GuiProject {
 pub(crate) struct GuiProjectInvalidation {
     pub(crate) nodes: u64,
     pub(crate) wires: u64,
-    pub(crate) top_eval: u64,
+    pub(crate) tex_eval: u64,
 }
 
 /// Cached spatial/index structures for fast graph hit-testing.
@@ -686,7 +686,7 @@ impl GuiProject {
             graph_signature_cache: 0,
             nodes_epoch: 0,
             wires_epoch: 0,
-            top_eval_epoch: 0,
+            tex_eval_epoch: 0,
         };
         project.render_signature_cache = project.compute_render_signature();
         project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
@@ -923,7 +923,7 @@ impl GuiProject {
     fn bump_render_epoch(&mut self) {
         self.render_epoch = self.render_epoch.wrapping_add(1);
         self.bump_nodes_epoch();
-        self.bump_top_eval_epoch();
+        self.bump_tex_eval_epoch();
         self.render_signature_cache = self.compute_render_signature();
         self.graph_signature_cache =
             compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
@@ -944,8 +944,8 @@ impl GuiProject {
         self.wires_epoch = self.wires_epoch.wrapping_add(1);
     }
 
-    fn bump_top_eval_epoch(&mut self) {
-        self.top_eval_epoch = self.top_eval_epoch.wrapping_add(1);
+    fn bump_tex_eval_epoch(&mut self) {
+        self.tex_eval_epoch = self.tex_eval_epoch.wrapping_add(1);
     }
 
     fn compute_render_signature(&self) -> u64 {
@@ -2153,7 +2153,7 @@ impl GuiProject {
         GuiProjectInvalidation {
             nodes: self.nodes_epoch,
             wires: self.wires_epoch,
-            top_eval: self.top_eval_epoch,
+            tex_eval: self.tex_eval_epoch,
         }
     }
 
@@ -2966,16 +2966,16 @@ mod tests {
     #[test]
     fn connect_image_link_wires_solid_to_window_out() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+        let tex_source = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
-        assert!(project.connect_image_link(top, out));
+        assert!(project.connect_image_link(tex_source, out));
         assert_eq!(project.edge_count(), 1);
         let source_id = project
             .window_out_input_node_id()
             .expect("window-out input must exist");
         let source = project.node(source_id).expect("source node must exist");
         assert_eq!(source.kind(), ProjectNodeKind::TexSolid);
-        assert!(!project.connect_image_link(top, out));
+        assert!(!project.connect_image_link(tex_source, out));
     }
 
     #[test]
@@ -3512,7 +3512,7 @@ mod tests {
     }
 
     #[test]
-    fn scoped_invalidation_epochs_track_nodes_wires_and_top_eval() {
+    fn scoped_invalidation_epochs_track_nodes_wires_and_tex_eval() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 40, 420, 480);
@@ -3522,19 +3522,19 @@ mod tests {
         let after_expand = project.invalidation();
         assert_ne!(after_expand.nodes, base.nodes);
         assert_ne!(after_expand.wires, base.wires);
-        assert_eq!(after_expand.top_eval, base.top_eval);
+        assert_eq!(after_expand.tex_eval, base.tex_eval);
 
         assert!(project.set_param_value(solid, 0, 0.25));
         let after_param = project.invalidation();
         assert_ne!(after_param.nodes, after_expand.nodes);
         assert_eq!(after_param.wires, after_expand.wires);
-        assert_ne!(after_param.top_eval, after_expand.top_eval);
+        assert_ne!(after_param.tex_eval, after_expand.tex_eval);
 
         assert!(project.connect_image_link(solid, out));
         let after_link = project.invalidation();
         assert_ne!(after_link.nodes, after_param.nodes);
         assert_ne!(after_link.wires, after_param.wires);
-        assert_ne!(after_link.top_eval, after_param.top_eval);
+        assert_ne!(after_link.tex_eval, after_param.tex_eval);
     }
 
     #[test]
@@ -3578,14 +3578,14 @@ mod tests {
     #[test]
     fn pin_centers_follow_node_kind_capabilities() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 70, 420, 480);
+        let tex_source = project.add_node(ProjectNodeKind::TexSolid, 60, 70, 420, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 60, 140, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 70, 420, 480);
-        let top_node = project.node(top).expect("top node must exist");
+        let tex_node = project.node(tex_source).expect("tex node must exist");
         let lfo_node = project.node(lfo).expect("lfo node must exist");
         let out_node = project.node(out).expect("output node must exist");
-        assert!(output_pin_center(top_node).is_some());
-        assert!(input_pin_center(top_node).is_none());
+        assert!(output_pin_center(tex_node).is_some());
+        assert!(input_pin_center(tex_node).is_none());
         assert!(output_pin_center(lfo_node).is_some());
         assert!(input_pin_center(lfo_node).is_none());
         assert!(output_pin_center(out_node).is_none());

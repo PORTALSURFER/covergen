@@ -122,7 +122,7 @@ struct ParamSlotIndex(usize);
 
 /// One GPU operation emitted by GUI runtime evaluation.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum TopRuntimeOp {
+pub(crate) enum TexRuntimeOp {
     /// `tex.solid` source operation.
     Solid {
         color_r: f32,
@@ -192,7 +192,7 @@ pub(crate) enum TopRuntimeOp {
     /// `tex.feedback` one-frame delayed feedback operation.
     Feedback {
         mix: f32,
-        history: TopRuntimeFeedbackHistoryBinding,
+        history: TexRuntimeFeedbackHistoryBinding,
     },
     /// Cache the current operation output under one texture-node id.
     StoreTexture { texture_node_id: u32 },
@@ -207,7 +207,7 @@ pub(crate) enum TopRuntimeOp {
 
 /// History storage binding for one feedback operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum TopRuntimeFeedbackHistoryBinding {
+pub(crate) enum TexRuntimeFeedbackHistoryBinding {
     /// Internal history slot owned by this feedback node.
     Internal { feedback_node_id: u32 },
     /// External history slot keyed by a texture-node id.
@@ -216,7 +216,7 @@ pub(crate) enum TopRuntimeFeedbackHistoryBinding {
 
 /// Frame-clock context used for timeline-locked operation evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TopRuntimeFrameContext {
+pub(crate) struct TexRuntimeFrameContext {
     /// Current timeline frame index.
     pub(crate) frame_index: u32,
     /// Total timeline frame count.
@@ -325,7 +325,7 @@ impl GuiCompiledRuntime {
         project: &GuiProject,
         time_secs: f32,
         eval_stack: &mut Vec<u32>,
-        out_ops: &mut Vec<TopRuntimeOp>,
+        out_ops: &mut Vec<TexRuntimeOp>,
     ) {
         self.evaluate_ops_with_frame(project, time_secs, None, eval_stack, out_ops);
     }
@@ -338,9 +338,9 @@ impl GuiCompiledRuntime {
         &self,
         project: &GuiProject,
         time_secs: f32,
-        frame: Option<TopRuntimeFrameContext>,
+        frame: Option<TexRuntimeFrameContext>,
         eval_stack: &mut Vec<u32>,
-        out_ops: &mut Vec<TopRuntimeOp>,
+        out_ops: &mut Vec<TexRuntimeOp>,
     ) {
         out_ops.clear();
         eval_stack.clear();
@@ -351,7 +351,7 @@ impl GuiCompiledRuntime {
         for step in &self.steps {
             match step.kind {
                 CompiledStepKind::Solid => {
-                    out_ops.push(TopRuntimeOp::Solid {
+                    out_ops.push(TexRuntimeOp::Solid {
                         color_r: compiled_param_value_opt(
                             project,
                             step,
@@ -387,7 +387,7 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::Circle => {
-                    out_ops.push(TopRuntimeOp::Circle {
+                    out_ops.push(TexRuntimeOp::Circle {
                         center_x: compiled_param_value_opt(
                             project,
                             step,
@@ -803,7 +803,7 @@ impl GuiCompiledRuntime {
                     .unwrap_or(0.01)
                     .max(0.0);
                     match mesh_state.profile {
-                        SceneMeshProfile::Sphere => out_ops.push(TopRuntimeOp::Sphere {
+                        SceneMeshProfile::Sphere => out_ops.push(TexRuntimeOp::Sphere {
                             center_x,
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
@@ -844,7 +844,7 @@ impl GuiCompiledRuntime {
                             alpha: entity_state.alpha,
                             alpha_clip,
                         }),
-                        SceneMeshProfile::CircleNurbs => out_ops.push(TopRuntimeOp::Circle {
+                        SceneMeshProfile::CircleNurbs => out_ops.push(TexRuntimeOp::Circle {
                             center_x,
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
@@ -871,7 +871,7 @@ impl GuiCompiledRuntime {
                     }
                 }
                 CompiledStepKind::Transform => {
-                    out_ops.push(TopRuntimeOp::Transform {
+                    out_ops.push(TexRuntimeOp::Transform {
                         brightness: compiled_param_value_opt(
                             project,
                             step,
@@ -915,7 +915,7 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::Level => {
-                    out_ops.push(TopRuntimeOp::Level {
+                    out_ops.push(TexRuntimeOp::Level {
                         in_low: compiled_param_value_opt(
                             project,
                             step,
@@ -974,14 +974,14 @@ impl GuiCompiledRuntime {
                                 )
                             })
                             .map_or(
-                                TopRuntimeFeedbackHistoryBinding::Internal {
+                                TexRuntimeFeedbackHistoryBinding::Internal {
                                     feedback_node_id: step.node_id,
                                 },
-                                |texture_node_id| TopRuntimeFeedbackHistoryBinding::External {
+                                |texture_node_id| TexRuntimeFeedbackHistoryBinding::External {
                                     texture_node_id,
                                 },
                             );
-                    out_ops.push(TopRuntimeOp::Feedback {
+                    out_ops.push(TexRuntimeOp::Feedback {
                         mix: compiled_param_value_opt(
                             project,
                             step,
@@ -995,7 +995,7 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::StoreTexture => {
-                    out_ops.push(TopRuntimeOp::StoreTexture {
+                    out_ops.push(TexRuntimeOp::StoreTexture {
                         texture_node_id: step.node_id,
                     });
                 }
@@ -1003,7 +1003,7 @@ impl GuiCompiledRuntime {
                     base_source_id,
                     layer_source_id,
                 } => {
-                    out_ops.push(TopRuntimeOp::Blend {
+                    out_ops.push(TexRuntimeOp::Blend {
                         mode: compiled_param_value_opt(
                             project,
                             step,
@@ -1442,7 +1442,7 @@ fn layered_loop_sine_noise(loop_phase: f32, frequency: f32, phase: f32, seed: f3
 ///
 /// The phase is end-inclusive, so first and last timeline frames resolve to
 /// identical loop positions when loop mode is enabled.
-fn timeline_loop_phase(frame: Option<TopRuntimeFrameContext>, time_secs: f32) -> f32 {
+fn timeline_loop_phase(frame: Option<TexRuntimeFrameContext>, time_secs: f32) -> f32 {
     let progress = match frame {
         Some(ctx) => normalized_loop_progress(ctx.frame_index, ctx.frame_total),
         None => {
@@ -1467,8 +1467,8 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
 mod tests {
     use super::{
         compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
-        CompiledStepKind, GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding,
-        TopRuntimeFrameContext, TopRuntimeOp, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS,
+        CompiledStepKind, GuiCompiledRuntime, TexRuntimeFeedbackHistoryBinding,
+        TexRuntimeFrameContext, TexRuntimeOp, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS,
         SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
@@ -1530,7 +1530,7 @@ mod tests {
         assert_eq!(ops.len(), 2);
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::Transform {
+            TexRuntimeOp::Transform {
                 brightness,
                 gain_r,
                 gain_g,
@@ -1560,7 +1560,7 @@ mod tests {
         assert_eq!(ops.len(), 2);
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::Level {
+            TexRuntimeOp::Level {
                 in_low,
                 in_high,
                 gamma,
@@ -1591,19 +1591,19 @@ mod tests {
         let mut eval_stack = Vec::new();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
+            TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
         ));
-        assert!(matches!(ops[2], TopRuntimeOp::Circle { .. }));
+        assert!(matches!(ops[2], TexRuntimeOp::Circle { .. }));
         assert!(matches!(
             ops[3],
-            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == circle
+            TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == circle
         ));
         assert!(matches!(
             ops[4],
-            TopRuntimeOp::Blend {
+            TexRuntimeOp::Blend {
                 mode,
                 opacity,
                 base_texture_node_id,
@@ -1631,19 +1631,19 @@ mod tests {
         let mut eval_stack = Vec::new();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
+            TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
         ));
-        assert!(matches!(ops[2], TopRuntimeOp::Transform { .. }));
+        assert!(matches!(ops[2], TexRuntimeOp::Transform { .. }));
         assert!(matches!(
             ops[3],
-            TopRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform
+            TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform
         ));
         assert!(matches!(
             ops[4],
-            TopRuntimeOp::Blend {
+            TexRuntimeOp::Blend {
                 base_texture_node_id,
                 layer_texture_node_id: Some(layer_id),
                 ..
@@ -1665,11 +1665,11 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::Feedback {
-                history: TopRuntimeFeedbackHistoryBinding::Internal { feedback_node_id },
+            TexRuntimeOp::Feedback {
+                history: TexRuntimeFeedbackHistoryBinding::Internal { feedback_node_id },
                 ..
             } if feedback_node_id == feedback
         ));
@@ -1703,11 +1703,11 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::Feedback {
-                history: TopRuntimeFeedbackHistoryBinding::External { texture_node_id },
+            TexRuntimeOp::Feedback {
+                history: TexRuntimeFeedbackHistoryBinding::External { texture_node_id },
                 ..
             } if texture_node_id == circle
         ));
@@ -1730,15 +1730,15 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 3);
-        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
-            TopRuntimeOp::Feedback {
-                history: TopRuntimeFeedbackHistoryBinding::External { texture_node_id },
+            TexRuntimeOp::Feedback {
+                history: TexRuntimeFeedbackHistoryBinding::External { texture_node_id },
                 ..
             } if texture_node_id == xform
         ));
-        assert!(matches!(ops[2], TopRuntimeOp::Transform { .. }));
+        assert!(matches!(ops[2], TexRuntimeOp::Transform { .. }));
     }
 
     #[test]
@@ -1759,7 +1759,7 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopRuntimeOp::Sphere { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Sphere { .. }));
     }
 
     #[test]
@@ -1780,14 +1780,14 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
-            TopRuntimeOp::Sphere { alpha_clip, .. } => assert!(!alpha_clip),
+            TexRuntimeOp::Sphere { alpha_clip, .. } => assert!(!alpha_clip),
             _ => panic!("expected sphere op"),
         }
 
         assert!(project.set_param_dropdown_index(pass, 2, 1));
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
-            TopRuntimeOp::Sphere { alpha_clip, .. } => assert!(alpha_clip),
+            TexRuntimeOp::Sphere { alpha_clip, .. } => assert!(alpha_clip),
             _ => panic!("expected sphere op"),
         }
     }
@@ -1804,7 +1804,7 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
-            TopRuntimeOp::Circle { alpha_clip, .. } => assert!(!alpha_clip),
+            TexRuntimeOp::Circle { alpha_clip, .. } => assert!(!alpha_clip),
             _ => panic!("expected circle op"),
         }
     }
@@ -1829,14 +1829,14 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         let radius_default = match ops[0] {
-            TopRuntimeOp::Sphere { radius, .. } => radius,
+            TexRuntimeOp::Sphere { radius, .. } => radius,
             _ => panic!("expected sphere op"),
         };
 
         assert!(project.set_param_value(camera, 0, 2.0));
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         let radius_zoomed = match ops[0] {
-            TopRuntimeOp::Sphere { radius, .. } => radius,
+            TexRuntimeOp::Sphere { radius, .. } => radius,
             _ => panic!("expected sphere op"),
         };
         assert!(radius_zoomed > radius_default * 1.9);
@@ -1882,7 +1882,7 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
+        assert!(matches!(ops[0], TexRuntimeOp::Circle { .. }));
     }
 
     #[test]
@@ -1910,7 +1910,7 @@ mod tests {
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
-            TopRuntimeOp::Circle {
+            TexRuntimeOp::Circle {
                 arc_start_deg,
                 arc_end_deg,
                 segment_count,
@@ -1959,7 +1959,7 @@ mod tests {
         let mut ops_t1 = Vec::new();
         runtime.evaluate_ops(&project, 0.5, &mut eval_stack, &mut ops_t1);
         let (r0, phase0, twist0, stretch0) = match ops_t0[0] {
-            TopRuntimeOp::Sphere {
+            TexRuntimeOp::Sphere {
                 radius,
                 noise_phase,
                 noise_twist,
@@ -1969,7 +1969,7 @@ mod tests {
             _ => panic!("expected sphere op"),
         };
         let (r1, phase1, twist1, stretch1) = match ops_t1[0] {
-            TopRuntimeOp::Sphere {
+            TexRuntimeOp::Sphere {
                 radius,
                 noise_phase,
                 noise_twist,
@@ -2012,7 +2012,7 @@ mod tests {
         runtime.evaluate_ops_with_frame(
             &project,
             0.0,
-            Some(TopRuntimeFrameContext {
+            Some(TexRuntimeFrameContext {
                 frame_index: 0,
                 frame_total: 1_800,
             }),
@@ -2023,7 +2023,7 @@ mod tests {
         runtime.evaluate_ops_with_frame(
             &project,
             1_799.0 / 60.0,
-            Some(TopRuntimeFrameContext {
+            Some(TexRuntimeFrameContext {
                 frame_index: 1_799,
                 frame_total: 1_800,
             }),
@@ -2031,11 +2031,11 @@ mod tests {
             &mut ops_last,
         );
         let phase_first = match ops_first[0] {
-            TopRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
+            TexRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
             _ => panic!("expected sphere op"),
         };
         let phase_last = match ops_last[0] {
-            TopRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
+            TexRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
             _ => panic!("expected sphere op"),
         };
         assert!(

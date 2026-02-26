@@ -4,20 +4,20 @@
 //! payload so the renderer executes a single GPU-only preview path.
 
 use super::project::GuiProject;
-use super::runtime::{GuiCompiledRuntime, TopRuntimeFrameContext};
+use super::runtime::{GuiCompiledRuntime, TexRuntimeFrameContext};
 use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
 
 /// Re-exported tex operation type consumed by preview rendering.
-pub(crate) use super::runtime::TopRuntimeOp as TopViewerOp;
+pub(crate) use super::runtime::TexRuntimeOp as TexViewerOp;
 
 /// tex viewer payload consumed by the GUI renderer.
-pub(crate) enum TopViewerPayload<'a> {
+pub(crate) enum TexViewerPayload<'a> {
     /// GPU operation chain executed into the viewer target.
-    GpuOps(&'a [TopViewerOp]),
+    GpuOps(&'a [TexViewerOp]),
 }
 
 /// Borrowed frame payload for one tex viewer render.
-pub(crate) struct TopViewerFrame<'a> {
+pub(crate) struct TexViewerFrame<'a> {
     /// Panel-space x-offset of fitted preview quad.
     pub(crate) x: i32,
     /// Panel-space y-offset of fitted preview quad.
@@ -30,7 +30,7 @@ pub(crate) struct TopViewerFrame<'a> {
     pub(crate) texture_width: u32,
     /// Backing GPU texture height used for tex evaluation.
     pub(crate) texture_height: u32,
-    pub(crate) payload: TopViewerPayload<'a>,
+    pub(crate) payload: TexViewerPayload<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,13 +41,13 @@ struct ViewerCacheKey {
     view_height: u32,
     texture_width: u32,
     texture_height: u32,
-    top_eval_epoch: u64,
+    tex_eval_epoch: u64,
     frame_index: u32,
 }
 
 /// Cached tex preview payload producer.
 #[derive(Debug, Default)]
-pub(crate) struct TopViewerGenerator {
+pub(crate) struct TexViewerGenerator {
     key: Option<ViewerCacheKey>,
     width: u32,
     height: u32,
@@ -55,13 +55,13 @@ pub(crate) struct TopViewerGenerator {
     y: i32,
     compiled_epoch: Option<u64>,
     compiled_runtime: Option<GuiCompiledRuntime>,
-    ops: Vec<TopViewerOp>,
+    ops: Vec<TexViewerOp>,
     eval_stack: Vec<u32>,
 }
 
 /// Immutable update inputs for one tex viewer cache tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TopViewerUpdate {
+pub(crate) struct TexViewerUpdate {
     /// Current viewport width in physical pixels.
     pub(crate) viewport_width: usize,
     /// Current viewport height in physical pixels.
@@ -73,12 +73,12 @@ pub(crate) struct TopViewerUpdate {
     /// Timeline playback rate used for time conversion.
     pub(crate) timeline_fps: u32,
     /// Epoch token for tex evaluation invalidation.
-    pub(crate) top_eval_epoch: u64,
+    pub(crate) tex_eval_epoch: u64,
 }
 
-impl TopViewerGenerator {
+impl TexViewerGenerator {
     /// Update cached viewer payload for current panel split and graph state.
-    pub(crate) fn update(&mut self, project: &GuiProject, update: TopViewerUpdate) {
+    pub(crate) fn update(&mut self, project: &GuiProject, update: TexViewerUpdate) {
         let panel_w = update.viewport_width.saturating_sub(update.panel_width) as u32;
         let panel_h = editor_panel_height(update.viewport_height) as u32;
         let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
@@ -86,9 +86,9 @@ impl TopViewerGenerator {
         } else {
             0
         };
-        if self.compiled_epoch != Some(update.top_eval_epoch) {
+        if self.compiled_epoch != Some(update.tex_eval_epoch) {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
-            self.compiled_epoch = Some(update.top_eval_epoch);
+            self.compiled_epoch = Some(update.tex_eval_epoch);
         }
         let time_secs = update.frame_index as f32 / update.timeline_fps.max(1) as f32;
         let (texture_width, texture_height) = self
@@ -107,7 +107,7 @@ impl TopViewerGenerator {
             view_height,
             texture_width,
             texture_height,
-            top_eval_epoch: update.top_eval_epoch,
+            tex_eval_epoch: update.tex_eval_epoch,
             frame_index: dynamic_frame,
         };
         self.x = x;
@@ -124,7 +124,7 @@ impl TopViewerGenerator {
             compiled_runtime.evaluate_ops_with_frame(
                 project,
                 time_secs,
-                Some(TopRuntimeFrameContext {
+                Some(TexRuntimeFrameContext {
                     frame_index: dynamic_frame,
                     frame_total: TIMELINE_TOTAL_FRAMES,
                 }),
@@ -135,11 +135,11 @@ impl TopViewerGenerator {
     }
 
     /// Return current frame payload, if viewer dimensions are valid.
-    pub(crate) fn frame(&self) -> Option<TopViewerFrame<'_>> {
+    pub(crate) fn frame(&self) -> Option<TexViewerFrame<'_>> {
         if self.width == 0 || self.height == 0 {
             return None;
         }
-        Some(TopViewerFrame {
+        Some(TexViewerFrame {
             x: self.x,
             y: self.y,
             width: self.width,
@@ -152,7 +152,7 @@ impl TopViewerGenerator {
                 .key
                 .map(|key| key.texture_height)
                 .unwrap_or(self.height.max(1)),
-            payload: TopViewerPayload::GpuOps(self.ops.as_slice()),
+            payload: TexViewerPayload::GpuOps(self.ops.as_slice()),
         })
     }
 }
@@ -173,34 +173,34 @@ fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32
 #[cfg(test)]
 #[allow(clippy::infallible_destructuring_match)]
 mod tests {
-    use super::{TopViewerGenerator, TopViewerOp, TopViewerPayload, TopViewerUpdate};
+    use super::{TexViewerGenerator, TexViewerOp, TexViewerPayload, TexViewerUpdate};
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
     #[test]
     fn supported_graph_emits_gpu_ops_payload() {
         let mut project = GuiProject::new_empty(640, 480);
-        let top = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let tex_source = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
-        assert!(project.connect_image_link(top, out));
+        assert!(project.connect_image_link(tex_source, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
     }
 
     #[test]
@@ -212,25 +212,25 @@ mod tests {
         assert!(project.connect_image_link(solid, xform));
         assert!(project.connect_image_link(xform, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
-        assert!(matches!(ops[1], TopViewerOp::Transform { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TexViewerOp::Transform { .. }));
     }
 
     #[test]
@@ -242,25 +242,25 @@ mod tests {
         assert!(project.connect_image_link(solid, level));
         assert!(project.connect_image_link(level, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
-        assert!(matches!(ops[1], TopViewerOp::Level { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TexViewerOp::Level { .. }));
     }
 
     #[test]
@@ -272,25 +272,25 @@ mod tests {
         assert!(project.connect_image_link(solid, feedback));
         assert!(project.connect_image_link(feedback, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 2);
-        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
-        assert!(matches!(ops[1], TopViewerOp::Feedback { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TexViewerOp::Feedback { .. }));
     }
 
     #[test]
@@ -303,38 +303,38 @@ mod tests {
         assert!(project.toggle_node_expanded(solid, 420, 480));
         assert!(project.connect_image_link(lfo, solid));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let r0 = match viewer.frame().expect("frame0").payload {
-            TopViewerPayload::GpuOps(ops) => match ops[0] {
-                TopViewerOp::Solid { color_r, .. } => color_r,
+            TexViewerPayload::GpuOps(ops) => match ops[0] {
+                TexViewerOp::Solid { color_r, .. } => color_r,
                 _ => panic!("first op should be solid"),
             },
         };
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 60,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let r1 = match viewer.frame().expect("frame1").payload {
-            TopViewerPayload::GpuOps(ops) => match ops[0] {
-                TopViewerOp::Solid { color_r, .. } => color_r,
+            TexViewerPayload::GpuOps(ops) => match ops[0] {
+                TexViewerOp::Solid { color_r, .. } => color_r,
                 _ => panic!("first op should be solid"),
             },
         };
@@ -348,24 +348,24 @@ mod tests {
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(circle, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopViewerOp::Circle { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Circle { .. }));
     }
 
     #[test]
@@ -381,24 +381,24 @@ mod tests {
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Sphere { .. }));
     }
 
     #[test]
@@ -416,16 +416,16 @@ mod tests {
         assert!(project.set_param_value(pass, 0, 1024.0));
         assert!(project.set_param_value(pass, 1, 256.0));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 1200,
                 viewport_height: 700,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
@@ -446,24 +446,24 @@ mod tests {
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopViewerOp::Circle { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Circle { .. }));
     }
 
     #[test]
@@ -481,24 +481,24 @@ mod tests {
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 1200,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert_eq!(ops.len(), 1);
-        assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+        assert!(matches!(ops[0], TexViewerOp::Sphere { .. }));
     }
 
     #[test]
@@ -517,39 +517,39 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
         assert!(!project.has_signal_bindings());
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 1200,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let phase_t0 = match viewer.frame().expect("frame0").payload {
-            TopViewerPayload::GpuOps(ops) => match ops[0] {
-                TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
+            TexViewerPayload::GpuOps(ops) => match ops[0] {
+                TexViewerOp::Sphere { noise_phase, .. } => noise_phase,
                 _ => panic!("expected sphere op"),
             },
         };
 
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 1200,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 60,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let phase_t1 = match viewer.frame().expect("frame1").payload {
-            TopViewerPayload::GpuOps(ops) => match ops[0] {
-                TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
+            TexViewerPayload::GpuOps(ops) => match ops[0] {
+                TexViewerOp::Sphere { noise_phase, .. } => noise_phase,
                 _ => panic!("expected sphere op"),
             },
         };
@@ -564,16 +564,16 @@ mod tests {
         let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
         assert!(project.connect_image_link(solid, out));
 
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let base_key = viewer.key;
@@ -581,13 +581,13 @@ mod tests {
         assert!(project.toggle_node_expanded(solid, 420, 480));
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         assert_eq!(viewer.key, base_key);
@@ -595,13 +595,13 @@ mod tests {
         assert!(project.select_next_param(solid));
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         assert_eq!(viewer.key, base_key);
@@ -610,21 +610,21 @@ mod tests {
     #[test]
     fn disconnected_graph_returns_empty_gpu_payload() {
         let project = GuiProject::new_empty(640, 480);
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 960,
                 viewport_height: 540,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
-            TopViewerPayload::GpuOps(ops) => ops,
+            TexViewerPayload::GpuOps(ops) => ops,
         };
         assert!(ops.is_empty());
     }
@@ -632,16 +632,16 @@ mod tests {
     #[test]
     fn viewer_frame_fits_texture_aspect_inside_output_panel() {
         let project = GuiProject::new_empty(1920, 1080);
-        let mut viewer = TopViewerGenerator::default();
+        let mut viewer = TexViewerGenerator::default();
         viewer.update(
             &project,
-            TopViewerUpdate {
+            TexViewerUpdate {
                 viewport_width: 1200,
                 viewport_height: 900,
                 panel_width: 420,
                 frame_index: 0,
                 timeline_fps: 60,
-                top_eval_epoch: project.invalidation().top_eval,
+                tex_eval_epoch: project.invalidation().tex_eval,
             },
         );
         let frame = viewer.frame().expect("viewer frame should exist");

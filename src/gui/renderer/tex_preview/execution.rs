@@ -1,14 +1,14 @@
 //! Frame-time tex preview preparation and GPU operation execution.
 
 use crate::gui::geometry::Rect;
-use crate::gui::top_view::{TopViewerFrame, TopViewerOp, TopViewerPayload};
+use crate::gui::tex_view::{TexViewerFrame, TexViewerOp, TexViewerPayload};
 
 use super::super::viewer;
 use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
 use super::pipeline::create_preview_texture_bundle;
 use super::{
-    CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef, TopOpUniform,
-    TopPreviewRenderer, PREVIEW_BG, TOP_PREVIEW_TEXTURE_FORMAT,
+    CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef,
+    TexPreviewRenderer, TopOpUniform, PREVIEW_BG, TEX_PREVIEW_TEXTURE_FORMAT,
 };
 
 const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
@@ -18,39 +18,39 @@ const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
     a: 0.0,
 };
 
-const TOP_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TopOpUniform>();
+const TEX_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TopOpUniform>();
 
-impl TopPreviewRenderer {
+impl TexPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
     pub(in crate::gui::renderer) fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        top_view: Option<TopViewerFrame<'_>>,
+        tex_view: Option<TexViewerFrame<'_>>,
         export_preview_rect: Option<Rect>,
         encoder: &mut wgpu::CommandEncoder,
     ) -> u64 {
-        let Some(top_view) = top_view else {
+        let Some(tex_view) = tex_view else {
             self.viewer_visible = false;
             self.export_preview_visible = false;
             return 0;
         };
-        if top_view.width == 0
-            || top_view.height == 0
-            || top_view.texture_width == 0
-            || top_view.texture_height == 0
+        if tex_view.width == 0
+            || tex_view.height == 0
+            || tex_view.texture_width == 0
+            || tex_view.texture_height == 0
         {
             self.viewer_visible = false;
             self.export_preview_visible = false;
             return 0;
         }
         let mut upload_bytes = 0u64;
-        self.ensure_viewer_texture(device, top_view.texture_width, top_view.texture_height);
+        self.ensure_viewer_texture(device, tex_view.texture_width, tex_view.texture_height);
         let rect = Rect::new(
-            top_view.x,
-            top_view.y,
-            top_view.width as i32,
-            top_view.height as i32,
+            tex_view.x,
+            tex_view.y,
+            tex_view.width as i32,
+            tex_view.height as i32,
         );
         let quad = viewer::quad_vertices(rect);
         upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
@@ -73,14 +73,14 @@ impl TopPreviewRenderer {
             self.export_preview_visible = false;
         }
 
-        let TopViewerPayload::GpuOps(ops) = top_view.payload;
+        let TexViewerPayload::GpuOps(ops) = tex_view.payload;
         if let Some(op_upload_bytes) = self.encode_gpu_ops(
             device,
             queue,
             encoder,
             ops,
-            top_view.texture_width,
-            top_view.texture_height,
+            tex_view.texture_width,
+            tex_view.texture_height,
         ) {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
@@ -95,7 +95,7 @@ impl TopPreviewRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        ops: &[TopViewerOp],
+        ops: &[TexViewerOp],
         width: u32,
         height: u32,
     ) -> Option<u64> {
@@ -178,25 +178,25 @@ impl TopPreviewRenderer {
                 });
 
                 match planned_op {
-                    PlannedRenderOp::Runtime(TopViewerOp::Solid { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Solid { .. }) => {
                         pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
                         pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                         pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Circle { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Circle { .. }) => {
                         pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
                         pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                         pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Sphere { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Sphere { .. }) => {
                         pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
                         pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                         pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Transform { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Transform { .. }) => {
                         let src_target = source_target?;
                         let src_bind_group = self.target_bind_group(src_target)?;
                         pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
@@ -204,7 +204,7 @@ impl TopPreviewRenderer {
                         pass.set_bind_group(1, src_bind_group, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Level { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Level { .. }) => {
                         let src_target = source_target?;
                         let src_bind_group = self.target_bind_group(src_target)?;
                         pass.set_pipeline(self.op_level_pipeline.as_ref()?);
@@ -220,7 +220,7 @@ impl TopPreviewRenderer {
                         pass.set_bind_group(1, src_bind_group, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Feedback { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }) => {
                         let src_target = source_target?;
                         let src_bind_group = self.target_bind_group(src_target)?;
                         let history_key = feedback_history_key?;
@@ -231,7 +231,7 @@ impl TopPreviewRenderer {
                         pass.set_bind_group(1, src_bind_group, &[]);
                         pass.set_bind_group(2, history_bind_group, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::Blend {
+                    PlannedRenderOp::Runtime(TexViewerOp::Blend {
                         base_texture_node_id,
                         layer_texture_node_id,
                         ..
@@ -250,7 +250,7 @@ impl TopPreviewRenderer {
                         pass.set_bind_group(1, base_bind_group, &[]);
                         pass.set_bind_group(2, layer_bind_group, &[]);
                     }
-                    PlannedRenderOp::Runtime(TopViewerOp::StoreTexture { .. }) => {
+                    PlannedRenderOp::Runtime(TexViewerOp::StoreTexture { .. }) => {
                         return None;
                     }
                 }
@@ -295,14 +295,14 @@ impl TopPreviewRenderer {
     fn op_uniform_for_planned(op: PlannedRenderOp) -> TopOpUniform {
         match op {
             PlannedRenderOp::Runtime(runtime_op) => match runtime_op {
-                TopViewerOp::Solid { .. } => TopOpUniform::solid(runtime_op),
-                TopViewerOp::Circle { .. } => TopOpUniform::circle(runtime_op),
-                TopViewerOp::Sphere { .. } => TopOpUniform::sphere(runtime_op),
-                TopViewerOp::Transform { .. } => TopOpUniform::transform(runtime_op),
-                TopViewerOp::Level { .. } => TopOpUniform::level(runtime_op),
-                TopViewerOp::Feedback { .. } => TopOpUniform::feedback(runtime_op),
-                TopViewerOp::Blend { .. } => TopOpUniform::blend(runtime_op),
-                TopViewerOp::StoreTexture { .. } => TopOpUniform::solid(runtime_op),
+                TexViewerOp::Solid { .. } => TopOpUniform::solid(runtime_op),
+                TexViewerOp::Circle { .. } => TopOpUniform::circle(runtime_op),
+                TexViewerOp::Sphere { .. } => TopOpUniform::sphere(runtime_op),
+                TexViewerOp::Transform { .. } => TopOpUniform::transform(runtime_op),
+                TexViewerOp::Level { .. } => TopOpUniform::level(runtime_op),
+                TexViewerOp::Feedback { .. } => TopOpUniform::feedback(runtime_op),
+                TexViewerOp::Blend { .. } => TopOpUniform::blend(runtime_op),
+                TexViewerOp::StoreTexture { .. } => TopOpUniform::solid(runtime_op),
             },
             PlannedRenderOp::TransformPair { first, second } => {
                 Self::op_uniform_for_fused_transform_pair(first, second)
@@ -326,7 +326,7 @@ impl TopPreviewRenderer {
             let chunk = &mut self.op_uniform_staging[offset..offset + stride];
             chunk.fill(0);
             let uniform = Self::op_uniform_for_planned(op);
-            chunk[..TOP_OP_UNIFORM_SIZE].copy_from_slice(bytemuck::bytes_of(&uniform));
+            chunk[..TEX_OP_UNIFORM_SIZE].copy_from_slice(bytemuck::bytes_of(&uniform));
         }
         queue.write_buffer(
             &self.op_uniform_buffer,
@@ -341,7 +341,7 @@ impl TopPreviewRenderer {
             return None;
         };
         match runtime_op {
-            TopViewerOp::Feedback { history, .. } => {
+            TexViewerOp::Feedback { history, .. } => {
                 Some(FeedbackHistoryKey::from_binding(history))
             }
             _ => None,
@@ -435,7 +435,7 @@ impl TopPreviewRenderer {
         }
         self.viewer_texture_size = (width, height);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gui-top-viewer-texture"),
+            label: Some("gui-tex-viewer-texture"),
             size: wgpu::Extent3d {
                 width,
                 height,
@@ -444,7 +444,7 @@ impl TopPreviewRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: TOP_PREVIEW_TEXTURE_FORMAT,
+            format: TEX_PREVIEW_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
@@ -774,12 +774,12 @@ impl TopPreviewRenderer {
     }
 }
 
-fn op_clear_color(op: TopViewerOp) -> wgpu::Color {
+fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
     match op {
-        TopViewerOp::Sphere {
+        TexViewerOp::Sphere {
             alpha_clip: true, ..
         }
-        | TopViewerOp::Circle {
+        | TexViewerOp::Circle {
             alpha_clip: true, ..
         } => TRANSPARENT_BG,
         _ => PREVIEW_BG,

@@ -14,10 +14,10 @@ mod renderer;
 mod runtime;
 mod scene;
 mod state;
+mod tex_view;
 mod text;
 mod theme;
 mod timeline;
-mod top_view;
 
 use std::error::Error;
 use std::sync::Arc;

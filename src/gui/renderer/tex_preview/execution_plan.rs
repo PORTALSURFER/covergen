@@ -4,7 +4,7 @@
 //! - collapse adjacent `Transform` operations into one fused render step
 //! - keep `StoreTexture` as explicit steps for downstream blend dependencies
 
-use crate::gui::top_view::TopViewerOp;
+use crate::gui::tex_view::TexViewerOp;
 
 /// One transform payload used by fused transform execution.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,8 +18,8 @@ pub(super) struct TransformParams {
 
 impl TransformParams {
     /// Extract transform parameters when `op` is a `Transform`.
-    pub(super) fn from_transform_op(op: TopViewerOp) -> Option<Self> {
-        let TopViewerOp::Transform {
+    pub(super) fn from_transform_op(op: TexViewerOp) -> Option<Self> {
+        let TexViewerOp::Transform {
             brightness,
             gain_r,
             gain_g,
@@ -43,7 +43,7 @@ impl TransformParams {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum PlannedRenderOp {
     /// Render one runtime op directly.
-    Runtime(TopViewerOp),
+    Runtime(TexViewerOp),
     /// Render two adjacent transform operations in one fused pass.
     TransformPair {
         first: TransformParams,
@@ -62,7 +62,7 @@ pub(super) enum PlannedStep {
 
 /// Build a fused execution plan from runtime operations.
 pub(super) fn build_execution_plan(
-    ops: &[TopViewerOp],
+    ops: &[TexViewerOp],
     planned_steps: &mut Vec<PlannedStep>,
     planned_render_ops: &mut Vec<PlannedRenderOp>,
 ) {
@@ -71,11 +71,11 @@ pub(super) fn build_execution_plan(
     let mut index = 0usize;
     while let Some(op) = ops.get(index).copied() {
         match op {
-            TopViewerOp::StoreTexture { texture_node_id } => {
+            TexViewerOp::StoreTexture { texture_node_id } => {
                 planned_steps.push(PlannedStep::StoreTexture { texture_node_id });
                 index += 1;
             }
-            TopViewerOp::Transform { .. } => {
+            TexViewerOp::Transform { .. } => {
                 let first = TransformParams::from_transform_op(op).expect("checked match");
                 if let Some(second) = ops
                     .get(index + 1)
@@ -106,25 +106,25 @@ pub(super) fn build_execution_plan(
 #[cfg(test)]
 mod tests {
     use super::{build_execution_plan, PlannedRenderOp, PlannedStep};
-    use crate::gui::top_view::TopViewerOp;
+    use crate::gui::tex_view::TexViewerOp;
 
     #[test]
     fn planner_fuses_adjacent_transform_steps() {
         let ops = vec![
-            TopViewerOp::Solid {
+            TexViewerOp::Solid {
                 color_r: 0.2,
                 color_g: 0.3,
                 color_b: 0.4,
                 alpha: 1.0,
             },
-            TopViewerOp::Transform {
+            TexViewerOp::Transform {
                 brightness: 1.1,
                 gain_r: 1.0,
                 gain_g: 1.0,
                 gain_b: 1.0,
                 alpha_mul: 0.8,
             },
-            TopViewerOp::Transform {
+            TexViewerOp::Transform {
                 brightness: 0.9,
                 gain_r: 0.8,
                 gain_g: 0.7,
@@ -147,15 +147,15 @@ mod tests {
     #[test]
     fn planner_keeps_store_texture_barrier_between_transforms() {
         let ops = vec![
-            TopViewerOp::Transform {
+            TexViewerOp::Transform {
                 brightness: 1.0,
                 gain_r: 1.0,
                 gain_g: 1.0,
                 gain_b: 1.0,
                 alpha_mul: 1.0,
             },
-            TopViewerOp::StoreTexture { texture_node_id: 7 },
-            TopViewerOp::Transform {
+            TexViewerOp::StoreTexture { texture_node_id: 7 },
+            TexViewerOp::Transform {
                 brightness: 0.8,
                 gain_r: 0.9,
                 gain_g: 1.0,
@@ -175,11 +175,11 @@ mod tests {
         ));
         assert!(matches!(
             planned_render_ops[0],
-            PlannedRenderOp::Runtime(TopViewerOp::Transform { .. })
+            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. })
         ));
         assert!(matches!(
             planned_render_ops[1],
-            PlannedRenderOp::Runtime(TopViewerOp::Transform { .. })
+            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. })
         ));
     }
 }

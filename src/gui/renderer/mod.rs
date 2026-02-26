@@ -1,7 +1,7 @@
 //! WGPU renderer for the realtime GUI editor.
 
 mod setup;
-mod top_preview;
+mod tex_preview;
 mod viewer;
 
 use std::error::Error;
@@ -16,16 +16,16 @@ use crate::runtime_config::GuiVsync;
 use crate::telemetry;
 
 use super::scene::{Color, SceneFrame, SceneLayer};
+use super::tex_view::TexViewerFrame;
 use super::text::GuiTextRenderer;
 use super::timeline::editor_panel_height;
-use super::top_view::TopViewerFrame;
 use crate::gui::geometry::Rect;
 use setup::{
     create_pipeline, create_uniform_bind_group, create_vertex_buffer, grow_capacity,
     preferred_surface_format, push_rect_triangles, request_hardware_adapter, select_present_mode,
     Vertex, ViewportUniform,
 };
-use top_preview::TopPreviewRenderer;
+use tex_preview::TexPreviewRenderer;
 
 const HUD_MARGIN_PX: i32 = 12;
 const HUD_PAD_X: i32 = 8;
@@ -230,7 +230,7 @@ pub(crate) struct GuiRenderer {
     lines_pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    top_preview: TopPreviewRenderer,
+    tex_preview: TexPreviewRenderer,
     static_panel_geometry: LayerGpuGeometry,
     edges_geometry: LayerGpuGeometry,
     nodes_geometry: LayerGpuGeometry,
@@ -317,8 +317,8 @@ impl GuiRenderer {
             config.format,
             wgpu::PrimitiveTopology::LineList,
         );
-        let top_preview =
-            TopPreviewRenderer::new(&device, &uniform_bind_group_layout, config.format);
+        let tex_preview =
+            TexPreviewRenderer::new(&device, &uniform_bind_group_layout, config.format);
         let static_panel_geometry = LayerGpuGeometry::new(&device, "static-panel", 1024);
         let edges_geometry = LayerGpuGeometry::new(&device, "edges", 2048);
         let nodes_geometry = LayerGpuGeometry::new(&device, "nodes", 8192);
@@ -340,7 +340,7 @@ impl GuiRenderer {
             lines_pipeline,
             uniform_buffer,
             uniform_bind_group,
-            top_preview,
+            tex_preview,
             static_panel_geometry,
             edges_geometry,
             nodes_geometry,
@@ -386,7 +386,7 @@ impl GuiRenderer {
     pub(crate) fn render(
         &mut self,
         frame: &SceneFrame,
-        top_view: Option<TopViewerFrame<'_>>,
+        tex_view: Option<TexViewerFrame<'_>>,
         panel_width: usize,
         avg_fps: f32,
     ) -> Result<(), Box<dyn Error>> {
@@ -421,16 +421,16 @@ impl GuiRenderer {
             );
             self.uniform_dirty = false;
         }
-        let top_preview_upload_bytes = self.render_surface(
+        let tex_preview_upload_bytes = self.render_surface(
             frame.clear.unwrap_or(Color::argb(0xFF000000)),
             panel_width,
-            top_view,
+            tex_view,
             frame.export_preview_rect,
         )?;
         self.frame_perf.upload_bytes = self
             .frame_perf
             .upload_bytes
-            .saturating_add(top_preview_upload_bytes);
+            .saturating_add(tex_preview_upload_bytes);
         self.frame_perf.submit_count = 1;
         Ok(())
     }
@@ -443,11 +443,11 @@ impl GuiRenderer {
     }
 
     /// Capture current tex preview texture to tightly packed BGRA bytes.
-    pub(crate) fn capture_top_preview_bgra(
+    pub(crate) fn capture_tex_preview_bgra(
         &mut self,
         out_bgra: &mut Vec<u8>,
     ) -> Result<Option<(u32, u32)>, Box<dyn Error>> {
-        let Some((texture, (width, height))) = self.top_preview.viewer_texture_and_size() else {
+        let Some((texture, (width, height))) = self.tex_preview.viewer_texture_and_size() else {
             return Ok(None);
         };
         if width == 0 || height == 0 {
@@ -581,7 +581,7 @@ impl GuiRenderer {
         &mut self,
         clear: Color,
         panel_width: usize,
-        top_view: Option<TopViewerFrame<'_>>,
+        tex_view: Option<TexViewerFrame<'_>>,
         export_preview_rect: Option<Rect>,
     ) -> Result<u64, Box<dyn Error>> {
         let surface_tex = match self.surface.get_current_texture() {
@@ -603,10 +603,10 @@ impl GuiRenderer {
                 label: Some("gui-render-encoder"),
             });
 
-        let top_preview_upload_bytes = self.top_preview.prepare(
+        let tex_preview_upload_bytes = self.tex_preview.prepare(
             &self.device,
             &self.queue,
-            top_view,
+            tex_view,
             export_preview_rect,
             &mut encoder,
         );
@@ -643,7 +643,7 @@ impl GuiRenderer {
             let editor_scissor_w = panel_width.min(self.config.width as usize) as u32;
             let editor_scissor_h = editor_panel_height(self.config.height as usize).max(1) as u32;
 
-            self.top_preview
+            self.tex_preview
                 .draw_main_viewer(&mut pass, &self.uniform_bind_group);
 
             pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
@@ -656,13 +656,13 @@ impl GuiRenderer {
             self.draw_layer(&mut pass, &self.timeline_geometry);
             self.draw_layer(&mut pass, &self.hud_geometry);
             pass.set_scissor_rect(0, 0, editor_scissor_w, editor_scissor_h);
-            self.top_preview
+            self.tex_preview
                 .draw_export_preview(&mut pass, &self.uniform_bind_group);
         }
         self.main_pass_timestamps.resolve_and_reset(&mut encoder);
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_tex.present();
-        Ok(top_preview_upload_bytes)
+        Ok(tex_preview_upload_bytes)
     }
 
     fn draw_layer<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, layer: &'a LayerGpuGeometry) {

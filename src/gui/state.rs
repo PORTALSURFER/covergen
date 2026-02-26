@@ -67,7 +67,7 @@ pub(crate) struct GuiInvalidation {
     pub(crate) wires: u64,
     pub(crate) overlays: u64,
     pub(crate) timeline: u64,
-    pub(crate) top_eval: u64,
+    pub(crate) tex_eval: u64,
 }
 
 impl GuiInvalidation {
@@ -77,7 +77,7 @@ impl GuiInvalidation {
         self.invalidate_wires();
         self.invalidate_overlays();
         self.invalidate_timeline();
-        self.invalidate_top_eval();
+        self.invalidate_tex_eval();
     }
 
     /// Mark node-card subtree dirty.
@@ -101,8 +101,8 @@ impl GuiInvalidation {
     }
 
     /// Mark tex evaluation subtree dirty.
-    pub(crate) fn invalidate_top_eval(&mut self) {
-        self.top_eval = self.top_eval.wrapping_add(1);
+    pub(crate) fn invalidate_tex_eval(&mut self) {
+        self.tex_eval = self.tex_eval.wrapping_add(1);
     }
 }
 
@@ -275,7 +275,7 @@ impl PreviewState {
                 wires: 1,
                 overlays: 1,
                 timeline: 1,
-                top_eval: 1,
+                tex_eval: 1,
             },
         }
     }
