@@ -28,10 +28,24 @@ pub(crate) const NODE_PARAM_ROW_PAD_X: i32 = 4;
 pub(crate) const NODE_PARAM_VALUE_BOX_RIGHT_PAD: i32 = 6;
 /// Width of one parameter value input box in graph-space pixels.
 pub(crate) const NODE_PARAM_VALUE_BOX_WIDTH: i32 = 52;
+/// Height of one dropdown option row in graph-space pixels.
+pub(crate) const NODE_PARAM_DROPDOWN_ROW_HEIGHT: i32 = NODE_PARAM_ROW_HEIGHT;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
 const HIT_BIN_SIZE: i32 = 128;
 const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
+
+/// Arc style options exposed by the `buf.circle_nurbs` node.
+const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
+    NodeParamOption {
+        label: "closed",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "open_arc",
+        value: 1.0,
+    },
+];
 
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -276,6 +290,42 @@ impl fmt::Display for PersistedProjectLoadError {
 
 impl std::error::Error for PersistedProjectLoadError {}
 
+/// One selectable dropdown option for a node parameter.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NodeParamOption {
+    /// User-facing option label rendered in the dropdown.
+    pub(crate) label: &'static str,
+    /// Scalar value stored for this option.
+    pub(crate) value: f32,
+}
+
+/// Widget style used by one node parameter row.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NodeParamWidget {
+    /// Free-form numeric input field.
+    Number,
+    /// Fixed-option dropdown selector.
+    Dropdown {
+        /// Static option list used for this parameter.
+        options: &'static [NodeParamOption],
+    },
+}
+
+impl NodeParamWidget {
+    /// Return true when this parameter uses a dropdown widget.
+    pub(crate) const fn is_dropdown(self) -> bool {
+        matches!(self, Self::Dropdown { .. })
+    }
+
+    /// Return dropdown options when this widget is dropdown-based.
+    pub(crate) const fn dropdown_options(self) -> Option<&'static [NodeParamOption]> {
+        match self {
+            Self::Number => None,
+            Self::Dropdown { options } => Some(options),
+        }
+    }
+}
+
 /// Editable node-parameter state with optional signal binding.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeParamSlot {
@@ -287,6 +337,7 @@ pub(crate) struct NodeParamSlot {
     max: f32,
     step: f32,
     signal_source: Option<u32>,
+    widget: NodeParamWidget,
 }
 
 /// Read-only parameter view for rendering node UI.
@@ -296,6 +347,7 @@ pub(crate) struct NodeParamView<'a> {
     pub(crate) value_text: &'a str,
     pub(crate) bound: bool,
     pub(crate) selected: bool,
+    pub(crate) dropdown: bool,
 }
 
 /// Zero-allocation iterator over one node's parameter rows.
@@ -320,6 +372,7 @@ impl<'a> Iterator for NodeParamIter<'a> {
             value_text: slot.value_text.as_str(),
             bound: slot.signal_source.is_some(),
             selected,
+            dropdown: slot.widget.is_dropdown(),
         })
     }
 }
@@ -415,6 +468,7 @@ impl ProjectNode {
             value_text: slot.value_text.as_str(),
             bound: slot.signal_source.is_some(),
             selected,
+            dropdown: slot.widget.is_dropdown(),
         })
     }
 }
@@ -555,9 +609,7 @@ impl GuiProject {
                 else {
                     continue;
                 };
-                let clamped = persisted_param.value.clamp(slot.min, slot.max);
-                slot.value = clamped;
-                slot.value_text = format_param_value_text(clamped);
+                let _ = set_slot_value(slot, persisted_param.value);
             }
             node.selected_param = persisted_node
                 .selected_param
@@ -1195,14 +1247,7 @@ impl GuiProject {
             return false;
         }
         let index = node.selected_param.min(node.params.len().saturating_sub(1));
-        let slot = &mut node.params[index];
-        let next = (slot.value + slot.step * direction).clamp(slot.min, slot.max);
-        if (next - slot.value).abs() < 1e-6 {
-            return false;
-        }
-        slot.value = next;
-        slot.value_text = format_param_value_text(next);
-        true
+        adjust_slot_value(&mut node.params[index], direction)
     }
 
     /// Adjust one parameter value by `steps * slot.step` after clamping.
@@ -1216,14 +1261,7 @@ impl GuiProject {
             return false;
         }
         let index = param_index.min(node.params.len().saturating_sub(1));
-        let slot = &mut node.params[index];
-        let next = (slot.value + slot.step * steps).clamp(slot.min, slot.max);
-        if (next - slot.value).abs() < 1e-6 {
-            return false;
-        }
-        slot.value = next;
-        slot.value_text = format_param_value_text(next);
-        true
+        adjust_slot_value(&mut node.params[index], steps)
     }
 
     /// Return raw parameter value at one index for one node.
@@ -1246,14 +1284,69 @@ impl GuiProject {
             return false;
         }
         let index = param_index.min(node.params.len().saturating_sub(1));
-        let slot = &mut node.params[index];
-        let clamped = value.clamp(slot.min, slot.max);
-        if (slot.value - clamped).abs() < 1e-6 {
+        set_slot_value(&mut node.params[index], value)
+    }
+
+    /// Return true when a parameter row is rendered as dropdown.
+    pub(crate) fn param_is_dropdown(&self, node_id: u32, param_index: usize) -> bool {
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        let Some(slot) = node.params.get(param_index.min(node.params.len().saturating_sub(1))) else {
+            return false;
+        };
+        slot.widget.is_dropdown()
+    }
+
+    /// Return true when a parameter row can be edited as free-form numeric text.
+    pub(crate) fn param_supports_text_edit(&self, node_id: u32, param_index: usize) -> bool {
+        !self.param_is_dropdown(node_id, param_index)
+    }
+
+    /// Return dropdown options for one parameter row.
+    pub(crate) fn node_param_dropdown_options(
+        &self,
+        node_id: u32,
+        param_index: usize,
+    ) -> Option<&'static [NodeParamOption]> {
+        let node = self.node(node_id)?;
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        node.params.get(index)?.widget.dropdown_options()
+    }
+
+    /// Return selected dropdown option index for one parameter row.
+    pub(crate) fn node_param_dropdown_selected_index(
+        &self,
+        node_id: u32,
+        param_index: usize,
+    ) -> Option<usize> {
+        let node = self.node(node_id)?;
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        dropdown_selected_index(node.params.get(index)?)
+    }
+
+    /// Select one dropdown option by index for one parameter row.
+    pub(crate) fn set_param_dropdown_index(
+        &mut self,
+        node_id: u32,
+        param_index: usize,
+        option_index: usize,
+    ) -> bool {
+        let Some(node) = self.node_mut(node_id) else {
+            return false;
+        };
+        let index = param_index.min(node.params.len().saturating_sub(1));
+        let Some(slot) = node.params.get_mut(index) else {
+            return false;
+        };
+        let Some(options) = slot.widget.dropdown_options() else {
+            return false;
+        };
+        if options.is_empty() {
             return false;
         }
-        slot.value = clamped;
-        slot.value_text = format_param_value_text(clamped);
-        true
+        let next_index = option_index.min(options.len().saturating_sub(1));
+        apply_dropdown_value(slot, options, next_index)
     }
 
     /// Return expanded parameter row index hit by one graph-space point.
@@ -1527,6 +1620,24 @@ pub(crate) fn node_param_value_rect(
     ))
 }
 
+/// Return one parameter dropdown popup rectangle in graph-space coordinates.
+pub(crate) fn node_param_dropdown_rect(
+    node: &ProjectNode,
+    param_index: usize,
+    option_count: usize,
+) -> Option<super::geometry::Rect> {
+    if option_count == 0 {
+        return None;
+    }
+    let value_rect = node_param_value_rect(node, param_index)?;
+    Some(super::geometry::Rect::new(
+        value_rect.x,
+        value_rect.y + value_rect.h + 1,
+        value_rect.w,
+        option_count as i32 * NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+    ))
+}
+
 fn clamp_node_position(
     x: i32,
     y: i32,
@@ -1573,6 +1684,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("radius", "radius", 0.28, 0.02, 0.95, 0.005),
             param("arc_start", "arc_start", 0.0, 0.0, 360.0, 1.0),
             param("arc_end", "arc_end", 360.0, 0.0, 360.0, 1.0),
+            param_dropdown("arc_style", "arc_style", 0, &BUF_CIRCLE_ARC_STYLE_OPTIONS),
             param("order", "order", 3.0, 2.0, 5.0, 1.0),
             param("divisions", "divisions", 64.0, 8.0, 512.0, 1.0),
         ],
@@ -1638,11 +1750,132 @@ fn param(
         max,
         step,
         signal_source: None,
+        widget: NodeParamWidget::Number,
+    }
+}
+
+/// Build one dropdown-parameter slot.
+fn param_dropdown(
+    key: &'static str,
+    label: &'static str,
+    default_index: usize,
+    options: &'static [NodeParamOption],
+) -> NodeParamSlot {
+    let index = default_index.min(options.len().saturating_sub(1));
+    let selected = options.get(index).copied().unwrap_or(NodeParamOption {
+        label: "n/a",
+        value: 0.0,
+    });
+    let mut min = selected.value;
+    let mut max = selected.value;
+    for option in options {
+        min = min.min(option.value);
+        max = max.max(option.value);
+    }
+    NodeParamSlot {
+        key,
+        label,
+        value: selected.value,
+        value_text: selected.label.to_string(),
+        min,
+        max,
+        step: 1.0,
+        signal_source: None,
+        widget: NodeParamWidget::Dropdown { options },
     }
 }
 
 fn format_param_value_text(value: f32) -> String {
     format!("{value:.3}")
+}
+
+/// Set one slot value while respecting widget semantics.
+fn set_slot_value(slot: &mut NodeParamSlot, value: f32) -> bool {
+    if let Some(options) = slot.widget.dropdown_options() {
+        if options.is_empty() {
+            return false;
+        }
+        let next_index = nearest_dropdown_index(options, value);
+        return apply_dropdown_value(slot, options, next_index);
+    }
+    let clamped = value.clamp(slot.min, slot.max);
+    if (slot.value - clamped).abs() < 1e-6 {
+        return false;
+    }
+    slot.value = clamped;
+    slot.value_text = format_param_value_text(clamped);
+    true
+}
+
+/// Adjust one slot by step count while respecting widget semantics.
+fn adjust_slot_value(slot: &mut NodeParamSlot, steps: f32) -> bool {
+    if !steps.is_finite() || steps.abs() <= f32::EPSILON {
+        return false;
+    }
+    if let Some(options) = slot.widget.dropdown_options() {
+        if options.is_empty() {
+            return false;
+        }
+        let direction = if steps.is_sign_positive() { 1 } else { -1 };
+        let current = dropdown_selected_index(slot).unwrap_or_else(|| nearest_dropdown_index(options, slot.value));
+        let next = if direction > 0 {
+            (current + 1).min(options.len().saturating_sub(1))
+        } else {
+            current.saturating_sub(1)
+        };
+        return apply_dropdown_value(slot, options, next);
+    }
+    let next = (slot.value + slot.step * steps).clamp(slot.min, slot.max);
+    if (next - slot.value).abs() < 1e-6 {
+        return false;
+    }
+    slot.value = next;
+    slot.value_text = format_param_value_text(next);
+    true
+}
+
+/// Return selected dropdown index for one slot, if any.
+fn dropdown_selected_index(slot: &NodeParamSlot) -> Option<usize> {
+    let options = slot.widget.dropdown_options()?;
+    if options.is_empty() {
+        return None;
+    }
+    let by_value = options
+        .iter()
+        .position(|option| (option.value - slot.value).abs() < 1e-6);
+    Some(by_value.unwrap_or_else(|| nearest_dropdown_index(options, slot.value)))
+}
+
+/// Return nearest option index for one dropdown value.
+fn nearest_dropdown_index(options: &[NodeParamOption], value: f32) -> usize {
+    let mut best_index = 0usize;
+    let mut best_dist = f32::MAX;
+    for (index, option) in options.iter().enumerate() {
+        let dist = (option.value - value).abs();
+        if dist < best_dist {
+            best_dist = dist;
+            best_index = index;
+        }
+    }
+    best_index
+}
+
+/// Apply one dropdown option index to a slot value/text.
+fn apply_dropdown_value(
+    slot: &mut NodeParamSlot,
+    options: &[NodeParamOption],
+    option_index: usize,
+) -> bool {
+    let Some(option) = options.get(option_index).copied() else {
+        return false;
+    };
+    if (slot.value - option.value).abs() < 1e-6 && slot.value_text == option.label {
+        return false;
+    }
+    slot.value = option.value;
+    slot.value_text.clear();
+    slot.value_text.push_str(option.label);
+    true
 }
 
 fn rebuild_node_inputs(node: &mut ProjectNode) {
@@ -1999,6 +2232,23 @@ mod tests {
             .node_param_raw_value(lfo, 1)
             .expect("param value should exist");
         assert_eq!(value, 12.5);
+    }
+
+    #[test]
+    fn circle_nurbs_arc_style_uses_dropdown_options() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 40, 40, 420, 480);
+        assert!(project.param_is_dropdown(circle, 3));
+        assert!(!project.param_supports_text_edit(circle, 3));
+        let options = project
+            .node_param_dropdown_options(circle, 3)
+            .expect("dropdown options should exist");
+        assert_eq!(options.len(), 2);
+        assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
+        assert!(project.set_param_dropdown_index(circle, 3, 1));
+        assert_eq!(project.node_param_raw_text(circle, 3), Some("open_arc"));
+        assert!(project.adjust_param(circle, 3, -1.0));
+        assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
     }
 
     #[test]

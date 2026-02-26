@@ -3,14 +3,16 @@
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
+use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, output_pin_center, GraphBounds, GuiProject,
-    ResourceKind, NODE_WIDTH,
+    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect,
+    output_pin_center, GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+    NODE_WIDTH,
 };
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot,
-    LinkCutState, PanDragState, ParamEditState, PreviewState, RightMarqueeState, WireDragState,
-    ADD_NODE_OPTIONS,
+    LinkCutState, PanDragState, ParamDropdownState, ParamEditState, PreviewState,
+    RightMarqueeState, WireDragState, ADD_NODE_OPTIONS,
 };
 
 const PIN_HIT_RADIUS_PX: i32 = 10;
@@ -18,6 +20,7 @@ const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
+const DROPDOWN_ITEM_MIN_PX: i32 = 12;
 
 /// Apply one frame of input actions to project/editor state.
 ///
@@ -44,6 +47,7 @@ pub(crate) fn apply_preview_actions(
         state.pan_drag = None;
         state.right_marquee = None;
         state.param_edit = None;
+        state.param_dropdown = None;
         state.selected_nodes.clear();
         state.pan_x = 0.0;
         state.pan_y = 0.0;
@@ -54,6 +58,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_param_target = None;
+        state.hover_dropdown_item = None;
         state.auto_expanded_binding_nodes.clear();
         state.hover_menu_item = None;
         changed = true;
@@ -77,6 +82,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.param_dropdown = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -87,6 +93,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.param_dropdown = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -97,6 +104,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.param_dropdown = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -112,6 +120,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.param_dropdown = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -120,6 +129,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.param_dropdown = None;
         changed |=
             collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
@@ -175,7 +185,7 @@ fn handle_param_wheel_input(
     if input.wheel_lines_y.abs() <= f32::EPSILON {
         return (false, false);
     }
-    if state.param_edit.is_some() || state.menu.open {
+    if state.param_edit.is_some() || state.menu.open || state.param_dropdown.is_some() {
         return (false, false);
     }
     let Some((mx, my)) = input.mouse_pos else {
@@ -197,6 +207,7 @@ fn handle_param_wheel_input(
     let mut changed = project.select_param(node_id, param_index);
     state.active_node = Some(node_id);
     changed |= project.adjust_param(node_id, param_index, input.wheel_lines_y);
+    state.hover_dropdown_item = None;
     (changed, true)
 }
 
@@ -267,6 +278,8 @@ fn handle_add_menu_toggle(
         state.wire_drag = None;
         state.hover_param_target = None;
         state.param_edit = None;
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return true;
     }
     let (x, y) = input
@@ -277,6 +290,8 @@ fn handle_add_menu_toggle(
     state.wire_drag = None;
     state.hover_param_target = None;
     state.param_edit = None;
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
     true
 }
 
@@ -306,7 +321,7 @@ fn handle_parameter_shortcuts(
     project: &mut GuiProject,
     state: &mut PreviewState,
 ) -> bool {
-    if state.param_edit.is_some() {
+    if state.param_edit.is_some() || state.param_dropdown.is_some() {
         return false;
     }
     let target = state.hover_node.or(state.active_node);
@@ -355,6 +370,8 @@ fn handle_delete_selected_nodes(
     state.right_marquee = None;
     state.link_cut = None;
     state.param_edit = None;
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
     true
 }
 
@@ -383,6 +400,8 @@ fn handle_right_selection(
             state.wire_drag = None;
             state.hover_param_target = None;
             state.param_edit = None;
+            state.param_dropdown = None;
+            state.hover_dropdown_item = None;
             return true;
         }
         state.right_marquee = Some(RightMarqueeState {
@@ -395,6 +414,8 @@ fn handle_right_selection(
         state.wire_drag = None;
         state.hover_param_target = None;
         state.param_edit = None;
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return true;
     }
     let Some(mut marquee) = state.right_marquee else {
@@ -417,6 +438,8 @@ fn handle_right_selection(
             changed |= clear_selection(state);
         }
         state.right_marquee = None;
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return true;
     }
     state.right_marquee = Some(marquee);
@@ -515,6 +538,9 @@ fn handle_param_edit_input(
     if !input.left_clicked {
         return (changed, false);
     }
+    if handle_dropdown_click(input, project, panel_width, panel_height, state) {
+        return (true, true);
+    }
     let consumed = handle_param_click(input, project, panel_width, panel_height, state);
     (changed, consumed)
 }
@@ -579,27 +605,57 @@ fn handle_param_click(
 ) -> bool {
     let Some((mx, my)) = input.mouse_pos else {
         let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return false;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
         let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return false;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let Some(node_id) = project.node_at(graph_x, graph_y) else {
         let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return false;
     };
     let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
         let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return false;
     };
     let _ = project.select_param(node_id, param_index);
     state.active_node = Some(node_id);
     if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
         let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         return true;
     }
+    if project.param_is_dropdown(node_id, param_index) {
+        state.param_edit = None;
+        if state
+            .param_dropdown
+            .map(|dropdown| dropdown.node_id == node_id && dropdown.param_index == param_index)
+            .unwrap_or(false)
+        {
+            state.param_dropdown = None;
+            state.hover_dropdown_item = None;
+            return true;
+        }
+        state.param_dropdown = Some(ParamDropdownState {
+            node_id,
+            param_index,
+        });
+        state.hover_dropdown_item = None;
+        return true;
+    }
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
     let same_edit_target = state
         .param_edit
         .as_ref()
@@ -618,12 +674,73 @@ fn handle_param_click(
     true
 }
 
+fn handle_dropdown_click(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> bool {
+    let Some(dropdown) = state.param_dropdown else {
+        return false;
+    };
+    let Some((mx, my)) = input.mouse_pos else {
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
+        return true;
+    };
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
+        return true;
+    }
+    if let Some(option_index) = dropdown_option_at_cursor(project, state, mx, my) {
+        let _ = project.set_param_dropdown_index(dropdown.node_id, dropdown.param_index, option_index);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
+        return true;
+    }
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
+    true
+}
+
+fn dropdown_option_at_cursor(
+    project: &GuiProject,
+    state: &PreviewState,
+    mx: i32,
+    my: i32,
+) -> Option<usize> {
+    let dropdown = state.param_dropdown?;
+    let node = project.node(dropdown.node_id)?;
+    let options = project.node_param_dropdown_options(dropdown.node_id, dropdown.param_index)?;
+    let list_world = node_param_dropdown_rect(node, dropdown.param_index, options.len())?;
+    let list_panel = graph_rect_to_panel(list_world, state);
+    if !list_panel.contains(mx, my) {
+        return None;
+    }
+    let item_h = ((NODE_PARAM_DROPDOWN_ROW_HEIGHT as f32) * state.zoom)
+        .round()
+        .max(DROPDOWN_ITEM_MIN_PX as f32) as i32;
+    if item_h <= 0 {
+        return None;
+    }
+    let index = ((my - list_panel.y) / item_h).max(0) as usize;
+    if index >= options.len() {
+        return None;
+    }
+    Some(index)
+}
+
 fn start_param_edit(
     project: &GuiProject,
     state: &mut PreviewState,
     node_id: u32,
     param_index: usize,
 ) -> bool {
+    if !project.param_supports_text_edit(node_id, param_index) {
+        return false;
+    }
     if state
         .param_edit
         .as_ref()
@@ -881,6 +998,8 @@ fn handle_link_cut(
                 state.wire_drag = None;
                 state.hover_param_target = None;
                 state.param_edit = None;
+                state.param_dropdown = None;
+                state.hover_dropdown_item = None;
                 return true;
             }
         }
@@ -1121,6 +1240,8 @@ fn begin_wire_drag_if_pin_hit(
     state.drag = None;
     state.active_node = Some(source_node_id);
     state.hover_param_target = None;
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
     state.wire_drag = Some(WireDragState {
         source_node_id,
         cursor_x: mx,
@@ -1164,6 +1285,8 @@ fn begin_drag_if_node_hit(
             state.drag = None;
             state.active_node = Some(node_id);
             state.param_edit = None;
+            state.param_dropdown = None;
+            state.hover_dropdown_item = None;
             return project.toggle_node_expanded(node_id, panel_width, panel_height);
         }
     }
@@ -1176,6 +1299,8 @@ fn begin_drag_if_node_hit(
         offset_y: graph_y - node_y,
     });
     state.active_node = Some(node_id);
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
     true
 }
 
@@ -1233,11 +1358,13 @@ fn update_hover_state(
     let prev_hover_output = state.hover_output_pin;
     let prev_hover_input = state.hover_input_pin;
     let prev_hover_param_target = state.hover_param_target;
+    let prev_hover_dropdown_item = state.hover_dropdown_item;
     let prev_hover_item = state.hover_menu_item;
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
     state.hover_param_target = None;
+    state.hover_dropdown_item = None;
     state.hover_menu_item = None;
     let signal_bind_drag = state
         .wire_drag
@@ -1249,6 +1376,7 @@ fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
         if signal_bind_drag {
             changed |= collapse_auto_expanded_binding_nodes_except(
@@ -1266,6 +1394,7 @@ fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
         if signal_bind_drag {
             changed |= collapse_auto_expanded_binding_nodes_except(
@@ -1284,7 +1413,8 @@ fn update_hover_state(
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some();
+            || prev_hover_param_target.is_some()
+            || prev_hover_dropdown_item.is_some();
         if signal_bind_drag {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
@@ -1295,6 +1425,16 @@ fn update_hover_state(
             );
         }
         return changed;
+    }
+    if state.param_dropdown.is_some() {
+        state.hover_dropdown_item = dropdown_option_at_cursor(project, state, mx, my);
+        return state.hover_dropdown_item != prev_hover_dropdown_item
+            || prev_hover_node.is_some()
+            || prev_hover_output.is_some()
+            || prev_hover_input.is_some()
+            || prev_hover_param_target.is_some()
+            || prev_hover_dropdown_item.is_some()
+            || prev_hover_item.is_some();
     }
     if let Some(wire) = state.wire_drag {
         if wire_drag_source_kind(project, wire) == Some(ResourceKind::Signal) {
@@ -1335,6 +1475,7 @@ fn update_hover_state(
                 || prev_hover_output.is_some()
                 || prev_hover_input.is_some()
                 || state.hover_param_target != prev_hover_param_target
+                || prev_hover_dropdown_item.is_some()
                 || prev_hover_item.is_some();
         }
     }
@@ -1347,6 +1488,7 @@ fn update_hover_state(
         return state.hover_output_pin != prev_hover_output
             || state.hover_input_pin != prev_hover_input
             || prev_hover_node.is_some()
+            || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_param_target.is_some();
     }
@@ -1357,6 +1499,7 @@ fn update_hover_state(
     state.hover_node != prev_hover_node
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()
+        || prev_hover_dropdown_item.is_some()
         || prev_hover_item.is_some()
         || prev_hover_param_target.is_some()
 }
@@ -1377,6 +1520,14 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
     let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
     (sx, sy)
+}
+
+fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
+    let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
+    let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
+    let w = (rect.w as f32 * state.zoom).round().max(1.0) as i32;
+    let h = (rect.h as f32 * state.zoom).round().max(1.0) as i32;
+    Rect::new(x, y, w, h)
 }
 
 fn segments_intersect(

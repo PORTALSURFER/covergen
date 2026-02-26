@@ -24,6 +24,7 @@ pub(crate) enum TopRuntimeOp {
         arc_start_deg: f32,
         arc_end_deg: f32,
         segment_count: f32,
+        arc_open: f32,
         color_r: f32,
         color_g: f32,
         color_b: f32,
@@ -101,6 +102,7 @@ struct SceneMeshState {
     arc_end_deg: f32,
     order: f32,
     segment_count: f32,
+    arc_open: bool,
 }
 
 /// Compiled GUI runtime graph rooted at `io.window_out`.
@@ -181,6 +183,7 @@ impl GuiCompiledRuntime {
                         arc_start_deg: 0.0,
                         arc_end_deg: 360.0,
                         segment_count: 0.0,
+                        arc_open: 0.0,
                         color_r: project
                             .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
                             .unwrap_or(0.9),
@@ -207,6 +210,7 @@ impl GuiCompiledRuntime {
                         arc_end_deg: 360.0,
                         order: 3.0,
                         segment_count: 0.0,
+                        arc_open: false,
                     });
                     scene_ready = false;
                 }
@@ -231,6 +235,10 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "divisions", time_secs, eval_stack)
                         .unwrap_or(64.0)
                         .clamp(3.0, 512.0);
+                    let arc_open = project
+                        .node_param_value(step.node_id, "arc_style", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        >= 0.5;
                     mesh = Some(SceneMeshState {
                         profile: SceneMeshProfile::CircleNurbs,
                         radius,
@@ -238,6 +246,7 @@ impl GuiCompiledRuntime {
                         arc_end_deg,
                         order,
                         segment_count,
+                        arc_open,
                     });
                     scene_ready = false;
                 }
@@ -344,6 +353,7 @@ impl GuiCompiledRuntime {
                             arc_start_deg: mesh_state.arc_start_deg,
                             arc_end_deg: mesh_state.arc_end_deg,
                             segment_count: mesh_state.segment_count,
+                            arc_open: mesh_state.arc_open as u32 as f32,
                             color_r: entity_state.color_r,
                             color_g: entity_state.color_g,
                             color_b: entity_state.color_b,
@@ -608,8 +618,9 @@ mod tests {
 
         assert!(project.set_param_value(circle, 1, 30.0));
         assert!(project.set_param_value(circle, 2, 150.0));
-        assert!(project.set_param_value(circle, 3, 2.0));
-        assert!(project.set_param_value(circle, 4, 12.0));
+        assert!(project.set_param_value(circle, 3, 1.0));
+        assert!(project.set_param_value(circle, 4, 2.0));
+        assert!(project.set_param_value(circle, 5, 12.0));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
         let mut eval_stack = Vec::new();
@@ -620,12 +631,14 @@ mod tests {
                 arc_start_deg,
                 arc_end_deg,
                 segment_count,
+                arc_open,
                 feather,
                 ..
             } => {
                 assert_eq!(arc_start_deg, 30.0);
                 assert_eq!(arc_end_deg, 150.0);
                 assert_eq!(segment_count, 12.0);
+                assert_eq!(arc_open, 1.0);
                 assert!(feather > 0.01);
             }
             _ => panic!("expected circle op"),

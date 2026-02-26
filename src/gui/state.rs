@@ -98,6 +98,13 @@ pub(crate) struct ParamEditState {
     pub(crate) anchor: usize,
 }
 
+/// Active dropdown session for one node parameter.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ParamDropdownState {
+    pub(crate) node_id: u32,
+    pub(crate) param_index: usize,
+}
+
 /// Runtime animation/editor state for one GUI session.
 #[derive(Clone, Debug)]
 pub(crate) struct PreviewState {
@@ -112,6 +119,7 @@ pub(crate) struct PreviewState {
     pub(crate) pan_drag: Option<PanDragState>,
     pub(crate) right_marquee: Option<RightMarqueeState>,
     pub(crate) param_edit: Option<ParamEditState>,
+    pub(crate) param_dropdown: Option<ParamDropdownState>,
     pub(crate) selected_nodes: Vec<u32>,
     pub(crate) pan_x: f32,
     pub(crate) pan_y: f32,
@@ -122,6 +130,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
     pub(crate) hover_param_target: Option<HoverParamTarget>,
+    pub(crate) hover_dropdown_item: Option<usize>,
     /// Node ids auto-expanded while dragging a signal bind wire.
     pub(crate) auto_expanded_binding_nodes: Vec<u32>,
     pub(crate) hover_menu_item: Option<usize>,
@@ -142,6 +151,7 @@ impl PreviewState {
             pan_drag: None,
             right_marquee: None,
             param_edit: None,
+            param_dropdown: None,
             selected_nodes: Vec::new(),
             pan_x: 0.0,
             pan_y: 0.0,
@@ -152,6 +162,7 @@ impl PreviewState {
             hover_output_pin: None,
             hover_input_pin: None,
             hover_param_target: None,
+            hover_dropdown_item: None,
             auto_expanded_binding_nodes: Vec::new(),
             hover_menu_item: None,
         }

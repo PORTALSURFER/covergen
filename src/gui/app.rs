@@ -442,6 +442,7 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.pan_drag.is_some()
         || state.right_marquee.is_some()
         || state.param_edit.is_some()
+        || state.param_dropdown.is_some()
         || state.menu.open
 }
 

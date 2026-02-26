@@ -8,7 +8,8 @@ mod wire_route;
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, node_param_row_rect, node_param_value_rect,
+    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
+    node_param_value_rect,
     output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
     NODE_WIDTH,
 };
@@ -52,6 +53,9 @@ const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
 const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
+const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
+const PARAM_DROPDOWN_SELECTED: Color = Color::argb(0x663B82F6);
+const PARAM_DROPDOWN_HOVER: Color = Color::argb(0x3342A5F5);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
@@ -253,6 +257,7 @@ impl SceneBuilder {
         self.clear_active_layer();
         self.push_param_links(project, state);
         self.push_wire_drag(project, state);
+        self.push_param_dropdown(project, state);
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
@@ -434,6 +439,12 @@ impl SceneBuilder {
                 .map(|edit| edit.buffer.as_str())
                 .unwrap_or(row.value_text);
             self.push_value_editor_text(value_rect, value_text, active_edit, bound_color, state);
+            if row.dropdown {
+                let arrow_y = value_rect.y + value_rect.h / 2;
+                let arrow_x = value_rect.x + value_rect.w - 8;
+                self.push_line(arrow_x - 3, arrow_y - 1, arrow_x, arrow_y + 2, bound_color);
+                self.push_line(arrow_x, arrow_y + 2, arrow_x + 3, arrow_y - 1, bound_color);
+            }
             self.push_border(
                 value_rect,
                 if editing {
@@ -447,6 +458,46 @@ impl SceneBuilder {
         }
         self.label_scratch = label_scratch;
         self.fitted_label_scratch = fitted_label_scratch;
+    }
+
+    fn push_param_dropdown(&mut self, project: &GuiProject, state: &PreviewState) {
+        let Some(dropdown) = state.param_dropdown else {
+            return;
+        };
+        let Some(node) = project.node(dropdown.node_id) else {
+            return;
+        };
+        let Some(options) = project.node_param_dropdown_options(dropdown.node_id, dropdown.param_index) else {
+            return;
+        };
+        if options.is_empty() {
+            return;
+        }
+        let Some(list_world) = node_param_dropdown_rect(node, dropdown.param_index, options.len()) else {
+            return;
+        };
+        let list_panel = graph_rect_to_panel(list_world, state);
+        self.push_rect(list_panel, PARAM_DROPDOWN_BG);
+        self.push_border(list_panel, PARAM_VALUE_BORDER);
+        let selected = project
+            .node_param_dropdown_selected_index(dropdown.node_id, dropdown.param_index)
+            .unwrap_or(0);
+        for (index, option) in options.iter().enumerate() {
+            let row_world = Rect::new(
+                list_world.x,
+                list_world.y + index as i32 * super::project::NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+                list_world.w,
+                super::project::NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+            );
+            let row_panel = graph_rect_to_panel(row_world, state);
+            if index == selected {
+                self.push_rect(row_panel, PARAM_DROPDOWN_SELECTED);
+            }
+            if state.hover_dropdown_item == Some(index) {
+                self.push_rect(row_panel, PARAM_DROPDOWN_HOVER);
+            }
+            self.push_graph_text_in_rect(row_panel, 4, option.label, NODE_TEXT, state);
+        }
     }
 
     fn push_menu(&mut self, state: &PreviewState) {
@@ -1055,9 +1106,13 @@ fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash = hash_f32(hash, state.zoom);
     hash = hash_opt_u32(hash, state.hover_input_pin);
     hash = hash_opt_param_target(hash, state.hover_param_target);
+    hash = hash_opt_dropdown(hash, state.param_dropdown);
     hash = hash_opt_wire(hash, state.wire_drag);
     hash = hash_opt_cut_line(hash, state.link_cut);
     hash = hash_opt_marquee(hash, state.right_marquee);
+    if let Some(index) = state.hover_dropdown_item {
+        hash = hash_u64(hash, index as u64);
+    }
     hash = hash_u64(hash, state.menu.open as u64);
     hash = hash_i32(hash, state.menu.x);
     hash = hash_i32(hash, state.menu.y);
@@ -1136,6 +1191,14 @@ fn hash_opt_param_target(seed: u64, value: Option<super::state::HoverParamTarget
     };
     let hash = hash_u64(seed, target.node_id as u64);
     hash_u64(hash, target.param_index as u64)
+}
+
+fn hash_opt_dropdown(seed: u64, value: Option<super::state::ParamDropdownState>) -> u64 {
+    let Some(dropdown) = value else {
+        return hash_u64(seed, u64::MAX - 6);
+    };
+    let hash = hash_u64(seed, dropdown.node_id as u64);
+    hash_u64(hash, dropdown.param_index as u64)
 }
 
 fn wire_drag_source_kind(project: &GuiProject, wire: super::state::WireDragState) -> Option<ResourceKind> {

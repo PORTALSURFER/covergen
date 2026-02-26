@@ -153,6 +153,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let start_norm = fract(u_op.p2.x / 360.0);
     let end_norm = fract(u_op.p2.y / 360.0);
     let arc_span = abs(u_op.p2.y - u_op.p2.x);
+    let arc_open = u_op.p2.w >= 0.5;
     var arc_mask = 1.0;
     if (arc_span < 359.9) {
         if (start_norm <= end_norm) {
@@ -162,7 +163,15 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
         }
     }
 
-    let alpha = clamp(edge * arc_mask * clamp(u_op.p1.w, 0.0, 1.0), 0.0, 1.0);
+    var shape_alpha = edge;
+    if (arc_open) {
+        let ring_width = max(feather * 3.0, radius * 0.08);
+        let inner = max(boundary - ring_width, 0.0);
+        let inner_edge = smoothstep(inner + feather, inner - feather, dist);
+        shape_alpha = clamp(edge - inner_edge, 0.0, 1.0);
+    }
+
+    let alpha = clamp(shape_alpha * arc_mask * clamp(u_op.p1.w, 0.0, 1.0), 0.0, 1.0);
     let fg = clamp(u_op.p1.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(fg, alpha);
 }

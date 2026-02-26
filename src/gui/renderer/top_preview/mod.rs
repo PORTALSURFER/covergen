@@ -56,6 +56,7 @@ impl TopOpUniform {
             arc_start_deg,
             arc_end_deg,
             segment_count,
+            arc_open,
             color_r,
             color_g,
             color_b,
@@ -67,7 +68,7 @@ impl TopOpUniform {
         Self {
             p0: [center_x, center_y, radius, feather],
             p1: [color_r, color_g, color_b, alpha],
-            p2: [arc_start_deg, arc_end_deg, segment_count, 0.0],
+            p2: [arc_start_deg, arc_end_deg, segment_count, arc_open],
         }
     }
 
