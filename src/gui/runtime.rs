@@ -1,4 +1,4 @@
-//! Compiled GPU runtime contract for GUI TOP preview graphs.
+//! Compiled GPU runtime contract for GUI tex preview graphs.
 //!
 //! This module normalizes GUI node graphs into a deterministic, executable
 //! step list that can be evaluated directly into GPU preview operations.
@@ -209,7 +209,7 @@ pub(crate) struct TopRuntimeFrameContext {
     pub(crate) frame_total: u32,
 }
 
-/// One compiled step in GUI TOP runtime order.
+/// One compiled step in GUI tex runtime order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CompiledStep {
     node_id: u32,
@@ -280,7 +280,7 @@ pub(crate) struct GuiCompiledRuntime {
 }
 
 impl GuiCompiledRuntime {
-    /// Compile one GUI project to an executable TOP runtime sequence.
+    /// Compile one GUI project to an executable tex runtime sequence.
     ///
     /// Returns `None` when no valid `io.window_out` chain can be compiled.
     pub(crate) fn compile(project: &GuiProject) -> Option<Self> {

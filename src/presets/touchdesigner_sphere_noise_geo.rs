@@ -1,4 +1,4 @@
-//! TouchDesigner-style preset: sphere + noise-driven SOP geometry + camera TOP.
+//! TouchDesigner-style preset: sphere + noise-driven SOP geometry + camera tex.
 
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder};
 use crate::model::XorShift32;

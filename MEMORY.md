@@ -14,7 +14,7 @@ Current work is focused on building a Windows-first, GPU-only shader/video playg
 - Core feature scope tracks leading node-based real-time tools at a capability level while maintaining legal separation through original architecture and naming.
 - Engine model is now explicitly based on `ResourceKind + ExecutionKind + ClockDomain`.
 - System behavior is always real-time with a user-selected target frame rate (typically 60 FPS).
-- Interactive TOP-viewer target is at least 60 FPS at 1080p, with meaningful idle headroom above target in low-complexity scenes.
+- Interactive tex-viewer target is at least 60 FPS at 1080p, with meaningful idle headroom above target in low-complexity scenes.
 - Idle headroom gate (RTX 2060, 1080p, empty/light scene): primary `p95 frametime <= 10 ms`, secondary `average FPS >= 90`.
 - Node-network complexity should be the dominant bottleneck; typical deep graphs must remain responsive and keep stable frame pacing.
 - Export scope is currently H.264 and image sequences.
@@ -29,7 +29,7 @@ Current work is focused on building a Windows-first, GPU-only shader/video playg
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
 
 ## Current Risks
-- Node-editor and TOP-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.
+- Node-editor and tex-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.
 - GPU export pipeline complexity can delay stable H.264 throughput targets.
 - Warning volume in checks is still high and can mask meaningful regressions.
 

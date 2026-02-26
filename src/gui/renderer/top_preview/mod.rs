@@ -1,4 +1,4 @@
-//! GPU TOP preview execution and compositing.
+//! GPU tex preview execution and compositing.
 //!
 //! This module owns preview texture resources and executes GPU operation
 //! chains emitted by `gui::top_view` directly on the device.
@@ -218,7 +218,7 @@ struct FeedbackHistorySlot {
     read_index: usize,
 }
 
-/// GPU-backed TOP preview state for GUI rendering.
+/// GPU-backed tex preview state for GUI rendering.
 #[derive(Debug)]
 pub(super) struct TopPreviewRenderer {
     viewer_pipeline: wgpu::RenderPipeline,
@@ -288,7 +288,7 @@ impl TopPreviewRenderer {
         buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("gui-top-preview-op-uniform-bind-group"),
+            label: Some("gui-tex-preview-op-uniform-bind-group"),
             layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -308,7 +308,7 @@ impl TopPreviewRenderer {
         }
         let next_capacity = op_count.next_power_of_two();
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gui-top-preview-op-uniform"),
+            label: Some("gui-tex-preview-op-uniform"),
             size: self.op_uniform_stride.saturating_mul(next_capacity as u64),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -325,7 +325,7 @@ impl TopPreviewRenderer {
         self.op_uniform_stride.saturating_mul(op_index as u64)
     }
 
-    /// Lazily create operation pipelines on first TOP-op execution.
+    /// Lazily create operation pipelines on first tex-op execution.
     fn ensure_op_pipelines(&mut self, device: &wgpu::Device) {
         if self.op_solid_pipeline.is_some()
             && self.op_circle_pipeline.is_some()
@@ -338,11 +338,11 @@ impl TopPreviewRenderer {
             return;
         }
         let op_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("gui-top-preview-op-shader"),
+            label: Some("gui-tex-preview-op-shader"),
             source: wgpu::ShaderSource::Wgsl(OP_SHADER_SOURCE.into()),
         });
         let op_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("gui-top-preview-op-pipeline-layout"),
+            label: Some("gui-tex-preview-op-pipeline-layout"),
             bind_group_layouts: &[
                 &self.op_uniform_layout,
                 &self.viewer_texture_layout,
@@ -407,7 +407,7 @@ impl TopPreviewRenderer {
             return;
         }
         let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gui-top-preview-dummy-texture"),
+            label: Some("gui-tex-preview-dummy-texture"),
             size: wgpu::Extent3d {
                 width: 1,
                 height: 1,
@@ -440,7 +440,7 @@ impl TopPreviewRenderer {
         let viewer_texture_layout = viewer::create_texture_bind_group_layout(device);
         let viewer_sampler = viewer::create_texture_sampler(device);
         let op_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("gui-top-preview-op-sampler"),
+            label: Some("gui-tex-preview-op-sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
@@ -458,13 +458,13 @@ impl TopPreviewRenderer {
 
         let op_uniform_stride = Self::op_uniform_stride(device);
         let op_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gui-top-preview-op-uniform"),
+            label: Some("gui-tex-preview-op-uniform"),
             size: op_uniform_stride,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let op_uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("gui-top-preview-op-uniform-layout"),
+            label: Some("gui-tex-preview-op-uniform-layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
@@ -479,7 +479,7 @@ impl TopPreviewRenderer {
         let op_uniform_bind_group =
             Self::create_op_uniform_bind_group(device, &op_uniform_layout, &op_uniform_buffer);
         let op_pass_timestamps =
-            OptionalGpuTimestampQueries::new(device, "gui-top-preview-op-pass", 2048);
+            OptionalGpuTimestampQueries::new(device, "gui-tex-preview-op-pass", 2048);
 
         Self {
             viewer_pipeline,

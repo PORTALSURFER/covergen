@@ -2108,7 +2108,7 @@ impl GuiProject {
 
     /// Return stable signature for both render and UI graph state.
     ///
-    /// Prefer [`Self::render_signature`] for TOP/render invalidation.
+    /// Prefer [`Self::render_signature`] for tex/render invalidation.
     #[allow(dead_code)]
     pub(crate) fn graph_signature(&self) -> u64 {
         self.graph_signature_cache

@@ -1,9 +1,9 @@
-//! Pipeline/texture helpers for GPU TOP preview execution.
+//! Pipeline/texture helpers for GPU tex preview execution.
 
 use super::super::viewer;
 use super::TOP_PREVIEW_TEXTURE_FORMAT;
 
-/// Create one render pipeline for a fullscreen TOP preview operation.
+/// Create one render pipeline for a fullscreen tex preview operation.
 pub(super) fn create_op_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
@@ -14,7 +14,7 @@ pub(super) fn create_op_pipeline(
     // Operation passes write a full replacement texture each step.
     // Blending at this stage introduces unintended compositing artifacts.
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("gui-top-preview-op-pipeline"),
+        label: Some("gui-tex-preview-op-pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: shader,

@@ -574,7 +574,7 @@ impl GuiApp {
         Ok(())
     }
 
-    /// Propagate project/state dependency deltas into scoped scene/TOP epochs.
+    /// Propagate project/state dependency deltas into scoped scene/tex epochs.
     fn apply_scoped_invalidation(
         &mut self,
         project_before: GuiProjectInvalidation,

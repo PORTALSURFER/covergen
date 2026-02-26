@@ -1,4 +1,4 @@
-//! TouchDesigner-style signal-lab preset with explicit SOP/TOP/CHOP buses.
+//! TouchDesigner-style signal-lab preset with explicit SOP/tex/CHOP buses.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
@@ -35,7 +35,7 @@ struct BuildCtx<'a, 'b> {
     rng: &'a mut XorShift32,
 }
 
-/// Build a graph-native SOP/TOP/CHOP lab with lane taps and mixed final output.
+/// Build a graph-native SOP/tex/CHOP lab with lane taps and mixed final output.
 pub(super) fn build_td_signal_lab(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x41B2_7023);

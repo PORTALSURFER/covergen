@@ -380,7 +380,7 @@ impl GuiRenderer {
     /// Render one scene frame to the GUI surface.
     ///
     /// `panel_width` defines the left editor pane and is used as a scissor
-    /// clip so graph content cannot bleed into the right TOP viewer pane.
+    /// clip so graph content cannot bleed into the right tex viewer pane.
     /// `avg_fps` drives the fullscreen-safe HUD counter in the top-right.
     pub(crate) fn render(
         &mut self,
@@ -440,7 +440,7 @@ impl GuiRenderer {
         counters
     }
 
-    /// Capture current TOP preview texture to tightly packed BGRA bytes.
+    /// Capture current tex preview texture to tightly packed BGRA bytes.
     pub(crate) fn capture_top_preview_bgra(
         &mut self,
         out_bgra: &mut Vec<u8>,
@@ -457,7 +457,7 @@ impl GuiRenderer {
         let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align).saturating_mul(align);
         let buffer_size = padded_bytes_per_row as u64 * height as u64;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gui-top-preview-readback"),
+            label: Some("gui-tex-preview-readback"),
             size: buffer_size.max(1),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
@@ -465,7 +465,7 @@ impl GuiRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("gui-top-preview-readback-encoder"),
+                label: Some("gui-tex-preview-readback-encoder"),
             });
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
@@ -498,9 +498,9 @@ impl GuiRenderer {
         let _ = self.device.poll(wgpu::Maintain::Wait);
         match rx.recv() {
             Ok(Ok(())) => {}
-            Ok(Err(err)) => return Err(format!("failed to map TOP preview readback: {err}").into()),
+            Ok(Err(err)) => return Err(format!("failed to map tex preview readback: {err}").into()),
             Err(err) => {
-                return Err(format!("failed to wait for TOP preview readback: {err}").into())
+                return Err(format!("failed to wait for tex preview readback: {err}").into())
             }
         }
 

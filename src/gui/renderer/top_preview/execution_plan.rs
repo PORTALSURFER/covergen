@@ -1,4 +1,4 @@
-//! Operation planning helpers for TOP preview execution.
+//! Operation planning helpers for tex preview execution.
 //!
 //! This planner performs two low-risk optimizations before GPU submission:
 //! - collapse adjacent `Transform` operations into one fused render step
@@ -39,7 +39,7 @@ impl TransformParams {
     }
 }
 
-/// One render operation in a compiled TOP execution plan.
+/// One render operation in a compiled tex execution plan.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum PlannedRenderOp {
     /// Render one runtime op directly.

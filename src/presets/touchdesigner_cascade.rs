@@ -1,4 +1,4 @@
-//! TouchDesigner-inspired cascading preset that mixes SOP cameras with TOP fractal stages.
+//! TouchDesigner-inspired cascading preset that mixes SOP cameras with tex fractal stages.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};

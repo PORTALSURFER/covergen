@@ -58,7 +58,7 @@ pub(crate) struct InputSnapshot {
 /// Scoped invalidation epochs for retained GUI subtrees.
 ///
 /// Each epoch bumps only when its subtree dependencies changed, so retained
-/// scene layers and TOP evaluation can skip hash polling.
+/// scene layers and tex evaluation can skip hash polling.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GuiInvalidation {
     pub(crate) nodes: u64,
@@ -69,7 +69,7 @@ pub(crate) struct GuiInvalidation {
 }
 
 impl GuiInvalidation {
-    /// Mark all retained scene subtrees and TOP evaluation as dirty.
+    /// Mark all retained scene subtrees and tex evaluation as dirty.
     pub(crate) fn invalidate_all(&mut self) {
         self.invalidate_nodes();
         self.invalidate_wires();
@@ -98,7 +98,7 @@ impl GuiInvalidation {
         self.timeline = self.timeline.wrapping_add(1);
     }
 
-    /// Mark TOP evaluation subtree dirty.
+    /// Mark tex evaluation subtree dirty.
     pub(crate) fn invalidate_top_eval(&mut self) {
         self.top_eval = self.top_eval.wrapping_add(1);
     }

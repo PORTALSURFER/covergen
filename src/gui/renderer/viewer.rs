@@ -1,11 +1,11 @@
-//! Textured TOP-viewer pipeline setup for GUI rendering.
+//! Textured tex-viewer pipeline setup for GUI rendering.
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::gui::geometry::Rect;
 
-/// Textured vertex payload used for TOP viewer compositing.
+/// Textured vertex payload used for tex viewer compositing.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct ViewerVertex {
@@ -41,7 +41,7 @@ impl ViewerVertex {
     }
 }
 
-/// Create bind-group layout for sampled TOP viewer texture + sampler.
+/// Create bind-group layout for sampled tex viewer texture + sampler.
 pub(super) fn create_texture_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("gui-viewer-texture-layout"),
@@ -66,7 +66,7 @@ pub(super) fn create_texture_bind_group_layout(device: &wgpu::Device) -> wgpu::B
     })
 }
 
-/// Create nearest-neighbor sampler used for TOP viewer texture display.
+/// Create nearest-neighbor sampler used for tex viewer texture display.
 pub(super) fn create_texture_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("gui-viewer-sampler"),
@@ -85,7 +85,7 @@ pub(super) fn create_shader_module(device: &wgpu::Device) -> wgpu::ShaderModule 
     })
 }
 
-/// Create textured pipeline for drawing TOP viewer quad.
+/// Create textured pipeline for drawing tex viewer quad.
 pub(super) fn create_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
@@ -141,7 +141,7 @@ pub(super) fn create_vertex_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
-/// Build a texture bind group for one TOP viewer texture view.
+/// Build a texture bind group for one tex viewer texture view.
 pub(super) fn create_texture_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,

@@ -1,4 +1,4 @@
-//! Expanded TouchDesigner-inspired preset with staged CHOP/SOP/TOP composition.
+//! Expanded TouchDesigner-inspired preset with staged CHOP/SOP/tex composition.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};

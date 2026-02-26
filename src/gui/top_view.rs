@@ -1,4 +1,4 @@
-//! GUI TOP preview planning with compiled GPU-runtime evaluation.
+//! GUI tex preview planning with compiled GPU-runtime evaluation.
 //!
 //! The generator caches one compiled render chain and frame-keyed operation
 //! payload so the renderer executes a single GPU-only preview path.
@@ -7,16 +7,16 @@ use super::project::GuiProject;
 use super::runtime::{GuiCompiledRuntime, TopRuntimeFrameContext};
 use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
 
-/// Re-exported TOP operation type consumed by preview rendering.
+/// Re-exported tex operation type consumed by preview rendering.
 pub(crate) use super::runtime::TopRuntimeOp as TopViewerOp;
 
-/// TOP viewer payload consumed by the GUI renderer.
+/// tex viewer payload consumed by the GUI renderer.
 pub(crate) enum TopViewerPayload<'a> {
     /// GPU operation chain executed into the viewer target.
     GpuOps(&'a [TopViewerOp]),
 }
 
-/// Borrowed frame payload for one TOP viewer render.
+/// Borrowed frame payload for one tex viewer render.
 pub(crate) struct TopViewerFrame<'a> {
     /// Panel-space x-offset of fitted preview quad.
     pub(crate) x: i32,
@@ -26,9 +26,9 @@ pub(crate) struct TopViewerFrame<'a> {
     pub(crate) width: u32,
     /// Panel-space fitted preview quad height.
     pub(crate) height: u32,
-    /// Backing GPU texture width used for TOP evaluation.
+    /// Backing GPU texture width used for tex evaluation.
     pub(crate) texture_width: u32,
-    /// Backing GPU texture height used for TOP evaluation.
+    /// Backing GPU texture height used for tex evaluation.
     pub(crate) texture_height: u32,
     pub(crate) payload: TopViewerPayload<'a>,
 }
@@ -45,7 +45,7 @@ struct ViewerCacheKey {
     frame_index: u32,
 }
 
-/// Cached TOP preview payload producer.
+/// Cached tex preview payload producer.
 #[derive(Debug, Default)]
 pub(crate) struct TopViewerGenerator {
     key: Option<ViewerCacheKey>,
@@ -59,7 +59,7 @@ pub(crate) struct TopViewerGenerator {
     eval_stack: Vec<u32>,
 }
 
-/// Immutable update inputs for one TOP viewer cache tick.
+/// Immutable update inputs for one tex viewer cache tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TopViewerUpdate {
     /// Current viewport width in physical pixels.
@@ -72,7 +72,7 @@ pub(crate) struct TopViewerUpdate {
     pub(crate) frame_index: u32,
     /// Timeline playback rate used for time conversion.
     pub(crate) timeline_fps: u32,
-    /// Epoch token for TOP evaluation invalidation.
+    /// Epoch token for tex evaluation invalidation.
     pub(crate) top_eval_epoch: u64,
 }
 

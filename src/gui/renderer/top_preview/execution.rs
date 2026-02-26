@@ -1,4 +1,4 @@
-//! Frame-time TOP preview preparation and GPU operation execution.
+//! Frame-time tex preview preparation and GPU operation execution.
 
 use crate::gui::geometry::Rect;
 use crate::gui::top_view::{TopViewerFrame, TopViewerOp, TopViewerPayload};
@@ -143,7 +143,7 @@ impl TopPreviewRenderer {
                 let target_view = self.target_view(target)?;
 
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("gui-top-preview-op-pass"),
+                    label: Some("gui-tex-preview-op-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: target_view,
                         resolve_target: None,
@@ -385,7 +385,7 @@ impl TopPreviewRenderer {
             return;
         };
         let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("gui-top-preview-clear-pass"),
+            label: Some("gui-tex-preview-clear-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,
@@ -446,7 +446,7 @@ impl TopPreviewRenderer {
             device,
             width,
             height,
-            "gui-top-preview-scratch-a",
+            "gui-tex-preview-scratch-a",
             &self.viewer_texture_layout,
             &self.op_sampler,
         );
@@ -454,7 +454,7 @@ impl TopPreviewRenderer {
             device,
             width,
             height,
-            "gui-top-preview-scratch-b",
+            "gui-tex-preview-scratch-b",
             &self.viewer_texture_layout,
             &self.op_sampler,
         );
@@ -525,7 +525,7 @@ impl TopPreviewRenderer {
             device,
             width,
             height,
-            "gui-top-preview-feedback-history-a",
+            "gui-tex-preview-feedback-history-a",
             &self.viewer_texture_layout,
             &self.op_sampler,
         );
@@ -533,13 +533,13 @@ impl TopPreviewRenderer {
             device,
             width,
             height,
-            "gui-top-preview-feedback-history-b",
+            "gui-tex-preview-feedback-history-b",
             &self.viewer_texture_layout,
             &self.op_sampler,
         );
         for view in [&view_a, &view_b] {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gui-top-preview-feedback-history-clear-pass"),
+                label: Some("gui-tex-preview-feedback-history-clear-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
@@ -696,13 +696,13 @@ impl TopPreviewRenderer {
             device,
             width,
             height,
-            "gui-top-preview-blend-source",
+            "gui-tex-preview-blend-source",
             &self.viewer_texture_layout,
             &self.op_sampler,
         );
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gui-top-preview-blend-source-clear-pass"),
+                label: Some("gui-tex-preview-blend-source-clear-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,

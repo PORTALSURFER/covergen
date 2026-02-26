@@ -29,7 +29,7 @@ pub(crate) enum CovergenCommand {
     Bench(BenchArgs),
     /// Run one-shot headless render/export mode.
     Render(RenderArgs),
-    /// Launch a realtime TOP preview window.
+    /// Launch a realtime tex preview window.
     Gui(GuiArgs),
 }
 
@@ -41,7 +41,7 @@ pub(crate) struct RenderArgs {
     pub run: V2Args,
 }
 
-/// GUI subcommand arguments for realtime TOP preview.
+/// GUI subcommand arguments for realtime tex preview.
 #[derive(clap::Args, Debug, Clone)]
 pub(crate) struct GuiArgs {
     /// Runtime graph/preset arguments consumed by the GUI preview loop.

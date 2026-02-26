@@ -10,16 +10,16 @@ hardware GPU is available, the process exits with an error.
 
 ## Modes
 
-- `covergen` launches the realtime TOP preview window by default.
+- `covergen` launches the realtime tex preview window by default.
 - `covergen render ...` runs headless node-graph render/export mode.
 - `covergen bench ...` runs benchmark + telemetry workflows.
-- `covergen gui ...` opens a realtime TOP preview window.
+- `covergen gui ...` opens a realtime tex preview window.
 
 V1 runtime support was removed on **February 24, 2026**. Migration and cutover status are documented in `docs/v2/migration.md`.
 
 ## V2 Quick Start
 
-Default launch (GUI split view: left node editor + right TOP preview, starts with a new empty project):
+Default launch (GUI split view: left node editor + right tex preview, starts with a new empty project):
 
 ```bash
 cargo run --bin covergen
@@ -112,7 +112,7 @@ cargo run --bin covergen -- gui --size 1024
 
 Operator-family model (TouchDesigner-style):
 
-- `TOP`: image/texture operators (includes camera render from SOP primitives)
+- `tex`: image/texture operators (includes camera render from SOP primitives)
 - `CHOP`: channel operators (`chop-lfo`, `chop-math`, `chop-remap`)
 - `SOP`: geometry operators (`sop-circle`, `sop-sphere`, `sop-geometry`)
 - `Output`: terminal output contracts

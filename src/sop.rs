@@ -44,7 +44,7 @@ pub struct SopGeometryNode {
     pub bias: f32,
 }
 
-/// TOP camera node that rasterizes SOP primitives to luma.
+/// tex camera node that rasterizes SOP primitives to luma.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopCameraRenderNode {
     pub exposure: f32,

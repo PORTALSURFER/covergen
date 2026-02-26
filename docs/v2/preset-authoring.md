@@ -30,7 +30,7 @@ Current presets:
 - `td-modular-network`
 - `td-multi-stage`
 
-TouchDesigner-focused presets use constrained CHOP/SOP/TOP wiring plus
+TouchDesigner-focused presets use constrained CHOP/SOP/tex wiring plus
 `SourceNoise`/`Mask` sub-branches so random graphs stay visually varied without
 devolving into unstructured flicker.
 
