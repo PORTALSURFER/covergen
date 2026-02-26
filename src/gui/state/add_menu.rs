@@ -1,5 +1,7 @@
 //! Add-node popup menu model, filtering, and staged category navigation.
 
+use std::cell::RefCell;
+
 use crate::gui::geometry::Rect;
 use crate::gui::project::ProjectNodeKind;
 
@@ -111,12 +113,31 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 14] = [
     },
 ];
 
+const ADD_NODE_CATEGORIES: [AddNodeCategory; 6] = [
+    AddNodeCategory::Texture,
+    AddNodeCategory::Buffer,
+    AddNodeCategory::Scene,
+    AddNodeCategory::Render,
+    AddNodeCategory::Control,
+    AddNodeCategory::Io,
+];
+
 /// One visible row in the add-node popup list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AddNodeMenuEntry {
     Category(AddNodeCategory),
     Back,
     Option(usize),
+}
+
+/// Cached visible list state for one query/category combination.
+#[derive(Clone, Debug, Default)]
+struct VisibleEntriesCache {
+    valid: bool,
+    active_category: Option<AddNodeCategory>,
+    query_key: String,
+    option_indices: Vec<usize>,
+    entries: Vec<AddNodeMenuEntry>,
 }
 
 /// Add-node popup menu state.
@@ -130,6 +151,8 @@ pub(crate) struct AddNodeMenuState {
     pub(crate) selected: usize,
     pub(crate) query: String,
     pub(crate) active_category: Option<AddNodeCategory>,
+    query_norm: String,
+    visible_cache: RefCell<VisibleEntriesCache>,
 }
 
 impl AddNodeMenuState {
@@ -144,6 +167,8 @@ impl AddNodeMenuState {
             selected: 0,
             query: String::new(),
             active_category: None,
+            query_norm: String::new(),
+            visible_cache: RefCell::new(VisibleEntriesCache::default()),
         }
     }
 
@@ -161,6 +186,8 @@ impl AddNodeMenuState {
             selected: 0,
             query: String::new(),
             active_category: None,
+            query_norm: String::new(),
+            visible_cache: RefCell::new(VisibleEntriesCache::default()),
         }
     }
 
@@ -191,7 +218,9 @@ impl AddNodeMenuState {
         }
         self.active_category = Some(category);
         self.query.clear();
+        self.query_norm.clear();
         self.selected = 0;
+        self.invalidate_visible_cache();
         true
     }
 
@@ -202,54 +231,27 @@ impl AddNodeMenuState {
         }
         self.active_category = None;
         self.query.clear();
+        self.query_norm.clear();
         self.selected = 0;
+        self.invalidate_visible_cache();
         true
     }
 
-    /// Return visible category list in menu order.
-    pub(crate) fn visible_categories(&self) -> Vec<AddNodeCategory> {
-        unique_category_order()
+    /// Return visible entry count in current picker stage.
+    pub(crate) fn visible_entry_count(&self) -> usize {
+        self.ensure_visible_cache();
+        self.visible_cache.borrow().entries.len()
     }
 
-    /// Return currently visible option indices after category and query filtering.
-    pub(crate) fn visible_option_indices(&self) -> Vec<usize> {
-        let Some(category) = self.active_category else {
-            return Vec::new();
-        };
-        let query = self.query.trim().to_lowercase();
-        let mut out = Vec::new();
-        for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
-            if option.category != category {
-                continue;
-            }
-            if query.is_empty() || option_matches_query(option, query.as_str()) {
-                out.push(index);
-            }
-        }
-        out
-    }
-
-    /// Return all visible entries in current picker stage.
-    pub(crate) fn visible_entries(&self) -> Vec<AddNodeMenuEntry> {
-        if self.active_category.is_none() {
-            return self
-                .visible_categories()
-                .into_iter()
-                .map(AddNodeMenuEntry::Category)
-                .collect();
-        }
-        let mut out = Vec::new();
-        out.push(AddNodeMenuEntry::Back);
-        for index in self.visible_option_indices() {
-            out.push(AddNodeMenuEntry::Option(index));
-        }
-        out
+    /// Return one visible entry by index in current picker stage.
+    pub(crate) fn visible_entry(&self, index: usize) -> Option<AddNodeMenuEntry> {
+        self.ensure_visible_cache();
+        self.visible_cache.borrow().entries.get(index).copied()
     }
 
     /// Return one entry rectangle in panel coordinates.
     pub(crate) fn entry_rect(&self, entry_index: usize) -> Option<Rect> {
-        let entries = self.visible_entries();
-        if entry_index >= entries.len() {
+        if entry_index >= self.visible_entry_count() {
             return None;
         }
         let y = self.y
@@ -268,8 +270,7 @@ impl AddNodeMenuState {
 
     /// Return hovered entry index for cursor position.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        let entries = self.visible_entries();
-        for index in 0..entries.len() {
+        for index in 0..self.visible_entry_count() {
             let Some(rect) = self.entry_rect(index) else {
                 continue;
             };
@@ -282,23 +283,24 @@ impl AddNodeMenuState {
 
     /// Return selected entry in current picker stage.
     pub(crate) fn selected_entry(&self) -> Option<AddNodeMenuEntry> {
-        let entries = self.visible_entries();
-        entries
-            .get(self.selected.min(entries.len().saturating_sub(1)))
-            .copied()
+        let count = self.visible_entry_count();
+        if count == 0 {
+            return None;
+        }
+        self.visible_entry(self.selected.min(count.saturating_sub(1)))
     }
 
     /// Keep selected row inside current visible entry range.
     pub(crate) fn clamp_selection(&mut self) -> bool {
-        let entries = self.visible_entries();
-        if entries.is_empty() {
+        let count = self.visible_entry_count();
+        if count == 0 {
             if self.selected != 0 {
                 self.selected = 0;
                 return true;
             }
             return false;
         }
-        let clamped = self.selected.min(entries.len() - 1);
+        let clamped = self.selected.min(count - 1);
         if clamped == self.selected {
             return false;
         }
@@ -308,11 +310,11 @@ impl AddNodeMenuState {
 
     /// Select one row index in current visible entry range.
     pub(crate) fn select_index(&mut self, index: usize) -> bool {
-        let entries = self.visible_entries();
-        if entries.is_empty() {
+        let count = self.visible_entry_count();
+        if count == 0 {
             return false;
         }
-        let next = index.min(entries.len() - 1);
+        let next = index.min(count - 1);
         if self.selected == next {
             return false;
         }
@@ -329,12 +331,12 @@ impl AddNodeMenuState {
 
     /// Select the next visible entry.
     pub(crate) fn select_next(&mut self) -> bool {
-        let entries = self.visible_entries();
-        if entries.is_empty() {
+        let count = self.visible_entry_count();
+        if count == 0 {
             return false;
         }
         let old = self.selected;
-        self.selected = (self.selected + 1).min(entries.len() - 1);
+        self.selected = (self.selected + 1).min(count - 1);
         old != self.selected
     }
 
@@ -353,10 +355,60 @@ impl AddNodeMenuState {
             changed = true;
         }
         if changed {
+            self.refresh_query_norm();
+            self.invalidate_visible_cache();
             self.selected = 0;
             let _ = self.clamp_selection();
         }
         changed
+    }
+
+    /// Reset visible-entry cache after any filter-stage mutation.
+    fn invalidate_visible_cache(&self) {
+        self.visible_cache.borrow_mut().valid = false;
+    }
+
+    /// Keep normalized query in sync with user text for cheap cache checks.
+    fn refresh_query_norm(&mut self) {
+        self.query_norm = self.query.trim().to_lowercase();
+    }
+
+    /// Ensure cached visible entries match current category/query state.
+    fn ensure_visible_cache(&self) {
+        let key_category = self.active_category;
+        let key_query = if key_category.is_some() {
+            self.query_norm.as_str()
+        } else {
+            ""
+        };
+        let mut cache = self.visible_cache.borrow_mut();
+        if cache.valid && cache.active_category == key_category && cache.query_key == key_query {
+            return;
+        }
+        cache.valid = true;
+        cache.active_category = key_category;
+        cache.query_key.clear();
+        cache.query_key.push_str(key_query);
+        cache.option_indices.clear();
+        cache.entries.clear();
+        let Some(category) = key_category else {
+            cache.entries.extend(
+                ADD_NODE_CATEGORIES
+                    .into_iter()
+                    .map(AddNodeMenuEntry::Category),
+            );
+            return;
+        };
+        cache.entries.push(AddNodeMenuEntry::Back);
+        for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
+            if option.category != category {
+                continue;
+            }
+            if key_query.is_empty() || option_matches_query(option, key_query) {
+                cache.option_indices.push(index);
+                cache.entries.push(AddNodeMenuEntry::Option(index));
+            }
+        }
     }
 }
 
@@ -372,17 +424,7 @@ pub(crate) fn menu_height() -> i32 {
 }
 
 fn category_count() -> usize {
-    unique_category_order().len()
-}
-
-fn unique_category_order() -> Vec<AddNodeCategory> {
-    let mut out = Vec::new();
-    for option in ADD_NODE_OPTIONS {
-        if !out.contains(&option.category) {
-            out.push(option.category);
-        }
-    }
-    out
+    ADD_NODE_CATEGORIES.len()
 }
 
 fn option_matches_query(option: AddNodeOption, query: &str) -> bool {

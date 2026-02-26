@@ -3415,14 +3415,20 @@ mod tests {
         state.pan_y = 30.0;
         state.zoom = 2.0;
         state.menu = AddNodeMenuState::open_at(120, 100, 420, 480);
-        let entries = state.menu.visible_entries();
-        let control_index = entries
-            .iter()
-            .position(|entry| match entry {
-                AddNodeMenuEntry::Category(category) => category.label() == "Control",
-                _ => false,
-            })
-            .expect("control category should exist");
+        let mut control_index = None;
+        for index in 0..state.menu.visible_entry_count() {
+            let Some(entry) = state.menu.visible_entry(index) else {
+                continue;
+            };
+            if matches!(
+                entry,
+                AddNodeMenuEntry::Category(category) if category.label() == "Control"
+            ) {
+                control_index = Some(index);
+                break;
+            }
+        }
+        let control_index = control_index.expect("control category should exist");
         state.menu.selected = control_index;
         let open_category = InputSnapshot {
             menu_accept: true,

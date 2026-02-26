@@ -82,6 +82,8 @@ const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 const PARAM_WIRE_CORNER_RADIUS_MIN_PX: i32 = 3;
 const PARAM_WIRE_CORNER_RADIUS_MAX_PX: i32 = 8;
 const PARAM_WIRE_CURVE_STEPS: usize = 2;
+const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
+const FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,6 +177,12 @@ struct ParamRouteCacheKey {
     obstacle_epoch: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FittedLabelCacheBucketKey {
+    max_width: i32,
+    zoom_bits: u32,
+}
+
 /// Stateful scene builder that reuses allocation capacity across frames.
 #[derive(Default)]
 pub(crate) struct SceneBuilder {
@@ -188,6 +196,7 @@ pub(crate) struct SceneBuilder {
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
+    fitted_label_cache: HashMap<FittedLabelCacheBucketKey, HashMap<String, String>>,
     param_route_cache_epoch: Option<u64>,
     param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
     param_route_obstacle_map: wire_route::RouteObstacleMap,
@@ -570,8 +579,8 @@ impl SceneBuilder {
         self.push_rect(search_rect, MENU_SEARCH_BG);
         self.push_border(search_rect, MENU_BORDER);
         self.push_text(search_rect.x + 6, search_rect.y + 7, search_text, MENU_TEXT);
-        let entries = state.menu.visible_entries();
-        if entries.is_empty() {
+        let entry_count = state.menu.visible_entry_count();
+        if entry_count == 0 {
             self.push_text(
                 rect.x + MENU_INNER_PADDING + 6,
                 search_rect.y + search_rect.h + MENU_BLOCK_GAP + 6,
@@ -581,7 +590,10 @@ impl SceneBuilder {
             return;
         }
         let mut menu_label_scratch = std::mem::take(&mut self.label_scratch);
-        for (entry_index, entry) in entries.into_iter().enumerate() {
+        for entry_index in 0..entry_count {
+            let Some(entry) = state.menu.visible_entry(entry_index) else {
+                continue;
+            };
             let Some(item) = state.menu.entry_rect(entry_index) else {
                 continue;
             };
@@ -1190,7 +1202,7 @@ impl SceneBuilder {
     }
 
     fn fit_graph_text_into<'a>(
-        &self,
+        &mut self,
         text: &'a str,
         max_width: i32,
         state: &PreviewState,
@@ -1199,14 +1211,24 @@ impl SceneBuilder {
         if max_width <= 0 || text.is_empty() {
             return "";
         }
+        if let Some(cached) = self.lookup_fitted_label(text, max_width, state.zoom) {
+            if cached == text {
+                return text;
+            }
+            out.clear();
+            out.push_str(cached);
+            return out.as_str();
+        }
         let scale = state.zoom;
         let full_w = self.text_renderer.measure_text_width(text, scale);
         if full_w <= max_width {
+            self.store_fitted_label(text, max_width, scale, text);
             return text;
         }
         let ellipsis = "...";
         let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
         if ellipsis_w > max_width {
+            self.store_fitted_label(text, max_width, scale, "");
             return "";
         }
         let mut width = 0;
@@ -1222,7 +1244,35 @@ impl SceneBuilder {
         out.clear();
         out.push_str(&text[..end_byte]);
         out.push_str(ellipsis);
+        self.store_fitted_label(text, max_width, scale, out.as_str());
         out.as_str()
+    }
+
+    /// Return cached fitted label text for one width/zoom bucket.
+    fn lookup_fitted_label(&self, text: &str, max_width: i32, zoom: f32) -> Option<&str> {
+        let bucket = self.fitted_label_cache.get(&FittedLabelCacheBucketKey {
+            max_width,
+            zoom_bits: zoom.to_bits(),
+        })?;
+        bucket.get(text).map(String::as_str)
+    }
+
+    /// Store one fitted label result in a bounded cache.
+    fn store_fitted_label(&mut self, text: &str, max_width: i32, zoom: f32, fitted: &str) {
+        let key = FittedLabelCacheBucketKey {
+            max_width,
+            zoom_bits: zoom.to_bits(),
+        };
+        if !self.fitted_label_cache.contains_key(&key)
+            && self.fitted_label_cache.len() >= FITTED_LABEL_CACHE_MAX_BUCKETS
+        {
+            self.fitted_label_cache.clear();
+        }
+        let bucket = self.fitted_label_cache.entry(key).or_default();
+        if !bucket.contains_key(text) && bucket.len() >= FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET {
+            bucket.clear();
+        }
+        bucket.insert(text.to_owned(), fitted.to_owned());
     }
 
     fn layer_capacity(&self, layer: ActiveLayer) -> (usize, usize) {
