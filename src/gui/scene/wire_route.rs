@@ -2,21 +2,17 @@
 //!
 //! The router builds a coarse grid around endpoints and node obstacles, then
 //! runs a bounded BFS to find a path that does not cross blocked cells.
-
 use crate::gui::geometry::Rect;
 use std::collections::VecDeque;
-
 const GRID_STEP_PX: i32 = 14;
 const ROUTE_PADDING_PX: i32 = GRID_STEP_PX * 4;
 const OBSTACLE_MARGIN_PX: i32 = 8;
-const MAX_GRID_CELLS: usize = 12_000;
-
+const MAX_GRID_CELLS: usize = 24_000;
 /// One node obstacle in panel coordinates for pathfinding.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeObstacle {
     pub(crate) rect: Rect,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
     x: i32,
@@ -32,7 +28,8 @@ pub(crate) fn route_param_path(
     end: (i32, i32),
     obstacles: &[NodeObstacle],
 ) -> Vec<(i32, i32)> {
-    let blocked = collect_blocked_rects(obstacles);
+    let mut blocked = collect_blocked_rects(obstacles);
+    blocked.retain(|rect| !rect.contains(start.0, start.1) && !rect.contains(end.0, end.1));
     if blocked.is_empty() {
         return vec![start, end];
     }
@@ -95,7 +92,24 @@ fn fallback_route(start: (i32, i32), end: (i32, i32), blocked: &[Rect]) -> Vec<(
     if path_clear(up.as_slice(), blocked) {
         return up;
     }
-    vec![start, (start.0, down_y), (end.0, down_y), end]
+    let down = vec![start, (start.0, down_y), (end.0, down_y), end];
+    if path_clear(down.as_slice(), blocked) {
+        return down;
+    }
+    for step in 1..=16 {
+        let dy = ROUTE_PADDING_PX + step * GRID_STEP_PX;
+        let upper = min_y - dy;
+        let lower = max_y + dy;
+        let up_lane = vec![start, (start.0, upper), (end.0, upper), end];
+        if path_clear(up_lane.as_slice(), blocked) {
+            return up_lane;
+        }
+        let down_lane = vec![start, (start.0, lower), (end.0, lower), end];
+        if path_clear(down_lane.as_slice(), blocked) {
+            return down_lane;
+        }
+    }
+    vec![start, end]
 }
 
 fn path_clear(points: &[(i32, i32)], blocked: &[Rect]) -> bool {

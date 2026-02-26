@@ -78,6 +78,9 @@ const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
+const PARAM_WIRE_CORNER_RADIUS_MIN_PX: i32 = 3;
+const PARAM_WIRE_CORNER_RADIUS_MAX_PX: i32 = 8;
+const PARAM_WIRE_CURVE_STEPS: usize = 2;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -853,8 +856,9 @@ impl SceneBuilder {
                 let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
                 let route =
                     wire_route::route_param_path((exit_x, from_y), (entry_x, to_y), &obstacles);
+                let smooth_route = smooth_param_wire_path(route.as_slice());
                 let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
-                    || path_intersects_cut_line(state, &route)
+                    || path_intersects_cut_line(state, smooth_route.as_slice())
                     || edge_intersects_cut_line(state, entry_x, to_y, to_x, to_y)
                 {
                     CUT_EDGE_COLOR
@@ -862,7 +866,7 @@ impl SceneBuilder {
                     PARAM_EDGE_COLOR
                 };
                 self.push_line(from_x, from_y, exit_x, from_y, color);
-                self.push_path_lines(&route, color);
+                self.push_path_lines(smooth_route.as_slice(), color);
                 self.push_line(entry_x, to_y, to_x, to_y, color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
@@ -1394,6 +1398,71 @@ fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -
         return 0;
     }
     (in_len.min(out_len) / 2).clamp(2, 12)
+}
+
+fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let mut out = Vec::with_capacity(points.len() * 2);
+    out.push(points[0]);
+    for index in 1..points.len() - 1 {
+        let prev = points[index - 1];
+        let corner = points[index];
+        let next = points[index + 1];
+        let in_axis = prev.0 == corner.0 || prev.1 == corner.1;
+        let out_axis = corner.0 == next.0 || corner.1 == next.1;
+        if !in_axis || !out_axis {
+            out.push(corner);
+            continue;
+        }
+        let radius = rounded_corner_radius(prev.0, prev.1, corner.0, corner.1, next.0, next.1)
+            .clamp(
+                PARAM_WIRE_CORNER_RADIUS_MIN_PX,
+                PARAM_WIRE_CORNER_RADIUS_MAX_PX,
+            );
+        if radius <= 0 {
+            out.push(corner);
+            continue;
+        }
+        let entry = step_towards_point(corner, prev, radius);
+        let exit = step_towards_point(corner, next, radius);
+        if out.last().copied() != Some(entry) {
+            out.push(entry);
+        }
+        for step in 1..=PARAM_WIRE_CURVE_STEPS {
+            let t = step as f32 / (PARAM_WIRE_CURVE_STEPS as f32 + 1.0);
+            let curve_point = quadratic_wire_point(entry, corner, exit, t);
+            if out.last().copied() != Some(curve_point) {
+                out.push(curve_point);
+            }
+        }
+        if out.last().copied() != Some(exit) {
+            out.push(exit);
+        }
+    }
+    if let Some(end) = points.last().copied() {
+        if out.last().copied() != Some(end) {
+            out.push(end);
+        }
+    }
+    out
+}
+
+fn step_towards_point(from: (i32, i32), to: (i32, i32), distance: i32) -> (i32, i32) {
+    let dx = (to.0 - from.0).signum();
+    let dy = (to.1 - from.1).signum();
+    (
+        from.0.saturating_add(dx.saturating_mul(distance)),
+        from.1.saturating_add(dy.saturating_mul(distance)),
+    )
+}
+
+fn quadratic_wire_point(a: (i32, i32), b: (i32, i32), c: (i32, i32), t: f32) -> (i32, i32) {
+    let one = 1.0 - t;
+    let x = one * one * a.0 as f32 + 2.0 * one * t * b.0 as f32 + t * t * c.0 as f32;
+    let y = one * one * a.1 as f32 + 2.0 * one * t * b.1 as f32 + t * t * c.1 as f32;
+    (x.round() as i32, y.round() as i32)
 }
 
 fn edge_intersects_cut_line(state: &PreviewState, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
