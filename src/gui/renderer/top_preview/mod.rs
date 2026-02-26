@@ -172,6 +172,10 @@ enum RenderTargetRef {
     Viewer,
     ScratchA,
     ScratchB,
+    FeedbackHistory {
+        key: FeedbackHistoryKey,
+        slot_index: usize,
+    },
 }
 
 /// Stable storage key for one feedback history texture slot.
@@ -198,8 +202,16 @@ impl FeedbackHistoryKey {
 #[derive(Debug)]
 struct CachedTextureSlot {
     texture: wgpu::Texture,
+    view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
     size: (u32, u32),
+}
+
+/// Ping-pong history textures for one feedback storage key.
+#[derive(Debug)]
+struct FeedbackHistorySlot {
+    slots: [CachedTextureSlot; 2],
+    read_index: usize,
 }
 
 /// GPU-backed TOP preview state for GUI rendering.
@@ -221,6 +233,7 @@ pub(super) struct TopPreviewRenderer {
     op_uniform_bind_group: wgpu::BindGroup,
     op_uniform_stride: u64,
     op_uniform_capacity: usize,
+    op_uniform_staging: Vec<u8>,
     op_solid_pipeline: wgpu::RenderPipeline,
     op_circle_pipeline: wgpu::RenderPipeline,
     op_sphere_pipeline: wgpu::RenderPipeline,
@@ -238,7 +251,7 @@ pub(super) struct TopPreviewRenderer {
     scratch_view_b: Option<wgpu::TextureView>,
     scratch_bind_group_b: Option<wgpu::BindGroup>,
     scratch_texture_size: (u32, u32),
-    feedback_history: HashMap<FeedbackHistoryKey, CachedTextureSlot>,
+    feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
     blend_source_slots: HashMap<u32, CachedTextureSlot>,
 }
 
@@ -446,6 +459,7 @@ impl TopPreviewRenderer {
             op_uniform_bind_group,
             op_uniform_stride,
             op_uniform_capacity: 1,
+            op_uniform_staging: Vec::new(),
             op_solid_pipeline,
             op_circle_pipeline,
             op_sphere_pipeline,
