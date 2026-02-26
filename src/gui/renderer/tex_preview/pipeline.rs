@@ -79,7 +79,7 @@ pub(super) fn create_preview_texture_bundle(
 }
 
 pub(super) const OP_SHADER_SOURCE: &str = r#"
-struct TopOpUniform {
+struct TexOpUniform {
     p0: vec4<f32>,
     p1: vec4<f32>,
     p2: vec4<f32>,
@@ -88,7 +88,7 @@ struct TopOpUniform {
 };
 
 @group(0) @binding(0)
-var<uniform> u_op: TopOpUniform;
+var<uniform> u_op: TexOpUniform;
 
 @group(1) @binding(0)
 var t_src: texture_2d<f32>;

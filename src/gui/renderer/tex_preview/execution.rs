@@ -7,8 +7,8 @@ use super::super::viewer;
 use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
 use super::pipeline::create_preview_texture_bundle;
 use super::{
-    CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef,
-    TexPreviewRenderer, TopOpUniform, PREVIEW_BG, TEX_PREVIEW_TEXTURE_FORMAT,
+    CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef, TexOpUniform,
+    TexPreviewRenderer, PREVIEW_BG, TEX_PREVIEW_TEXTURE_FORMAT,
 };
 
 const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
@@ -18,7 +18,7 @@ const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
     a: 0.0,
 };
 
-const TEX_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TopOpUniform>();
+const TEX_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TexOpUniform>();
 
 impl TexPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
@@ -277,8 +277,8 @@ impl TexPreviewRenderer {
     fn op_uniform_for_fused_transform_pair(
         first: TransformParams,
         second: TransformParams,
-    ) -> TopOpUniform {
-        TopOpUniform {
+    ) -> TexOpUniform {
+        TexOpUniform {
             p0: [first.brightness, first.gain_r, first.gain_g, first.gain_b],
             p1: [first.alpha_mul, 0.0, 0.0, 0.0],
             p2: [
@@ -292,17 +292,17 @@ impl TexPreviewRenderer {
         }
     }
 
-    fn op_uniform_for_planned(op: PlannedRenderOp) -> TopOpUniform {
+    fn op_uniform_for_planned(op: PlannedRenderOp) -> TexOpUniform {
         match op {
             PlannedRenderOp::Runtime(runtime_op) => match runtime_op {
-                TexViewerOp::Solid { .. } => TopOpUniform::solid(runtime_op),
-                TexViewerOp::Circle { .. } => TopOpUniform::circle(runtime_op),
-                TexViewerOp::Sphere { .. } => TopOpUniform::sphere(runtime_op),
-                TexViewerOp::Transform { .. } => TopOpUniform::transform(runtime_op),
-                TexViewerOp::Level { .. } => TopOpUniform::level(runtime_op),
-                TexViewerOp::Feedback { .. } => TopOpUniform::feedback(runtime_op),
-                TexViewerOp::Blend { .. } => TopOpUniform::blend(runtime_op),
-                TexViewerOp::StoreTexture { .. } => TopOpUniform::solid(runtime_op),
+                TexViewerOp::Solid { .. } => TexOpUniform::solid(runtime_op),
+                TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
+                TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
+                TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
+                TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
+                TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
+                TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
+                TexViewerOp::StoreTexture { .. } => TexOpUniform::solid(runtime_op),
             },
             PlannedRenderOp::TransformPair { first, second } => {
                 Self::op_uniform_for_fused_transform_pair(first, second)

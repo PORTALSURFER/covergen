@@ -28,7 +28,7 @@ pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::Texture
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct TopOpUniform {
+struct TexOpUniform {
     p0: [f32; 4],
     p1: [f32; 4],
     p2: [f32; 4],
@@ -36,7 +36,7 @@ struct TopOpUniform {
     p4: [f32; 4],
 }
 
-impl TopOpUniform {
+impl TexOpUniform {
     fn solid(op: TexViewerOp) -> Self {
         let TexViewerOp::Solid {
             color_r,
@@ -297,13 +297,13 @@ pub(super) struct TexPreviewRenderer {
 impl TexPreviewRenderer {
     /// Return non-zero binding size for one operation uniform payload.
     fn op_uniform_binding_size() -> NonZeroU64 {
-        NonZeroU64::new(std::mem::size_of::<TopOpUniform>() as u64)
+        NonZeroU64::new(std::mem::size_of::<TexOpUniform>() as u64)
             .expect("tex op uniform size must be non-zero")
     }
 
     /// Return one dynamic-uniform stride aligned to device limits.
     fn op_uniform_stride(device: &wgpu::Device) -> u64 {
-        let size = std::mem::size_of::<TopOpUniform>() as u64;
+        let size = std::mem::size_of::<TexOpUniform>() as u64;
         let alignment = device.limits().min_uniform_buffer_offset_alignment as u64;
         if alignment <= 1 {
             return size;
