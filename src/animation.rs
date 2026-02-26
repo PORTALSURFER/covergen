@@ -14,6 +14,29 @@ use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, RateControlM
 use openh264::formats::{BgraSliceU8, YUVBuffer};
 
 use super::runtime_config::AnimationConfig;
+#[cfg(windows)]
+use nvenc::bitstream::BitStream as NvencBitStream;
+#[cfg(windows)]
+use nvenc::encoder::Encoder as NvencEncoder;
+#[cfg(windows)]
+use nvenc::input_buffer::InputBuffer as NvencInputBuffer;
+#[cfg(windows)]
+use nvenc::session::{InitParams as NvencInitParams, NeedsConfig as NvencNeedsConfig, Session};
+#[cfg(windows)]
+use nvenc::sys::enums::{
+    NVencBufferFormat, NVencMemoryHeap, NVencParamsRcMode, NVencPicStruct, NVencPicType,
+    NVencTuningInfo,
+};
+#[cfg(windows)]
+use nvenc::sys::guids::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P4_GUID};
+#[cfg(windows)]
+use windows::Win32::Foundation::HMODULE;
+#[cfg(windows)]
+use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+#[cfg(windows)]
+use windows::Win32::Graphics::Direct3D11::{
+    D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION,
+};
 
 const MP4_MOVIE_TIMESCALE: u32 = 90_000;
 const MP4_TRACK_ID_VIDEO: u32 = 1;
@@ -21,6 +44,7 @@ const H264_NAL_TYPE_IDR: u8 = 5;
 const H264_NAL_TYPE_SPS: u8 = 7;
 const H264_NAL_TYPE_PPS: u8 = 8;
 const STREAM_FRAME_FORMAT_ENV: &str = "COVERGEN_STREAM_FRAME_FORMAT";
+const STREAM_ENCODER_ENV: &str = "COVERGEN_STREAM_ENCODER";
 
 /// Raw frame layout accepted by the streaming encoder stdin path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +69,15 @@ impl StreamFrameFormat {
 pub(crate) enum ExportDataPath {
     CpuReadback,
     CpuReadbackGpuUpload,
+    #[cfg(windows)]
+    CpuReadbackGpuEncode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamEncoderPreference {
+    Auto,
+    OpenH264,
+    Nvenc,
 }
 
 /// Returns the number of frames to render for one animation clip.
@@ -135,11 +168,35 @@ pub fn encode_frames_to_mp4(
     encoder.finish()
 }
 
-/// Streaming raw frame encoder backed by in-process OpenH264 + MP4 muxing.
+enum RawEncoderBackend {
+    OpenH264 {
+        encoder: Encoder,
+        yuv: YUVBuffer,
+    },
+    #[cfg(windows)]
+    Nvenc(NvencEncoderState),
+}
+
+#[cfg(windows)]
+struct NvencEncoderState {
+    _device: ID3D11Device,
+    encoder: NvencEncoder,
+    input: NvencInputBuffer,
+    bitstream: NvencBitStream,
+}
+
+struct EncodedFramePayload {
+    sample_payload: Vec<u8>,
+    is_sync: bool,
+    sps: Option<Vec<u8>>,
+    pps: Option<Vec<u8>>,
+}
+
+/// Streaming raw frame encoder backed by hardware NVENC when available with
+/// OpenH264 fallback for broad compatibility.
 pub struct RawVideoEncoder {
-    encoder: Encoder,
+    backend: RawEncoderBackend,
     muxer: Mp4Writer<std::io::BufWriter<File>>,
-    yuv: YUVBuffer,
     gray_to_bgra_scratch: Vec<u8>,
     expected_frame_bytes: usize,
     frame_format: StreamFrameFormat,
@@ -164,7 +221,7 @@ impl RawVideoEncoder {
     ) -> Result<Self, Box<dyn Error>> {
         validate_encoder_input(width, height, fps)?;
         let frame_format = preferred_stream_frame_format()?;
-        let encoder = create_compatible_encoder(width, height, fps)?;
+        let (backend, data_path) = create_stream_backend(width, height, fps, frame_format)?;
 
         let file = File::create(output_path)?;
         let writer = std::io::BufWriter::new(file);
@@ -182,13 +239,12 @@ impl RawVideoEncoder {
         let muxer = Mp4Writer::write_start(writer, &mp4_config)?;
 
         Ok(Self {
-            encoder,
+            backend,
             muxer,
-            yuv: YUVBuffer::new(width as usize, height as usize),
             gray_to_bgra_scratch: Vec::new(),
             expected_frame_bytes: checked_frame_bytes(width, height, frame_format)?,
             frame_format,
-            data_path: data_path_for_frame_format(frame_format),
+            data_path,
             width,
             height,
             frame_duration_ticks: MP4_MOVIE_TIMESCALE / fps,
@@ -254,15 +310,70 @@ impl RawVideoEncoder {
     }
 
     fn encode_one_bgra_frame(&mut self, frame_bgra: &[u8]) -> Result<(), Box<dyn Error>> {
-        let bgra = BgraSliceU8::new(frame_bgra, (self.width as usize, self.height as usize));
-        self.yuv.read_rgb(bgra);
-        if self.frame_index == 0 {
-            self.encoder.force_intra_frame();
+        let encoded = match &mut self.backend {
+            RawEncoderBackend::OpenH264 { encoder, yuv } => Self::encode_openh264_frame(
+                encoder,
+                yuv,
+                self.width,
+                self.height,
+                self.frame_index,
+                frame_bgra,
+            )?,
+            #[cfg(windows)]
+            RawEncoderBackend::Nvenc(state) => Self::encode_nvenc_frame(
+                state,
+                self.width,
+                self.height,
+                self.frame_index,
+                self.frame_ticks_accumulator,
+                frame_bgra,
+            )?,
+        };
+        if let Some(sps) = encoded.sps {
+            self.sps = Some(sps);
         }
-        let encoded = self.encoder.encode(&self.yuv)?;
-        let mut sample_payload = Vec::new();
-        let mut is_sync = false;
+        if let Some(pps) = encoded.pps {
+            self.pps = Some(pps);
+        }
+        if encoded.sample_payload.is_empty() {
+            return Err("encoded frame contained no MP4 sample payload".into());
+        }
+        self.ensure_track()?;
+        let sample = Mp4Sample {
+            start_time: self.frame_ticks_accumulator,
+            duration: self.frame_duration_ticks,
+            rendering_offset: 0,
+            is_sync: encoded.is_sync,
+            bytes: encoded.sample_payload.into(),
+        };
+        self.muxer.write_sample(MP4_TRACK_ID_VIDEO, &sample)?;
+        self.frame_index = self.frame_index.saturating_add(1);
+        self.frame_ticks_accumulator = self
+            .frame_ticks_accumulator
+            .saturating_add(self.frame_duration_ticks as u64);
+        Ok(())
+    }
 
+    fn encode_openh264_frame(
+        encoder: &mut Encoder,
+        yuv: &mut YUVBuffer,
+        width: u32,
+        height: u32,
+        frame_index: u64,
+        frame_bgra: &[u8],
+    ) -> Result<EncodedFramePayload, Box<dyn Error>> {
+        let bgra = BgraSliceU8::new(frame_bgra, (width as usize, height as usize));
+        yuv.read_rgb(bgra);
+        if frame_index == 0 {
+            encoder.force_intra_frame();
+        }
+        let encoded = encoder.encode(yuv)?;
+        let mut payload = EncodedFramePayload {
+            sample_payload: Vec::new(),
+            is_sync: false,
+            sps: None,
+            pps: None,
+        };
         for layer_index in 0..encoded.num_layers() {
             let layer = encoded
                 .layer(layer_index)
@@ -271,51 +382,61 @@ impl RawVideoEncoder {
                 let nal = layer
                     .nal_unit(nal_index)
                     .ok_or("encoded NAL index out of bounds")?;
-                let payload = strip_annex_b_start_code(nal);
-                if payload.is_empty() {
+                let unit = strip_annex_b_start_code(nal);
+                if unit.is_empty() {
                     continue;
                 }
-                let nal_type = payload[0] & 0x1F;
-                if nal_type == H264_NAL_TYPE_SPS {
-                    self.sps = Some(payload.to_vec());
-                    continue;
-                }
-                if nal_type == H264_NAL_TYPE_PPS {
-                    self.pps = Some(payload.to_vec());
-                    continue;
-                }
-                if nal_type == H264_NAL_TYPE_IDR {
-                    is_sync = true;
-                }
-                append_length_prefixed_nal(&mut sample_payload, payload)?;
+                append_h264_unit_to_payload(unit, &mut payload)?;
             }
         }
+        Ok(payload)
+    }
 
-        if sample_payload.is_empty() {
-            return Err("encoded frame contained no MP4 sample payload".into());
-        }
-        self.ensure_track()?;
-
-        let sample = Mp4Sample {
-            start_time: self.frame_ticks_accumulator,
-            duration: self.frame_duration_ticks,
-            rendering_offset: 0,
-            is_sync,
-            bytes: sample_payload.into(),
+    #[cfg(windows)]
+    fn encode_nvenc_frame(
+        state: &mut NvencEncoderState,
+        width: u32,
+        height: u32,
+        frame_index: u64,
+        frame_timestamp: u64,
+        frame_bgra: &[u8],
+    ) -> Result<EncodedFramePayload, Box<dyn Error>> {
+        copy_bgra_into_nvenc_input(&state.input, width, height, frame_bgra)?;
+        let pic_type = if frame_index == 0 {
+            NVencPicType::IDR
+        } else {
+            NVencPicType::P
         };
-        self.muxer.write_sample(MP4_TRACK_ID_VIDEO, &sample)?;
-
-        self.frame_index = self.frame_index.saturating_add(1);
-        self.frame_ticks_accumulator = self
-            .frame_ticks_accumulator
-            .saturating_add(self.frame_duration_ticks as u64);
-        Ok(())
+        state
+            .encoder
+            .encode_picture(
+                &state.input,
+                &state.bitstream,
+                frame_index as usize,
+                frame_timestamp,
+                NVencBufferFormat::ARGB,
+                NVencPicStruct::Frame,
+                pic_type,
+                None,
+            )
+            .map_err(|err| format!("NVENC failed to encode frame {frame_index}: {err:?}"))?;
+        let bitstream = state.bitstream.try_lock(true).map_err(|err| {
+            format!("NVENC failed to lock bitstream for frame {frame_index}: {err:?}")
+        })?;
+        parse_annex_b_packet(bitstream.as_slice())
     }
 
     /// Finalize stream and write the MP4 trailer.
     pub fn finish(mut self) -> Result<(), Box<dyn Error>> {
         if self.frame_index == 0 {
             return Err("cannot finish empty video stream; no frames were written".into());
+        }
+        #[cfg(windows)]
+        if let RawEncoderBackend::Nvenc(state) = &self.backend {
+            state
+                .encoder
+                .end_encode()
+                .map_err(|err| format!("NVENC failed to flush encoder: {err:?}"))?;
         }
         self.muxer.write_end()?;
         Ok(())
@@ -351,6 +472,233 @@ impl RawVideoEncoder {
         self.track_ready = true;
         Ok(())
     }
+}
+
+fn create_stream_backend(
+    width: u32,
+    height: u32,
+    fps: u32,
+    frame_format: StreamFrameFormat,
+) -> Result<(RawEncoderBackend, ExportDataPath), Box<dyn Error>> {
+    let preference = preferred_stream_encoder()?;
+    #[cfg(windows)]
+    if matches!(
+        preference,
+        StreamEncoderPreference::Auto | StreamEncoderPreference::Nvenc
+    ) {
+        match create_nvenc_backend(width, height, fps) {
+            Ok(state) => {
+                return Ok((
+                    RawEncoderBackend::Nvenc(state),
+                    ExportDataPath::CpuReadbackGpuEncode,
+                ));
+            }
+            Err(err) if matches!(preference, StreamEncoderPreference::Nvenc) => {
+                return Err(err);
+            }
+            Err(err) => {
+                eprintln!("[export] NVENC unavailable, falling back to OpenH264: {err}");
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    if matches!(preference, StreamEncoderPreference::Nvenc) {
+        return Err(
+            format!("{STREAM_ENCODER_ENV}=nvenc is only supported on Windows builds").into(),
+        );
+    }
+    let encoder = create_compatible_encoder(width, height, fps)?;
+    Ok((
+        RawEncoderBackend::OpenH264 {
+            encoder,
+            yuv: YUVBuffer::new(width as usize, height as usize),
+        },
+        data_path_for_frame_format(frame_format),
+    ))
+}
+
+#[cfg(windows)]
+fn create_nvenc_backend(
+    width: u32,
+    height: u32,
+    fps: u32,
+) -> Result<NvencEncoderState, Box<dyn Error>> {
+    let device = create_nvenc_device()?;
+    let session: Session<NvencNeedsConfig> = Session::open_dx(&device)
+        .map_err(|err| format!("failed to create NVENC DX session: {err:?}"))?;
+    let (session, mut config) = session
+        .get_encode_preset_config_ex(
+            NV_ENC_CODEC_H264_GUID,
+            NV_ENC_PRESET_P4_GUID,
+            NVencTuningInfo::HighQuality,
+        )
+        .map_err(|err| format!("failed to fetch NVENC H.264 preset config: {err:?}"))?;
+    config.preset_cfg.rc_params.rate_control_mode = NVencParamsRcMode::VBR;
+    config.preset_cfg.rc_params.average_bit_rate = recommended_bitrate(width, height, fps);
+    config.preset_cfg.gop_len = 0xffff_ffff;
+    config.preset_cfg.frame_interval_p = 1;
+    let init = NvencInitParams {
+        encode_guid: NV_ENC_CODEC_H264_GUID,
+        preset_guid: NV_ENC_PRESET_P4_GUID,
+        resolution: [width, height],
+        aspect_ratio: [width, height],
+        frame_rate: [fps, 1],
+        tuning_info: NVencTuningInfo::HighQuality,
+        buffer_format: NVencBufferFormat::ARGB,
+        encode_config: &mut config.preset_cfg,
+        enable_ptd: true,
+        max_encoder_resolution: [width, height],
+    };
+    let encoder = session
+        .init_encoder(init)
+        .map_err(|err| format!("failed to initialize NVENC H.264 encoder: {err:?}"))?;
+    let input = encoder
+        .create_input_buffer(
+            width,
+            height,
+            NVencMemoryHeap::AutoSelect,
+            NVencBufferFormat::ARGB,
+        )
+        .map_err(|err| format!("failed to create NVENC input buffer: {err:?}"))?;
+    let bitstream = encoder
+        .create_bitstream_buffer()
+        .map_err(|err| format!("failed to create NVENC bitstream buffer: {err:?}"))?;
+    Ok(NvencEncoderState {
+        _device: device,
+        encoder,
+        input,
+        bitstream,
+    })
+}
+
+#[cfg(windows)]
+fn create_nvenc_device() -> Result<ID3D11Device, Box<dyn Error>> {
+    let mut device = None;
+    unsafe {
+        D3D11CreateDevice(
+            None,
+            D3D_DRIVER_TYPE_HARDWARE,
+            HMODULE(std::ptr::null_mut()),
+            D3D11_CREATE_DEVICE_FLAG(0),
+            Some(&[D3D_FEATURE_LEVEL_11_0]),
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            None,
+        )
+    }
+    .map_err(|err| format!("failed to create D3D11 device for NVENC: {err}"))?;
+    device.ok_or("D3D11 device creation returned no device".into())
+}
+
+#[cfg(windows)]
+fn copy_bgra_into_nvenc_input(
+    input: &NvencInputBuffer,
+    width: u32,
+    height: u32,
+    frame_bgra: &[u8],
+) -> Result<(), Box<dyn Error>> {
+    let row_bytes = width as usize * StreamFrameFormat::Bgra8.bytes_per_pixel();
+    let lock = input
+        .lock()
+        .map_err(|err| format!("failed to lock NVENC input buffer: {err:?}"))?;
+    let pitch = lock.pitch() as usize;
+    if pitch < row_bytes {
+        return Err(format!(
+            "NVENC input pitch {} is smaller than row byte width {}",
+            pitch, row_bytes
+        )
+        .into());
+    }
+    unsafe {
+        let dst = lock.data_ptr();
+        for row in 0..height as usize {
+            let src_start = row * row_bytes;
+            let src_end = src_start + row_bytes;
+            std::ptr::copy_nonoverlapping(
+                frame_bgra[src_start..src_end].as_ptr(),
+                dst.add(row * pitch),
+                row_bytes,
+            );
+        }
+    }
+    Ok(())
+}
+
+fn append_h264_unit_to_payload(
+    unit: &[u8],
+    payload: &mut EncodedFramePayload,
+) -> Result<(), Box<dyn Error>> {
+    if unit.is_empty() {
+        return Ok(());
+    }
+    let nal_type = unit[0] & 0x1F;
+    if nal_type == H264_NAL_TYPE_SPS {
+        payload.sps = Some(unit.to_vec());
+        return Ok(());
+    }
+    if nal_type == H264_NAL_TYPE_PPS {
+        payload.pps = Some(unit.to_vec());
+        return Ok(());
+    }
+    if nal_type == H264_NAL_TYPE_IDR {
+        payload.is_sync = true;
+    }
+    append_length_prefixed_nal(&mut payload.sample_payload, unit)
+}
+
+#[cfg(windows)]
+fn parse_annex_b_packet(packet: &[u8]) -> Result<EncodedFramePayload, Box<dyn Error>> {
+    let mut payload = EncodedFramePayload {
+        sample_payload: Vec::new(),
+        is_sync: false,
+        sps: None,
+        pps: None,
+    };
+    for unit in annex_b_units(packet) {
+        append_h264_unit_to_payload(unit, &mut payload)?;
+    }
+    Ok(payload)
+}
+
+#[cfg(windows)]
+fn annex_b_units(packet: &[u8]) -> Vec<&[u8]> {
+    let mut units = Vec::new();
+    let mut cursor = 0usize;
+    while let Some((start, prefix_len)) = find_annex_b_start_code(packet, cursor) {
+        let unit_start = start + prefix_len;
+        let next = find_annex_b_start_code(packet, unit_start)
+            .map(|(index, _)| index)
+            .unwrap_or(packet.len());
+        if unit_start < next {
+            units.push(&packet[unit_start..next]);
+        }
+        cursor = next;
+    }
+    units
+}
+
+#[cfg(windows)]
+fn find_annex_b_start_code(packet: &[u8], from: usize) -> Option<(usize, usize)> {
+    if packet.len() < 3 || from >= packet.len() {
+        return None;
+    }
+    let mut idx = from;
+    while idx + 3 <= packet.len() {
+        if idx + 4 <= packet.len()
+            && packet[idx] == 0
+            && packet[idx + 1] == 0
+            && packet[idx + 2] == 0
+            && packet[idx + 3] == 1
+        {
+            return Some((idx, 4));
+        }
+        if packet[idx] == 0 && packet[idx + 1] == 0 && packet[idx + 2] == 1 {
+            return Some((idx, 3));
+        }
+        idx += 1;
+    }
+    None
 }
 
 fn create_compatible_encoder(width: u32, height: u32, fps: u32) -> Result<Encoder, Box<dyn Error>> {
@@ -439,7 +787,7 @@ fn validate_encoder_input(width: u32, height: u32, fps: u32) -> Result<(), Box<d
     }
     if width % 2 != 0 || height % 2 != 0 {
         return Err(format!(
-            "OpenH264 requires even dimensions; got {}x{}",
+            "H.264 export requires even dimensions; got {}x{}",
             width, height
         )
         .into());
@@ -452,6 +800,33 @@ fn validate_encoder_input(width: u32, height: u32, fps: u32) -> Result<(), Box<d
         .into());
     }
     Ok(())
+}
+
+fn preferred_stream_encoder() -> Result<StreamEncoderPreference, Box<dyn Error>> {
+    let raw = match std::env::var(STREAM_ENCODER_ENV) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(StreamEncoderPreference::Auto),
+        Err(err) => {
+            return Err(format!(
+                "failed to read {STREAM_ENCODER_ENV} override for stream encoder: {err}"
+            )
+            .into())
+        }
+    };
+    parse_stream_encoder_preference(raw.as_str()).map_err(|err| err.into())
+}
+
+fn parse_stream_encoder_preference(raw: &str) -> Result<StreamEncoderPreference, String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "auto" => Ok(StreamEncoderPreference::Auto),
+        "openh264" | "open_h264" | "software" | "cpu" => Ok(StreamEncoderPreference::OpenH264),
+        "nvenc" | "gpu" | "hardware" => Ok(StreamEncoderPreference::Nvenc),
+        _ => Err(format!(
+            "invalid {STREAM_ENCODER_ENV} value '{}'; expected auto|openh264|nvenc",
+            raw
+        )),
+    }
 }
 
 fn preferred_stream_frame_format() -> Result<StreamFrameFormat, Box<dyn Error>> {
@@ -556,6 +931,27 @@ mod tests {
     fn validate_encoder_input_rejects_odd_dimensions() {
         let err = validate_encoder_input(1279, 720, 30).expect_err("odd width must fail");
         assert!(err.to_string().contains("even dimensions"));
+    }
+
+    #[test]
+    fn stream_encoder_preference_parses_auto_value() {
+        assert_eq!(
+            parse_stream_encoder_preference("auto").expect("auto preference"),
+            StreamEncoderPreference::Auto
+        );
+    }
+
+    #[test]
+    fn stream_encoder_preference_parses_supported_values() {
+        assert_eq!(
+            parse_stream_encoder_preference("nvenc").expect("nvenc preference"),
+            StreamEncoderPreference::Nvenc
+        );
+        assert_eq!(
+            parse_stream_encoder_preference("openh264").expect("openh264 preference"),
+            StreamEncoderPreference::OpenH264
+        );
+        assert!(parse_stream_encoder_preference("unsupported").is_err());
     }
 
     #[test]
