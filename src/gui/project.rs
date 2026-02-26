@@ -1537,11 +1537,17 @@ impl GuiProject {
             .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()))
     }
 
-    /// Return true when the graph contains temporal feedback nodes.
-    pub(crate) fn has_feedback_nodes(&self) -> bool {
-        self.nodes
-            .iter()
-            .any(|node| node.kind == ProjectNodeKind::TexFeedback)
+    /// Return true when the graph contains time-driven nodes.
+    ///
+    /// This includes nodes that change output over time without explicit
+    /// signal bindings, such as feedback and buffer noise deformation.
+    pub(crate) fn has_temporal_nodes(&self) -> bool {
+        self.nodes.iter().any(|node| {
+            matches!(
+                node.kind,
+                ProjectNodeKind::TexFeedback | ProjectNodeKind::BufNoise
+            )
+        })
     }
 
     fn depends_on(&self, start_node_id: u32, target_node_id: u32) -> bool {

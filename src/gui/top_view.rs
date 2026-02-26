@@ -72,7 +72,7 @@ impl TopViewerGenerator {
         let panel_w = viewport_width.saturating_sub(panel_width) as u32;
         let panel_h = viewport_height as u32;
         let render_signature = project.render_signature();
-        let dynamic_frame = if project.has_signal_bindings() || project.has_feedback_nodes() {
+        let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
             frame_index
         } else {
             0
@@ -139,12 +139,7 @@ impl TopViewerGenerator {
     }
 }
 
-fn fit_aspect_in_rect(
-    avail_w: u32,
-    avail_h: u32,
-    texture_w: u32,
-    texture_h: u32,
-) -> (u32, u32) {
+fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32) -> (u32, u32) {
     if avail_w == 0 || avail_h == 0 || texture_w == 0 || texture_h == 0 {
         return (0, 0);
     }
@@ -355,6 +350,42 @@ mod tests {
         };
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TopViewerOp::Sphere { .. }));
+    }
+
+    #[test]
+    fn buffer_noise_chain_remains_time_dynamic_without_signal_bindings() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 220, 80, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 380, 80, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 540, 80, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 700, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 860, 80, 420, 480);
+        assert!(project.connect_image_link(sphere, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert!(!project.has_signal_bindings());
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 1200, 540, 420, 0, 60);
+        let phase_t0 = match viewer.frame().expect("frame0").payload {
+            TopViewerPayload::GpuOps(ops) => match ops[0] {
+                TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
+                _ => panic!("expected sphere op"),
+            },
+        };
+
+        viewer.update(&project, 1200, 540, 420, 60, 60);
+        let phase_t1 = match viewer.frame().expect("frame1").payload {
+            TopViewerPayload::GpuOps(ops) => match ops[0] {
+                TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
+                _ => panic!("expected sphere op"),
+            },
+        };
+
+        assert_ne!(phase_t0, phase_t1);
     }
 
     #[test]
