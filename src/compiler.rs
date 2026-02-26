@@ -42,8 +42,12 @@ pub enum CompiledOp {
 #[derive(Clone, Debug)]
 pub struct CompiledNodeStep {
     pub node_id: NodeId,
+    /// Dense slot index for this node in runtime-side transient value vectors.
+    pub node_index: usize,
     pub op: CompiledOp,
     pub inputs: Vec<NodeId>,
+    /// Dense slot index per input node, aligned with `inputs`.
+    pub input_indices: Vec<usize>,
 }
 
 /// Output binding produced by one compiled output node.
@@ -111,6 +115,8 @@ pub struct CompiledGraph {
     #[cfg_attr(not(test), allow(dead_code))]
     pub primary_output_node: NodeId,
     pub output_bindings: Vec<CompiledOutputBinding>,
+    /// Compile-time `NodeId -> step index` map shared by runtime adapters.
+    pub node_indices: HashMap<NodeId, usize>,
     /// Persistent GPU feedback slot index for each stateful feedback node.
     pub feedback_slots: HashMap<NodeId, usize>,
     #[cfg(test)]
@@ -118,6 +124,13 @@ pub struct CompiledGraph {
     #[cfg(test)]
     pub can_use_retained_layer_path: bool,
     pub resource_plan: CompiledResourcePlan,
+}
+
+impl CompiledGraph {
+    /// Return dense runtime slot index for one compiled node id.
+    pub fn node_index(&self, node_id: NodeId) -> Option<usize> {
+        self.node_indices.get(&node_id).copied()
+    }
 }
 
 pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError> {
@@ -141,6 +154,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
     }
 
     let mut steps = Vec::with_capacity(graph.nodes.len());
+    let mut node_indices = HashMap::with_capacity(graph.nodes.len());
     #[cfg(test)]
     let mut has_non_layer_nodes = false;
 
@@ -153,6 +167,16 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         let mut inputs = incoming.get(&node_id).cloned().unwrap_or_default();
         inputs.sort_by_key(|(slot, _)| *slot);
         let inputs: Vec<NodeId> = inputs.into_iter().map(|(_, source)| source).collect();
+        let mut input_indices = Vec::with_capacity(inputs.len());
+        for source in &inputs {
+            let Some(index) = node_indices.get(source).copied() else {
+                return Err(GraphBuildError::new(format!(
+                    "compile topology missing step index for input node {:?}",
+                    source
+                )));
+            };
+            input_indices.push(index);
+        }
 
         let op = match kind {
             NodeKind::GenerateLayer(spec) => CompiledOp::GenerateLayer(spec),
@@ -250,11 +274,15 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
             NodeKind::Output(output) => CompiledOp::Output(output),
         };
 
+        let node_index = steps.len();
         steps.push(CompiledNodeStep {
             node_id,
+            node_index,
             op,
             inputs,
+            input_indices,
         });
+        node_indices.insert(node_id, node_index);
     }
 
     if steps.is_empty() {
@@ -283,6 +311,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         steps,
         primary_output_node,
         output_bindings,
+        node_indices,
         feedback_slots,
         #[cfg(test)]
         has_non_layer_nodes,

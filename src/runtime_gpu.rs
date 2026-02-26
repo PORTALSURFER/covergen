@@ -1,6 +1,5 @@
 //! GPU-native graph evaluator for compiled V2 node graphs.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
@@ -25,8 +24,8 @@ pub(crate) fn render_graph_luma_gpu(
     renderer.begin_retained_image()?;
     let mut frame = renderer.begin_graph_frame("v2 graph frame encoder");
 
-    let mut scalar_values: HashMap<NodeId, f32> = HashMap::new();
-    let mut sop_values: HashMap<NodeId, SopPrimitive> = HashMap::new();
+    let mut scalar_values = DenseNodeValues::new(compiled.steps.len());
+    let mut sop_values = DenseNodeValues::new(compiled.steps.len());
 
     for (step_index, step) in compiled.steps.iter().enumerate() {
         let node_start = Instant::now();
@@ -75,7 +74,7 @@ pub(crate) fn render_graph_luma_gpu(
                     PortType::ChannelScalar => {
                         let phase = modulation.map(|time| time.normalized).unwrap_or(0.0);
                         scalar_values.insert(
-                            step.node_id,
+                            step,
                             eval_source_noise_scalar(
                                 effective.seed,
                                 effective.scale,
@@ -170,27 +169,27 @@ pub(crate) fn render_graph_luma_gpu(
                 )?;
             }
             CompiledOp::ChopLfo(spec) => {
-                scalar_values.insert(step.node_id, eval_chop_lfo(spec, modulation));
+                scalar_values.insert(step, eval_chop_lfo(spec, modulation));
             }
             CompiledOp::ChopMath(spec) => {
                 let a = require_scalar_input(step, 0, &scalar_values)?;
                 let b = optional_scalar_input(step, 1, &scalar_values)?;
-                scalar_values.insert(step.node_id, eval_chop_math(spec, a, b));
+                scalar_values.insert(step, eval_chop_math(spec, a, b));
             }
             CompiledOp::ChopRemap(spec) => {
                 let input = require_scalar_input(step, 0, &scalar_values)?;
-                scalar_values.insert(step.node_id, eval_chop_remap(spec, input));
+                scalar_values.insert(step, eval_chop_remap(spec, input));
             }
             CompiledOp::SopCircle(spec) => {
-                sop_values.insert(step.node_id, SopPrimitive::Circle(spec));
+                sop_values.insert(step, SopPrimitive::Circle(spec));
             }
             CompiledOp::SopSphere(spec) => {
-                sop_values.insert(step.node_id, SopPrimitive::Sphere(spec));
+                sop_values.insert(step, SopPrimitive::Sphere(spec));
             }
             CompiledOp::SopGeometry(spec) => {
                 let input = require_sop_input(step, 0, &sop_values)?;
                 let modulation = optional_scalar_input(step, 1, &scalar_values)?;
-                sop_values.insert(step.node_id, apply_sop_geometry(input, spec, modulation));
+                sop_values.insert(step, apply_sop_geometry(input, spec, modulation));
             }
             CompiledOp::TopCameraRender(spec) => {
                 let primitive = require_sop_input(step, 0, &sop_values)?;
@@ -277,7 +276,7 @@ fn luma_input_slot(
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<usize, Box<dyn Error>> {
-    let node_id = input_node(step, slot)?;
+    let (node_id, _) = input_node(step, slot)?;
     output_luma_slot(compiled, node_id)
 }
 
@@ -286,7 +285,7 @@ fn mask_input_slot(
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<usize, Box<dyn Error>> {
-    let node_id = input_node(step, slot)?;
+    let (node_id, _) = input_node(step, slot)?;
     output_mask_slot(compiled, node_id)
 }
 
@@ -315,11 +314,11 @@ fn stateful_feedback_slot(
 fn require_scalar_input(
     step: &CompiledNodeStep,
     slot: usize,
-    values: &HashMap<NodeId, f32>,
+    values: &DenseNodeValues<f32>,
 ) -> Result<f32, Box<dyn Error>> {
-    let node = input_node(step, slot)?;
+    let (node, node_index) = input_node(step, slot)?;
     values
-        .get(&node)
+        .get(node_index)
         .copied()
         .ok_or_else(|| format!("missing scalar input value from node {:?}", node).into())
 }
@@ -327,7 +326,7 @@ fn require_scalar_input(
 fn optional_scalar_input(
     step: &CompiledNodeStep,
     slot: usize,
-    values: &HashMap<NodeId, f32>,
+    values: &DenseNodeValues<f32>,
 ) -> Result<Option<f32>, Box<dyn Error>> {
     if slot >= step.inputs.len() {
         return Ok(None);
@@ -338,20 +337,56 @@ fn optional_scalar_input(
 fn require_sop_input(
     step: &CompiledNodeStep,
     slot: usize,
-    values: &HashMap<NodeId, SopPrimitive>,
+    values: &DenseNodeValues<SopPrimitive>,
 ) -> Result<SopPrimitive, Box<dyn Error>> {
-    let node = input_node(step, slot)?;
+    let (node, node_index) = input_node(step, slot)?;
     values
-        .get(&node)
+        .get(node_index)
         .copied()
         .ok_or_else(|| format!("missing SOP input value from node {:?}", node).into())
 }
 
-fn input_node(step: &CompiledNodeStep, slot: usize) -> Result<NodeId, Box<dyn Error>> {
-    step.inputs
+fn input_node(step: &CompiledNodeStep, slot: usize) -> Result<(NodeId, usize), Box<dyn Error>> {
+    let node_id = step
+        .inputs
         .get(slot)
         .copied()
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id).into())
+        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
+    let node_index = step.input_indices.get(slot).copied().ok_or_else(|| {
+        format!(
+            "node {:?} missing required input index for slot {slot}",
+            step.node_id
+        )
+    })?;
+    Ok((node_id, node_index))
+}
+
+/// Dense transient value storage keyed by compile-time node indices.
+struct DenseNodeValues<T> {
+    slots: Vec<Option<T>>,
+}
+
+impl<T> DenseNodeValues<T> {
+    /// Create empty slots for all compiled node steps.
+    fn new(node_count: usize) -> Self {
+        Self {
+            slots: (0..node_count).map(|_| None).collect(),
+        }
+    }
+
+    /// Store one produced node value at its compiled dense slot.
+    fn insert(&mut self, step: &CompiledNodeStep, value: T) {
+        debug_assert!(
+            step.node_index < self.slots.len(),
+            "compiled node index out of bounds for dense value store"
+        );
+        self.slots[step.node_index] = Some(value);
+    }
+
+    /// Return one previously produced node value by dense slot index.
+    fn get(&self, index: usize) -> Option<&T> {
+        self.slots.get(index).and_then(Option::as_ref)
+    }
 }
 
 fn op_scope(op: CompiledOp) -> &'static str {
@@ -385,6 +420,16 @@ fn validate_release_index(
         .ok_or("invalid gpu release schedule index")?;
 
     for node_id in releases {
+        let node_index = compiled
+            .node_index(*node_id)
+            .ok_or_else(|| format!("missing compiled node index for release node {:?}", node_id))?;
+        if node_index >= compiled.steps.len() {
+            return Err(format!(
+                "compiled node index {node_index} out of bounds for release node {:?}",
+                node_id
+            )
+            .into());
+        }
         let _ = compiled
             .resource_plan
             .gpu_lifetime_for(*node_id)

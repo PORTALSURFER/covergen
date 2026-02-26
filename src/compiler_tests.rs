@@ -51,6 +51,34 @@ fn compiles_linear_layer_graph() {
 }
 
 #[test]
+fn compiled_steps_include_dense_node_and_input_indices() {
+    let mut builder = GraphBuilder::new(320, 240, 7);
+    let a = builder.add_generate_layer(sample_layer());
+    let b = builder.add_generate_layer(sample_layer());
+    let blend = builder.add_blend(BlendNode {
+        mode: LayerBlendMode::Overlay,
+        opacity: 0.8,
+        temporal: BlendTemporal::default(),
+    });
+    let out = builder.add_output();
+    builder.connect_luma_input(a, blend, 0);
+    builder.connect_luma_input(b, blend, 1);
+    builder.connect_luma(blend, out);
+
+    let graph = builder.build().expect("graph should build");
+    let compiled = compile_graph(&graph).expect("graph should compile");
+
+    for (step_index, step) in compiled.steps.iter().enumerate() {
+        assert_eq!(step.node_index, step_index);
+        assert_eq!(compiled.node_index(step.node_id), Some(step_index));
+        assert_eq!(step.inputs.len(), step.input_indices.len());
+        for (input_node, input_index) in step.inputs.iter().zip(step.input_indices.iter()) {
+            assert_eq!(compiled.node_index(*input_node), Some(*input_index));
+        }
+    }
+}
+
+#[test]
 fn branching_layer_graph_disables_retained_path() {
     let mut builder = GraphBuilder::new(512, 512, 123);
     let a = builder.add_generate_layer(sample_layer());

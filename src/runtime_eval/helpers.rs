@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 
 use crate::compiler::{
@@ -13,6 +12,44 @@ pub(super) enum RuntimeValue {
     Mask(Vec<f32>),
     Scalar(f32),
     Sop(SopPrimitive),
+}
+
+/// Dense transient runtime values keyed by compile-time step index.
+pub(super) struct DenseRuntimeValues {
+    slots: Vec<Option<RuntimeValue>>,
+}
+
+impl DenseRuntimeValues {
+    /// Allocate one transient slot per compiled node step.
+    pub(super) fn new(node_count: usize) -> Self {
+        Self {
+            slots: (0..node_count).map(|_| None).collect(),
+        }
+    }
+
+    /// Store one produced value for a compiled step.
+    pub(super) fn insert_step(&mut self, step: &CompiledNodeStep, value: RuntimeValue) {
+        debug_assert!(
+            step.node_index < self.slots.len(),
+            "compiled node index out of bounds for dense runtime values"
+        );
+        self.slots[step.node_index] = Some(value);
+    }
+
+    /// Remove one value by original node id via compile-time index map.
+    pub(super) fn remove_node(
+        &mut self,
+        compiled: &CompiledGraph,
+        node_id: NodeId,
+    ) -> Option<RuntimeValue> {
+        let index = compiled.node_index(node_id)?;
+        self.slots.get_mut(index).and_then(Option::take)
+    }
+
+    /// Return one value by dense step index.
+    fn get_index(&self, index: usize) -> Option<&RuntimeValue> {
+        self.slots.get(index).and_then(Option::as_ref)
+    }
 }
 
 pub(super) fn op_scope(op: CompiledOp) -> &'static str {
@@ -38,7 +75,7 @@ pub(super) fn op_scope(op: CompiledOp) -> &'static str {
 pub(super) fn release_step_values(
     step_index: usize,
     compiled: &CompiledGraph,
-    values: &mut HashMap<NodeId, RuntimeValue>,
+    values: &mut DenseRuntimeValues,
     arena: &mut AliasedResourceArena,
 ) -> Result<(), Box<dyn Error>> {
     let releases = compiled
@@ -49,7 +86,7 @@ pub(super) fn release_step_values(
 
     for node_id in releases {
         let value = values
-            .remove(node_id)
+            .remove_node(compiled, *node_id)
             .ok_or_else(|| format!("missing transient value for release node {:?}", node_id))?;
         let lifetime = required_lifetime(&compiled.resource_plan, *node_id)?;
         arena.recycle(lifetime, value)?;
@@ -67,34 +104,29 @@ pub(super) fn required_lifetime(
 }
 
 pub(super) fn require_luma_input<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
+    values: &'a DenseRuntimeValues,
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<&'a [f32], Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    require_luma(values, node_id)
+    let (node_id, node_index) = input_slot(step, slot)?;
+    require_luma(values, node_id, node_index)
 }
 
 pub(super) fn require_mask_input<'a>(
-    values: &'a HashMap<NodeId, RuntimeValue>,
+    values: &'a DenseRuntimeValues,
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<&'a [f32], Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    require_mask(values, node_id)
+    let (node_id, node_index) = input_slot(step, slot)?;
+    require_mask(values, node_id, node_index)
 }
 
-pub(super) fn require_luma(
-    values: &HashMap<NodeId, RuntimeValue>,
+fn require_luma(
+    values: &DenseRuntimeValues,
     node_id: NodeId,
+    node_index: usize,
 ) -> Result<&[f32], Box<dyn Error>> {
-    match values.get(&node_id) {
+    match values.get_index(node_index) {
         Some(RuntimeValue::Luma(value)) => Ok(value),
         Some(RuntimeValue::Mask(_)) => {
             Err(format!("node {:?} output is mask but luma was required", node_id).into())
@@ -110,10 +142,11 @@ pub(super) fn require_luma(
 }
 
 fn require_mask(
-    values: &HashMap<NodeId, RuntimeValue>,
+    values: &DenseRuntimeValues,
     node_id: NodeId,
+    node_index: usize,
 ) -> Result<&[f32], Box<dyn Error>> {
-    match values.get(&node_id) {
+    match values.get_index(node_index) {
         Some(RuntimeValue::Mask(value)) => Ok(value),
         Some(RuntimeValue::Luma(_)) => {
             Err(format!("node {:?} output is luma but mask was required", node_id).into())
@@ -129,15 +162,12 @@ fn require_mask(
 }
 
 pub(super) fn require_scalar_input(
-    values: &HashMap<NodeId, RuntimeValue>,
+    values: &DenseRuntimeValues,
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<f32, Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    match values.get(&node_id) {
+    let (node_id, node_index) = input_slot(step, slot)?;
+    match values.get_index(node_index) {
         Some(RuntimeValue::Scalar(value)) => Ok(*value),
         Some(RuntimeValue::Luma(_)) => {
             Err(format!("node {:?} output is luma but scalar was required", node_id).into())
@@ -153,7 +183,7 @@ pub(super) fn require_scalar_input(
 }
 
 pub(super) fn optional_scalar_input(
-    values: &HashMap<NodeId, RuntimeValue>,
+    values: &DenseRuntimeValues,
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<Option<f32>, Box<dyn Error>> {
@@ -164,15 +194,12 @@ pub(super) fn optional_scalar_input(
 }
 
 pub(super) fn require_sop_input(
-    values: &HashMap<NodeId, RuntimeValue>,
+    values: &DenseRuntimeValues,
     step: &CompiledNodeStep,
     slot: usize,
 ) -> Result<SopPrimitive, Box<dyn Error>> {
-    let node_id = *step
-        .inputs
-        .get(slot)
-        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
-    match values.get(&node_id) {
+    let (node_id, node_index) = input_slot(step, slot)?;
+    match values.get_index(node_index) {
         Some(RuntimeValue::Sop(value)) => Ok(*value),
         Some(RuntimeValue::Luma(_)) => {
             Err(format!("node {:?} output is luma but SOP was required", node_id).into())
@@ -185,6 +212,20 @@ pub(super) fn require_sop_input(
         }
         None => Err(format!("missing input value for node {:?}", node_id).into()),
     }
+}
+
+fn input_slot(step: &CompiledNodeStep, slot: usize) -> Result<(NodeId, usize), Box<dyn Error>> {
+    let node_id = *step
+        .inputs
+        .get(slot)
+        .ok_or_else(|| format!("node {:?} missing required input slot {slot}", step.node_id))?;
+    let node_index = *step.input_indices.get(slot).ok_or_else(|| {
+        format!(
+            "node {:?} missing required input index for slot {slot}",
+            step.node_id
+        )
+    })?;
+    Ok((node_id, node_index))
 }
 
 pub(super) fn pixel_count(width: u32, height: u32) -> Result<usize, Box<dyn Error>> {

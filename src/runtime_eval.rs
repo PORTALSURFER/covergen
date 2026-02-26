@@ -6,7 +6,6 @@
 
 mod helpers;
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
@@ -19,15 +18,14 @@ use crate::proc_graph::{
 use crate::telemetry;
 
 use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp};
-use super::graph::NodeId;
 use super::node::{GraphTimeInput, PortType};
 use super::runtime::RuntimeBuffers;
 use super::runtime_ops::{blend_with_mask, build_mask, generate_source_noise, warp_luma};
 
 use helpers::{
-    op_scope, optional_scalar_input, pixel_count, release_step_values, require_luma,
-    require_luma_input, require_mask_input, require_scalar_input, require_sop_input,
-    required_lifetime, AliasedResourceArena, RuntimeValue,
+    op_scope, optional_scalar_input, pixel_count, release_step_values, require_luma_input,
+    require_mask_input, require_scalar_input, require_sop_input, required_lifetime,
+    AliasedResourceArena, DenseRuntimeValues, RuntimeValue,
 };
 
 /// Render raw graph luma into `buffers.layered` before output post-processing.
@@ -92,9 +90,9 @@ fn evaluate_mixed_graph(
     modulation: Option<GraphTimeInput>,
 ) -> Result<(), Box<dyn Error>> {
     let pixels = pixel_count(compiled.width, compiled.height)?;
-    let mut values: HashMap<NodeId, RuntimeValue> = HashMap::with_capacity(compiled.steps.len());
+    let mut values = DenseRuntimeValues::new(compiled.steps.len());
     // Test-only fallback feedback memory. Production persistent feedback uses GPU buffers.
-    let mut feedback_state: HashMap<NodeId, Vec<f32>> = HashMap::new();
+    let mut feedback_state = DenseFeedbackState::new(compiled.steps.len());
     let mut arena = AliasedResourceArena::new(&compiled.resource_plan, pixels);
     let mut output_written = false;
 
@@ -130,7 +128,7 @@ fn evaluate_mixed_graph(
                             effective.amplitude,
                             &mut out,
                         );
-                        values.insert(step.node_id, RuntimeValue::Luma(out));
+                        values.insert_step(step, RuntimeValue::Luma(out));
                     }
                     PortType::MaskTexture => {
                         let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
@@ -144,12 +142,12 @@ fn evaluate_mixed_graph(
                             effective.amplitude,
                             &mut out,
                         );
-                        values.insert(step.node_id, RuntimeValue::Mask(out));
+                        values.insert_step(step, RuntimeValue::Mask(out));
                     }
                     PortType::ChannelScalar => {
                         let phase = modulation.map(|time| time.normalized).unwrap_or(0.0);
-                        values.insert(
-                            step.node_id,
+                        values.insert_step(
+                            step,
                             RuntimeValue::Scalar(eval_source_noise_scalar(
                                 effective.seed,
                                 effective.scale,
@@ -176,7 +174,7 @@ fn evaluate_mixed_graph(
                     effective.invert,
                     &mut out,
                 );
-                values.insert(step.node_id, RuntimeValue::Mask(out));
+                values.insert_step(step, RuntimeValue::Mask(out));
             }
             CompiledOp::Blend(spec) => {
                 let effective = modulation.map_or(spec, |time| spec.with_time(time));
@@ -191,7 +189,7 @@ fn evaluate_mixed_graph(
                     None
                 };
                 blend_with_mask(&mut blended, top, effective.mode, effective.opacity, mask);
-                values.insert(step.node_id, RuntimeValue::Luma(blended));
+                values.insert_step(step, RuntimeValue::Luma(blended));
             }
             CompiledOp::ToneMap(spec) => {
                 let effective = modulation.map_or(spec, |time| spec.with_time(time));
@@ -211,7 +209,7 @@ fn evaluate_mixed_graph(
                     effective.high_pct,
                     false,
                 );
-                values.insert(step.node_id, RuntimeValue::Luma(out));
+                values.insert_step(step, RuntimeValue::Luma(out));
             }
             CompiledOp::WarpTransform(spec) => {
                 let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
@@ -223,55 +221,44 @@ fn evaluate_mixed_graph(
                     effective.strength = (effective.strength * value).clamp(0.0, 2.4);
                 }
                 warp_luma(input, compiled.width, compiled.height, effective, &mut out);
-                values.insert(step.node_id, RuntimeValue::Luma(out));
+                values.insert_step(step, RuntimeValue::Luma(out));
             }
             CompiledOp::StatefulFeedback(spec) => {
                 let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
                 let mut out = arena.acquire_for(lifetime);
                 let input = require_luma_input(&values, step, 0)?;
-                let state = feedback_state
-                    .entry(step.node_id)
-                    .or_insert_with(|| vec![0.0f32; pixels]);
+                let state = feedback_state.get_or_insert(step, pixels);
                 let mix = spec.mix.clamp(0.0, 1.0);
                 for ((dst, current), previous) in out.iter_mut().zip(input.iter()).zip(state.iter())
                 {
                     *dst = ((1.0 - mix) * *current + mix * *previous).clamp(0.0, 1.0);
                 }
                 state.copy_from_slice(&out);
-                values.insert(step.node_id, RuntimeValue::Luma(out));
+                values.insert_step(step, RuntimeValue::Luma(out));
             }
             CompiledOp::ChopLfo(spec) => {
-                values.insert(
-                    step.node_id,
-                    RuntimeValue::Scalar(eval_chop_lfo(spec, modulation)),
-                );
+                values.insert_step(step, RuntimeValue::Scalar(eval_chop_lfo(spec, modulation)));
             }
             CompiledOp::ChopMath(spec) => {
                 let a = require_scalar_input(&values, step, 0)?;
                 let b = optional_scalar_input(&values, step, 1)?;
-                values.insert(
-                    step.node_id,
-                    RuntimeValue::Scalar(eval_chop_math(spec, a, b)),
-                );
+                values.insert_step(step, RuntimeValue::Scalar(eval_chop_math(spec, a, b)));
             }
             CompiledOp::ChopRemap(spec) => {
                 let input = require_scalar_input(&values, step, 0)?;
-                values.insert(
-                    step.node_id,
-                    RuntimeValue::Scalar(eval_chop_remap(spec, input)),
-                );
+                values.insert_step(step, RuntimeValue::Scalar(eval_chop_remap(spec, input)));
             }
             CompiledOp::SopCircle(spec) => {
-                values.insert(step.node_id, RuntimeValue::Sop(SopPrimitive::Circle(spec)));
+                values.insert_step(step, RuntimeValue::Sop(SopPrimitive::Circle(spec)));
             }
             CompiledOp::SopSphere(spec) => {
-                values.insert(step.node_id, RuntimeValue::Sop(SopPrimitive::Sphere(spec)));
+                values.insert_step(step, RuntimeValue::Sop(SopPrimitive::Sphere(spec)));
             }
             CompiledOp::SopGeometry(spec) => {
                 let input = require_sop_input(&values, step, 0)?;
                 let modulation = optional_scalar_input(&values, step, 1)?;
-                values.insert(
-                    step.node_id,
+                values.insert_step(
+                    step,
                     RuntimeValue::Sop(apply_sop_geometry(input, spec, modulation)),
                 );
             }
@@ -288,7 +275,7 @@ fn evaluate_mixed_graph(
                     compiled.height,
                     &mut out,
                 );
-                values.insert(step.node_id, RuntimeValue::Luma(out));
+                values.insert_step(step, RuntimeValue::Luma(out));
             }
             CompiledOp::Output(_) => {
                 let output = require_luma_input(&values, step, 0)?;
@@ -318,7 +305,7 @@ fn execute_generate_layer(
     seed_offset: u32,
     renderer: Option<&mut GpuLayerRenderer>,
     buffers: &mut RuntimeBuffers,
-    values: &mut HashMap<NodeId, RuntimeValue>,
+    values: &mut DenseRuntimeValues,
     arena: &mut AliasedResourceArena,
 ) -> Result<(), Box<dyn Error>> {
     let renderer = renderer.ok_or("generate-layer node requires GPU renderer")?;
@@ -333,7 +320,7 @@ fn execute_generate_layer(
     if step.inputs.is_empty() {
         out.copy_from_slice(&buffers.layer_scratch);
     } else {
-        let base = require_luma(values, step.inputs[0])?;
+        let base = require_luma_input(values, step, 0)?;
         out.copy_from_slice(base);
         blend_layer_stack(
             &mut out,
@@ -343,6 +330,29 @@ fn execute_generate_layer(
         );
     }
 
-    values.insert(step.node_id, RuntimeValue::Luma(out));
+    values.insert_step(step, RuntimeValue::Luma(out));
     Ok(())
+}
+
+/// Dense feedback scratch buffers keyed by compile-time node index.
+struct DenseFeedbackState {
+    slots: Vec<Option<Vec<f32>>>,
+}
+
+impl DenseFeedbackState {
+    /// Allocate one optional feedback slot per compiled step.
+    fn new(node_count: usize) -> Self {
+        Self {
+            slots: (0..node_count).map(|_| None).collect(),
+        }
+    }
+
+    /// Return persistent feedback storage for this step, creating it on first use.
+    fn get_or_insert(&mut self, step: &CompiledNodeStep, pixels: usize) -> &mut Vec<f32> {
+        let slot = &mut self.slots[step.node_index];
+        if slot.is_none() {
+            *slot = Some(vec![0.0; pixels]);
+        }
+        slot.as_mut().expect("feedback slot initialized")
+    }
 }
