@@ -15,8 +15,8 @@ use super::project::{
     ResourceKind, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeCategory, AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS,
-    MENU_BLOCK_GAP, MENU_INNER_PADDING,
+    AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
+    RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
@@ -275,6 +275,8 @@ impl SceneBuilder {
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
+        self.push_main_menu(state);
+        self.push_export_menu(state);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
     }
 
@@ -619,6 +621,105 @@ impl SceneBuilder {
             if !matches!(entry, AddNodeMenuEntry::Category(_)) {
                 self.push_text(item.x + 6, item.y + 6, text, color);
             }
+        }
+        self.label_scratch = menu_label_scratch;
+    }
+
+    fn push_main_menu(&mut self, state: &PreviewState) {
+        if !state.main_menu.open {
+            return;
+        }
+        let rect = state.main_menu.rect();
+        self.push_rect(rect, MENU_BG);
+        self.push_border(rect, MENU_BORDER);
+        self.push_text(
+            rect.x + MENU_INNER_PADDING + 6,
+            rect.y + 6,
+            "Main Menu",
+            MENU_TEXT,
+        );
+        for (entry_index, item) in state.main_menu.items().iter().copied().enumerate() {
+            let Some(row) = state.main_menu.entry_rect(entry_index) else {
+                continue;
+            };
+            if state.main_menu.selected == entry_index
+                || state.hover_main_menu_item == Some(entry_index)
+            {
+                self.push_rect(row, MENU_SELECTED);
+            }
+            let label = if item == MainMenuItem::Export && state.export_menu.open {
+                "Export >"
+            } else {
+                item.label()
+            };
+            self.push_text(row.x + 6, row.y + 6, label, MENU_TEXT);
+        }
+    }
+
+    fn push_export_menu(&mut self, state: &PreviewState) {
+        if !state.export_menu.open {
+            return;
+        }
+        let rect = state.export_menu.rect();
+        self.push_rect(rect, MENU_BG);
+        self.push_border(rect, MENU_BORDER);
+        self.push_text(
+            rect.x + MENU_INNER_PADDING + 6,
+            rect.y + 6,
+            "Export H.264",
+            MENU_TEXT,
+        );
+        let mut menu_label_scratch = std::mem::take(&mut self.label_scratch);
+        for (entry_index, item) in state.export_menu.items().iter().copied().enumerate() {
+            let Some(row) = state.export_menu.entry_rect(entry_index) else {
+                continue;
+            };
+            if state.export_menu.selected == entry_index
+                || state.hover_export_menu_item == Some(entry_index)
+            {
+                self.push_rect(row, MENU_SELECTED);
+            }
+            menu_label_scratch.clear();
+            match item {
+                ExportMenuItem::Directory => {
+                    menu_label_scratch.push_str("Directory: ");
+                    menu_label_scratch.push_str(state.export_menu.directory.as_str());
+                }
+                ExportMenuItem::FileName => {
+                    menu_label_scratch.push_str("File Name: ");
+                    menu_label_scratch.push_str(state.export_menu.file_name.as_str());
+                }
+                ExportMenuItem::Codec => {
+                    menu_label_scratch.push_str("Video: H.264 (ffmpeg)");
+                }
+                ExportMenuItem::StartStop => {
+                    if state.export_menu.exporting {
+                        menu_label_scratch.push_str("Stop Export");
+                    } else {
+                        menu_label_scratch.push_str("Start Export");
+                    }
+                }
+                ExportMenuItem::Preview => {
+                    let _ = write!(
+                        &mut menu_label_scratch,
+                        "Preview: {}/{}",
+                        state.export_menu.preview_frame, state.export_menu.preview_total
+                    );
+                }
+                ExportMenuItem::Back => {
+                    menu_label_scratch.push_str("< ");
+                    menu_label_scratch.push_str(item.label());
+                }
+            }
+            self.push_text(row.x + 6, row.y + 6, menu_label_scratch.as_str(), MENU_TEXT);
+        }
+        if !state.export_menu.status.is_empty() {
+            self.push_text(
+                rect.x + MENU_INNER_PADDING + 6,
+                rect.y + rect.h - 16,
+                state.export_menu.status.as_str(),
+                MENU_CATEGORY_TEXT,
+            );
         }
         self.label_scratch = menu_label_scratch;
     }
@@ -1250,6 +1351,32 @@ fn overlays_layer_key(
         hash = hash_u64(hash, *byte as u64);
     }
     if let Some(index) = state.hover_menu_item {
+        hash = hash_u64(hash, index as u64);
+    }
+    hash = hash_u64(hash, state.main_menu.open as u64);
+    hash = hash_i32(hash, state.main_menu.x);
+    hash = hash_i32(hash, state.main_menu.y);
+    hash = hash_u64(hash, state.main_menu.selected as u64);
+    if let Some(index) = state.hover_main_menu_item {
+        hash = hash_u64(hash, index as u64);
+    }
+    hash = hash_u64(hash, state.export_menu.open as u64);
+    hash = hash_i32(hash, state.export_menu.x);
+    hash = hash_i32(hash, state.export_menu.y);
+    hash = hash_u64(hash, state.export_menu.selected as u64);
+    hash = hash_u64(hash, state.export_menu.exporting as u64);
+    hash = hash_u64(hash, state.export_menu.preview_frame as u64);
+    hash = hash_u64(hash, state.export_menu.preview_total as u64);
+    for byte in state.export_menu.directory.as_bytes() {
+        hash = hash_u64(hash, *byte as u64);
+    }
+    for byte in state.export_menu.file_name.as_bytes() {
+        hash = hash_u64(hash, *byte as u64);
+    }
+    for byte in state.export_menu.status.as_bytes() {
+        hash = hash_u64(hash, *byte as u64);
+    }
+    if let Some(index) = state.hover_export_menu_item {
         hash = hash_u64(hash, index as u64);
     }
     hash = hash_u64(hash, panel_width as u64);

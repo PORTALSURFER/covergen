@@ -71,6 +71,11 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                             eprintln!("Error: failed to shutdown GUI state: {shutdown_err}");
                         }
                         target.exit();
+                    } else if app.should_exit() {
+                        if let Err(err) = app.shutdown() {
+                            eprintln!("Error: failed to shutdown GUI state: {err}");
+                        }
+                        target.exit();
                     }
                 }
             }

@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,7 @@ use winit::window::{CursorIcon, Fullscreen, Window};
 
 use crate::runtime_config::V2Config;
 use crate::telemetry;
+use crate::{animation::RawVideoEncoder, animation::StreamFrameFormat};
 
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
@@ -20,8 +21,8 @@ use super::perf::GuiPerfRecorder;
 use super::project::{GuiProject, PersistedGuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
-use super::state::{InputSnapshot, PreviewState};
-use super::timeline::editor_panel_height;
+use super::state::{InputSnapshot, PendingAppAction, PreviewState};
+use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
 use super::top_view::TopViewerGenerator;
 
 const MIN_PANEL_WIDTH: usize = 260;
@@ -29,6 +30,16 @@ const MIN_PREVIEW_WIDTH: usize = 320;
 const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
 const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
+const GUI_PROJECT_SAVE_FILE: &str = ".covergen_gui_project.json";
+
+/// Active export session metadata for GUI H.264 streaming.
+struct GuiExportSession {
+    encoder: RawVideoEncoder,
+    next_frame: u32,
+    total_frames: u32,
+    restore_paused: bool,
+    output_path: PathBuf,
+}
 
 /// Active divider drag metadata for panel resizing.
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +66,11 @@ pub(crate) struct GuiApp {
     last_frame_start: Instant,
     frame_counter: u64,
     benchmark_node: Option<u32>,
+    export_session: Option<GuiExportSession>,
+    start_export_requested: bool,
+    export_bgra_scratch: Vec<u8>,
+    export_gray_scratch: Vec<u8>,
+    close_requested: bool,
     needs_redraw: bool,
     continuous_redraw: bool,
     title_deadline: Instant,
@@ -97,7 +113,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, timeline(play/pause + scrub)"
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, `=main menu, Tab=open node, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, timeline(play/pause + scrub)"
         );
         Ok(Self {
             config,
@@ -117,6 +133,11 @@ impl GuiApp {
             last_frame_start: now,
             frame_counter: 0,
             benchmark_node,
+            export_session: None,
+            start_export_requested: false,
+            export_bgra_scratch: Vec::new(),
+            export_gray_scratch: Vec::new(),
+            close_requested: false,
             needs_redraw: true,
             continuous_redraw: true,
             title_deadline: now,
@@ -128,6 +149,11 @@ impl GuiApp {
     /// Return current redraw deadline for the event loop.
     pub(crate) fn frame_deadline(&self) -> Instant {
         self.frame_deadline
+    }
+
+    /// Return true when GUI requested a clean application exit.
+    pub(crate) fn should_exit(&self) -> bool {
+        self.close_requested
     }
 
     /// Return true when this event should terminate the GUI loop.
@@ -241,11 +267,28 @@ impl GuiApp {
                 &mut self.state,
             );
         }
+        scene_dirty |= self.handle_pending_app_actions()?;
+        if self.start_export_requested && self.export_session.is_none() {
+            if self.state.frame_index != 0 {
+                self.state.frame_index = 0;
+                scene_dirty = true;
+            }
+            self.state.paused = true;
+        }
+        if let Some(session) = self.export_session.as_ref() {
+            self.state.paused = true;
+            if self.state.frame_index != session.next_frame {
+                self.state.frame_index = session.next_frame;
+                scene_dirty = true;
+            }
+        }
         if self.config.gui.benchmark_drag {
             scene_dirty |= self.apply_synthetic_drag();
         }
-        scene_dirty |=
-            step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
+        if self.export_session.is_none() && !self.start_export_requested {
+            scene_dirty |=
+                step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
+        }
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         let update_elapsed = update_start.elapsed();
         let hit_test_scans = self.project.take_hit_test_scan_count();
@@ -264,6 +307,7 @@ impl GuiApp {
                 self.state.frame_index,
                 self.config.animation.fps,
             );
+            self.try_start_export_from_request()?;
             let scene_start = Instant::now();
             let frame = self.scene.build(
                 &self.project,
@@ -287,6 +331,9 @@ impl GuiApp {
             submit_count = render_perf.submit_count;
             upload_bytes = render_perf.upload_bytes;
             ui_alloc_bytes = ui_alloc_bytes.saturating_add(render_perf.alloc_bytes);
+            if self.export_session.is_some() {
+                self.capture_export_frame()?;
+            }
         }
 
         let total_elapsed = frame_start.elapsed();
@@ -322,8 +369,200 @@ impl GuiApp {
 
     /// Flush trace output before event-loop shutdown.
     pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        let _ = self.stop_export_session("stopped");
         save_autosaved_project(&self.project)?;
         self.perf.flush()
+    }
+
+    fn handle_pending_app_actions(&mut self) -> Result<bool, Box<dyn Error>> {
+        let Some(action) = self.state.pending_app_action.take() else {
+            return Ok(false);
+        };
+        match action {
+            PendingAppAction::SaveProject => {
+                let path = manual_project_path();
+                match save_project_file(&self.project, path.as_path()) {
+                    Ok(()) => {
+                        self.state
+                            .export_menu
+                            .set_status(format!("Saved project: {}", path.display()));
+                        println!("[gui] saved project: {}", path.display());
+                    }
+                    Err(err) => {
+                        self.state
+                            .export_menu
+                            .set_status(format!("Save failed: {err}"));
+                    }
+                }
+                Ok(true)
+            }
+            PendingAppAction::LoadProject => {
+                let path = manual_project_path();
+                match load_project_file(path.as_path(), self.panel_width, self.renderer.height()) {
+                    Ok(loaded) => {
+                        self.project = loaded;
+                        self.state = PreviewState::new(&self.config);
+                        self.start_export_requested = false;
+                        let _ = self.stop_export_session("stopped");
+                        println!("[gui] loaded project: {}", path.display());
+                    }
+                    Err(err) => {
+                        self.state
+                            .export_menu
+                            .set_status(format!("Load failed: {err}"));
+                    }
+                }
+                Ok(true)
+            }
+            PendingAppAction::StartExport => {
+                self.start_export_requested = true;
+                self.state.export_menu.set_status("Preparing export...");
+                self.state.paused = true;
+                Ok(true)
+            }
+            PendingAppAction::StopExport => Ok(self.stop_export_session("stopped by user")),
+            PendingAppAction::Exit => {
+                self.close_requested = true;
+                Ok(true)
+            }
+        }
+    }
+
+    fn try_start_export_from_request(&mut self) -> Result<(), Box<dyn Error>> {
+        if !self.start_export_requested || self.export_session.is_some() {
+            return Ok(());
+        }
+        let Some(frame) = self.top_view.frame() else {
+            self.state
+                .export_menu
+                .set_status("Export failed: preview output unavailable");
+            self.start_export_requested = false;
+            return Ok(());
+        };
+        let output_path = self.state.export_menu.output_path();
+        if let Some(parent) = output_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    self.state
+                        .export_menu
+                        .set_status(format!("Export failed: {err}"));
+                    self.start_export_requested = false;
+                    return Ok(());
+                }
+            }
+        }
+        let encoder = match RawVideoEncoder::spawn(
+            frame.texture_width,
+            frame.texture_height,
+            self.config.animation.fps,
+            output_path.as_path(),
+        ) {
+            Ok(encoder) => encoder,
+            Err(err) => {
+                self.state
+                    .export_menu
+                    .set_status(format!("Export failed: {err}"));
+                self.start_export_requested = false;
+                return Ok(());
+            }
+        };
+        self.export_session = Some(GuiExportSession {
+            encoder,
+            next_frame: 0,
+            total_frames: TIMELINE_TOTAL_FRAMES,
+            restore_paused: self.state.paused,
+            output_path: output_path.clone(),
+        });
+        self.state.export_menu.exporting = true;
+        self.state.export_menu.preview_frame = 0;
+        self.state.export_menu.preview_total = TIMELINE_TOTAL_FRAMES;
+        self.state
+            .export_menu
+            .set_status(format!("Exporting: {}", output_path.display()));
+        self.start_export_requested = false;
+        Ok(())
+    }
+
+    fn capture_export_frame(&mut self) -> Result<(), Box<dyn Error>> {
+        let (width, height) = match self
+            .renderer
+            .capture_top_preview_bgra(&mut self.export_bgra_scratch)
+        {
+            Ok(Some(size)) => size,
+            Ok(None) => {
+                self.stop_export_session("failed");
+                self.state
+                    .export_menu
+                    .set_status("Export failed: preview texture unavailable");
+                return Ok(());
+            }
+            Err(err) => {
+                self.stop_export_session("failed");
+                self.state
+                    .export_menu
+                    .set_status(format!("Export failed: {err}"));
+                return Ok(());
+            }
+        };
+
+        let Some(session) = self.export_session.as_mut() else {
+            return Ok(());
+        };
+        let write_result = match session.encoder.frame_format() {
+            StreamFrameFormat::Gray8 => {
+                fill_gray_from_bgra(
+                    &self.export_bgra_scratch,
+                    width,
+                    height,
+                    &mut self.export_gray_scratch,
+                );
+                session.encoder.write_gray_frame(&self.export_gray_scratch)
+            }
+            StreamFrameFormat::Bgra8 => session.encoder.write_bgra_frame(&self.export_bgra_scratch),
+        };
+        if let Err(err) = write_result {
+            self.stop_export_session("failed");
+            self.state
+                .export_menu
+                .set_status(format!("Export failed: {err}"));
+            return Ok(());
+        }
+        session.next_frame = session.next_frame.saturating_add(1);
+        self.state.export_menu.preview_frame = session.next_frame.min(session.total_frames);
+        if session.next_frame >= session.total_frames {
+            let _ = self.stop_export_session("completed");
+        }
+        Ok(())
+    }
+
+    fn stop_export_session(&mut self, reason: &str) -> bool {
+        self.start_export_requested = false;
+        let Some(session) = self.export_session.take() else {
+            self.state.export_menu.exporting = false;
+            return false;
+        };
+        self.state.paused = session.restore_paused;
+        self.state.export_menu.exporting = false;
+        self.state.export_menu.preview_total = session.total_frames;
+        self.state.export_menu.preview_frame = self
+            .state
+            .export_menu
+            .preview_frame
+            .min(session.total_frames);
+        match session.encoder.finish() {
+            Ok(()) => {
+                self.state.export_menu.set_status(format!(
+                    "Export {reason}: {}",
+                    session.output_path.display()
+                ));
+            }
+            Err(err) => {
+                self.state
+                    .export_menu
+                    .set_status(format!("Export failed: {err}"));
+            }
+        }
+        true
     }
 
     fn update_title(&mut self, now: Instant) {
@@ -437,7 +676,9 @@ impl GuiApp {
     fn update_loop_policy(&mut self) {
         self.continuous_redraw = !self.state.paused
             || state_has_transient_ui(&self.state)
-            || self.panel_resize_drag.is_some();
+            || self.panel_resize_drag.is_some()
+            || self.export_session.is_some()
+            || self.start_export_requested;
         if self.config.gui.benchmark_drag {
             self.continuous_redraw = true;
         }
@@ -454,6 +695,9 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.param_edit.is_some()
         || state.param_dropdown.is_some()
         || state.menu.open
+        || state.main_menu.open
+        || state.export_menu.open
+        || state.export_menu.exporting
 }
 
 fn maybe_seed_benchmark_nodes(
@@ -492,13 +736,42 @@ fn autosave_project_path() -> PathBuf {
         .join(GUI_PROJECT_AUTOSAVE_FILE)
 }
 
+/// Return default explicit save/load project path in working directory.
+fn manual_project_path() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(GUI_PROJECT_SAVE_FILE)
+}
+
 /// Load autosaved GUI graph if present.
 fn load_autosaved_project(
     panel_width: usize,
     panel_height: usize,
 ) -> Result<Option<GuiProject>, Box<dyn Error>> {
     let path = autosave_project_path();
-    let bytes = match fs::read(path.as_path()) {
+    load_project_file_if_exists(path.as_path(), panel_width, panel_height)
+}
+
+fn load_project_file(
+    path: &Path,
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<GuiProject, Box<dyn Error>> {
+    let bytes = fs::read(path)?;
+    let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
+    Ok(GuiProject::from_persisted(
+        persisted,
+        panel_width,
+        panel_height,
+    )?)
+}
+
+fn load_project_file_if_exists(
+    path: &Path,
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<Option<GuiProject>, Box<dyn Error>> {
+    let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(Box::new(err)),
@@ -511,14 +784,30 @@ fn load_autosaved_project(
 /// Save current GUI graph to autosave file atomically.
 fn save_autosaved_project(project: &GuiProject) -> Result<(), Box<dyn Error>> {
     let path = autosave_project_path();
+    save_project_file(project, path.as_path())
+}
+
+fn save_project_file(project: &GuiProject, path: &Path) -> Result<(), Box<dyn Error>> {
     let tmp = path.with_extension("tmp");
     let data = serde_json::to_vec_pretty(&project.to_persisted())?;
     fs::write(tmp.as_path(), data)?;
     if path.exists() {
-        let _ = fs::remove_file(path.as_path());
+        let _ = fs::remove_file(path);
     }
-    fs::rename(tmp.as_path(), path.as_path())?;
+    fs::rename(tmp.as_path(), path)?;
     Ok(())
+}
+
+fn fill_gray_from_bgra(src_bgra: &[u8], width: u32, height: u32, dst_gray: &mut Vec<u8>) {
+    let pixel_count = width as usize * height as usize;
+    dst_gray.resize(pixel_count, 0);
+    for (index, pixel) in src_bgra.chunks_exact(4).enumerate().take(pixel_count) {
+        let b = pixel[0] as u16;
+        let g = pixel[1] as u16;
+        let r = pixel[2] as u16;
+        let luma = (r * 77 + g * 150 + b * 29) / 256;
+        dst_gray[index] = luma as u8;
+    }
 }
 
 fn frame_budget(target_fps: u32) -> Duration {

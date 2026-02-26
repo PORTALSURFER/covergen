@@ -3,11 +3,25 @@
 use crate::runtime_config::V2Config;
 
 mod add_menu;
+mod main_menu;
 
 pub(crate) use add_menu::{
     AddNodeCategory, AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
     MENU_INNER_PADDING,
 };
+pub(crate) use main_menu::{
+    ExportMenuItem, ExportMenuState, MainMenuItem, MainMenuState, MAIN_MENU_WIDTH,
+};
+
+/// Pending app-level action requested by menu interaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PendingAppAction {
+    SaveProject,
+    LoadProject,
+    StartExport,
+    StopExport,
+    Exit,
+}
 
 /// Snapshot of one frame's input state.
 #[derive(Clone, Debug, Default)]
@@ -27,6 +41,7 @@ pub(crate) struct InputSnapshot {
     pub(crate) focus_all: bool,
     pub(crate) toggle_node_open: bool,
     pub(crate) toggle_add_menu: bool,
+    pub(crate) toggle_main_menu: bool,
     pub(crate) menu_up: bool,
     pub(crate) menu_down: bool,
     pub(crate) param_dec: bool,
@@ -135,6 +150,8 @@ pub(crate) struct PreviewState {
     pub(crate) pan_y: f32,
     pub(crate) zoom: f32,
     pub(crate) menu: AddNodeMenuState,
+    pub(crate) main_menu: MainMenuState,
+    pub(crate) export_menu: ExportMenuState,
     pub(crate) active_node: Option<u32>,
     pub(crate) hover_node: Option<u32>,
     pub(crate) hover_output_pin: Option<u32>,
@@ -145,6 +162,10 @@ pub(crate) struct PreviewState {
     /// Node ids auto-expanded while dragging signal/texture parameter bind wires.
     pub(crate) auto_expanded_binding_nodes: Vec<u32>,
     pub(crate) hover_menu_item: Option<usize>,
+    pub(crate) hover_main_menu_item: Option<usize>,
+    pub(crate) hover_export_menu_item: Option<usize>,
+    pub(crate) pending_app_action: Option<PendingAppAction>,
+    pub(crate) request_new_project: bool,
 }
 
 impl PreviewState {
@@ -169,6 +190,8 @@ impl PreviewState {
             pan_y: 0.0,
             zoom: 1.0,
             menu: AddNodeMenuState::closed(),
+            main_menu: MainMenuState::closed(),
+            export_menu: ExportMenuState::closed(),
             active_node: None,
             hover_node: None,
             hover_output_pin: None,
@@ -178,6 +201,10 @@ impl PreviewState {
             hover_dropdown_item: None,
             auto_expanded_binding_nodes: Vec::new(),
             hover_menu_item: None,
+            hover_main_menu_item: None,
+            hover_export_menu_item: None,
+            pending_app_action: None,
+            request_new_project: false,
         }
     }
 }

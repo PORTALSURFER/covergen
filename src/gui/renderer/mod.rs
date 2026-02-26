@@ -5,6 +5,7 @@ mod top_preview;
 mod viewer;
 
 use std::error::Error;
+use std::sync::mpsc;
 use std::sync::Arc;
 
 use winit::window::Window;
@@ -384,6 +385,89 @@ impl GuiRenderer {
         let counters = self.frame_perf;
         self.frame_perf = GuiRenderPerfCounters::default();
         counters
+    }
+
+    /// Capture current TOP preview texture to tightly packed BGRA bytes.
+    pub(crate) fn capture_top_preview_bgra(
+        &mut self,
+        out_bgra: &mut Vec<u8>,
+    ) -> Result<Option<(u32, u32)>, Box<dyn Error>> {
+        let Some((texture, (width, height))) = self.top_preview.viewer_texture_and_size() else {
+            return Ok(None);
+        };
+        if width == 0 || height == 0 {
+            return Ok(None);
+        }
+
+        let unpadded_bytes_per_row = width.saturating_mul(4);
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align).saturating_mul(align);
+        let buffer_size = padded_bytes_per_row as u64 * height as u64;
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gui-top-preview-readback"),
+            size: buffer_size.max(1),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gui-top-preview-readback-encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = readback.slice(..);
+        let (tx, rx) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        let _ = self.device.poll(wgpu::Maintain::Wait);
+        match rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => return Err(format!("failed to map TOP preview readback: {err}").into()),
+            Err(err) => {
+                return Err(format!("failed to wait for TOP preview readback: {err}").into())
+            }
+        }
+
+        let data = slice.get_mapped_range();
+        let row_bytes = unpadded_bytes_per_row as usize;
+        let padded_row_bytes = padded_bytes_per_row as usize;
+        out_bgra.resize(row_bytes * height as usize, 0);
+        for y in 0..height as usize {
+            let src_row = &data[y * padded_row_bytes..y * padded_row_bytes + row_bytes];
+            let dst_row = &mut out_bgra[y * row_bytes..(y + 1) * row_bytes];
+            for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
+                dst[0] = src[2];
+                dst[1] = src[1];
+                dst[2] = src[0];
+                dst[3] = src[3];
+            }
+        }
+        drop(data);
+        readback.unmap();
+        Ok(Some((width, height)))
     }
 
     fn rebuild_dirty_layers(&mut self, frame: &SceneFrame) -> LayerRebuildStats {
