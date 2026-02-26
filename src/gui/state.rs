@@ -46,6 +46,8 @@ pub(crate) struct DragState {
     pub(crate) node_id: u32,
     pub(crate) offset_x: i32,
     pub(crate) offset_y: i32,
+    pub(crate) origin_x: i32,
+    pub(crate) origin_y: i32,
 }
 
 /// Active wire-drag state from a source output pin.

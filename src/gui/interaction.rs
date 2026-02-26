@@ -28,6 +28,7 @@ const DROPDOWN_ITEM_MIN_PX: i32 = 12;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
+const NODE_OVERLAP_SNAP_GAP_PX: i32 = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CutLink {
@@ -1418,6 +1419,7 @@ fn handle_drag_input(
                     link.target_id,
                 );
             }
+            changed |= snap_dragged_node_out_of_overlap(project, drag, panel_width, panel_height);
         }
         changed |= state.drag.is_some();
         state.drag = None;
@@ -1619,12 +1621,107 @@ fn begin_drag_if_node_hit(
         node_id,
         offset_x: graph_x - node_x,
         offset_y: graph_y - node_y,
+        origin_x: node_x,
+        origin_y: node_y,
     });
     state.active_node = Some(node_id);
     state.hover_insert_link = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     true
+}
+
+/// Snap one dragged node beside an overlapped node using drag origin side.
+fn snap_dragged_node_out_of_overlap(
+    project: &mut GuiProject,
+    drag: super::state::DragState,
+    panel_width: usize,
+    panel_height: usize,
+) -> bool {
+    let Some(dragged) = project.node(drag.node_id) else {
+        return false;
+    };
+    let dragged_rect = (dragged.x(), dragged.y(), NODE_WIDTH, dragged.card_height());
+    let dragged_center = (
+        dragged_rect.0 + dragged_rect.2 / 2,
+        dragged_rect.1 + dragged_rect.3 / 2,
+    );
+    let mut best_target: Option<(u32, i64)> = None;
+    for node in project.nodes() {
+        if node.id() == drag.node_id {
+            continue;
+        }
+        let target_rect = (node.x(), node.y(), NODE_WIDTH, node.card_height());
+        if !rects_overlap_strict(dragged_rect, target_rect) {
+            continue;
+        }
+        let target_center = (
+            target_rect.0 + target_rect.2 / 2,
+            target_rect.1 + target_rect.3 / 2,
+        );
+        let dx = (dragged_center.0 - target_center.0) as i64;
+        let dy = (dragged_center.1 - target_center.1) as i64;
+        let dist_sq = dx * dx + dy * dy;
+        if best_target
+            .as_ref()
+            .map(|(_, best_dist)| dist_sq < *best_dist)
+            .unwrap_or(true)
+        {
+            best_target = Some((node.id(), dist_sq));
+        }
+    }
+    let Some((target_id, _)) = best_target else {
+        return false;
+    };
+    let Some(target) = project.node(target_id) else {
+        return false;
+    };
+    let target_rect = (target.x(), target.y(), NODE_WIDTH, target.card_height());
+    let target_center = (
+        target_rect.0 + target_rect.2 / 2,
+        target_rect.1 + target_rect.3 / 2,
+    );
+    let origin_center = (
+        drag.origin_x + dragged_rect.2 / 2,
+        drag.origin_y + dragged_rect.3 / 2,
+    );
+    let dx = origin_center.0 - target_center.0;
+    let dy = origin_center.1 - target_center.1;
+    let (next_x, next_y) = if dx.abs() >= dy.abs() {
+        if dx <= 0 {
+            (
+                target_rect.0 - dragged_rect.2 - NODE_OVERLAP_SNAP_GAP_PX,
+                dragged_rect.1,
+            )
+        } else {
+            (
+                target_rect.0 + target_rect.2 + NODE_OVERLAP_SNAP_GAP_PX,
+                dragged_rect.1,
+            )
+        }
+    } else if dy <= 0 {
+        (
+            dragged_rect.0,
+            target_rect.1 - dragged_rect.3 - NODE_OVERLAP_SNAP_GAP_PX,
+        )
+    } else {
+        (
+            dragged_rect.0,
+            target_rect.1 + target_rect.3 + NODE_OVERLAP_SNAP_GAP_PX,
+        )
+    };
+    project.move_node(drag.node_id, next_x, next_y, panel_width, panel_height)
+}
+
+/// Return true when two rectangles overlap with positive area.
+fn rects_overlap_strict(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    let (ax, ay, aw, ah) = a;
+    let (bx, by, bw, bh) = b;
+    let ax1 = ax + aw;
+    let ay1 = ay + ah;
+    let bx1 = bx + bw;
+    let by1 = by + bh;
+    ax < bx1 && ax1 > bx && ay < by1 && ay1 > by
 }
 
 /// Resolve one hovered wire insertion candidate at cursor position.
@@ -2103,7 +2200,7 @@ mod tests {
     };
     use crate::gui::project::{
         input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center,
-        GuiProject, ProjectNodeKind,
+        GuiProject, ProjectNodeKind, NODE_WIDTH,
     };
     use crate::gui::state::{
         AddNodeMenuState, DragState, HoverInsertLink, HoverParamTarget, InputSnapshot,
@@ -2581,6 +2678,8 @@ mod tests {
             node_id: xform,
             offset_x: 0,
             offset_y: 0,
+            origin_x: 120,
+            origin_y: 160,
         });
         let drag = InputSnapshot {
             mouse_pos: Some(mid),
@@ -2618,6 +2717,8 @@ mod tests {
             node_id: xform,
             offset_x: 0,
             offset_y: 0,
+            origin_x: 120,
+            origin_y: 160,
         });
         state.hover_insert_link = Some(HoverInsertLink {
             source_id: solid,
@@ -2633,6 +2734,35 @@ mod tests {
         assert!(state.hover_insert_link.is_none());
         assert_eq!(project.input_source_node_id(xform), Some(solid));
         assert_eq!(project.input_source_node_id(out), Some(xform));
+    }
+
+    #[test]
+    fn dropping_node_on_top_of_other_snaps_to_side_from_drag_origin() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let dragged = project.add_node(ProjectNodeKind::TexTransform2D, 40, 80, 420, 480);
+        let target = project.add_node(ProjectNodeKind::TexSolid, 260, 80, 420, 480);
+        // Simulate release while dragged node overlaps target card.
+        assert!(project.move_node(dragged, 260, 80, 420, 480));
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.drag = Some(DragState {
+            node_id: dragged,
+            offset_x: 0,
+            offset_y: 0,
+            origin_x: 40,
+            origin_y: 80,
+        });
+        let drop = InputSnapshot {
+            mouse_pos: Some((300, 100)),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_drag_input(&drop, &mut project, 420, 480, &mut state));
+        let dragged_node = project.node(dragged).expect("dragged node should exist");
+        let target_node = project.node(target).expect("target node should exist");
+        assert_eq!(
+            dragged_node.x(),
+            target_node.x() - NODE_WIDTH - super::NODE_OVERLAP_SNAP_GAP_PX
+        );
     }
 
     #[test]
