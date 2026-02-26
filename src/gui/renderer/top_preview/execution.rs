@@ -341,7 +341,7 @@ impl TopPreviewRenderer {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(PREVIEW_BG),
+                    load: wgpu::LoadOp::Clear(TRANSPARENT_BG),
                     store: wgpu::StoreOp::Store,
                 },
             })],

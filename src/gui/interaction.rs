@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    output_pin_center, GraphBounds, GuiProject, ProjectNode, ResourceKind,
+    output_pin_center, GraphBounds, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
     NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
@@ -1535,14 +1535,37 @@ fn resolve_texture_param_target_on_release(
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let node_id = project.node_at(graph_x, graph_y)?;
-    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
-    if !project.param_accepts_texture_link(node_id, param_index) {
+    if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+        if project.param_accepts_texture_link(node_id, param_index) {
+            return Some(HoverParamTarget {
+                node_id,
+                param_index,
+            });
+        }
+    }
+    // If the drop lands directly on an input pin, preserve regular input
+    // wiring behavior instead of coercing to a parameter bind.
+    let pin_radius = pin_hit_radius_world(state);
+    if project.input_pin_at(graph_x, graph_y, pin_radius, Some(wire.source_node_id))
+        == Some(node_id)
+    {
         return None;
     }
-    Some(HoverParamTarget {
-        node_id,
-        param_index,
-    })
+    let node = project.node(node_id)?;
+    if node.kind() != ProjectNodeKind::TexFeedback {
+        return None;
+    }
+    // Feedback cards have one texture-target parameter used for loop sources.
+    // Allow dropping anywhere on the card body to bind this target.
+    for param_index in 0..node.param_count() {
+        if project.param_accepts_texture_link(node_id, param_index) {
+            return Some(HoverParamTarget {
+                node_id,
+                param_index,
+            });
+        }
+    }
+    None
 }
 
 fn begin_wire_drag_if_pin_hit(
@@ -2658,6 +2681,68 @@ mod tests {
             &mut state
         ));
         assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+    }
+
+    #[test]
+    fn texture_drop_on_collapsed_feedback_card_binds_target_tex_param() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        assert!(!project.node_expanded(feedback));
+
+        let center = (220 + NODE_WIDTH / 2, 80 + 22);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: center.0,
+            cursor_y: center.1,
+        });
+        let release = InputSnapshot {
+            mouse_pos: Some(center),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(
+            &release,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+        assert_eq!(project.input_source_node_id(feedback), None);
+    }
+
+    #[test]
+    fn texture_drop_on_feedback_input_pin_keeps_primary_input_wiring() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        let input_pin = {
+            let node = project.node(feedback).expect("feedback node should exist");
+            input_pin_center(node).expect("feedback input pin should exist")
+        };
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: input_pin.0,
+            cursor_y: input_pin.1,
+        });
+        state.hover_input_pin = Some(feedback);
+        let release = InputSnapshot {
+            mouse_pos: Some(input_pin),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(
+            &release,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(project.input_source_node_id(feedback), Some(solid));
+        assert_eq!(project.texture_source_for_param(feedback, 0), None);
     }
 
     #[test]

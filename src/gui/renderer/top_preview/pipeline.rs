@@ -296,6 +296,12 @@ fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);
     let history = textureSample(t_feedback, s_feedback, v.uv);
     let mix_amount = clamp(u_op.p0.x, 0.0, 1.0);
-    return mix(src, history, mix_amount);
+    let src_pm = src.rgb * src.a;
+    let history_pm = history.rgb * history.a;
+    let out_a = mix(src.a, history.a, mix_amount);
+    let out_pm = mix(src_pm, history_pm, mix_amount);
+    let safe_a = max(out_a, 1e-6);
+    let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
+    return vec4<f32>(out_rgb, out_a);
 }
 "#;
