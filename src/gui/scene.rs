@@ -29,6 +29,7 @@ const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
 const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
 const BORDER_COLOR: Color = Color::argb(AGIO.border);
 const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
+const EDGE_INSERT_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_EDGE_COLOR: Color = Color::argb(AGIO.highlight_error);
 const NODE_BODY: Color = Color::argb(AGIO.node_body);
 const NODE_DRAG: Color = Color::argb(AGIO.highlight_warning);
@@ -328,7 +329,14 @@ impl SceneBuilder {
                     continue;
                 }
                 let (to_x, to_y) = (default_to_x, default_to_y);
-                let color = if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
+                let insert_hover = state.drag.is_some()
+                    && state
+                        .hover_insert_link
+                        .map(|link| link.source_id == *source_id && link.target_id == target.id())
+                        .unwrap_or(false);
+                let color = if insert_hover {
+                    EDGE_INSERT_HOVER
+                } else if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
                     CUT_EDGE_COLOR
                 } else {
                     EDGE_COLOR
@@ -1181,6 +1189,7 @@ fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash = hash_f32(hash, state.pan_y);
     hash = hash_f32(hash, state.zoom);
     hash = hash_opt_cut_line(hash, state.link_cut);
+    hash = hash_opt_insert_link(hash, state.hover_insert_link);
     for node in project.nodes() {
         hash = hash_u64(hash, node.id() as u64);
         hash = hash_i32(hash, node.x());
@@ -1191,6 +1200,14 @@ fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
         hash = hash_u64(hash, 0xff);
     }
     hash
+}
+
+fn hash_opt_insert_link(seed: u64, value: Option<super::state::HoverInsertLink>) -> u64 {
+    let Some(link) = value else {
+        return hash_u64(seed, u64::MAX - 7);
+    };
+    let hash = hash_u64(seed, link.source_id as u64);
+    hash_u64(hash, link.target_id as u64)
 }
 
 fn overlays_layer_key(

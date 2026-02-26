@@ -10,9 +10,9 @@ use super::project::{
     NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState,
-    PanDragState, ParamDropdownState, ParamEditState, PreviewState, RightMarqueeState,
-    WireDragState, ADD_NODE_OPTIONS,
+    AddNodeMenuEntry, AddNodeMenuState, HoverInsertLink, HoverParamTarget, InputSnapshot,
+    LinkCutState, PanDragState, ParamDropdownState, ParamEditState, PreviewState,
+    RightMarqueeState, WireDragState, ADD_NODE_OPTIONS,
 };
 use super::timeline::{
     editor_panel_height, frame_from_track_x, next_looped_frame, pause_button_rect,
@@ -27,6 +27,7 @@ const FOCUS_MARGIN_PX: f32 = 28.0;
 const DROPDOWN_ITEM_MIN_PX: i32 = 12;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
+const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CutLink {
@@ -48,6 +49,9 @@ pub(crate) fn apply_preview_actions(
     state: &mut PreviewState,
 ) -> bool {
     let mut changed = false;
+    if state.drag.is_none() && state.hover_insert_link.take().is_some() {
+        changed = true;
+    }
     if input.toggle_pause {
         state.paused = !state.paused;
         changed = true;
@@ -74,6 +78,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_param_target = None;
+        state.hover_insert_link = None;
         state.hover_dropdown_item = None;
         state.auto_expanded_binding_nodes.clear();
         state.hover_menu_item = None;
@@ -1398,23 +1403,48 @@ fn handle_drag_input(
         changed |= begin_drag_if_node_hit(input, project, panel_width, panel_height, state);
     }
     if !input.left_down {
+        if let Some(drag) = state.drag {
+            if let Some(link) = resolve_insert_link_on_release(
+                input,
+                project,
+                panel_width,
+                panel_height,
+                state,
+                drag.node_id,
+            ) {
+                changed |= project.insert_node_on_primary_link(
+                    drag.node_id,
+                    link.source_id,
+                    link.target_id,
+                );
+            }
+        }
         changed |= state.drag.is_some();
         state.drag = None;
+        changed |= state.hover_insert_link.take().is_some();
         return changed;
     }
     let Some(drag) = state.drag else {
+        changed |= state.hover_insert_link.take().is_some();
         return changed;
     };
     let Some((mx, my)) = input.mouse_pos else {
+        changed |= state.hover_insert_link.take().is_some();
         return changed;
     };
     if !inside_panel(mx, my, panel_width, panel_height) {
+        changed |= state.hover_insert_link.take().is_some();
         return changed;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let node_x = graph_x - drag.offset_x;
     let node_y = graph_y - drag.offset_y;
     changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
+    let next_insert_hover = hover_insert_link_at_cursor(project, state, mx, my, drag.node_id);
+    if state.hover_insert_link != next_insert_hover {
+        state.hover_insert_link = next_insert_hover;
+        changed = true;
+    }
     changed
 }
 
@@ -1531,6 +1561,7 @@ fn begin_wire_drag_if_pin_hit(
         return false;
     };
     state.drag = None;
+    state.hover_insert_link = None;
     state.active_node = Some(source_node_id);
     state.hover_param_target = None;
     state.param_dropdown = None;
@@ -1560,6 +1591,7 @@ fn begin_drag_if_node_hit(
     let Some(node_id) = project.node_at(graph_x, graph_y) else {
         let changed = state.drag.is_some();
         state.drag = None;
+        state.hover_insert_link = None;
         return changed;
     };
     let Some((node_x, node_y, toggle_rect)) = project
@@ -1589,9 +1621,139 @@ fn begin_drag_if_node_hit(
         offset_y: graph_y - node_y,
     });
     state.active_node = Some(node_id);
+    state.hover_insert_link = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     true
+}
+
+/// Resolve one hovered wire insertion candidate at cursor position.
+fn hover_insert_link_at_cursor(
+    project: &GuiProject,
+    state: &PreviewState,
+    cursor_x: i32,
+    cursor_y: i32,
+    dragged_node_id: u32,
+) -> Option<HoverInsertLink> {
+    let mut best: Option<(HoverInsertLink, f32)> = None;
+    let threshold_sq = (INSERT_WIRE_HOVER_RADIUS_PX * INSERT_WIRE_HOVER_RADIUS_PX) as f32;
+    for target in project.nodes() {
+        let target_id = target.id();
+        let Some(source_id) = project.input_source_node_id(target_id) else {
+            continue;
+        };
+        if !can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id) {
+            continue;
+        }
+        let Some(source) = project.node(source_id) else {
+            continue;
+        };
+        let Some((from_x, from_y)) = output_pin_center(source) else {
+            continue;
+        };
+        let Some((to_x, to_y)) = input_pin_center(target) else {
+            continue;
+        };
+        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+        let dist_sq = point_to_segment_distance_sq(
+            cursor_x as f32,
+            cursor_y as f32,
+            from_x as f32,
+            from_y as f32,
+            to_x as f32,
+            to_y as f32,
+        );
+        if dist_sq > threshold_sq {
+            continue;
+        }
+        let candidate = HoverInsertLink {
+            source_id,
+            target_id,
+        };
+        if best
+            .as_ref()
+            .map(|(_, best_sq)| dist_sq < *best_sq)
+            .unwrap_or(true)
+        {
+            best = Some((candidate, dist_sq));
+        }
+    }
+    best.map(|(link, _)| link)
+}
+
+/// Return true when `dragged_node_id` can be inserted on `source -> target`.
+fn can_insert_dragged_node_on_link(
+    project: &GuiProject,
+    dragged_node_id: u32,
+    source_id: u32,
+    target_id: u32,
+) -> bool {
+    if dragged_node_id == source_id || dragged_node_id == target_id || source_id == target_id {
+        return false;
+    }
+    let Some(dragged) = project.node(dragged_node_id) else {
+        return false;
+    };
+    let Some(source) = project.node(source_id) else {
+        return false;
+    };
+    let Some(target) = project.node(target_id) else {
+        return false;
+    };
+    if target.inputs().first().copied() != Some(source_id) {
+        return false;
+    }
+    let Some(source_out_kind) = source.kind().output_resource_kind() else {
+        return false;
+    };
+    let Some(dragged_in_kind) = dragged.kind().input_resource_kind() else {
+        return false;
+    };
+    let Some(dragged_out_kind) = dragged.kind().output_resource_kind() else {
+        return false;
+    };
+    let Some(target_in_kind) = target.kind().input_resource_kind() else {
+        return false;
+    };
+    source_out_kind == dragged_in_kind && dragged_out_kind == target_in_kind
+}
+
+/// Resolve insertion candidate on drag release from hover cache or hit-test.
+fn resolve_insert_link_on_release(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+    dragged_node_id: u32,
+) -> Option<HoverInsertLink> {
+    if let Some(link) = state.hover_insert_link {
+        return Some(link);
+    }
+    let (mx, my) = input.mouse_pos?;
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return None;
+    }
+    hover_insert_link_at_cursor(project, state, mx, my, dragged_node_id)
+}
+
+/// Return squared distance from point `p` to line segment `ab`.
+fn point_to_segment_distance_sq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
+    let abx = bx - ax;
+    let aby = by - ay;
+    let apx = px - ax;
+    let apy = py - ay;
+    let ab_len_sq = abx * abx + aby * aby;
+    if ab_len_sq <= f32::EPSILON {
+        return apx * apx + apy * apy;
+    }
+    let t = ((apx * abx + apy * aby) / ab_len_sq).clamp(0.0, 1.0);
+    let cx = ax + abx * t;
+    let cy = ay + aby * t;
+    let dx = px - cx;
+    let dy = py - cy;
+    dx * dx + dy * dy
 }
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
@@ -1934,7 +2096,7 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
-        handle_delete_selected_nodes, handle_link_cut, handle_node_open_toggle,
+        handle_delete_selected_nodes, handle_drag_input, handle_link_cut, handle_node_open_toggle,
         handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
         marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
         segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
@@ -1944,8 +2106,8 @@ mod tests {
         GuiProject, ProjectNodeKind,
     };
     use crate::gui::state::{
-        AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState,
-        PreviewState, WireDragState,
+        AddNodeMenuState, DragState, HoverInsertLink, HoverParamTarget, InputSnapshot,
+        LinkCutState, ParamEditState, PreviewState, WireDragState,
     };
     use crate::runtime_config::V2Config;
 
@@ -2396,6 +2558,81 @@ mod tests {
             &mut state
         ));
         assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+    }
+
+    #[test]
+    fn dragging_node_over_wire_highlights_insert_candidate() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 120, 160, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        let (from_x, from_y) = {
+            let node = project.node(solid).expect("solid should exist");
+            output_pin_center(node).expect("solid output pin")
+        };
+        let (to_x, to_y) = {
+            let node = project.node(out).expect("out should exist");
+            input_pin_center(node).expect("out input pin")
+        };
+        let mid = ((from_x + to_x) / 2, (from_y + to_y) / 2);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.drag = Some(DragState {
+            node_id: xform,
+            offset_x: 0,
+            offset_y: 0,
+        });
+        let drag = InputSnapshot {
+            mouse_pos: Some(mid),
+            left_down: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_drag_input(&drag, &mut project, 420, 480, &mut state));
+        assert_eq!(
+            state.hover_insert_link,
+            Some(HoverInsertLink {
+                source_id: solid,
+                target_id: out,
+            })
+        );
+    }
+
+    #[test]
+    fn dropping_dragged_node_on_wire_inserts_node_between_link() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 120, 160, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        let (from_x, from_y) = {
+            let node = project.node(solid).expect("solid should exist");
+            output_pin_center(node).expect("solid output pin")
+        };
+        let (to_x, to_y) = {
+            let node = project.node(out).expect("out should exist");
+            input_pin_center(node).expect("out input pin")
+        };
+        let mid = ((from_x + to_x) / 2, (from_y + to_y) / 2);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.drag = Some(DragState {
+            node_id: xform,
+            offset_x: 0,
+            offset_y: 0,
+        });
+        state.hover_insert_link = Some(HoverInsertLink {
+            source_id: solid,
+            target_id: out,
+        });
+        let drop = InputSnapshot {
+            mouse_pos: Some(mid),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_drag_input(&drop, &mut project, 420, 480, &mut state));
+        assert!(state.drag.is_none());
+        assert!(state.hover_insert_link.is_none());
+        assert_eq!(project.input_source_node_id(xform), Some(solid));
+        assert_eq!(project.input_source_node_id(out), Some(xform));
     }
 
     #[test]

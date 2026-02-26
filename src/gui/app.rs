@@ -219,6 +219,7 @@ impl GuiApp {
             self.state.drag = None;
             self.state.wire_drag = None;
             self.state.hover_param_target = None;
+            self.state.hover_insert_link = None;
             if !self.state.auto_expanded_binding_nodes.is_empty() {
                 for node_id in self.state.auto_expanded_binding_nodes.drain(..) {
                     scene_dirty |= self.project.collapse_node(
@@ -412,6 +413,7 @@ impl GuiApp {
         self.state.drag = None;
         self.state.wire_drag = None;
         self.state.hover_param_target = None;
+        self.state.hover_insert_link = None;
         true
     }
 

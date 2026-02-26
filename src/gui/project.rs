@@ -1110,6 +1110,67 @@ impl GuiProject {
         true
     }
 
+    /// Insert one node on an existing primary input link.
+    ///
+    /// Replaces `source_id -> target_id` with
+    /// `source_id -> insert_node_id -> target_id` when all resource kinds are
+    /// compatible and the original primary link exists.
+    pub(crate) fn insert_node_on_primary_link(
+        &mut self,
+        insert_node_id: u32,
+        source_id: u32,
+        target_id: u32,
+    ) -> bool {
+        if insert_node_id == source_id || insert_node_id == target_id || source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.node(source_id) else {
+            return false;
+        };
+        let Some(insert) = self.node(insert_node_id) else {
+            return false;
+        };
+        let Some(target) = self.node(target_id) else {
+            return false;
+        };
+        if target.texture_input != Some(source_id) {
+            return false;
+        }
+        let Some(source_out_kind) = source.kind.output_resource_kind() else {
+            return false;
+        };
+        let Some(insert_in_kind) = insert.kind.input_resource_kind() else {
+            return false;
+        };
+        let Some(insert_out_kind) = insert.kind.output_resource_kind() else {
+            return false;
+        };
+        let Some(target_in_kind) = target.kind.input_resource_kind() else {
+            return false;
+        };
+        if source_out_kind != insert_in_kind || insert_out_kind != target_in_kind {
+            return false;
+        }
+        if self.depends_on(source_id, insert_node_id) || self.depends_on(insert_node_id, target_id)
+        {
+            return false;
+        }
+        let mut changed = false;
+        let Some(insert) = self.node_mut(insert_node_id) else {
+            return false;
+        };
+        changed |= set_node_primary_input(insert, Some(source_id));
+        let Some(target) = self.node_mut(target_id) else {
+            return false;
+        };
+        changed |= set_node_primary_input(target, Some(insert_node_id));
+        if !changed {
+            return false;
+        }
+        self.recount_edges();
+        true
+    }
+
     /// Disconnect one explicit source -> target link.
     ///
     /// Removes texture-input, texture-parameter, and signal-parameter bindings
@@ -2247,6 +2308,16 @@ fn apply_dropdown_value(
     true
 }
 
+/// Set one node primary input source and rebuild cached input list.
+fn set_node_primary_input(node: &mut ProjectNode, source: Option<u32>) -> bool {
+    if node.texture_input == source {
+        return false;
+    }
+    node.texture_input = source;
+    rebuild_node_inputs(node);
+    true
+}
+
 fn rebuild_node_inputs(node: &mut ProjectNode) {
     node.inputs.clear();
     if let Some(texture_source) = node.texture_input {
@@ -2665,6 +2736,30 @@ mod tests {
         let b = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
         assert!(project.connect_image_link(a, b));
         assert!(!project.connect_image_link(b, a));
+    }
+
+    #[test]
+    fn insert_node_on_primary_link_rewires_texture_chain() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        assert!(project.insert_node_on_primary_link(xform, solid, out));
+        assert_eq!(project.input_source_node_id(xform), Some(solid));
+        assert_eq!(project.input_source_node_id(out), Some(xform));
+    }
+
+    #[test]
+    fn insert_node_on_primary_link_rejects_incompatible_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, out));
+        assert!(!project.insert_node_on_primary_link(lfo, solid, out));
+        assert_eq!(project.input_source_node_id(out), Some(solid));
+        assert_eq!(project.input_source_node_id(lfo), None);
     }
 
     #[test]

@@ -63,6 +63,13 @@ pub(crate) struct HoverParamTarget {
     pub(crate) param_index: usize,
 }
 
+/// Hovered primary link target while dragging a node to insert on a wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HoverInsertLink {
+    pub(crate) source_id: u32,
+    pub(crate) target_id: u32,
+}
+
 /// Active alt-drag line used to cut links that intersect it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LinkCutState {
@@ -131,6 +138,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
     pub(crate) hover_param_target: Option<HoverParamTarget>,
+    pub(crate) hover_insert_link: Option<HoverInsertLink>,
     pub(crate) hover_dropdown_item: Option<usize>,
     /// Node ids auto-expanded while dragging signal/texture parameter bind wires.
     pub(crate) auto_expanded_binding_nodes: Vec<u32>,
@@ -164,6 +172,7 @@ impl PreviewState {
             hover_output_pin: None,
             hover_input_pin: None,
             hover_param_target: None,
+            hover_insert_link: None,
             hover_dropdown_item: None,
             auto_expanded_binding_nodes: Vec::new(),
             hover_menu_item: None,
