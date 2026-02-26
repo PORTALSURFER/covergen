@@ -71,7 +71,10 @@ impl GuiApp {
         let panel_width = clamp_panel_width(panel_width, renderer.width());
         let mut project = match load_autosaved_project(panel_width, renderer.height()) {
             Ok(Some(project)) => {
-                println!("[gui] loaded autosave from {}", autosave_project_path().display());
+                println!(
+                    "[gui] loaded autosave from {}",
+                    autosave_project_path().display()
+                );
                 project
             }
             Ok(None) => GuiProject::new_empty(config.width, config.height),
@@ -80,12 +83,8 @@ impl GuiApp {
                 GuiProject::new_empty(config.width, config.height)
             }
         };
-        let benchmark_node = maybe_seed_benchmark_nodes(
-            &config,
-            &mut project,
-            panel_width,
-            renderer.height(),
-        );
+        let benchmark_node =
+            maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
         let state = PreviewState::new(&config);
         let frame_budget = frame_budget(GUI_LOCKED_FPS);
         let now = Instant::now();
@@ -97,7 +96,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause"
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=add node menu, Tab=open node, RMB=select, RMB drag=marquee, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, P=pause, timeline(play/pause + scrub)"
         );
         Ok(Self {
             config,
@@ -221,9 +220,11 @@ impl GuiApp {
             self.state.hover_param_target = None;
             if !self.state.auto_expanded_binding_nodes.is_empty() {
                 for node_id in self.state.auto_expanded_binding_nodes.drain(..) {
-                    scene_dirty |= self
-                        .project
-                        .collapse_node(node_id, self.panel_width, self.renderer.height());
+                    scene_dirty |= self.project.collapse_node(
+                        node_id,
+                        self.panel_width,
+                        self.renderer.height(),
+                    );
                 }
             }
             self.state.prev_left_down = snapshot.left_down;
@@ -272,8 +273,12 @@ impl GuiApp {
             ui_alloc_bytes = frame.ui_alloc_bytes;
 
             let render_start = Instant::now();
-            self.renderer
-                .render(frame, self.top_view.frame(), self.panel_width, self.state.avg_fps)?;
+            self.renderer.render(
+                frame,
+                self.top_view.frame(),
+                self.panel_width,
+                self.state.avg_fps,
+            )?;
             render_elapsed = render_start.elapsed();
             let render_perf = self.renderer.take_perf_counters();
             submit_count = render_perf.submit_count;
@@ -441,6 +446,7 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.link_cut.is_some()
         || state.pan_drag.is_some()
         || state.right_marquee.is_some()
+        || state.timeline_scrub_active
         || state.param_edit.is_some()
         || state.param_dropdown.is_some()
         || state.menu.open

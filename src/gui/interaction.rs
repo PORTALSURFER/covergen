@@ -5,14 +5,17 @@ use std::time::Duration;
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect,
-    output_pin_center, GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
-    NODE_WIDTH,
+    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, output_pin_center,
+    GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot,
-    LinkCutState, PanDragState, ParamDropdownState, ParamEditState, PreviewState,
-    RightMarqueeState, WireDragState, ADD_NODE_OPTIONS,
+    AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState,
+    PanDragState, ParamDropdownState, ParamEditState, PreviewState, RightMarqueeState,
+    WireDragState, ADD_NODE_OPTIONS,
+};
+use super::timeline::{
+    editor_panel_height, frame_from_track_x, next_looped_frame, pause_button_rect,
+    play_button_rect, timeline_rect, track_rect,
 };
 
 const PIN_HIT_RADIUS_PX: i32 = 10;
@@ -41,6 +44,8 @@ pub(crate) fn apply_preview_actions(
     if input.new_project {
         *project = GuiProject::new_empty(config.width, config.height);
         state.frame_index = 0;
+        state.timeline_accum_secs = 0.0;
+        state.timeline_scrub_active = false;
         state.drag = None;
         state.wire_drag = None;
         state.link_cut = None;
@@ -64,6 +69,24 @@ pub(crate) fn apply_preview_actions(
         changed = true;
     }
 
+    let (timeline_changed, timeline_consumed) =
+        handle_timeline_input(&input, panel_width, panel_height, state);
+    changed |= timeline_changed;
+    if timeline_consumed {
+        state.drag = None;
+        state.wire_drag = None;
+        state.link_cut = None;
+        state.pan_drag = None;
+        state.right_marquee = None;
+        state.hover_param_target = None;
+        state.param_dropdown = None;
+        state.param_edit = None;
+        state.menu = AddNodeMenuState::closed();
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
+        state.prev_left_down = input.left_down;
+        return changed;
+    }
+
     let (wheel_param_changed, wheel_consumed) =
         handle_param_wheel_input(&input, project, panel_width, panel_height, state);
     changed |= wheel_param_changed;
@@ -71,13 +94,8 @@ pub(crate) fn apply_preview_actions(
     if wheel_consumed {
         pan_zoom_input.wheel_lines_y = 0.0;
     }
-    changed |= handle_pan_zoom_and_focus(
-        &pan_zoom_input,
-        project,
-        panel_width,
-        panel_height,
-        state,
-    );
+    changed |=
+        handle_pan_zoom_and_focus(&pan_zoom_input, project, panel_width, panel_height, state);
     if state.pan_drag.is_some() {
         state.drag = None;
         state.wire_drag = None;
@@ -130,8 +148,7 @@ pub(crate) fn apply_preview_actions(
         state.wire_drag = None;
         state.hover_param_target = None;
         state.param_dropdown = None;
-        changed |=
-            collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
+        changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
     }
@@ -168,11 +185,66 @@ pub(crate) fn step_timeline_if_running(
         state.timeline_accum_secs += frame_delta.as_secs_f32();
         while state.timeline_accum_secs >= tick_secs {
             state.timeline_accum_secs -= tick_secs;
-            state.frame_index = state.frame_index.wrapping_add(1);
+            state.frame_index = next_looped_frame(state.frame_index);
             advanced = true;
         }
     }
     advanced
+}
+
+fn handle_timeline_input(
+    input: &InputSnapshot,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    let mut changed = false;
+    let mut consumed = false;
+    let timeline = timeline_rect(panel_width, panel_height);
+    let play = play_button_rect(timeline);
+    let pause = pause_button_rect(timeline);
+    let track = track_rect(timeline);
+    let mouse_pos = input.mouse_pos;
+    if !input.left_down && state.timeline_scrub_active {
+        state.timeline_scrub_active = false;
+        return (false, true);
+    }
+    if let Some((mx, my)) = mouse_pos {
+        if input.left_clicked && play.contains(mx, my) {
+            state.paused = false;
+            state.timeline_scrub_active = false;
+            return (true, true);
+        }
+        if input.left_clicked && pause.contains(mx, my) {
+            state.paused = true;
+            state.timeline_scrub_active = false;
+            return (true, true);
+        }
+        if input.left_clicked && track.contains(mx, my) {
+            state.timeline_scrub_active = true;
+            consumed = true;
+            changed |= scrub_frame_from_timeline(track, mx, state);
+        } else if state.timeline_scrub_active && input.left_down {
+            consumed = true;
+            changed |= scrub_frame_from_timeline(track, mx, state);
+        }
+        if input.left_clicked && timeline.contains(mx, my) {
+            consumed = true;
+        }
+    } else if state.timeline_scrub_active {
+        consumed = true;
+    }
+    (changed, consumed)
+}
+
+fn scrub_frame_from_timeline(track: Rect, mouse_x: i32, state: &mut PreviewState) -> bool {
+    let frame = frame_from_track_x(track, mouse_x);
+    if frame == state.frame_index {
+        return false;
+    }
+    state.frame_index = frame;
+    state.timeline_accum_secs = 0.0;
+    true
 }
 
 fn handle_param_wheel_input(
@@ -455,7 +527,13 @@ fn collect_marquee_nodes(
     state: &PreviewState,
     marquee: RightMarqueeState,
 ) -> Vec<u32> {
-    let rect = screen_rect_to_graph_rect(marquee.start_x, marquee.start_y, marquee.cursor_x, marquee.cursor_y, state);
+    let rect = screen_rect_to_graph_rect(
+        marquee.start_x,
+        marquee.start_y,
+        marquee.cursor_x,
+        marquee.cursor_y,
+        state,
+    );
     let mut out = Vec::new();
     for node in project.nodes() {
         let nx0 = node.x();
@@ -695,7 +773,8 @@ fn handle_dropdown_click(
         return true;
     }
     if let Some(option_index) = dropdown_option_at_cursor(project, state, mx, my) {
-        let _ = project.set_param_dropdown_index(dropdown.node_id, dropdown.param_index, option_index);
+        let _ =
+            project.set_param_dropdown_index(dropdown.node_id, dropdown.param_index, option_index);
         state.param_dropdown = None;
         state.hover_dropdown_item = None;
         return true;
@@ -1269,13 +1348,10 @@ fn begin_drag_if_node_hit(
         state.drag = None;
         return changed;
     };
-    let Some((node_x, node_y, toggle_rect)) = project.node(node_id).map(|node| {
-        (
-            node.x(),
-            node.y(),
-            node_expand_toggle_rect(node),
-        )
-    }) else {
+    let Some((node_x, node_y, toggle_rect)) = project
+        .node(node_id)
+        .map(|node| (node.x(), node.y(), node_expand_toggle_rect(node)))
+    else {
         let changed = state.drag.is_some();
         state.drag = None;
         return changed;
@@ -1305,7 +1381,8 @@ fn begin_drag_if_node_hit(
 }
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
-    x >= 0 && y >= 0 && x < panel_width as i32 && y < panel_height as i32
+    let editor_h = editor_panel_height(panel_height) as i32;
+    x >= 0 && y >= 0 && x < panel_width as i32 && y < editor_h
 }
 
 fn collapse_auto_expanded_binding_nodes(
@@ -1449,8 +1526,7 @@ fn update_hover_state(
                     .unwrap_or(false);
                 if accepts_signal {
                     keep_auto_expanded_node = Some(node_id);
-                    let expanded =
-                        project.expand_node(node_id, panel_width, panel_height);
+                    let expanded = project.expand_node(node_id, panel_width, panel_height);
                     changed |= expanded;
                     if expanded && !state.auto_expanded_binding_nodes.contains(&node_id) {
                         state.auto_expanded_binding_nodes.push(node_id);
@@ -1610,17 +1686,18 @@ fn focus_bounds(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
+    let editor_h = editor_panel_height(panel_height) as f32;
     let bounds_w = (bounds.max_x - bounds.min_x).max(1) as f32;
     let bounds_h = (bounds.max_y - bounds.min_y).max(1) as f32;
     let avail_w = (panel_width as f32 - FOCUS_MARGIN_PX * 2.0).max(32.0);
-    let avail_h = (panel_height as f32 - FOCUS_MARGIN_PX * 2.0).max(32.0);
+    let avail_h = (editor_h - FOCUS_MARGIN_PX * 2.0).max(32.0);
     let zoom = (avail_w / bounds_w)
         .min(avail_h / bounds_h)
         .clamp(MIN_ZOOM, MAX_ZOOM);
     let center_x = (bounds.min_x + bounds.max_x) as f32 * 0.5;
     let center_y = (bounds.min_y + bounds.max_y) as f32 * 0.5;
     let pan_x = panel_width as f32 * 0.5 - center_x * zoom;
-    let pan_y = panel_height as f32 * 0.5 - center_y * zoom;
+    let pan_y = editor_h * 0.5 - center_y * zoom;
     let changed = (state.zoom - zoom).abs() > 1e-3
         || (state.pan_x - pan_x).abs() > 0.5
         || (state.pan_y - pan_y).abs() > 0.5;
@@ -1633,11 +1710,10 @@ fn focus_bounds(
 #[cfg(test)]
 mod tests {
     use super::{
-        backspace_param_text, can_append_param_char, handle_delete_selected_nodes,
-        handle_add_menu_input, handle_param_wheel_input,
-        handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
-        move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
-        AddNodeMenuEntry, RightMarqueeState,
+        backspace_param_text, can_append_param_char, handle_add_menu_input,
+        handle_delete_selected_nodes, handle_param_wheel_input, handle_wire_input,
+        insert_param_char, marquee_moved, move_param_cursor_left, move_param_cursor_right,
+        rects_overlap, segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::project::{node_param_value_rect, GuiProject, ProjectNodeKind};
     use crate::gui::state::{
@@ -1748,7 +1824,11 @@ mod tests {
             param_delete: true,
             ..InputSnapshot::default()
         };
-        assert!(handle_delete_selected_nodes(&input, &mut project, &mut state));
+        assert!(handle_delete_selected_nodes(
+            &input,
+            &mut project,
+            &mut state
+        ));
         assert!(project.node(top).is_none());
         assert_eq!(project.edge_count(), 0);
         assert!(state.selected_nodes.is_empty());
@@ -1831,14 +1911,26 @@ mod tests {
             mouse_pos: Some((225, 85)),
             ..InputSnapshot::default()
         };
-        assert!(update_hover_state(&hover_node, &mut project, 420, 480, &mut state));
+        assert!(update_hover_state(
+            &hover_node,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
         assert!(project.node_expanded(solid));
 
         let hover_away = InputSnapshot {
             mouse_pos: Some((16, 16)),
             ..InputSnapshot::default()
         };
-        assert!(update_hover_state(&hover_away, &mut project, 420, 480, &mut state));
+        assert!(update_hover_state(
+            &hover_away,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
         assert!(!project.node_expanded(solid));
     }
 
@@ -1888,7 +1980,13 @@ mod tests {
             left_down: false,
             ..InputSnapshot::default()
         };
-        assert!(handle_wire_input(&input, &mut project, 420, 480, &mut state));
+        assert!(handle_wire_input(
+            &input,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
         assert!(state.wire_drag.is_none());
         let source = project.sample_signal_node(lfo, 0.5, &mut Vec::new());
         let value = project.node_param_value(circle, "radius", 0.5, &mut Vec::new());

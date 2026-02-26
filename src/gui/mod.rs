@@ -15,6 +15,7 @@ mod scene;
 mod state;
 mod text;
 mod theme;
+mod timeline;
 mod top_view;
 
 use std::error::Error;

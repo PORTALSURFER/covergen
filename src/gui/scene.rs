@@ -6,19 +6,24 @@
 
 mod wire_route;
 
+use std::fmt::Write as _;
+
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    node_param_value_rect,
-    output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind,
-    NODE_WIDTH,
+    node_param_value_rect, output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind,
+    ResourceKind, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeCategory, AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
-    MENU_INNER_PADDING,
+    AddNodeCategory, AddNodeMenuEntry, PreviewState, RightMarqueeState, ADD_NODE_OPTIONS,
+    MENU_BLOCK_GAP, MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
+use super::timeline::{
+    pause_button_rect, play_button_rect, timeline_rect, track_rect, track_x_for_frame,
+    TIMELINE_END_FRAME, TIMELINE_START_FRAME,
+};
 
 const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
 const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
@@ -60,6 +65,13 @@ const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
 const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
+const TIMELINE_BG: Color = Color::argb(0xFF101010);
+const TIMELINE_BORDER: Color = Color::argb(AGIO.border);
+const TIMELINE_TRACK_BG: Color = Color::argb(0xFF171717);
+const TIMELINE_TRACK_FILL: Color = Color::argb(AGIO.highlight_selection);
+const TIMELINE_BTN_ACTIVE: Color = Color::argb(0x553B82F6);
+const TIMELINE_BTN_IDLE: Color = Color::argb(0xFF171717);
+const TIMELINE_TEXT: Color = Color::argb(0xFFD5D5D5);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
@@ -208,11 +220,11 @@ impl SceneBuilder {
             self.rebuild_edges_layer(project, state);
         }
 
-        let overlays_key = overlays_layer_key(project, state);
+        let overlays_key = overlays_layer_key(project, state, panel_width, height);
         if self.cached_overlays_key != Some(overlays_key) {
             self.cached_overlays_key = Some(overlays_key);
             self.frame.dirty.overlays = true;
-            self.rebuild_overlays_layer(project, state);
+            self.rebuild_overlays_layer(project, state, panel_width, height);
         }
         self.frame.ui_alloc_bytes = self.frame_alloc_bytes;
         &self.frame
@@ -251,7 +263,13 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
     }
 
-    fn rebuild_overlays_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+    fn rebuild_overlays_layer(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        panel_width: usize,
+        panel_height: usize,
+    ) {
         let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
         self.clear_active_layer();
@@ -261,6 +279,7 @@ impl SceneBuilder {
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
+        self.push_timeline(state, panel_width, panel_height);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
     }
 
@@ -423,7 +442,11 @@ impl SceneBuilder {
                 &mut fitted_label_scratch,
             );
             let label_rect = Rect::new(label_x, row_rect.y, label_max_w, row_rect.h);
-            let bound_color = if row.bound { PARAM_EDGE_COLOR } else { NODE_TEXT };
+            let bound_color = if row.bound {
+                PARAM_EDGE_COLOR
+            } else {
+                NODE_TEXT
+            };
             self.push_graph_text_in_rect(label_rect, 0, fitted_label, bound_color, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
             let editing = state
@@ -467,13 +490,16 @@ impl SceneBuilder {
         let Some(node) = project.node(dropdown.node_id) else {
             return;
         };
-        let Some(options) = project.node_param_dropdown_options(dropdown.node_id, dropdown.param_index) else {
+        let Some(options) =
+            project.node_param_dropdown_options(dropdown.node_id, dropdown.param_index)
+        else {
             return;
         };
         if options.is_empty() {
             return;
         }
-        let Some(list_world) = node_param_dropdown_rect(node, dropdown.param_index, options.len()) else {
+        let Some(list_world) = node_param_dropdown_rect(node, dropdown.param_index, options.len())
+        else {
             return;
         };
         let list_panel = graph_rect_to_panel(list_world, state);
@@ -523,12 +549,7 @@ impl SceneBuilder {
         };
         self.push_rect(search_rect, MENU_SEARCH_BG);
         self.push_border(search_rect, MENU_BORDER);
-        self.push_text(
-            search_rect.x + 6,
-            search_rect.y + 7,
-            search_text,
-            MENU_TEXT,
-        );
+        self.push_text(search_rect.x + 6, search_rect.y + 7, search_text, MENU_TEXT);
         let entries = state.menu.visible_entries();
         if entries.is_empty() {
             self.push_text(
@@ -553,11 +574,12 @@ impl SceneBuilder {
                 AddNodeMenuEntry::Category(category) => {
                     let chip = category_chip_rect(
                         item,
-                        self.text_renderer
-                            .measure_text_width(category.label(), 1.0),
+                        self.text_renderer.measure_text_width(category.label(), 1.0),
                     );
                     self.push_rect(chip, category_menu_color(category));
-                    if state.menu.selected == entry_index || state.hover_menu_item == Some(entry_index) {
+                    if state.menu.selected == entry_index
+                        || state.hover_menu_item == Some(entry_index)
+                    {
                         self.push_border(
                             Rect::new(chip.x - 1, chip.y - 1, chip.w + 2, chip.h + 2),
                             MENU_SELECTED,
@@ -593,6 +615,100 @@ impl SceneBuilder {
             }
         }
         self.label_scratch = menu_label_scratch;
+    }
+
+    fn push_timeline(&mut self, state: &PreviewState, panel_width: usize, panel_height: usize) {
+        if panel_width == 0 || panel_height == 0 {
+            return;
+        }
+        let timeline = timeline_rect(panel_width, panel_height);
+        let play_btn = play_button_rect(timeline);
+        let pause_btn = pause_button_rect(timeline);
+        let track = track_rect(timeline);
+        self.push_rect(timeline, TIMELINE_BG);
+        self.push_border(timeline, TIMELINE_BORDER);
+
+        self.push_rect(
+            play_btn,
+            if !state.paused {
+                TIMELINE_BTN_ACTIVE
+            } else {
+                TIMELINE_BTN_IDLE
+            },
+        );
+        self.push_border(play_btn, TIMELINE_BORDER);
+        let tri_x = play_btn.x + 8;
+        let tri_y = play_btn.y + 5;
+        self.push_line(tri_x, tri_y, tri_x, tri_y + play_btn.h - 10, TIMELINE_TEXT);
+        self.push_line(
+            tri_x,
+            tri_y,
+            tri_x + play_btn.w - 10,
+            play_btn.y + play_btn.h / 2,
+            TIMELINE_TEXT,
+        );
+        self.push_line(
+            tri_x + play_btn.w - 10,
+            play_btn.y + play_btn.h / 2,
+            tri_x,
+            tri_y + play_btn.h - 10,
+            TIMELINE_TEXT,
+        );
+
+        self.push_rect(
+            pause_btn,
+            if state.paused {
+                TIMELINE_BTN_ACTIVE
+            } else {
+                TIMELINE_BTN_IDLE
+            },
+        );
+        self.push_border(pause_btn, TIMELINE_BORDER);
+        let bar_h = (pause_btn.h - 10).max(4);
+        self.push_rect(
+            Rect::new(pause_btn.x + 7, pause_btn.y + 5, 3, bar_h),
+            TIMELINE_TEXT,
+        );
+        self.push_rect(
+            Rect::new(pause_btn.x + pause_btn.w - 10, pause_btn.y + 5, 3, bar_h),
+            TIMELINE_TEXT,
+        );
+
+        self.push_rect(track, TIMELINE_TRACK_BG);
+        self.push_border(track, TIMELINE_BORDER);
+        let thumb_x = track_x_for_frame(track, state.frame_index);
+        let fill_w = (thumb_x - track.x + 1).max(1).min(track.w);
+        self.push_rect(
+            Rect::new(track.x, track.y, fill_w, track.h),
+            TIMELINE_TRACK_FILL,
+        );
+        self.push_rect(
+            Rect::new(thumb_x - 1, track.y - 3, 3, track.h + 6),
+            TIMELINE_TEXT,
+        );
+
+        let mut label = std::mem::take(&mut self.label_scratch);
+        label.clear();
+        let _ = write!(&mut label, "{}", TIMELINE_START_FRAME);
+        self.push_text(track.x, timeline.y + 4, label.as_str(), TIMELINE_TEXT);
+        label.clear();
+        let _ = write!(&mut label, "{}", TIMELINE_END_FRAME);
+        self.push_text(
+            track.x + track.w - 22,
+            timeline.y + 4,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
+        label.clear();
+        label.push_str("Frame ");
+        let _ = write!(&mut label, "{}", state.frame_index);
+        self.push_text(
+            track.x,
+            timeline.y + timeline.h - 16,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
+        self.label_scratch = label;
     }
 
     fn push_link_cut(&mut self, state: &PreviewState) {
@@ -732,7 +848,8 @@ impl SceneBuilder {
                 let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
-                if project.link_resource_kind(*source_id, target.id()) != Some(ResourceKind::Signal) {
+                if project.link_resource_kind(*source_id, target.id()) != Some(ResourceKind::Signal)
+                {
                     continue;
                 }
                 let (gx, gy) = signal_target_graph_point(project, target, *source_id);
@@ -740,11 +857,8 @@ impl SceneBuilder {
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
                 let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
                 let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-                let route = wire_route::route_param_path(
-                    (exit_x, from_y),
-                    (entry_x, to_y),
-                    &obstacles,
-                );
+                let route =
+                    wire_route::route_param_path((exit_x, from_y), (entry_x, to_y), &obstacles);
                 let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
                     || path_intersects_cut_line(state, &route)
                     || edge_intersects_cut_line(state, entry_x, to_y, to_x, to_y)
@@ -923,14 +1037,8 @@ impl SceneBuilder {
             }
         }
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
-        self.text_renderer.push_text_scaled(
-            out,
-            text_x,
-            text_y,
-            text,
-            color,
-            state.zoom,
-        );
+        self.text_renderer
+            .push_text_scaled(out, text_x, text_y, text, color, state.zoom);
         if let Some(edit_state) = edit {
             let caret_index = edit_state.cursor.min(text.len());
             let caret_x = text_x
@@ -1097,7 +1205,12 @@ fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     hash
 }
 
-fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
+fn overlays_layer_key(
+    project: &GuiProject,
+    state: &PreviewState,
+    panel_width: usize,
+    panel_height: usize,
+) -> u64 {
     let mut hash = hash_start();
     hash = hash_u64(hash, project.render_signature());
     hash = hash_u64(hash, project.ui_signature());
@@ -1130,6 +1243,11 @@ fn overlays_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
     if let Some(index) = state.hover_menu_item {
         hash = hash_u64(hash, index as u64);
     }
+    hash = hash_u64(hash, panel_width as u64);
+    hash = hash_u64(hash, panel_height as u64);
+    hash = hash_u64(hash, state.frame_index as u64);
+    hash = hash_u64(hash, state.paused as u64);
+    hash = hash_u64(hash, state.timeline_scrub_active as u64);
     hash
 }
 
@@ -1201,7 +1319,10 @@ fn hash_opt_dropdown(seed: u64, value: Option<super::state::ParamDropdownState>)
     hash_u64(hash, dropdown.param_index as u64)
 }
 
-fn wire_drag_source_kind(project: &GuiProject, wire: super::state::WireDragState) -> Option<ResourceKind> {
+fn wire_drag_source_kind(
+    project: &GuiProject,
+    wire: super::state::WireDragState,
+) -> Option<ResourceKind> {
     let source = project.node(wire.source_node_id)?;
     source.kind().output_resource_kind()
 }
@@ -1254,13 +1375,20 @@ fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
 
-fn signal_target_graph_point(project: &GuiProject, target: &ProjectNode, source_id: u32) -> (i32, i32) {
+fn signal_target_graph_point(
+    project: &GuiProject,
+    target: &ProjectNode,
+    source_id: u32,
+) -> (i32, i32) {
     if let Some(index) = project.signal_param_index_for_source(source_id, target.id()) {
         if let Some(row) = node_param_row_rect(target, index) {
             return (row.x + row.w - 4, row.y + row.h / 2);
         }
     }
-    (target.x() + NODE_WIDTH - 4, target.y() + target.card_height() / 2)
+    (
+        target.x() + NODE_WIDTH - 4,
+        target.y() + target.card_height() / 2,
+    )
 }
 
 fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i32 {
