@@ -6,8 +6,8 @@ use std::time::Duration;
 use super::geometry::Rect;
 use super::project::{
     input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    output_pin_center, GraphBounds, GuiProject, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
-    NODE_WIDTH,
+    output_pin_center, GraphBounds, GuiProject, ProjectNode, ResourceKind,
+    NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, HoverParamTarget, InputSnapshot, LinkCutState,
@@ -25,6 +25,8 @@ const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
 const DROPDOWN_ITEM_MIN_PX: i32 = 12;
+const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
+const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct CutLink {
@@ -1141,6 +1143,7 @@ fn collect_cut_links(
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
+    let obstacles = collect_panel_node_obstacles(project, state);
     for target in project.nodes() {
         let target_id = target.id();
         if let Some(texture_source_id) = project.input_source_node_id(target_id) {
@@ -1189,6 +1192,13 @@ fn collect_cut_links(
             let to_y = row.y + row.h / 2;
             let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
             let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
+            let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
+            let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
+            let route = super::scene::wire_route::route_param_path(
+                (exit_x, from_y),
+                (entry_x, to_y),
+                obstacles.as_slice(),
+            );
             if segments_intersect(
                 cut.start_x,
                 cut.start_y,
@@ -1196,9 +1206,20 @@ fn collect_cut_links(
                 cut.cursor_y,
                 from_x,
                 from_y,
-                to_x,
-                to_y,
-            ) {
+                exit_x,
+                from_y,
+            ) || cut_intersects_path(cut, route.as_slice())
+                || segments_intersect(
+                    cut.start_x,
+                    cut.start_y,
+                    cut.cursor_x,
+                    cut.cursor_y,
+                    entry_x,
+                    to_y,
+                    to_x,
+                    to_y,
+                )
+            {
                 links.push(CutLink {
                     source_id,
                     target_id,
@@ -1210,6 +1231,47 @@ fn collect_cut_links(
     links.sort_unstable();
     links.dedup();
     links
+}
+
+fn cut_intersects_path(cut: LinkCutState, path: &[(i32, i32)]) -> bool {
+    if path.len() < 2 {
+        return false;
+    }
+    for segment in path.windows(2) {
+        if segments_intersect(
+            cut.start_x,
+            cut.start_y,
+            cut.cursor_x,
+            cut.cursor_y,
+            segment[0].0,
+            segment[0].1,
+            segment[1].0,
+            segment[1].1,
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
+    graph_rect_to_panel(
+        Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
+        state,
+    )
+}
+
+fn collect_panel_node_obstacles(
+    project: &GuiProject,
+    state: &PreviewState,
+) -> Vec<super::scene::wire_route::NodeObstacle> {
+    let mut out = Vec::new();
+    for node in project.nodes() {
+        out.push(super::scene::wire_route::NodeObstacle {
+            rect: node_rect(node, state),
+        });
+    }
+    out
 }
 
 fn handle_add_menu_input(
@@ -2116,6 +2178,67 @@ mod tests {
             cursor_x: cut_x,
             cursor_y: from_y.max(to_y) + 24,
         });
+        let input = InputSnapshot {
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_link_cut(&input, &mut project, 420, 480, &mut state));
+        assert_eq!(project.signal_source_for_param(circle, 2), None);
+    }
+
+    #[test]
+    fn alt_cut_unbinds_parameter_link_when_cut_crosses_routed_param_wire() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+        let _blocker = project.add_node(ProjectNodeKind::TexSolid, 210, 70, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 420, 80, 420, 480);
+        assert!(project.toggle_node_expanded(circle, 420, 480));
+        assert!(project.connect_signal_link_to_param(lfo, circle, 2));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let (from_x, from_y) = {
+            let source = project.node(lfo).expect("lfo node should exist");
+            output_pin_center(source).expect("source output pin should exist")
+        };
+        let (to_x, to_y) = {
+            let target = project.node(circle).expect("circle node should exist");
+            let row = node_param_row_rect(target, 2).expect("row rect should exist");
+            (row.x + row.w - 4, row.y + row.h / 2)
+        };
+        let obstacles = super::collect_panel_node_obstacles(&project, &state);
+        let exit_x = from_x.saturating_add(super::PARAM_WIRE_EXIT_TAIL_PX);
+        let entry_x = to_x.saturating_add(super::PARAM_WIRE_ENTRY_TAIL_PX);
+        let route = crate::gui::scene::wire_route::route_param_path(
+            (exit_x, from_y),
+            (entry_x, to_y),
+            obstacles.as_slice(),
+        );
+        let cut = route
+            .windows(2)
+            .find_map(|segment| {
+                let (ax, ay) = segment[0];
+                let (bx, by) = segment[1];
+                let (start_x, start_y, cursor_x, cursor_y) = if ax == bx {
+                    (ax - 24, (ay + by) / 2, ax + 24, (ay + by) / 2)
+                } else {
+                    ((ax + bx) / 2, ay - 24, (ax + bx) / 2, ay + 24)
+                };
+                if !segments_intersect(start_x, start_y, cursor_x, cursor_y, ax, ay, bx, by)
+                    || segments_intersect(
+                        start_x, start_y, cursor_x, cursor_y, from_x, from_y, to_x, to_y,
+                    )
+                {
+                    return None;
+                }
+                Some(LinkCutState {
+                    start_x,
+                    start_y,
+                    cursor_x,
+                    cursor_y,
+                })
+            })
+            .expect("expected routed segment that is distinct from source-to-target straight wire");
+        state.link_cut = Some(cut);
         let input = InputSnapshot {
             left_down: false,
             ..InputSnapshot::default()

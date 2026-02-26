@@ -4,7 +4,7 @@
 //! changed layers dirty each update (`static_panel`, `edges`, `nodes`,
 //! `overlays`). Rendering stays on GPU and unchanged layers are reused.
 
-mod wire_route;
+pub(super) mod wire_route;
 
 use std::fmt::Write as _;
 
