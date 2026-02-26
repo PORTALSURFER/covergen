@@ -52,6 +52,8 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_buf_noise: u32,
     /// Header color for `tex.transform_2d` nodes.
     pub(crate) node_header_tex_transform_2d: u32,
+    /// Header color for `tex.feedback` nodes.
+    pub(crate) node_header_tex_feedback: u32,
     /// Header color for `scene.entity` nodes.
     pub(crate) node_header_scene_entity: u32,
     /// Header color for `scene.build` nodes.
@@ -89,6 +91,7 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     node_header_buf_circle_nurbs: 0xFF6A557C,
     node_header_buf_noise: 0xFF7A4E68,
     node_header_tex_transform_2d: 0xFF2A9D8F,
+    node_header_tex_feedback: 0xFF2F7A7A,
     node_header_scene_entity: 0xFF3F6F8F,
     node_header_scene_build: 0xFF4C6C4F,
     node_header_render_camera: 0xFF5E6A78,

@@ -91,6 +91,9 @@ impl TopPreviewRenderer {
                 scratch_flip = true;
                 RenderTargetRef::ScratchA
             };
+            if let TopViewerOp::Feedback { node_id, .. } = op {
+                self.ensure_feedback_history_slot(device, encoder, node_id, width, height);
+            }
             let Some(target_view) = self.target_view(target) else {
                 return None;
             };
@@ -126,6 +129,7 @@ impl TopPreviewRenderer {
                     pass.set_pipeline(&self.op_solid_pipeline);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Circle { .. } => {
                     upload_bytes =
@@ -138,6 +142,7 @@ impl TopPreviewRenderer {
                     pass.set_pipeline(&self.op_circle_pipeline);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Sphere { .. } => {
                     upload_bytes =
@@ -150,6 +155,7 @@ impl TopPreviewRenderer {
                     pass.set_pipeline(&self.op_sphere_pipeline);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
                 }
                 TopViewerOp::Transform { .. } => {
                     let Some(src_target) = source_target else {
@@ -168,9 +174,36 @@ impl TopPreviewRenderer {
                     pass.set_pipeline(&self.op_transform_pipeline);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, src_bind_group, &[]);
+                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
+                }
+                TopViewerOp::Feedback { node_id, .. } => {
+                    let Some(src_target) = source_target else {
+                        return None;
+                    };
+                    let Some(src_bind_group) = self.target_bind_group(src_target) else {
+                        return None;
+                    };
+                    let Some(history_bind_group) = self.feedback_history_bind_group(node_id) else {
+                        return None;
+                    };
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of::<TopOpUniform>() as u64);
+                    queue.write_buffer(
+                        &self.op_uniform_buffer,
+                        uniform_offset,
+                        bytemuck::bytes_of(&TopOpUniform::feedback(op)),
+                    );
+                    pass.set_pipeline(&self.op_feedback_pipeline);
+                    pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
+                    pass.set_bind_group(1, src_bind_group, &[]);
+                    pass.set_bind_group(2, history_bind_group, &[]);
                 }
             }
             pass.draw(0..6, 0..1);
+            drop(pass);
+            if let TopViewerOp::Feedback { node_id, .. } = op {
+                self.copy_target_to_feedback_history(encoder, target, node_id, width, height);
+            }
             source_target = Some(target);
         }
         Some(upload_bytes)
@@ -214,6 +247,7 @@ impl TopPreviewRenderer {
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
@@ -275,5 +309,100 @@ impl TopPreviewRenderer {
             RenderTargetRef::ScratchA => self.scratch_bind_group_a.as_ref(),
             RenderTargetRef::ScratchB => self.scratch_bind_group_b.as_ref(),
         }
+    }
+
+    fn target_texture(&self, target: RenderTargetRef) -> Option<&wgpu::Texture> {
+        match target {
+            RenderTargetRef::Viewer => self.viewer_texture.as_ref(),
+            RenderTargetRef::ScratchA => self.scratch_texture_a.as_ref(),
+            RenderTargetRef::ScratchB => self.scratch_texture_b.as_ref(),
+        }
+    }
+
+    fn ensure_feedback_history_slot(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        node_id: u32,
+        width: u32,
+        height: u32,
+    ) {
+        if self
+            .feedback_history
+            .get(&node_id)
+            .map(|slot| slot.size == (width, height))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let (texture, view, bind_group) = create_preview_texture_bundle(
+            device,
+            width,
+            height,
+            "gui-top-preview-feedback-history",
+            &self.viewer_texture_layout,
+            &self.op_sampler,
+        );
+        let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("gui-top-preview-feedback-history-clear-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(PREVIEW_BG),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        self.feedback_history.insert(
+            node_id,
+            super::FeedbackHistorySlot {
+                texture,
+                bind_group,
+                size: (width, height),
+            },
+        );
+    }
+
+    fn feedback_history_bind_group(&self, node_id: u32) -> Option<&wgpu::BindGroup> {
+        self.feedback_history.get(&node_id).map(|slot| &slot.bind_group)
+    }
+
+    fn copy_target_to_feedback_history(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: RenderTargetRef,
+        node_id: u32,
+        width: u32,
+        height: u32,
+    ) {
+        let Some(src_texture) = self.target_texture(target) else {
+            return;
+        };
+        let Some(slot) = self.feedback_history.get(&node_id) else {
+            return;
+        };
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: src_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: &slot.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }

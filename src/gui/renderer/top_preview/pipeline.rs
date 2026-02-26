@@ -66,7 +66,10 @@ pub(super) fn create_preview_texture_bundle(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -89,6 +92,10 @@ var<uniform> u_op: TopOpUniform;
 var t_src: texture_2d<f32>;
 @group(1) @binding(1)
 var s_src: sampler;
+@group(2) @binding(0)
+var t_feedback: texture_2d<f32>;
+@group(2) @binding(1)
+var s_feedback: sampler;
 
 struct VertexOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -222,5 +229,13 @@ fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     );
     let a = clamp(src.a * alpha_mul, 0.0, 1.0);
     return vec4<f32>(rgb, a);
+}
+
+@fragment
+fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
+    let src = textureSample(t_src, s_src, v.uv);
+    let history = textureSample(t_feedback, s_feedback, v.uv);
+    let mix_amount = clamp(u_op.p0.x, 0.0, 1.0);
+    return mix(src, history, mix_amount);
 }
 "#;

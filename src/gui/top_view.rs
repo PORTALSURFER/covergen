@@ -78,7 +78,7 @@ impl TopViewerGenerator {
         let x = panel_width as i32 + (panel_w.saturating_sub(view_width) / 2) as i32;
         let y = (panel_h.saturating_sub(view_height) / 2) as i32;
         let render_signature = project.render_signature();
-        let dynamic_frame = if project.has_signal_bindings() {
+        let dynamic_frame = if project.has_signal_bindings() || project.has_feedback_nodes() {
             frame_index
         } else {
             0
@@ -195,6 +195,26 @@ mod tests {
         assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
         assert!(matches!(ops[1], TopViewerOp::Transform { .. }));
+    }
+
+    #[test]
+    fn feedback_chain_produces_solid_then_feedback_ops() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(&project, 960, 540, 420, 0, 60);
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TopViewerOp::Feedback { .. }));
     }
 
     #[test]

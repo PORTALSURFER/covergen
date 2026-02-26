@@ -54,6 +54,11 @@ pub(crate) enum TopRuntimeOp {
         gain_b: f32,
         alpha_mul: f32,
     },
+    /// `tex.feedback` one-frame delayed feedback operation.
+    Feedback {
+        node_id: u32,
+        mix: f32,
+    },
 }
 
 /// One compiled step in GUI TOP runtime order.
@@ -76,6 +81,7 @@ enum CompiledStepKind {
     Camera,
     ScenePass,
     Transform,
+    Feedback,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -402,6 +408,15 @@ impl GuiCompiledRuntime {
                             .unwrap_or(1.0),
                     });
                 }
+                CompiledStepKind::Feedback => {
+                    out_ops.push(TopRuntimeOp::Feedback {
+                        node_id: step.node_id,
+                        mix: project
+                            .node_param_value(step.node_id, "feedback", time_secs, eval_stack)
+                            .unwrap_or(0.95)
+                            .clamp(0.0, 1.0),
+                    });
+                }
             }
         }
     }
@@ -479,6 +494,21 @@ fn compile_node(
                 out_steps.push(CompiledStep {
                     node_id,
                     kind: CompiledStepKind::Transform,
+                });
+                true
+            }
+        }
+        ProjectNodeKind::TexFeedback => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, visiting, visited, out_steps) {
+                false
+            } else {
+                out_steps.push(CompiledStep {
+                    node_id,
+                    kind: CompiledStepKind::Feedback,
                 });
                 true
             }
@@ -596,6 +626,24 @@ mod tests {
                 && gain_b == 1.0
                 && alpha_mul == 1.0
         ));
+    }
+
+    #[test]
+    fn feedback_pipeline_compiles_to_feedback_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
     }
 
     #[test]

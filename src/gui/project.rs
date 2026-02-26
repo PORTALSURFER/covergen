@@ -91,6 +91,8 @@ pub(crate) enum ProjectNodeKind {
     BufNoise,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
+    /// `tex.feedback` one-frame delayed texture feedback node.
+    TexFeedback,
     /// `scene.entity` mesh + transform + material binding node.
     SceneEntity,
     /// `scene.build` scene aggregation node.
@@ -115,6 +117,7 @@ impl ProjectNodeKind {
             Self::BufCircleNurbs => "buf.circle_nurbs",
             Self::BufNoise => "buf.noise",
             Self::TexTransform2D => "tex.transform_2d",
+            Self::TexFeedback => "tex.feedback",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
             Self::RenderCamera => "render.camera",
@@ -133,6 +136,7 @@ impl ProjectNodeKind {
             "buf.circle_nurbs" => Some(Self::BufCircleNurbs),
             "buf.noise" => Some(Self::BufNoise),
             "tex.transform_2d" => Some(Self::TexTransform2D),
+            "tex.feedback" => Some(Self::TexFeedback),
             "scene.entity" => Some(Self::SceneEntity),
             "scene.build" => Some(Self::SceneBuild),
             "render.camera" => Some(Self::RenderCamera),
@@ -153,6 +157,7 @@ impl ProjectNodeKind {
             Self::BufCircleNurbs => ExecutionKind::Cpu,
             Self::BufNoise => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
+            Self::TexFeedback => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
             Self::RenderCamera => ExecutionKind::Control,
@@ -170,7 +175,9 @@ impl ProjectNodeKind {
     /// Return required primary input resource kind for this node, if any.
     pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
         match self {
-            Self::TexTransform2D | Self::IoWindowOut => Some(ResourceKind::Texture2D),
+            Self::TexTransform2D | Self::TexFeedback | Self::IoWindowOut => {
+                Some(ResourceKind::Texture2D)
+            }
             Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Buffer),
             Self::SceneBuild => Some(ResourceKind::Entity),
@@ -190,6 +197,7 @@ impl ProjectNodeKind {
                 | Self::BufCircleNurbs
                 | Self::BufNoise
                 | Self::TexTransform2D
+                | Self::TexFeedback
                 | Self::SceneEntity
                 | Self::RenderCamera
                 | Self::RenderScenePass
@@ -218,9 +226,11 @@ impl ProjectNodeKind {
             Self::BufSphere | Self::BufCircleNurbs | Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Entity),
             Self::SceneBuild | Self::RenderCamera => Some(ResourceKind::Scene),
-            Self::TexSolid | Self::TexCircle | Self::TexTransform2D | Self::RenderScenePass => {
-                Some(ResourceKind::Texture2D)
-            }
+            Self::TexSolid
+            | Self::TexCircle
+            | Self::TexTransform2D
+            | Self::TexFeedback
+            | Self::RenderScenePass => Some(ResourceKind::Texture2D),
             Self::CtlLfo => Some(ResourceKind::Signal),
             Self::IoWindowOut => None,
         }
@@ -1521,6 +1531,13 @@ impl GuiProject {
             .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()))
     }
 
+    /// Return true when the graph contains temporal feedback nodes.
+    pub(crate) fn has_feedback_nodes(&self) -> bool {
+        self.nodes
+            .iter()
+            .any(|node| node.kind == ProjectNodeKind::TexFeedback)
+    }
+
     fn depends_on(&self, start_node_id: u32, target_node_id: u32) -> bool {
         let mut stack = vec![start_node_id];
         let mut visited = Vec::new();
@@ -1714,6 +1731,9 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("gain_b", "gain_b", 1.0, 0.0, 64.0, 0.1),
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
+        ProjectNodeKind::TexFeedback => {
+            vec![param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01)]
+        }
         ProjectNodeKind::SceneEntity => vec![
             param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
             param("pos_y", "pos_y", 0.5, 0.0, 1.0, 0.01),
@@ -2079,6 +2099,22 @@ mod tests {
             .expect("window-out input must exist");
         let source = project.node(source_id).expect("source node must exist");
         assert_eq!(source.kind(), ProjectNodeKind::TexTransform2D);
+    }
+
+    #[test]
+    fn feedback_node_supports_in_and_out_links() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 160, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 300, 40, 420, 480);
+        assert!(project.connect_image_link(source, feedback));
+        assert!(project.connect_image_link(feedback, out));
+        assert_eq!(project.edge_count(), 2);
+        let source_id = project
+            .window_out_input_node_id()
+            .expect("window-out input must exist");
+        let source = project.node(source_id).expect("source node must exist");
+        assert_eq!(source.kind(), ProjectNodeKind::TexFeedback);
     }
 
     #[test]

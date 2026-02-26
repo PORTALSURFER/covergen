@@ -7,6 +7,7 @@ mod execution;
 mod pipeline;
 
 use bytemuck::{Pod, Zeroable};
+use std::collections::HashMap;
 use std::num::NonZeroU64;
 
 use crate::gui::top_view::TopViewerOp;
@@ -120,6 +121,18 @@ impl TopOpUniform {
             p3: [0.0; 4],
         }
     }
+
+    fn feedback(op: TopViewerOp) -> Self {
+        let TopViewerOp::Feedback { mix, .. } = op else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [mix, 0.0, 0.0, 0.0],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +140,14 @@ enum RenderTargetRef {
     Viewer,
     ScratchA,
     ScratchB,
+}
+
+/// Persistent history texture for one feedback node.
+#[derive(Debug)]
+struct FeedbackHistorySlot {
+    texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+    size: (u32, u32),
 }
 
 /// GPU-backed TOP preview state for GUI rendering.
@@ -152,6 +173,7 @@ pub(super) struct TopPreviewRenderer {
     op_circle_pipeline: wgpu::RenderPipeline,
     op_sphere_pipeline: wgpu::RenderPipeline,
     op_transform_pipeline: wgpu::RenderPipeline,
+    op_feedback_pipeline: wgpu::RenderPipeline,
 
     dummy_texture: wgpu::Texture,
     dummy_bind_group: wgpu::BindGroup,
@@ -163,6 +185,7 @@ pub(super) struct TopPreviewRenderer {
     scratch_view_b: Option<wgpu::TextureView>,
     scratch_bind_group_b: Option<wgpu::BindGroup>,
     scratch_texture_size: (u32, u32),
+    feedback_history: HashMap<u32, FeedbackHistorySlot>,
 }
 
 impl TopPreviewRenderer {
@@ -280,7 +303,11 @@ impl TopPreviewRenderer {
         });
         let op_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gui-top-preview-op-pipeline-layout"),
-            bind_group_layouts: &[&op_uniform_layout, &viewer_texture_layout],
+            bind_group_layouts: &[
+                &op_uniform_layout,
+                &viewer_texture_layout,
+                &viewer_texture_layout,
+            ],
             push_constant_ranges: &[],
         });
         let op_solid_pipeline = create_op_pipeline(
@@ -309,6 +336,13 @@ impl TopPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_transform",
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
+        let op_feedback_pipeline = create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_feedback",
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
 
@@ -354,6 +388,7 @@ impl TopPreviewRenderer {
             op_circle_pipeline,
             op_sphere_pipeline,
             op_transform_pipeline,
+            op_feedback_pipeline,
             dummy_texture,
             dummy_bind_group,
             scratch_texture_a: None,
@@ -363,6 +398,7 @@ impl TopPreviewRenderer {
             scratch_view_b: None,
             scratch_bind_group_b: None,
             scratch_texture_size: (0, 0),
+            feedback_history: HashMap::new(),
         }
     }
 
