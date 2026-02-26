@@ -221,6 +221,7 @@ pub(super) struct TopPreviewRenderer {
     viewer_texture_layout: wgpu::BindGroupLayout,
     viewer_sampler: wgpu::Sampler,
     op_sampler: wgpu::Sampler,
+    op_surface_format: wgpu::TextureFormat,
     viewer_bind_group: Option<wgpu::BindGroup>,
     viewer_texture: Option<wgpu::Texture>,
     viewer_texture_view: Option<wgpu::TextureView>,
@@ -234,15 +235,15 @@ pub(super) struct TopPreviewRenderer {
     op_uniform_stride: u64,
     op_uniform_capacity: usize,
     op_uniform_staging: Vec<u8>,
-    op_solid_pipeline: wgpu::RenderPipeline,
-    op_circle_pipeline: wgpu::RenderPipeline,
-    op_sphere_pipeline: wgpu::RenderPipeline,
-    op_transform_pipeline: wgpu::RenderPipeline,
-    op_feedback_pipeline: wgpu::RenderPipeline,
-    op_blend_pipeline: wgpu::RenderPipeline,
+    op_solid_pipeline: Option<wgpu::RenderPipeline>,
+    op_circle_pipeline: Option<wgpu::RenderPipeline>,
+    op_sphere_pipeline: Option<wgpu::RenderPipeline>,
+    op_transform_pipeline: Option<wgpu::RenderPipeline>,
+    op_feedback_pipeline: Option<wgpu::RenderPipeline>,
+    op_blend_pipeline: Option<wgpu::RenderPipeline>,
 
-    dummy_texture: wgpu::Texture,
-    dummy_bind_group: wgpu::BindGroup,
+    dummy_texture: Option<wgpu::Texture>,
+    dummy_bind_group: Option<wgpu::BindGroup>,
 
     scratch_texture_a: Option<wgpu::Texture>,
     scratch_view_a: Option<wgpu::TextureView>,
@@ -317,6 +318,104 @@ impl TopPreviewRenderer {
         self.op_uniform_stride.saturating_mul(op_index as u64)
     }
 
+    /// Lazily create operation pipelines on first TOP-op execution.
+    fn ensure_op_pipelines(&mut self, device: &wgpu::Device) {
+        if self.op_solid_pipeline.is_some()
+            && self.op_circle_pipeline.is_some()
+            && self.op_sphere_pipeline.is_some()
+            && self.op_transform_pipeline.is_some()
+            && self.op_feedback_pipeline.is_some()
+            && self.op_blend_pipeline.is_some()
+        {
+            return;
+        }
+        let op_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gui-top-preview-op-shader"),
+            source: wgpu::ShaderSource::Wgsl(OP_SHADER_SOURCE.into()),
+        });
+        let op_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("gui-top-preview-op-pipeline-layout"),
+            bind_group_layouts: &[
+                &self.op_uniform_layout,
+                &self.viewer_texture_layout,
+                &self.viewer_texture_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+        self.op_solid_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_solid",
+            self.op_surface_format,
+        ));
+        self.op_circle_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_circle",
+            self.op_surface_format,
+        ));
+        self.op_sphere_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_sphere",
+            self.op_surface_format,
+        ));
+        self.op_transform_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_transform",
+            self.op_surface_format,
+        ));
+        self.op_feedback_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_feedback",
+            self.op_surface_format,
+        ));
+        self.op_blend_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_blend",
+            self.op_surface_format,
+        ));
+    }
+
+    /// Lazily create fallback bind group used when an op input is missing.
+    fn ensure_dummy_bind_group(&mut self, device: &wgpu::Device) {
+        if self.dummy_bind_group.is_some() {
+            return;
+        }
+        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gui-top-preview-dummy-texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let dummy_bind_group = viewer::create_texture_bind_group(
+            device,
+            &self.viewer_texture_layout,
+            &dummy_view,
+            &self.op_sampler,
+        );
+        self.dummy_texture = Some(dummy_texture);
+        self.dummy_bind_group = Some(dummy_bind_group);
+    }
+
     /// Create a preview renderer that executes compiled GPU operation chains.
     pub(super) fn new(
         device: &wgpu::Device,
@@ -365,89 +464,12 @@ impl TopPreviewRenderer {
         let op_uniform_bind_group =
             Self::create_op_uniform_bind_group(device, &op_uniform_layout, &op_uniform_buffer);
 
-        let op_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("gui-top-preview-op-shader"),
-            source: wgpu::ShaderSource::Wgsl(OP_SHADER_SOURCE.into()),
-        });
-        let op_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("gui-top-preview-op-pipeline-layout"),
-            bind_group_layouts: &[
-                &op_uniform_layout,
-                &viewer_texture_layout,
-                &viewer_texture_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        let op_solid_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_solid",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        let op_circle_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_circle",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        let op_sphere_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_sphere",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        let op_transform_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_transform",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        let op_feedback_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_feedback",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-        let op_blend_pipeline = create_op_pipeline(
-            device,
-            &op_shader,
-            &op_pipeline_layout,
-            "fs_blend",
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        );
-
-        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gui-top-preview-dummy-texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let dummy_bind_group = viewer::create_texture_bind_group(
-            device,
-            &viewer_texture_layout,
-            &dummy_view,
-            &op_sampler,
-        );
-
         Self {
             viewer_pipeline,
             viewer_texture_layout,
             viewer_sampler,
             op_sampler,
+            op_surface_format: surface_format,
             viewer_bind_group: None,
             viewer_texture: None,
             viewer_texture_view: None,
@@ -460,14 +482,14 @@ impl TopPreviewRenderer {
             op_uniform_stride,
             op_uniform_capacity: 1,
             op_uniform_staging: Vec::new(),
-            op_solid_pipeline,
-            op_circle_pipeline,
-            op_sphere_pipeline,
-            op_transform_pipeline,
-            op_feedback_pipeline,
-            op_blend_pipeline,
-            dummy_texture,
-            dummy_bind_group,
+            op_solid_pipeline: None,
+            op_circle_pipeline: None,
+            op_sphere_pipeline: None,
+            op_transform_pipeline: None,
+            op_feedback_pipeline: None,
+            op_blend_pipeline: None,
+            dummy_texture: None,
+            dummy_bind_group: None,
             scratch_texture_a: None,
             scratch_view_a: None,
             scratch_bind_group_a: None,

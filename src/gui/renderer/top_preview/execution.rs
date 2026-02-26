@@ -81,6 +81,8 @@ impl TopPreviewRenderer {
         if ops.is_empty() {
             return None;
         }
+        self.ensure_op_pipelines(device);
+        self.ensure_dummy_bind_group(device);
         self.ensure_op_uniform_capacity(device, ops.len());
         let upload_bytes = self.write_op_uniforms(queue, ops);
         if ops.len() > 1 {
@@ -147,37 +149,37 @@ impl TopPreviewRenderer {
 
             match op {
                 TopViewerOp::Solid { .. } => {
-                    pass.set_pipeline(&self.op_solid_pipeline);
+                    pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                    pass.set_bind_group(1, &self.dummy_bind_group, &[]);
-                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                    pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
                 TopViewerOp::Circle { .. } => {
-                    pass.set_pipeline(&self.op_circle_pipeline);
+                    pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                    pass.set_bind_group(1, &self.dummy_bind_group, &[]);
-                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                    pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
                 TopViewerOp::Sphere { .. } => {
-                    pass.set_pipeline(&self.op_sphere_pipeline);
+                    pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-                    pass.set_bind_group(1, &self.dummy_bind_group, &[]);
-                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                    pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
                 TopViewerOp::Transform { .. } => {
                     let src_target = source_target?;
                     let src_bind_group = self.target_bind_group(src_target)?;
-                    pass.set_pipeline(&self.op_transform_pipeline);
+                    pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, src_bind_group, &[]);
-                    pass.set_bind_group(2, &self.dummy_bind_group, &[]);
+                    pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                 }
                 TopViewerOp::Feedback { .. } => {
                     let src_target = source_target?;
                     let src_bind_group = self.target_bind_group(src_target)?;
                     let history_key = feedback_history_key?;
                     let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
-                    pass.set_pipeline(&self.op_feedback_pipeline);
+                    pass.set_pipeline(self.op_feedback_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, src_bind_group, &[]);
                     pass.set_bind_group(2, history_bind_group, &[]);
@@ -194,8 +196,8 @@ impl TopPreviewRenderer {
                         })?;
                     let layer_bind_group = layer_texture_node_id
                         .and_then(|id| self.blend_source_bind_group(id))
-                        .unwrap_or(&self.dummy_bind_group);
-                    pass.set_pipeline(&self.op_blend_pipeline);
+                        .unwrap_or(self.dummy_bind_group.as_ref()?);
+                    pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
                     pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
                     pass.set_bind_group(1, base_bind_group, &[]);
                     pass.set_bind_group(2, layer_bind_group, &[]);
