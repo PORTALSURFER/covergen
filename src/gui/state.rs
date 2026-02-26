@@ -154,6 +154,13 @@ pub(crate) struct PanDragState {
     pub(crate) last_y: i32,
 }
 
+/// Active export-popup drag state anchored to the title bar grab offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PopupDragState {
+    pub(crate) offset_x: i32,
+    pub(crate) offset_y: i32,
+}
+
 /// Active right-drag marquee selection box.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RightMarqueeState {
@@ -193,6 +200,7 @@ pub(crate) struct PreviewState {
     pub(crate) wire_drag: Option<WireDragState>,
     pub(crate) link_cut: Option<LinkCutState>,
     pub(crate) pan_drag: Option<PanDragState>,
+    pub(crate) export_menu_drag: Option<PopupDragState>,
     pub(crate) right_marquee: Option<RightMarqueeState>,
     pub(crate) param_edit: Option<ParamEditState>,
     pub(crate) param_dropdown: Option<ParamDropdownState>,
@@ -236,6 +244,7 @@ impl PreviewState {
             wire_drag: None,
             link_cut: None,
             pan_drag: None,
+            export_menu_drag: None,
             right_marquee: None,
             param_edit: None,
             param_dropdown: None,

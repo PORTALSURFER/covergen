@@ -224,6 +224,11 @@ impl ExportMenuState {
         )
     }
 
+    /// Return draggable title-bar rectangle in panel coordinates.
+    pub(crate) fn title_bar_rect(&self) -> Rect {
+        Rect::new(self.x, self.y, EXPORT_MENU_WIDTH, EXPORT_MENU_TITLE_HEIGHT)
+    }
+
     /// Return selected row item.
     pub(crate) fn selected_item(&self) -> ExportMenuItem {
         EXPORT_MENU_ITEMS[self.selected.min(EXPORT_MENU_ITEMS.len() - 1)]
@@ -304,6 +309,26 @@ impl ExportMenuState {
     /// Update status line shown at the bottom of the export submenu.
     pub(crate) fn set_status(&mut self, status: impl Into<String>) {
         self.status = status.into();
+    }
+
+    /// Move the popup to `x/y`, clamped to editor panel bounds.
+    pub(crate) fn move_to(
+        &mut self,
+        x: i32,
+        y: i32,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> bool {
+        let max_x = (panel_width as i32 - EXPORT_MENU_WIDTH - 8).max(8);
+        let max_y = (panel_height as i32 - export_menu_height() - 8).max(8);
+        let next_x = x.clamp(8, max_x);
+        let next_y = y.clamp(8, max_y);
+        if self.x == next_x && self.y == next_y {
+            return false;
+        }
+        self.x = next_x;
+        self.y = next_y;
+        true
     }
 }
 

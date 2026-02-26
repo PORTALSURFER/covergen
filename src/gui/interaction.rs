@@ -13,8 +13,8 @@ use super::project::{
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, ExportMenuItem, HoverInsertLink, HoverParamTarget,
     InputSnapshot, LinkCutState, MainMenuItem, MainMenuState, PanDragState, ParamDropdownState,
-    ParamEditState, PendingAppAction, PreviewState, RightMarqueeState, WireDragState,
-    ADD_NODE_OPTIONS, MAIN_MENU_WIDTH,
+    ParamEditState, PendingAppAction, PopupDragState, PreviewState, RightMarqueeState,
+    WireDragState, ADD_NODE_OPTIONS, MAIN_MENU_WIDTH,
 };
 use super::timeline::{
     editor_panel_height, frame_from_track_x, next_looped_frame, pause_button_rect,
@@ -74,6 +74,7 @@ pub(crate) fn apply_preview_actions(
         state.wire_drag = None;
         state.link_cut = None;
         state.pan_drag = None;
+        state.export_menu_drag = None;
         state.right_marquee = None;
         state.param_edit = None;
         state.param_dropdown = None;
@@ -117,6 +118,7 @@ pub(crate) fn apply_preview_actions(
         state.wire_drag = None;
         state.link_cut = None;
         state.pan_drag = None;
+        state.export_menu_drag = None;
         state.right_marquee = None;
         state.hover_param_target = None;
         state.param_dropdown = None;
@@ -253,6 +255,7 @@ fn handle_help_input(
     state.wire_drag = None;
     state.link_cut = None;
     state.pan_drag = None;
+    state.export_menu_drag = None;
     state.right_marquee = None;
     state.param_edit = None;
     state.param_dropdown = None;
@@ -539,6 +542,12 @@ fn handle_main_export_menu_input(
     state: &mut PreviewState,
 ) -> bool {
     let mut changed = false;
+    let (drag_changed, drag_consumed) =
+        handle_export_menu_drag(input, panel_width, panel_height, state);
+    changed |= drag_changed;
+    if drag_consumed {
+        return changed;
+    }
     if let Some(hovered) = state.hover_export_menu_item {
         if state.export_menu.open {
             changed |= state.export_menu.select_index(hovered);
@@ -606,6 +615,52 @@ fn handle_main_export_menu_input(
         return close_main_menu(state) || changed;
     }
     changed
+}
+
+fn handle_export_menu_drag(
+    input: &InputSnapshot,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    if !state.export_menu.open {
+        return (state.export_menu_drag.take().is_some(), false);
+    }
+    if let Some(drag) = state.export_menu_drag {
+        if !input.left_down {
+            state.export_menu_drag = None;
+            return (false, false);
+        }
+        let Some((mx, my)) = input.mouse_pos else {
+            return (false, true);
+        };
+        let changed = state.export_menu.move_to(
+            mx - drag.offset_x,
+            my - drag.offset_y,
+            panel_width,
+            editor_panel_height(panel_height),
+        );
+        return (changed, true);
+    }
+    if !input.left_clicked {
+        return (false, false);
+    }
+    let Some((mx, my)) = input.mouse_pos else {
+        return (false, false);
+    };
+    if !state.export_menu.title_bar_rect().contains(mx, my) {
+        return (false, false);
+    }
+    if state.export_menu.close_button_rect().contains(mx, my) {
+        return (false, false);
+    }
+    state.export_menu_drag = Some(PopupDragState {
+        offset_x: mx - state.export_menu.x,
+        offset_y: my - state.export_menu.y,
+    });
+    state.hover_export_menu_item = None;
+    state.hover_export_menu_close = false;
+    (true, true)
 }
 
 fn apply_export_menu_text_input(input: &InputSnapshot, state: &mut PreviewState) -> bool {
@@ -707,9 +762,11 @@ fn close_main_menu(state: &mut PreviewState) -> bool {
 
 fn close_export_menu(state: &mut PreviewState) -> bool {
     let changed = state.export_menu.open
+        || state.export_menu_drag.is_some()
         || state.hover_export_menu_item.is_some()
         || state.hover_export_menu_close;
     state.export_menu.open = false;
+    state.export_menu_drag = None;
     state.hover_export_menu_item = None;
     state.hover_export_menu_close = false;
     changed
@@ -2528,8 +2585,11 @@ fn update_hover_state(
             state.hover_main_menu_item = state.main_menu.item_at(mx, my);
         }
         if state.export_menu.open {
-            state.hover_export_menu_item = state.export_menu.item_at(mx, my);
-            state.hover_export_menu_close = state.export_menu.close_button_rect().contains(mx, my);
+            if state.export_menu_drag.is_none() {
+                state.hover_export_menu_item = state.export_menu.item_at(mx, my);
+                state.hover_export_menu_close =
+                    state.export_menu.close_button_rect().contains(mx, my);
+            }
         }
         let mut changed = state.hover_main_menu_item != prev_hover_main_item
             || state.hover_export_menu_item != prev_hover_export_item
@@ -2982,6 +3042,56 @@ mod tests {
             &mut state
         ));
         assert!(!state.export_menu.open);
+    }
+
+    #[test]
+    fn export_panel_title_drag_moves_popup() {
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.export_menu = ExportMenuState::open_at(80, 80, 420, 480);
+        let initial_x = state.export_menu.x;
+        let initial_y = state.export_menu.y;
+        let start_drag = InputSnapshot {
+            left_clicked: true,
+            left_down: true,
+            mouse_pos: Some((100, 92)),
+            ..InputSnapshot::default()
+        };
+        assert!(handle_main_export_menu_input(
+            &start_drag,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(
+            state.export_menu_drag.map(|drag| drag.offset_x),
+            Some(100 - initial_x)
+        );
+        assert_eq!(
+            state.export_menu_drag.map(|drag| drag.offset_y),
+            Some(92 - initial_y)
+        );
+
+        let drag_move = InputSnapshot {
+            left_down: true,
+            mouse_pos: Some((180, 160)),
+            ..InputSnapshot::default()
+        };
+        assert!(handle_main_export_menu_input(
+            &drag_move, 420, 480, &mut state
+        ));
+        assert_eq!(state.export_menu.x, 8);
+        assert_eq!(state.export_menu.y, 148);
+
+        let release = InputSnapshot {
+            left_down: false,
+            mouse_pos: Some((180, 160)),
+            ..InputSnapshot::default()
+        };
+        assert!(!handle_main_export_menu_input(
+            &release, 420, 480, &mut state
+        ));
+        assert!(state.export_menu_drag.is_none());
+        assert!(state.export_menu.open);
     }
 
     #[test]
