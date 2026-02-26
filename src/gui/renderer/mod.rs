@@ -5,6 +5,7 @@ mod top_preview;
 mod viewer;
 
 use std::error::Error;
+use std::fmt::Write as _;
 use std::sync::mpsc;
 use std::sync::Arc;
 
@@ -44,6 +45,31 @@ pub(crate) struct GuiRenderPerfCounters {
 struct LayerRebuildStats {
     upload_bytes: u64,
     alloc_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HudLayerKey {
+    viewport_width: u32,
+    viewport_height: u32,
+    warn: bool,
+    fps_tenths: u16,
+}
+
+impl HudLayerKey {
+    fn from_frame(viewport_width: u32, viewport_height: u32, avg_fps: f32) -> Self {
+        let warn = avg_fps.is_finite() && avg_fps > 0.0 && avg_fps < HUD_TARGET_FPS;
+        let fps_tenths = if warn {
+            (avg_fps * 10.0).round().clamp(0.0, u16::MAX as f32) as u16
+        } else {
+            600
+        };
+        Self {
+            viewport_width,
+            viewport_height,
+            warn,
+            fps_tenths,
+        }
+    }
 }
 
 /// Retained GPU buffers/vertices for one scene layer.
@@ -211,6 +237,7 @@ pub(crate) struct GuiRenderer {
     hud_layer: SceneLayer,
     hud_text: GuiTextRenderer,
     hud_label: String,
+    cached_hud_key: Option<HudLayerKey>,
     uniform_dirty: bool,
     frame_perf: GuiRenderPerfCounters,
 }
@@ -298,6 +325,7 @@ impl GuiRenderer {
             hud_layer: SceneLayer::default(),
             hud_text: GuiTextRenderer::default(),
             hud_label: String::with_capacity(24),
+            cached_hud_key: None,
             uniform_dirty: false,
             frame_perf: GuiRenderPerfCounters::default(),
         })
@@ -346,7 +374,7 @@ impl GuiRenderer {
             .frame_perf
             .alloc_bytes
             .saturating_add(rebuild.alloc_bytes);
-        let hud_rebuild = self.rebuild_hud_layer(avg_fps);
+        let hud_rebuild = self.rebuild_hud_layer_if_needed(avg_fps);
         self.frame_perf.upload_bytes = self
             .frame_perf
             .upload_bytes
@@ -606,13 +634,24 @@ impl GuiRenderer {
         }
     }
 
-    fn rebuild_hud_layer(&mut self, avg_fps: f32) -> LayerRebuildStats {
+    fn rebuild_hud_layer_if_needed(&mut self, avg_fps: f32) -> LayerRebuildStats {
+        let key = HudLayerKey::from_frame(self.config.width, self.config.height, avg_fps);
+        if self.cached_hud_key == Some(key) {
+            return LayerRebuildStats::default();
+        }
+        self.cached_hud_key = Some(key);
+        self.rebuild_hud_layer(key)
+    }
+
+    fn rebuild_hud_layer(&mut self, key: HudLayerKey) -> LayerRebuildStats {
         self.hud_layer.rects.clear();
         self.hud_layer.lines.clear();
 
         self.hud_label.clear();
-        let hud_color = if avg_fps.is_finite() && avg_fps > 0.0 && avg_fps < HUD_TARGET_FPS {
-            self.hud_label.push_str(&format!("FPS {:.1}", avg_fps));
+        let hud_color = if key.warn {
+            let whole = key.fps_tenths / 10;
+            let frac = key.fps_tenths % 10;
+            let _ = write!(&mut self.hud_label, "FPS {whole}.{frac}");
             HUD_TEXT_WARN
         } else {
             self.hud_label.push_str("FPS 60");
@@ -625,8 +664,8 @@ impl GuiRenderer {
         let metrics = self.hud_text.metrics_scaled(1.0);
         let box_w = text_w + HUD_PAD_X * 2;
         let box_h = metrics.line_height_px + HUD_PAD_Y * 2;
-        let x = self.config.width as i32 - HUD_MARGIN_PX - box_w;
-        let y = HUD_MARGIN_PX;
+        let x = key.viewport_width as i32 - HUD_MARGIN_PX - box_w;
+        let y = HUD_MARGIN_PX.min((key.viewport_height as i32 - HUD_MARGIN_PX - box_h).max(0));
         let rect = super::geometry::Rect::new(x, y, box_w, box_h);
         self.hud_layer.rects.push(super::scene::ColoredRect {
             rect,
