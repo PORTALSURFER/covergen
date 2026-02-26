@@ -80,6 +80,17 @@ const SCENE_PASS_BG_MODE_OPTIONS: [NodeParamOption; 2] = [
         value: 1.0,
     },
 ];
+/// Timing modes exposed by the `ctl.lfo` node.
+const LFO_SYNC_MODE_OPTIONS: [NodeParamOption; 2] = [
+    NodeParamOption {
+        label: "free",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "beat",
+        value: 1.0,
+    },
+];
 /// Blend/composite modes exposed by the `tex.blend` node.
 const TEX_BLEND_MODE_OPTIONS: [NodeParamOption; 9] = [
     NodeParamOption {
@@ -639,6 +650,7 @@ pub(crate) struct GuiProject {
     nodes_epoch: u64,
     wires_epoch: u64,
     tex_eval_epoch: u64,
+    lfo_sync_bpm: f32,
 }
 
 /// Project-scoped invalidation epochs consumed by GUI retained layers.
@@ -687,12 +699,26 @@ impl GuiProject {
             nodes_epoch: 0,
             wires_epoch: 0,
             tex_eval_epoch: 0,
+            lfo_sync_bpm: 120.0,
         };
         project.render_signature_cache = project.compute_render_signature();
         project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
         project.graph_signature_cache =
             compose_graph_signature(project.render_signature_cache, project.ui_signature_cache);
         project
+    }
+
+    /// Update timeline BPM used by beat-synced `ctl.lfo` nodes.
+    ///
+    /// Returns `true` when the effective BPM changed.
+    pub(crate) fn set_lfo_sync_bpm(&mut self, bpm: f32) -> bool {
+        let next = bpm.clamp(1.0, 400.0);
+        if (self.lfo_sync_bpm - next).abs() < f32::EPSILON {
+            return false;
+        }
+        self.lfo_sync_bpm = next;
+        self.bump_tex_eval_epoch();
+        true
     }
 
     /// Export this in-memory graph to a persisted autosave payload.
@@ -2119,6 +2145,8 @@ impl GuiProject {
         const LFO_AMPLITUDE_INDEX: usize = 1;
         const LFO_PHASE_INDEX: usize = 2;
         const LFO_BIAS_INDEX: usize = 3;
+        const LFO_SYNC_MODE_INDEX: usize = 4;
+        const LFO_BEAT_MUL_INDEX: usize = 5;
         let rate = self
             .node_param_value_by_index(node_id, LFO_RATE_INDEX, time_secs, eval_stack)
             .unwrap_or(0.4);
@@ -2131,7 +2159,20 @@ impl GuiProject {
         let bias = self
             .node_param_value_by_index(node_id, LFO_BIAS_INDEX, time_secs, eval_stack)
             .unwrap_or(0.5);
-        let v = (time_secs * rate * std::f32::consts::TAU + phase * std::f32::consts::TAU).sin()
+        let sync_mode = self
+            .node_param_value_by_index(node_id, LFO_SYNC_MODE_INDEX, time_secs, eval_stack)
+            .unwrap_or(0.0)
+            >= 0.5;
+        let beat_mul = self
+            .node_param_value_by_index(node_id, LFO_BEAT_MUL_INDEX, time_secs, eval_stack)
+            .unwrap_or(1.0)
+            .clamp(0.125, 32.0);
+        let rate_hz = if sync_mode {
+            (self.lfo_sync_bpm / 60.0) * beat_mul
+        } else {
+            rate
+        };
+        let v = (time_secs * rate_hz * std::f32::consts::TAU + phase * std::f32::consts::TAU).sin()
             * amplitude
             + bias;
         eval_stack.pop();
@@ -2454,6 +2495,8 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("amplitude", "amplitude", 0.5, 0.0, 64.0, 0.1),
             param("phase", "phase", 0.0, -1.0, 1.0, 0.02),
             param("bias", "bias", 0.5, -1.0, 1.0, 0.02),
+            param_dropdown("sync_mode", "sync_mode", 0, &LFO_SYNC_MODE_OPTIONS),
+            param("beat_mul", "beat_mul", 1.0, 0.125, 32.0, 0.125),
         ],
         ProjectNodeKind::IoWindowOut => Vec::new(),
     }
@@ -3359,6 +3402,46 @@ mod tests {
             .node_param_raw_value(lfo, 1)
             .expect("param value should exist");
         assert_eq!(value, 12.5);
+    }
+
+    #[test]
+    fn lfo_sync_mode_uses_dropdown_options() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+        assert!(project.param_is_dropdown(lfo, 4));
+        assert!(!project.param_supports_text_edit(lfo, 4));
+        let options = project
+            .node_param_dropdown_options(lfo, 4)
+            .expect("dropdown options should exist");
+        assert_eq!(options.len(), 2);
+        assert_eq!(project.node_param_raw_text(lfo, 4), Some("free"));
+        assert!(project.set_param_dropdown_index(lfo, 4, 1));
+        assert_eq!(project.node_param_raw_text(lfo, 4), Some("beat"));
+        assert!(project.adjust_param(lfo, 4, -1.0));
+        assert_eq!(project.node_param_raw_text(lfo, 4), Some("free"));
+    }
+
+    #[test]
+    fn beat_synced_lfo_follows_project_timeline_bpm() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+        assert!(project.set_param_dropdown_index(lfo, 4, 1));
+        assert!(project.set_param_value(lfo, 5, 2.0));
+
+        assert!(project.set_lfo_sync_bpm(90.0));
+        let sample_90 = project
+            .sample_signal_node(lfo, 0.125, &mut Vec::new())
+            .expect("lfo should evaluate");
+
+        assert!(project.set_lfo_sync_bpm(60.0));
+        let sample_60 = project
+            .sample_signal_node(lfo, 0.125, &mut Vec::new())
+            .expect("lfo should evaluate");
+
+        assert!(
+            (sample_90 - sample_60).abs() > 0.05,
+            "beat-synced lfo should change when bpm changes"
+        );
     }
 
     #[test]

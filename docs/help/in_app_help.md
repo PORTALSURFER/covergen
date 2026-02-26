@@ -202,6 +202,10 @@ Output oscillation amplitude.
 Oscillation phase offset.
 ### Param `bias`
 Constant output offset applied after oscillation.
+### Param `sync_mode`
+Timing mode: free-running hertz or beat-synced to timeline BPM.
+### Param `beat_mul`
+Beat-sync multiplier; cycles per beat when `sync_mode` is `beat`.
 
 ## Node `io.window_out`
 Final output sink that presents the incoming texture to the window.

@@ -496,6 +496,9 @@ impl GuiApp {
             SceneInvalidationSnapshot::capture(&self.state, self.config.animation.fps);
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
+        scene_dirty |= self
+            .project
+            .set_lfo_sync_bpm(self.state.export_menu.parsed_bpm());
         if consume_editor_input {
             self.state.drag = None;
             self.state.wire_drag = None;
