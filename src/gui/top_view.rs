@@ -4,8 +4,8 @@
 //! payload so the renderer executes a single GPU-only preview path.
 
 use super::project::GuiProject;
-use super::runtime::GuiCompiledRuntime;
-use super::timeline::editor_panel_height;
+use super::runtime::{GuiCompiledRuntime, TopRuntimeFrameContext};
+use super::timeline::{editor_panel_height, TIMELINE_TOTAL_FRAMES};
 
 /// Re-exported TOP operation type consumed by preview rendering.
 pub(crate) use super::runtime::TopRuntimeOp as TopViewerOp;
@@ -113,7 +113,16 @@ impl TopViewerGenerator {
 
         self.ops.clear();
         if let Some(compiled_runtime) = &self.compiled_runtime {
-            compiled_runtime.evaluate_ops(project, time_secs, &mut self.eval_stack, &mut self.ops);
+            compiled_runtime.evaluate_ops_with_frame(
+                project,
+                time_secs,
+                Some(TopRuntimeFrameContext {
+                    frame_index: dynamic_frame,
+                    frame_total: TIMELINE_TOTAL_FRAMES,
+                }),
+                &mut self.eval_stack,
+                &mut self.ops,
+            );
         }
     }
 

@@ -7,6 +7,7 @@ use super::project::{GuiProject, ProjectNodeKind};
 
 const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+const DEFAULT_LOOP_FPS: u32 = 60;
 
 /// One GPU operation emitted by GUI runtime evaluation.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,6 +84,15 @@ pub(crate) enum TopRuntimeFeedbackHistoryBinding {
     Internal { feedback_node_id: u32 },
     /// External history slot keyed by a texture-node id.
     External { texture_node_id: u32 },
+}
+
+/// Frame-clock context used for timeline-locked operation evaluation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TopRuntimeFrameContext {
+    /// Current timeline frame index.
+    pub(crate) frame_index: u32,
+    /// Total timeline frame count.
+    pub(crate) frame_total: u32,
 }
 
 /// One compiled step in GUI TOP runtime order.
@@ -174,10 +184,26 @@ impl GuiCompiledRuntime {
     }
 
     /// Evaluate compiled steps into GPU runtime operations for one frame.
+    #[cfg(test)]
     pub(crate) fn evaluate_ops(
         &self,
         project: &GuiProject,
         time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+        out_ops: &mut Vec<TopRuntimeOp>,
+    ) {
+        self.evaluate_ops_with_frame(project, time_secs, None, eval_stack, out_ops);
+    }
+
+    /// Evaluate compiled steps into GPU runtime operations for one frame.
+    ///
+    /// When `frame` is provided, loop-mode temporal nodes can lock animation to
+    /// timeline phase and guarantee seam-free first/last frame matching.
+    pub(crate) fn evaluate_ops_with_frame(
+        &self,
+        project: &GuiProject,
+        time_secs: f32,
+        frame: Option<TopRuntimeFrameContext>,
         eval_stack: &mut Vec<u32>,
         out_ops: &mut Vec<TopRuntimeOp>,
     ) {
@@ -342,12 +368,43 @@ impl GuiCompiledRuntime {
                         .node_param_value(step.node_id, "stretch", time_secs, eval_stack)
                         .unwrap_or(0.0)
                         .clamp(0.0, 1.0);
-                    let t = time_secs * speed_hz * std::f32::consts::TAU;
-                    let phase_warp = layered_sine_noise(t * 0.37, frequency, phase, seed);
+                    let loop_cycles = project
+                        .node_param_value(step.node_id, "loop_cyc", time_secs, eval_stack)
+                        .unwrap_or(12.0)
+                        .clamp(0.0, 256.0);
+                    let loop_mode = project
+                        .node_param_value(step.node_id, "loop_mode", time_secs, eval_stack)
+                        .unwrap_or(0.0)
+                        >= 0.5;
+                    let (base_phase, warp_freq, warp_input) = if loop_mode {
+                        let loop_phase = timeline_loop_phase(frame, time_secs);
+                        (
+                            loop_phase * loop_cycles.round(),
+                            frequency.round().clamp(1.0, 64.0),
+                            loop_phase,
+                        )
+                    } else {
+                        (
+                            time_secs * speed_hz * std::f32::consts::TAU,
+                            frequency,
+                            time_secs * speed_hz * std::f32::consts::TAU * 0.37,
+                        )
+                    };
+                    let phase_warp = if loop_mode {
+                        layered_loop_sine_noise(warp_input, warp_freq, phase, seed)
+                    } else {
+                        layered_sine_noise(warp_input, warp_freq, phase, seed)
+                    };
+                    let mut noise_phase = base_phase
+                        + phase * std::f32::consts::TAU
+                        + seed * 0.173
+                        + phase_warp * 0.65;
+                    if loop_mode {
+                        noise_phase = noise_phase.rem_euclid(std::f32::consts::TAU);
+                    }
                     mesh_state.noise_amount = amplitude;
                     mesh_state.noise_freq = frequency;
-                    mesh_state.noise_phase =
-                        t + phase * std::f32::consts::TAU + seed * 0.173 + phase_warp * 0.65;
+                    mesh_state.noise_phase = noise_phase;
                     mesh_state.noise_twist = twist;
                     mesh_state.noise_stretch = stretch;
                     mesh = Some(mesh_state);
@@ -733,9 +790,48 @@ fn layered_sine_noise(t: f32, frequency: f32, phase: f32, seed: f32) -> f32 {
     (n0 * 0.62 + n1 * 0.28 + n2 * 0.10).clamp(-1.0, 1.0)
 }
 
+/// Timeline-safe pseudo-noise that stays periodic across a full clip loop.
+fn layered_loop_sine_noise(loop_phase: f32, frequency: f32, phase: f32, seed: f32) -> f32 {
+    let freq_cycles = frequency.round().clamp(1.0, 64.0);
+    let s0 = seed * 0.13 + phase;
+    let s1 = seed * 0.73 + phase * 1.9;
+    let s2 = seed * 1.37 + phase * 0.47;
+    let n0 = (loop_phase * freq_cycles + s0).sin();
+    let n1 = (loop_phase * freq_cycles * 2.0 + s1).sin();
+    let n2 = (loop_phase * freq_cycles * 4.0 + s2).sin();
+    (n0 * 0.62 + n1 * 0.28 + n2 * 0.10).clamp(-1.0, 1.0)
+}
+
+/// Convert frame-clock context to a deterministic `[0, TAU]` loop phase.
+///
+/// The phase is end-inclusive, so first and last timeline frames resolve to
+/// identical loop positions when loop mode is enabled.
+fn timeline_loop_phase(frame: Option<TopRuntimeFrameContext>, time_secs: f32) -> f32 {
+    let progress = match frame {
+        Some(ctx) => normalized_loop_progress(ctx.frame_index, ctx.frame_total),
+        None => {
+            let seconds = (time_secs / 30.0).clamp(0.0, 1.0);
+            normalized_loop_progress((seconds * 1_799.0).round() as u32, 30 * DEFAULT_LOOP_FPS)
+        }
+    };
+    progress * std::f32::consts::TAU
+}
+
+/// Return normalized loop progress in `[0, 1]` for a frame counter.
+fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
+    if frame_total <= 1 {
+        return 0.0;
+    }
+    let max_index = frame_total - 1;
+    let clamped = frame_index.min(max_index);
+    clamped as f32 / max_index as f32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding, TopRuntimeOp};
+    use super::{
+        GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding, TopRuntimeFrameContext, TopRuntimeOp,
+    };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
     #[test]
@@ -1099,5 +1195,65 @@ mod tests {
         assert_ne!(phase0, phase1);
         assert!(twist0 > 2.4 && twist1 > 2.4);
         assert!(stretch0 > 0.39 && stretch1 > 0.39);
+    }
+
+    #[test]
+    fn buffer_noise_loop_mode_matches_first_and_last_timeline_frame() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 340, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 500, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 660, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 40, 420, 480);
+        assert!(project.connect_image_link(sphere, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+
+        assert!(project.set_param_value(noise, 0, 0.5));
+        assert!(project.set_param_value(noise, 1, 3.4));
+        assert!(project.set_param_value(noise, 3, 0.2));
+        assert!(project.set_param_value(noise, 4, 11.0));
+        assert!(project.set_param_value(noise, 7, 9.0));
+        assert!(project.set_param_dropdown_index(noise, 8, 1));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops_first = Vec::new();
+        runtime.evaluate_ops_with_frame(
+            &project,
+            0.0,
+            Some(TopRuntimeFrameContext {
+                frame_index: 0,
+                frame_total: 1_800,
+            }),
+            &mut eval_stack,
+            &mut ops_first,
+        );
+        let mut ops_last = Vec::new();
+        runtime.evaluate_ops_with_frame(
+            &project,
+            1_799.0 / 60.0,
+            Some(TopRuntimeFrameContext {
+                frame_index: 1_799,
+                frame_total: 1_800,
+            }),
+            &mut eval_stack,
+            &mut ops_last,
+        );
+        let phase_first = match ops_first[0] {
+            TopRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
+            _ => panic!("expected sphere op"),
+        };
+        let phase_last = match ops_last[0] {
+            TopRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
+            _ => panic!("expected sphere op"),
+        };
+        assert!(
+            (phase_first - phase_last).abs() < 1e-4,
+            "loop mode should match first/last frame phase: first={phase_first}, last={phase_last}"
+        );
     }
 }
