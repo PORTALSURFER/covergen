@@ -1,5 +1,11 @@
 //! GUI input handling and graph-editor interaction logic.
 
+mod drag;
+mod hover;
+mod marquee;
+mod param_edit;
+mod wire;
+
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
@@ -43,6 +49,22 @@ struct CutLink {
 enum HelpTarget {
     Node(u32),
     Param { node_id: u32, param_index: usize },
+}
+
+/// Shared panel-size context for interaction submodules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InteractionPanelContext {
+    panel_width: usize,
+    panel_height: usize,
+}
+
+impl InteractionPanelContext {
+    const fn new(panel_width: usize, panel_height: usize) -> Self {
+        Self {
+            panel_width,
+            panel_height,
+        }
+    }
 }
 
 /// Apply one frame of input actions to project/editor state.
@@ -911,112 +933,29 @@ fn handle_right_selection(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let mut changed = false;
-    if input.right_clicked
-        && !input.alt_down
-        && !state.menu.open
-        && !state.main_menu.open
-        && !state.export_menu.open
-    {
-        let Some((mx, my)) = input.mouse_pos else {
-            return false;
-        };
-        if !inside_panel(mx, my, panel_width, panel_height) {
-            return false;
-        }
-        let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-        if let Some(node_id) = project.node_at(graph_x, graph_y) {
-            if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-                if project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
-                    && project
-                        .param_link_source_for_param(node_id, param_index)
-                        .is_some()
-                {
-                    changed |= project.disconnect_param_link_from_param(node_id, param_index);
-                    changed |= set_single_selection(state, node_id);
-                    state.active_node = Some(node_id);
-                    state.right_marquee = None;
-                    state.drag = None;
-                    state.wire_drag = None;
-                    state.hover_param_target = None;
-                    state.param_edit = None;
-                    state.param_dropdown = None;
-                    state.hover_dropdown_item = None;
-                    return true;
-                }
-            }
-            changed |= set_single_selection(state, node_id);
-            state.active_node = Some(node_id);
-            state.right_marquee = None;
-            state.drag = None;
-            state.wire_drag = None;
-            state.hover_param_target = None;
-            state.param_edit = None;
-            state.param_dropdown = None;
-            state.hover_dropdown_item = None;
-            return true;
-        }
-        state.right_marquee = Some(RightMarqueeState {
-            start_x: mx,
-            start_y: my,
-            cursor_x: mx,
-            cursor_y: my,
-        });
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.param_edit = None;
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    let Some(mut marquee) = state.right_marquee else {
-        return changed;
-    };
-    if let Some((mx, my)) = input.mouse_pos {
-        if marquee.cursor_x != mx || marquee.cursor_y != my {
-            marquee.cursor_x = mx;
-            marquee.cursor_y = my;
-            changed = true;
-        }
-    }
-    let moved = marquee_moved(marquee);
-    if moved {
-        let selected = collect_marquee_nodes(project, state, marquee);
-        changed |= set_multi_selection(state, selected);
-    }
-    if !input.right_down {
-        if !moved {
-            changed |= clear_selection(state);
-        }
-        state.right_marquee = None;
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    state.right_marquee = Some(marquee);
-    changed
+    marquee::handle_right_selection(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn marquee_moved(marquee: RightMarqueeState) -> bool {
-    (marquee.cursor_x - marquee.start_x).abs() > 4 || (marquee.cursor_y - marquee.start_y).abs() > 4
+    marquee::marquee_moved(marquee)
 }
 
+#[allow(dead_code)]
 fn collect_marquee_nodes(
     project: &GuiProject,
     state: &PreviewState,
     marquee: RightMarqueeState,
 ) -> Vec<u32> {
-    let rect = screen_rect_to_graph_rect(
-        marquee.start_x,
-        marquee.start_y,
-        marquee.cursor_x,
-        marquee.cursor_y,
-        state,
-    );
-    project.node_ids_overlapping_graph_rect(rect.0, rect.1, rect.2, rect.3)
+    marquee::collect_marquee_nodes(project, state, marquee)
 }
 
+#[allow(dead_code)]
 fn screen_rect_to_graph_rect(
     sx0: i32,
     sy0: i32,
@@ -1024,9 +963,7 @@ fn screen_rect_to_graph_rect(
     sy1: i32,
     state: &PreviewState,
 ) -> (i32, i32, i32, i32) {
-    let (gx0, gy0) = screen_to_graph(sx0, sy0, state);
-    let (gx1, gy1) = screen_to_graph(sx1, sy1, state);
-    (gx0.min(gx1), gy0.min(gy1), gx0.max(gx1), gy0.max(gy1))
+    marquee::screen_rect_to_graph_rect(sx0, sy0, sx1, sy1, state)
 }
 
 /// Convert current editor panel bounds to one graph-space rectangle.
@@ -1035,13 +972,14 @@ fn panel_graph_rect(
     panel_height: usize,
     state: &PreviewState,
 ) -> (i32, i32, i32, i32) {
-    let max_x = panel_width.saturating_sub(1) as i32;
-    let max_y = editor_panel_height(panel_height).saturating_sub(1) as i32;
-    screen_rect_to_graph_rect(0, 0, max_x, max_y, state)
+    marquee::panel_graph_rect(
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 fn rects_overlap(
     ax0: i32,
     ay0: i32,
@@ -1052,36 +990,22 @@ fn rects_overlap(
     bx1: i32,
     by1: i32,
 ) -> bool {
-    ax0 <= bx1 && ax1 >= bx0 && ay0 <= by1 && ay1 >= by0
+    marquee::rects_overlap(ax0, ay0, ax1, ay1, bx0, by0, bx1, by1)
 }
 
+#[allow(dead_code)]
 fn set_single_selection(state: &mut PreviewState, node_id: u32) -> bool {
-    if state.selected_nodes.len() == 1 && state.selected_nodes[0] == node_id {
-        return false;
-    }
-    state.selected_nodes.clear();
-    state.selected_nodes.push(node_id);
-    true
+    marquee::set_single_selection(state, node_id)
 }
 
-fn set_multi_selection(state: &mut PreviewState, mut nodes: Vec<u32>) -> bool {
-    nodes.sort_unstable();
-    nodes.dedup();
-    if state.selected_nodes == nodes {
-        return false;
-    }
-    state.selected_nodes = nodes;
-    state.active_node = state.selected_nodes.first().copied();
-    true
+#[allow(dead_code)]
+fn set_multi_selection(state: &mut PreviewState, nodes: Vec<u32>) -> bool {
+    marquee::set_multi_selection(state, nodes)
 }
 
+#[allow(dead_code)]
 fn clear_selection(state: &mut PreviewState) -> bool {
-    if state.selected_nodes.is_empty() && state.active_node.is_none() {
-        return false;
-    }
-    state.selected_nodes.clear();
-    state.active_node = None;
-    true
+    marquee::clear_selection(state)
 }
 
 fn handle_param_edit_input(
@@ -1091,70 +1015,24 @@ fn handle_param_edit_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> (bool, bool) {
-    let mut changed = false;
-    if state.menu.open || state.main_menu.open || state.export_menu.open {
-        return (changed, false);
-    }
-    changed |= apply_param_text_edits(input, project, state);
-    if !input.left_clicked {
-        return (changed, false);
-    }
-    if handle_dropdown_click(input, project, panel_width, panel_height, state) {
-        return (true, true);
-    }
-    let consumed = handle_param_click(input, project, panel_width, panel_height, state);
-    (changed, consumed)
+    param_edit::handle_param_edit_input(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn apply_param_text_edits(
     input: &InputSnapshot,
     project: &mut GuiProject,
     state: &mut PreviewState,
 ) -> bool {
-    if let Some(edit) = state.param_edit.as_ref() {
-        if !project.node_expanded(edit.node_id) {
-            state.param_edit = None;
-            return true;
-        }
-    }
-    let Some(edit) = state.param_edit.as_mut() else {
-        return false;
-    };
-    clamp_param_edit_indices(edit);
-    let mut changed = false;
-    if input.param_cancel {
-        state.param_edit = None;
-        return true;
-    }
-    if input.param_select_all {
-        changed |= select_all_param_text(edit);
-    }
-    if input.param_dec {
-        changed |= move_param_cursor_left(edit, input.shift_down);
-    }
-    if input.param_inc {
-        changed |= move_param_cursor_right(edit, input.shift_down);
-    }
-    if input.param_backspace {
-        changed |= backspace_param_text(edit);
-    }
-    if input.param_delete {
-        changed |= delete_param_text(edit);
-    }
-    if !input.typed_text.is_empty() {
-        for ch in input.typed_text.chars() {
-            if insert_param_char(edit, ch) {
-                changed = true;
-            }
-        }
-    }
-    if input.param_commit && commit_param_edit(project, edit) {
-        state.param_edit = None;
-        return true;
-    }
-    changed
+    param_edit::apply_param_text_edits(input, project, state)
 }
 
+#[allow(dead_code)]
 fn handle_param_click(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -1162,77 +1040,15 @@ fn handle_param_click(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let Some((mx, my)) = input.mouse_pos else {
-        let _ = finish_param_edit(project, state);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return false;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        let _ = finish_param_edit(project, state);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return false;
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let Some(node_id) = project.node_at(graph_x, graph_y) else {
-        let _ = finish_param_edit(project, state);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return false;
-    };
-    let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
-        let _ = finish_param_edit(project, state);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return false;
-    };
-    let _ = project.select_param(node_id, param_index);
-    state.active_node = Some(node_id);
-    if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
-        let _ = finish_param_edit(project, state);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    if project.param_is_dropdown(node_id, param_index) {
-        state.param_edit = None;
-        if state
-            .param_dropdown
-            .map(|dropdown| dropdown.node_id == node_id && dropdown.param_index == param_index)
-            .unwrap_or(false)
-        {
-            state.param_dropdown = None;
-            state.hover_dropdown_item = None;
-            return true;
-        }
-        state.param_dropdown = Some(ParamDropdownState {
-            node_id,
-            param_index,
-        });
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
-    let same_edit_target = state
-        .param_edit
-        .as_ref()
-        .map(|edit| edit.node_id == node_id && edit.param_index == param_index)
-        .unwrap_or(false);
-    if same_edit_target {
-        if let Some(edit) = state.param_edit.as_mut() {
-            let end = edit.buffer.len();
-            edit.cursor = end;
-            edit.anchor = end;
-        }
-        return true;
-    }
-    let _ = finish_param_edit(project, state);
-    let _ = start_param_edit(project, state, node_id, param_index);
-    true
+    param_edit::handle_param_click(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn handle_dropdown_click(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -1240,303 +1056,117 @@ fn handle_dropdown_click(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let Some(dropdown) = state.param_dropdown else {
-        return false;
-    };
-    let Some((mx, my)) = input.mouse_pos else {
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    if let Some(option_index) = dropdown_option_at_cursor(project, state, mx, my) {
-        let _ =
-            project.set_param_dropdown_index(dropdown.node_id, dropdown.param_index, option_index);
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
-        return true;
-    }
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
-    true
+    param_edit::handle_dropdown_click(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn dropdown_option_at_cursor(
     project: &GuiProject,
     state: &PreviewState,
     mx: i32,
     my: i32,
 ) -> Option<usize> {
-    let dropdown = state.param_dropdown?;
-    let node = project.node(dropdown.node_id)?;
-    let options = project.node_param_dropdown_options(dropdown.node_id, dropdown.param_index)?;
-    let list_world = node_param_dropdown_rect(node, dropdown.param_index, options.len())?;
-    let list_panel = graph_rect_to_panel(list_world, state);
-    if !list_panel.contains(mx, my) {
-        return None;
-    }
-    for (index, _) in options.iter().enumerate() {
-        let row_world = Rect::new(
-            list_world.x,
-            list_world.y + index as i32 * NODE_PARAM_DROPDOWN_ROW_HEIGHT,
-            list_world.w,
-            NODE_PARAM_DROPDOWN_ROW_HEIGHT,
-        );
-        let row_panel = graph_rect_to_panel(row_world, state);
-        if row_panel.contains(mx, my) {
-            return Some(index);
-        }
-    }
-    None
+    param_edit::dropdown_option_at_cursor(project, state, mx, my)
 }
 
+#[allow(dead_code)]
 fn start_param_edit(
     project: &GuiProject,
     state: &mut PreviewState,
     node_id: u32,
     param_index: usize,
 ) -> bool {
-    if !project.param_supports_text_edit(node_id, param_index) {
-        return false;
-    }
-    if state
-        .param_edit
-        .as_ref()
-        .map(|edit| edit.node_id == node_id && edit.param_index == param_index)
-        .unwrap_or(false)
-    {
-        return false;
-    }
-    let Some(value_text) = project.node_param_raw_text(node_id, param_index) else {
-        return false;
-    };
-    state.param_edit = Some(ParamEditState {
-        node_id,
-        param_index,
-        buffer: value_text.to_owned(),
-        cursor: 0,
-        anchor: 0,
-    });
-    if let Some(edit) = state.param_edit.as_mut() {
-        let len = edit.buffer.len();
-        edit.cursor = len;
-        edit.anchor = 0;
-    }
-    true
+    param_edit::start_param_edit(project, state, node_id, param_index)
 }
 
+#[allow(dead_code)]
 fn finish_param_edit(project: &mut GuiProject, state: &mut PreviewState) -> bool {
-    let Some(mut edit) = state.param_edit.take() else {
-        return false;
-    };
-    let _ = commit_param_edit(project, &mut edit);
-    true
+    param_edit::finish_param_edit(project, state)
 }
 
+#[allow(dead_code)]
 fn commit_param_edit(project: &mut GuiProject, edit: &mut ParamEditState) -> bool {
-    let Ok(value) = edit.buffer.trim().parse::<f32>() else {
-        return false;
-    };
-    let _ = project.set_param_value(edit.node_id, edit.param_index, value);
-    true
+    param_edit::commit_param_edit(project, edit)
 }
 
+#[allow(dead_code)]
 fn can_append_param_char(current: &str, ch: char) -> bool {
-    if !(ch.is_ascii_digit() || ch == '-' || ch == '.') {
-        return false;
-    }
-    let mut next = String::with_capacity(current.len() + ch.len_utf8());
-    next.push_str(current);
-    next.push(ch);
-    is_valid_param_buffer(next.as_str())
+    param_edit::can_append_param_char(current, ch)
 }
 
+#[allow(dead_code)]
 fn is_valid_param_buffer(buffer: &str) -> bool {
-    for (index, ch) in buffer.char_indices() {
-        if ch.is_ascii_digit() {
-            continue;
-        }
-        if ch == '-' {
-            if index == 0 {
-                continue;
-            }
-            return false;
-        }
-        if ch == '.' {
-            if buffer[..index].contains('.') {
-                return false;
-            }
-            continue;
-        }
-        return false;
-    }
-    true
+    param_edit::is_valid_param_buffer(buffer)
 }
 
+#[allow(dead_code)]
 fn clamp_param_edit_indices(edit: &mut ParamEditState) {
-    let len = edit.buffer.len();
-    edit.cursor = edit.cursor.min(len);
-    edit.anchor = edit.anchor.min(len);
+    param_edit::clamp_param_edit_indices(edit)
 }
 
+#[allow(dead_code)]
 fn has_param_selection(edit: &ParamEditState) -> bool {
-    edit.cursor != edit.anchor
+    param_edit::has_param_selection(edit)
 }
 
+#[allow(dead_code)]
 fn param_selection_bounds(edit: &ParamEditState) -> (usize, usize) {
-    (edit.cursor.min(edit.anchor), edit.cursor.max(edit.anchor))
+    param_edit::param_selection_bounds(edit)
 }
 
+#[allow(dead_code)]
 fn collapse_param_selection(edit: &mut ParamEditState, at: usize) {
-    let clamped = at.min(edit.buffer.len());
-    edit.cursor = clamped;
-    edit.anchor = clamped;
+    param_edit::collapse_param_selection(edit, at)
 }
 
+#[allow(dead_code)]
 fn select_all_param_text(edit: &mut ParamEditState) -> bool {
-    let len = edit.buffer.len();
-    if len == 0 {
-        return false;
-    }
-    if edit.anchor == 0 && edit.cursor == len {
-        return false;
-    }
-    edit.anchor = 0;
-    edit.cursor = len;
-    true
+    param_edit::select_all_param_text(edit)
 }
 
+#[allow(dead_code)]
 fn delete_param_selection(edit: &mut ParamEditState) -> bool {
-    if !has_param_selection(edit) {
-        return false;
-    }
-    let (start, end) = param_selection_bounds(edit);
-    edit.buffer.replace_range(start..end, "");
-    collapse_param_selection(edit, start);
-    true
+    param_edit::delete_param_selection(edit)
 }
 
+#[allow(dead_code)]
 fn backspace_param_text(edit: &mut ParamEditState) -> bool {
-    if delete_param_selection(edit) {
-        return true;
-    }
-    if edit.cursor == 0 {
-        return false;
-    }
-    let start = prev_char_boundary(&edit.buffer, edit.cursor);
-    edit.buffer.replace_range(start..edit.cursor, "");
-    collapse_param_selection(edit, start);
-    true
+    param_edit::backspace_param_text(edit)
 }
 
+#[allow(dead_code)]
 fn delete_param_text(edit: &mut ParamEditState) -> bool {
-    if delete_param_selection(edit) {
-        return true;
-    }
-    if edit.cursor >= edit.buffer.len() {
-        return false;
-    }
-    let end = next_char_boundary(&edit.buffer, edit.cursor);
-    edit.buffer.replace_range(edit.cursor..end, "");
-    collapse_param_selection(edit, edit.cursor);
-    true
+    param_edit::delete_param_text(edit)
 }
 
+#[allow(dead_code)]
 fn insert_param_char(edit: &mut ParamEditState, ch: char) -> bool {
-    if !(ch.is_ascii_digit() || ch == '-' || ch == '.') {
-        return false;
-    }
-    let candidate = ch.to_string();
-    let mut next = edit.buffer.clone();
-    if has_param_selection(edit) {
-        let (start, end) = param_selection_bounds(edit);
-        next.replace_range(start..end, candidate.as_str());
-        if !is_valid_param_buffer(next.as_str()) {
-            return false;
-        }
-        edit.buffer = next;
-        let next_cursor = start + candidate.len();
-        collapse_param_selection(edit, next_cursor);
-        return true;
-    }
-    if edit.cursor == edit.buffer.len() && !can_append_param_char(edit.buffer.as_str(), ch) {
-        return false;
-    }
-    next.insert(edit.cursor, ch);
-    if !is_valid_param_buffer(next.as_str()) {
-        return false;
-    }
-    edit.buffer = next;
-    collapse_param_selection(edit, edit.cursor + ch.len_utf8());
-    true
+    param_edit::insert_param_char(edit, ch)
 }
 
+#[allow(dead_code)]
 fn move_param_cursor_left(edit: &mut ParamEditState, extend_selection: bool) -> bool {
-    if edit.cursor == 0 && (!has_param_selection(edit) || extend_selection) {
-        return false;
-    }
-    if !extend_selection && has_param_selection(edit) {
-        let (start, _) = param_selection_bounds(edit);
-        collapse_param_selection(edit, start);
-        return true;
-    }
-    let next = prev_char_boundary(&edit.buffer, edit.cursor);
-    if next == edit.cursor {
-        return false;
-    }
-    edit.cursor = next;
-    if !extend_selection {
-        edit.anchor = edit.cursor;
-    }
-    true
+    param_edit::move_param_cursor_left(edit, extend_selection)
 }
 
+#[allow(dead_code)]
 fn move_param_cursor_right(edit: &mut ParamEditState, extend_selection: bool) -> bool {
-    if edit.cursor >= edit.buffer.len() && (!has_param_selection(edit) || extend_selection) {
-        return false;
-    }
-    if !extend_selection && has_param_selection(edit) {
-        let (_, end) = param_selection_bounds(edit);
-        collapse_param_selection(edit, end);
-        return true;
-    }
-    let next = next_char_boundary(&edit.buffer, edit.cursor);
-    if next == edit.cursor {
-        return false;
-    }
-    edit.cursor = next;
-    if !extend_selection {
-        edit.anchor = edit.cursor;
-    }
-    true
+    param_edit::move_param_cursor_right(edit, extend_selection)
 }
 
+#[allow(dead_code)]
 fn prev_char_boundary(text: &str, index: usize) -> usize {
-    if index == 0 {
-        return 0;
-    }
-    let clamped = index.min(text.len());
-    text[..clamped]
-        .char_indices()
-        .next_back()
-        .map(|(idx, _)| idx)
-        .unwrap_or(0)
+    param_edit::prev_char_boundary(text, index)
 }
 
+#[allow(dead_code)]
 fn next_char_boundary(text: &str, index: usize) -> usize {
-    let clamped = index.min(text.len());
-    if clamped >= text.len() {
-        return text.len();
-    }
-    text[clamped..]
-        .chars()
-        .next()
-        .map(|ch| clamped + ch.len_utf8())
-        .unwrap_or(text.len())
+    param_edit::next_char_boundary(text, index)
 }
 
 fn handle_link_cut(
@@ -1885,101 +1515,28 @@ fn handle_drag_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let mut changed = false;
-    if input.left_clicked {
-        changed |= begin_drag_if_node_hit(input, project, panel_width, panel_height, state);
-    }
-    let dragged_node_ids = state
-        .drag
-        .map(|drag| drag_selection_node_ids(state, drag.node_id))
-        .unwrap_or_default();
-    let is_group_drag = dragged_node_ids.len() > 1;
-    if !input.left_down {
-        if let Some(drag) = state.drag {
-            if !is_group_drag {
-                if let Some(link) = resolve_insert_link_on_release(
-                    input,
-                    project,
-                    panel_width,
-                    panel_height,
-                    state,
-                    drag.node_id,
-                ) {
-                    changed |= project.insert_node_on_primary_link(
-                        drag.node_id,
-                        link.source_id,
-                        link.target_id,
-                    );
-                }
-                changed |=
-                    snap_dragged_node_out_of_overlap(project, drag, panel_width, panel_height);
-            }
-        }
-        changed |= state.drag.is_some();
-        state.drag = None;
-        changed |= state.hover_insert_link.take().is_some();
-        return changed;
-    }
-    let Some(drag) = state.drag else {
-        changed |= state.hover_insert_link.take().is_some();
-        return changed;
-    };
-    let Some((mx, my)) = input.mouse_pos else {
-        changed |= state.hover_insert_link.take().is_some();
-        return changed;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        changed |= state.hover_insert_link.take().is_some();
-        return changed;
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    if is_group_drag {
-        changed |= move_drag_selection_by_anchor_delta(
-            project,
-            drag,
-            dragged_node_ids.as_slice(),
-            graph_x,
-            graph_y,
-            panel_width,
-            panel_height,
-        );
-        changed |= state.hover_insert_link.take().is_some();
-    } else {
-        let node_x = graph_x - drag.offset_x;
-        let node_y = graph_y - drag.offset_y;
-        changed |= project.move_node(drag.node_id, node_x, node_y, panel_width, panel_height);
-        let next_insert_hover = hover_insert_link_at_cursor(
-            project,
-            panel_width,
-            panel_height,
-            state,
-            mx,
-            my,
-            drag.node_id,
-        );
-        if state.hover_insert_link != next_insert_hover {
-            state.hover_insert_link = next_insert_hover;
-            changed = true;
-        }
-    }
-    changed
+    drag::handle_drag_input(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
 /// Return drag group ids for one anchor node.
 ///
 /// Multi-node dragging is enabled only when the anchor node is part of the
 /// current selection and at least two nodes are selected.
+#[allow(dead_code)]
 fn drag_selection_node_ids(state: &PreviewState, anchor_node_id: u32) -> Vec<u32> {
-    if state.selected_nodes.len() > 1 && state.selected_nodes.contains(&anchor_node_id) {
-        return state.selected_nodes.clone();
-    }
-    vec![anchor_node_id]
+    drag::drag_selection_node_ids(state, anchor_node_id)
 }
 
 /// Move selected drag nodes by the anchor node cursor delta.
 ///
 /// The anchor node follows the cursor first; the resolved delta is then applied
 /// to the remaining selected nodes to keep group movement coherent.
+#[allow(dead_code)]
 fn move_drag_selection_by_anchor_delta(
     project: &mut GuiProject,
     drag: super::state::DragState,
@@ -1989,40 +1546,14 @@ fn move_drag_selection_by_anchor_delta(
     panel_width: usize,
     panel_height: usize,
 ) -> bool {
-    let Some(anchor_before) = project.node(drag.node_id) else {
-        return false;
-    };
-    let anchor_before_x = anchor_before.x();
-    let anchor_before_y = anchor_before.y();
-    let desired_x = graph_x - drag.offset_x;
-    let desired_y = graph_y - drag.offset_y;
-    let mut changed = project.move_node(
-        drag.node_id,
-        desired_x,
-        desired_y,
-        panel_width,
-        panel_height,
-    );
-    let Some(anchor_after) = project.node(drag.node_id) else {
-        return changed;
-    };
-    let dx = anchor_after.x() - anchor_before_x;
-    let dy = anchor_after.y() - anchor_before_y;
-    if dx == 0 && dy == 0 {
-        return changed;
-    }
-    for node_id in dragged_node_ids.iter().copied() {
-        if node_id == drag.node_id {
-            continue;
-        }
-        let Some(node) = project.node(node_id) else {
-            continue;
-        };
-        let next_x = node.x().saturating_add(dx);
-        let next_y = node.y().saturating_add(dy);
-        changed |= project.move_node(node_id, next_x, next_y, panel_width, panel_height);
-    }
-    changed
+    drag::move_drag_selection_by_anchor_delta(
+        project,
+        drag,
+        dragged_node_ids,
+        graph_x,
+        graph_y,
+        InteractionPanelContext::new(panel_width, panel_height),
+    )
 }
 
 fn handle_wire_input(
@@ -2032,66 +1563,19 @@ fn handle_wire_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let mut changed = false;
-    if input.left_clicked {
-        changed |= begin_wire_drag_if_pin_hit(input, project, panel_width, panel_height, state);
-    }
-    let Some(mut wire) = state.wire_drag else {
-        return changed;
-    };
-    if let Some((mx, my)) = input.mouse_pos {
-        wire.cursor_x = mx;
-        wire.cursor_y = my;
-    }
-    if !input.left_down {
-        match wire_drag_source_kind(project, wire) {
-            Some(ResourceKind::Signal) => {
-                if let Some(target) = state.hover_param_target {
-                    let _ = project.connect_signal_link_to_param(
-                        wire.source_node_id,
-                        target.node_id,
-                        target.param_index,
-                    );
-                }
-            }
-            Some(ResourceKind::Texture2D) => {
-                if let Some(target) = resolve_texture_param_target_on_release(
-                    input,
-                    project,
-                    panel_width,
-                    panel_height,
-                    state,
-                    wire,
-                ) {
-                    let _ = project.connect_texture_link_to_param(
-                        wire.source_node_id,
-                        target.node_id,
-                        target.param_index,
-                    );
-                } else if let Some(target_id) = state.hover_input_pin {
-                    let _ = project.connect_image_link(wire.source_node_id, target_id);
-                }
-            }
-            _ => {
-                if let Some(target_id) = state.hover_input_pin {
-                    let _ = project.connect_image_link(wire.source_node_id, target_id);
-                }
-            }
-        }
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        return true;
-    }
-    changed |= state.wire_drag.map(|drag| drag.cursor_x) != Some(wire.cursor_x);
-    changed |= state.wire_drag.map(|drag| drag.cursor_y) != Some(wire.cursor_y);
-    state.wire_drag = Some(wire);
-    changed
+    wire::handle_wire_input(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
 /// Resolve texture-parameter drop target on release.
 ///
 /// This confirms the release cursor against parameter hit-testing so texture
 /// binds stay reliable even if hover state did not update on the same frame.
+#[allow(dead_code)]
 fn resolve_texture_param_target_on_release(
     input: &InputSnapshot,
     project: &GuiProject,
@@ -2100,42 +1584,16 @@ fn resolve_texture_param_target_on_release(
     state: &PreviewState,
     wire: WireDragState,
 ) -> Option<HoverParamTarget> {
-    if input.mouse_pos.is_none() {
-        return state.hover_param_target;
-    }
-    let (mx, my) = input.mouse_pos.unwrap_or((wire.cursor_x, wire.cursor_y));
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        return None;
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    if let Some(target) = state.hover_param_target {
-        let node = project.node(target.node_id)?;
-        if let Some(row) = node_param_row_rect(node, target.param_index) {
-            if row.contains(graph_x, graph_y)
-                && project.param_accepts_texture_link(target.node_id, target.param_index)
-            {
-                return Some(target);
-            }
-        }
-    }
-    let node_id = project.node_at(graph_x, graph_y)?;
-    // Input-pin drops are explicit primary-input links.
-    let pin_radius = pin_hit_radius_world(state);
-    if project.input_pin_at(graph_x, graph_y, pin_radius, Some(wire.source_node_id))
-        == Some(node_id)
-    {
-        return None;
-    }
-    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
-    if !project.param_accepts_texture_link(node_id, param_index) {
-        return None;
-    }
-    Some(HoverParamTarget {
-        node_id,
-        param_index,
-    })
+    wire::resolve_texture_param_target_on_release(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+        wire,
+    )
 }
 
+#[allow(dead_code)]
 fn begin_wire_drag_if_pin_hit(
     input: &InputSnapshot,
     project: &GuiProject,
@@ -2143,31 +1601,15 @@ fn begin_wire_drag_if_pin_hit(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let Some((mx, my)) = input.mouse_pos else {
-        return false;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        return false;
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let pin_radius = pin_hit_radius_world(state);
-    let Some(source_node_id) = project.output_pin_at(graph_x, graph_y, pin_radius) else {
-        return false;
-    };
-    state.drag = None;
-    state.hover_insert_link = None;
-    state.active_node = Some(source_node_id);
-    state.hover_param_target = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
-    state.wire_drag = Some(WireDragState {
-        source_node_id,
-        cursor_x: mx,
-        cursor_y: my,
-    });
-    true
+    wire::begin_wire_drag_if_pin_hit(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn begin_drag_if_node_hit(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -2175,148 +1617,37 @@ fn begin_drag_if_node_hit(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let Some((mx, my)) = input.mouse_pos else {
-        return false;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        return false;
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let Some(node_id) = project.node_at(graph_x, graph_y) else {
-        let changed = state.drag.is_some();
-        state.drag = None;
-        state.hover_insert_link = None;
-        return changed;
-    };
-    let Some((node_x, node_y, toggle_rect)) = project
-        .node(node_id)
-        .map(|node| (node.x(), node.y(), node_expand_toggle_rect(node)))
-    else {
-        let changed = state.drag.is_some();
-        state.drag = None;
-        return changed;
-    };
-    if let Some(toggle_rect) = toggle_rect {
-        if toggle_rect.contains(graph_x, graph_y) {
-            state.drag = None;
-            state.active_node = Some(node_id);
-            state.param_edit = None;
-            state.param_dropdown = None;
-            state.hover_dropdown_item = None;
-            return project.toggle_node_expanded(node_id, panel_width, panel_height);
-        }
-    }
-    if state.drag.map(|drag| drag.node_id) == Some(node_id) {
-        return false;
-    }
-    state.drag = Some(super::state::DragState {
-        node_id,
-        offset_x: graph_x - node_x,
-        offset_y: graph_y - node_y,
-        origin_x: node_x,
-        origin_y: node_y,
-    });
-    state.active_node = Some(node_id);
-    state.hover_insert_link = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
-    true
+    drag::begin_drag_if_node_hit(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
 /// Snap one dragged node beside an overlapped node using drag origin side.
+#[allow(dead_code)]
 fn snap_dragged_node_out_of_overlap(
     project: &mut GuiProject,
     drag: super::state::DragState,
     panel_width: usize,
     panel_height: usize,
 ) -> bool {
-    let Some(dragged) = project.node(drag.node_id) else {
-        return false;
-    };
-    let dragged_rect = (dragged.x(), dragged.y(), NODE_WIDTH, dragged.card_height());
-    let dragged_center = (
-        dragged_rect.0 + dragged_rect.2 / 2,
-        dragged_rect.1 + dragged_rect.3 / 2,
-    );
-    let mut best_target: Option<(u32, i64)> = None;
-    for node in project.nodes() {
-        if node.id() == drag.node_id {
-            continue;
-        }
-        let target_rect = (node.x(), node.y(), NODE_WIDTH, node.card_height());
-        if !rects_overlap_strict(dragged_rect, target_rect) {
-            continue;
-        }
-        let target_center = (
-            target_rect.0 + target_rect.2 / 2,
-            target_rect.1 + target_rect.3 / 2,
-        );
-        let dx = (dragged_center.0 - target_center.0) as i64;
-        let dy = (dragged_center.1 - target_center.1) as i64;
-        let dist_sq = dx * dx + dy * dy;
-        if best_target
-            .as_ref()
-            .map(|(_, best_dist)| dist_sq < *best_dist)
-            .unwrap_or(true)
-        {
-            best_target = Some((node.id(), dist_sq));
-        }
-    }
-    let Some((target_id, _)) = best_target else {
-        return false;
-    };
-    let Some(target) = project.node(target_id) else {
-        return false;
-    };
-    let target_rect = (target.x(), target.y(), NODE_WIDTH, target.card_height());
-    let target_center = (
-        target_rect.0 + target_rect.2 / 2,
-        target_rect.1 + target_rect.3 / 2,
-    );
-    let origin_center = (
-        drag.origin_x + dragged_rect.2 / 2,
-        drag.origin_y + dragged_rect.3 / 2,
-    );
-    let dx = origin_center.0 - target_center.0;
-    let dy = origin_center.1 - target_center.1;
-    let (next_x, next_y) = if dx.abs() >= dy.abs() {
-        if dx <= 0 {
-            (
-                target_rect.0 - dragged_rect.2 - NODE_OVERLAP_SNAP_GAP_PX,
-                dragged_rect.1,
-            )
-        } else {
-            (
-                target_rect.0 + target_rect.2 + NODE_OVERLAP_SNAP_GAP_PX,
-                dragged_rect.1,
-            )
-        }
-    } else if dy <= 0 {
-        (
-            dragged_rect.0,
-            target_rect.1 - dragged_rect.3 - NODE_OVERLAP_SNAP_GAP_PX,
-        )
-    } else {
-        (
-            dragged_rect.0,
-            target_rect.1 + target_rect.3 + NODE_OVERLAP_SNAP_GAP_PX,
-        )
-    };
-    project.move_node(drag.node_id, next_x, next_y, panel_width, panel_height)
+    drag::snap_dragged_node_out_of_overlap(
+        project,
+        drag,
+        InteractionPanelContext::new(panel_width, panel_height),
+    )
 }
 
 /// Return true when two rectangles overlap with positive area.
+#[allow(dead_code)]
 fn rects_overlap_strict(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
-    let (ax, ay, aw, ah) = a;
-    let (bx, by, bw, bh) = b;
-    let ax1 = ax + aw;
-    let ay1 = ay + ah;
-    let bx1 = bx + bw;
-    let by1 = by + bh;
-    ax < bx1 && ax1 > bx && ay < by1 && ay1 > by
+    drag::rects_overlap_strict(a, b)
 }
 
 /// Resolve one hovered wire insertion candidate at cursor position.
+#[allow(dead_code)]
 fn hover_insert_link_at_cursor(
     project: &GuiProject,
     panel_width: usize,
@@ -2326,123 +1657,29 @@ fn hover_insert_link_at_cursor(
     cursor_y: i32,
     dragged_node_id: u32,
 ) -> Option<HoverInsertLink> {
-    let mut best: Option<(HoverInsertLink, f32)> = None;
-    let query = HoverInsertQuery {
+    drag::hover_insert_link_at_cursor(
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
         cursor_x,
         cursor_y,
-        threshold_sq: (INSERT_WIRE_HOVER_RADIUS_PX * INSERT_WIRE_HOVER_RADIUS_PX) as f32,
         dragged_node_id,
-    };
-    let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
-    let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
-    for target_id in target_ids.iter().copied() {
-        consider_hover_insert_candidate(project, state, query, target_id, &mut best);
-    }
-    if best.is_none() && target_ids.len() < project.node_count() {
-        for target in project.nodes() {
-            consider_hover_insert_candidate(project, state, query, target.id(), &mut best);
-        }
-    }
-    best.map(|(link, _)| link)
-}
-
-#[derive(Clone, Copy, Debug)]
-struct HoverInsertQuery {
-    cursor_x: i32,
-    cursor_y: i32,
-    threshold_sq: f32,
-    dragged_node_id: u32,
-}
-
-fn consider_hover_insert_candidate(
-    project: &GuiProject,
-    state: &PreviewState,
-    query: HoverInsertQuery,
-    target_id: u32,
-    best: &mut Option<(HoverInsertLink, f32)>,
-) {
-    let Some(target) = project.node(target_id) else {
-        return;
-    };
-    let Some(source_id) = project.input_source_node_id(target_id) else {
-        return;
-    };
-    if !can_insert_dragged_node_on_link(project, query.dragged_node_id, source_id, target_id) {
-        return;
-    }
-    let Some(source) = project.node(source_id) else {
-        return;
-    };
-    let Some((from_x, from_y)) = output_pin_center(source) else {
-        return;
-    };
-    let Some((to_x, to_y)) = input_pin_center(target) else {
-        return;
-    };
-    let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-    let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-    let dist_sq = point_to_segment_distance_sq(
-        query.cursor_x as f32,
-        query.cursor_y as f32,
-        from_x as f32,
-        from_y as f32,
-        to_x as f32,
-        to_y as f32,
-    );
-    if dist_sq > query.threshold_sq {
-        return;
-    }
-    let candidate = HoverInsertLink {
-        source_id,
-        target_id,
-    };
-    if best
-        .as_ref()
-        .map(|(_, best_sq)| dist_sq < *best_sq)
-        .unwrap_or(true)
-    {
-        *best = Some((candidate, dist_sq));
-    }
+    )
 }
 
 /// Return true when `dragged_node_id` can be inserted on `source -> target`.
+#[allow(dead_code)]
 fn can_insert_dragged_node_on_link(
     project: &GuiProject,
     dragged_node_id: u32,
     source_id: u32,
     target_id: u32,
 ) -> bool {
-    if dragged_node_id == source_id || dragged_node_id == target_id || source_id == target_id {
-        return false;
-    }
-    let Some(dragged) = project.node(dragged_node_id) else {
-        return false;
-    };
-    let Some(source) = project.node(source_id) else {
-        return false;
-    };
-    let Some(target) = project.node(target_id) else {
-        return false;
-    };
-    if target.inputs().first().copied() != Some(source_id) {
-        return false;
-    }
-    let Some(source_out_kind) = source.kind().output_resource_kind() else {
-        return false;
-    };
-    let Some(dragged_in_kind) = dragged.kind().input_resource_kind() else {
-        return false;
-    };
-    let Some(dragged_out_kind) = dragged.kind().output_resource_kind() else {
-        return false;
-    };
-    let Some(target_in_kind) = target.kind().input_resource_kind() else {
-        return false;
-    };
-    source_out_kind == dragged_in_kind && dragged_out_kind == target_in_kind
+    drag::can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id)
 }
 
 /// Resolve insertion candidate on drag release from hover cache or hit-test.
+#[allow(dead_code)]
 fn resolve_insert_link_on_release(
     input: &InputSnapshot,
     project: &GuiProject,
@@ -2451,40 +1688,19 @@ fn resolve_insert_link_on_release(
     state: &PreviewState,
     dragged_node_id: u32,
 ) -> Option<HoverInsertLink> {
-    if let Some(link) = state.hover_insert_link {
-        return Some(link);
-    }
-    let (mx, my) = input.mouse_pos?;
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        return None;
-    }
-    hover_insert_link_at_cursor(
+    drag::resolve_insert_link_on_release(
+        input,
         project,
-        panel_width,
-        panel_height,
+        InteractionPanelContext::new(panel_width, panel_height),
         state,
-        mx,
-        my,
         dragged_node_id,
     )
 }
 
 /// Return squared distance from point `p` to line segment `ab`.
+#[allow(dead_code)]
 fn point_to_segment_distance_sq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
-    let abx = bx - ax;
-    let aby = by - ay;
-    let apx = px - ax;
-    let apy = py - ay;
-    let ab_len_sq = abx * abx + aby * aby;
-    if ab_len_sq <= f32::EPSILON {
-        return apx * apx + apy * apy;
-    }
-    let t = ((apx * abx + apy * aby) / ab_len_sq).clamp(0.0, 1.0);
-    let cx = ax + abx * t;
-    let cy = ay + aby * t;
-    let dx = px - cx;
-    let dy = py - cy;
-    dx * dx + dy * dy
+    drag::point_to_segment_distance_sq(px, py, ax, ay, bx, by)
 }
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
@@ -2498,16 +1714,14 @@ fn collapse_auto_expanded_binding_nodes(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    if state.auto_expanded_binding_nodes.is_empty() {
-        return false;
-    }
-    let mut changed = false;
-    for node_id in state.auto_expanded_binding_nodes.drain(..) {
-        changed |= project.collapse_node(node_id, panel_width, panel_height);
-    }
-    changed
+    hover::collapse_auto_expanded_binding_nodes(
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
+#[allow(dead_code)]
 fn collapse_auto_expanded_binding_nodes_except(
     project: &mut GuiProject,
     panel_width: usize,
@@ -2515,20 +1729,12 @@ fn collapse_auto_expanded_binding_nodes_except(
     state: &mut PreviewState,
     keep_node_id: Option<u32>,
 ) -> bool {
-    if state.auto_expanded_binding_nodes.is_empty() {
-        return false;
-    }
-    let mut changed = false;
-    let mut kept = Vec::with_capacity(state.auto_expanded_binding_nodes.len());
-    for node_id in state.auto_expanded_binding_nodes.drain(..) {
-        if Some(node_id) == keep_node_id {
-            kept.push(node_id);
-            continue;
-        }
-        changed |= project.collapse_node(node_id, panel_width, panel_height);
-    }
-    state.auto_expanded_binding_nodes = kept;
-    changed
+    hover::collapse_auto_expanded_binding_nodes_except(
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+        keep_node_id,
+    )
 }
 
 fn update_hover_state(
@@ -2538,221 +1744,16 @@ fn update_hover_state(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let prev_hover_node = state.hover_node;
-    let prev_hover_output = state.hover_output_pin;
-    let prev_hover_input = state.hover_input_pin;
-    let prev_hover_param_target = state.hover_param_target;
-    let prev_hover_dropdown_item = state.hover_dropdown_item;
-    let prev_hover_item = state.hover_menu_item;
-    let prev_hover_main_item = state.hover_main_menu_item;
-    let prev_hover_export_item = state.hover_export_menu_item;
-    let prev_hover_export_close = state.hover_export_menu_close;
-    state.hover_node = None;
-    state.hover_output_pin = None;
-    state.hover_input_pin = None;
-    state.hover_param_target = None;
-    state.hover_dropdown_item = None;
-    state.hover_menu_item = None;
-    state.hover_main_menu_item = None;
-    state.hover_export_menu_item = None;
-    state.hover_export_menu_close = false;
-    let param_bind_drag_kind = state
-        .wire_drag
-        .and_then(|wire| wire_drag_source_kind(project, wire))
-        .filter(|kind| matches!(kind, ResourceKind::Signal | ResourceKind::Texture2D));
-
-    let Some((mx, my)) = input.mouse_pos else {
-        let mut changed = prev_hover_node.is_some()
-            || prev_hover_output.is_some()
-            || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_item.is_some()
-            || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some()
-            || prev_hover_export_close;
-        if param_bind_drag_kind.is_some() {
-            changed |= collapse_auto_expanded_binding_nodes_except(
-                project,
-                panel_width,
-                panel_height,
-                state,
-                None,
-            );
-        }
-        return changed;
-    };
-    if !inside_panel(mx, my, panel_width, panel_height) {
-        let mut changed = prev_hover_node.is_some()
-            || prev_hover_output.is_some()
-            || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_item.is_some()
-            || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some()
-            || prev_hover_export_close;
-        if param_bind_drag_kind.is_some() {
-            changed |= collapse_auto_expanded_binding_nodes_except(
-                project,
-                panel_width,
-                panel_height,
-                state,
-                None,
-            );
-        }
-        return changed;
-    }
-    if state.menu.open {
-        state.hover_menu_item = state.menu.item_at(mx, my);
-        let mut changed = state.hover_menu_item != prev_hover_item
-            || prev_hover_node.is_some()
-            || prev_hover_output.is_some()
-            || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some()
-            || prev_hover_export_close;
-        if param_bind_drag_kind.is_some() {
-            changed |= collapse_auto_expanded_binding_nodes_except(
-                project,
-                panel_width,
-                panel_height,
-                state,
-                None,
-            );
-        }
-        return changed;
-    }
-    if state.main_menu.open || state.export_menu.open {
-        if state.main_menu.open {
-            state.hover_main_menu_item = state.main_menu.item_at(mx, my);
-        }
-        if state.export_menu.open && state.export_menu_drag.is_none() {
-            state.hover_export_menu_item = state.export_menu.item_at(mx, my);
-            state.hover_export_menu_close = state.export_menu.close_button_rect().contains(mx, my);
-        }
-        let mut changed = state.hover_main_menu_item != prev_hover_main_item
-            || state.hover_export_menu_item != prev_hover_export_item
-            || state.hover_export_menu_close != prev_hover_export_close
-            || prev_hover_node.is_some()
-            || prev_hover_output.is_some()
-            || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_item.is_some();
-        if param_bind_drag_kind.is_some() {
-            changed |= collapse_auto_expanded_binding_nodes_except(
-                project,
-                panel_width,
-                panel_height,
-                state,
-                None,
-            );
-        }
-        return changed;
-    }
-    if state.param_dropdown.is_some() {
-        state.hover_dropdown_item = dropdown_option_at_cursor(project, state, mx, my);
-        return state.hover_dropdown_item != prev_hover_dropdown_item
-            || prev_hover_node.is_some()
-            || prev_hover_output.is_some()
-            || prev_hover_input.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_item.is_some()
-            || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some()
-            || prev_hover_export_close;
-    }
-    let mut param_bind_hover_changed = false;
-    if state.wire_drag.is_some() {
-        if let Some(bind_kind) = param_bind_drag_kind {
-            let mut changed = false;
-            let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-            let mut keep_auto_expanded_node = None;
-            state.hover_node = project.node_at(graph_x, graph_y);
-            if let Some(node_id) = state.hover_node {
-                if state.auto_expanded_binding_nodes.contains(&node_id) {
-                    keep_auto_expanded_node = Some(node_id);
-                }
-                if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-                    let accepts_param = match bind_kind {
-                        ResourceKind::Signal => {
-                            project.param_accepts_signal_link(node_id, param_index)
-                        }
-                        ResourceKind::Texture2D => {
-                            project.param_accepts_texture_link(node_id, param_index)
-                        }
-                        _ => false,
-                    };
-                    if accepts_param {
-                        state.hover_param_target = Some(HoverParamTarget {
-                            node_id,
-                            param_index,
-                        });
-                    }
-                }
-            }
-            changed |= collapse_auto_expanded_binding_nodes_except(
-                project,
-                panel_width,
-                panel_height,
-                state,
-                keep_auto_expanded_node,
-            );
-            if bind_kind == ResourceKind::Signal || state.hover_param_target.is_some() {
-                return changed
-                    || state.hover_node != prev_hover_node
-                    || prev_hover_output.is_some()
-                    || prev_hover_input.is_some()
-                    || state.hover_param_target != prev_hover_param_target
-                    || prev_hover_dropdown_item.is_some()
-                    || prev_hover_item.is_some()
-                    || prev_hover_main_item.is_some()
-                    || prev_hover_export_item.is_some()
-                    || prev_hover_export_close;
-            }
-            param_bind_hover_changed = changed;
-        }
-    }
-    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let pin_radius = pin_hit_radius_world(state);
-    let disallow_source = state.wire_drag.map(|wire| wire.source_node_id);
-    state.hover_output_pin = project.output_pin_at(graph_x, graph_y, pin_radius);
-    state.hover_input_pin = project.input_pin_at(graph_x, graph_y, pin_radius, disallow_source);
-    if state.hover_output_pin.is_some() || state.hover_input_pin.is_some() {
-        return param_bind_hover_changed
-            || state.hover_output_pin != prev_hover_output
-            || state.hover_input_pin != prev_hover_input
-            || prev_hover_node.is_some()
-            || prev_hover_dropdown_item.is_some()
-            || prev_hover_item.is_some()
-            || prev_hover_param_target.is_some()
-            || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some()
-            || prev_hover_export_close;
-    }
-    state.hover_node = project.node_at(graph_x, graph_y);
-    if state.hover_node.is_some() {
-        state.active_node = state.hover_node;
-    }
-    param_bind_hover_changed
-        || state.hover_node != prev_hover_node
-        || prev_hover_output.is_some()
-        || prev_hover_input.is_some()
-        || prev_hover_dropdown_item.is_some()
-        || prev_hover_item.is_some()
-        || prev_hover_param_target.is_some()
-        || prev_hover_main_item.is_some()
-        || prev_hover_export_item.is_some()
-        || prev_hover_export_close
+    hover::update_hover_state(
+        input,
+        project,
+        InteractionPanelContext::new(panel_width, panel_height),
+        state,
+    )
 }
 
 fn wire_drag_source_kind(project: &GuiProject, wire: WireDragState) -> Option<ResourceKind> {
-    let source = project.node(wire.source_node_id)?;
-    source.kind().output_resource_kind()
+    wire::wire_drag_source_kind(project, wire)
 }
 
 fn screen_to_graph(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
