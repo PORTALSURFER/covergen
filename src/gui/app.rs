@@ -567,7 +567,7 @@ impl GuiApp {
             self.state.export_menu.preview_total = timeline_total_frames;
             scene_dirty = true;
         }
-        self.sync_timeline_audio_preview();
+        self.sync_timeline_audio_preview(timeline_total_frames);
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
         self.apply_scoped_invalidation(
             project_invalidation_before,
@@ -1106,11 +1106,12 @@ impl GuiApp {
         self.window.set_cursor_icon(icon);
     }
 
-    fn sync_timeline_audio_preview(&mut self) {
+    fn sync_timeline_audio_preview(&mut self, timeline_total_frames: u32) {
         self.timeline_audio.sync(
             &self.state.export_menu,
             self.state.paused,
             self.state.frame_index,
+            timeline_total_frames,
             self.config.animation.fps,
         );
     }

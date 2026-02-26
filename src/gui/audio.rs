@@ -19,7 +19,9 @@ use hound::{SampleFormat, WavReader};
 use rodio::{buffer::SamplesBuffer, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 
 #[cfg(windows)]
-const RESYNC_THRESHOLD_MS: u64 = 120;
+const RESYNC_THRESHOLD_MIN_MS: u64 = 12;
+#[cfg(windows)]
+const RESYNC_THRESHOLD_MAX_MS: u64 = 40;
 
 #[cfg(windows)]
 #[derive(Clone, Debug)]
@@ -52,11 +54,18 @@ impl TimelineAudioPreview {
         export_menu: &ExportMenuState,
         paused: bool,
         frame_index: u32,
+        timeline_total_frames: u32,
         timeline_fps: u32,
     ) {
         #[cfg(not(windows))]
         {
-            let _ = (export_menu, paused, frame_index, timeline_fps);
+            let _ = (
+                export_menu,
+                paused,
+                frame_index,
+                timeline_total_frames,
+                timeline_fps,
+            );
         }
         #[cfg(windows)]
         {
@@ -70,7 +79,12 @@ impl TimelineAudioPreview {
                 return;
             };
             let volume = export_menu.parsed_audio_volume();
-            let target = timeline_position(frame_index, timeline_fps, clip_duration);
+            let target = timeline_position(
+                frame_index,
+                timeline_total_frames,
+                timeline_fps,
+                clip_duration,
+            );
 
             if paused {
                 if let Some(player) = self.player.as_ref() {
@@ -98,12 +112,21 @@ impl TimelineAudioPreview {
             player.play();
             player.set_volume(volume);
             let current = wrapped_duration(player.get_pos(), clip_duration);
-            let drift = duration_diff(current, target);
+            let drift = duration_diff(current, target, clip_duration);
+            let frame_secs = 1.0 / timeline_fps.max(1) as f64;
+            let resync_threshold = Duration::from_secs_f64(
+                frame_secs
+                    .clamp(
+                        RESYNC_THRESHOLD_MIN_MS as f64 / 1000.0,
+                        RESYNC_THRESHOLD_MAX_MS as f64 / 1000.0,
+                    )
+                    .max(f64::EPSILON),
+            );
             let loop_wrapped = self
                 .last_frame_index
                 .map(|prev| frame_index < prev)
                 .unwrap_or(false);
-            if drift > Duration::from_millis(RESYNC_THRESHOLD_MS) || loop_wrapped {
+            if drift > resync_threshold || loop_wrapped {
                 let _ = player.try_seek(target);
             }
             self.last_frame_index = Some(frame_index);
@@ -240,11 +263,18 @@ fn decode_int_samples(
 }
 
 #[cfg(windows)]
-fn timeline_position(frame_index: u32, fps: u32, duration: Duration) -> Duration {
-    if fps == 0 || duration.is_zero() {
+fn timeline_position(frame_index: u32, frame_total: u32, fps: u32, duration: Duration) -> Duration {
+    if duration.is_zero() {
         return Duration::ZERO;
     }
-    let seconds = frame_index as f64 / fps as f64;
+    if frame_total > 1 {
+        let normalized = (frame_index % frame_total) as f64 / frame_total as f64;
+        return Duration::from_secs_f64(duration.as_secs_f64() * normalized);
+    }
+    if fps == 0 {
+        return Duration::ZERO;
+    }
+    let seconds = frame_index as f64 / fps.max(1) as f64;
     let wrapped = seconds % duration.as_secs_f64().max(f64::EPSILON);
     Duration::from_secs_f64(wrapped)
 }
@@ -258,10 +288,13 @@ fn wrapped_duration(duration: Duration, period: Duration) -> Duration {
 }
 
 #[cfg(windows)]
-fn duration_diff(a: Duration, b: Duration) -> Duration {
-    if a >= b {
-        a - b
-    } else {
-        b - a
+fn duration_diff(a: Duration, b: Duration, period: Duration) -> Duration {
+    if period.is_zero() {
+        return Duration::ZERO;
     }
+    let a_secs = wrapped_duration(a, period).as_secs_f64();
+    let b_secs = wrapped_duration(b, period).as_secs_f64();
+    let direct = (a_secs - b_secs).abs();
+    let wrapped = (period.as_secs_f64() - direct).abs();
+    Duration::from_secs_f64(direct.min(wrapped))
 }
