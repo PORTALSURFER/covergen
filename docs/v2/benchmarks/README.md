@@ -34,18 +34,29 @@ pwsh -File scripts/bench/tier_gate.ps1 lock laptop_integrated
 scripts/ci_local.sh validate <tier-name>
 ```
 
+3. Lock and validate deterministic GUI interaction thresholds on each tier host:
+
+```bash
+scripts/gui/tier_gate.sh lock <tier-name>
+scripts/gui/tier_gate.sh validate <tier-name>
+```
+
 PowerShell (Windows host):
 
 ```powershell
 pwsh -File scripts/bench/tier_gate.ps1 validate desktop_mid
 pwsh -File scripts/bench/tier_gate.ps1 validate laptop_integrated
+pwsh -File scripts/gui/tier_gate.ps1 lock desktop_mid
+pwsh -File scripts/gui/tier_gate.ps1 validate desktop_mid
 ```
 
-3. Treat local CI as the authoritative gate:
+4. Treat local CI as the authoritative gate:
 
 - Run `scripts/ci_local.sh validate desktop_mid`.
 - Run `scripts/ci_local.sh validate laptop_integrated`.
 - Require both to pass before promoting runtime/preset changes.
+- The CI flow now also runs deterministic GUI interaction traces and validates
+  `update_ms`, `scene_ms`, `render_ms`, and `hit_test_scans` p95 thresholds.
 
 PowerShell full local CI equivalents:
 
@@ -54,7 +65,7 @@ pwsh -File scripts/ci_local.ps1 validate desktop_mid
 pwsh -File scripts/ci_local.ps1 validate laptop_integrated
 ```
 
-4. Store release handoff artifacts for both tiers:
+5. Store release handoff artifacts for both tiers:
 
 ```powershell
 pwsh -File scripts/bench/store_handoff_artifacts.ps1 -Tier desktop_mid
@@ -72,8 +83,11 @@ pwsh -File scripts/ci_local.ps1 validate laptop_integrated -CaptureHandoff
 
 - Runtime report: `target/bench/<tier-name>/benchmark_report.md`
 - Machine-readable metrics: `target/bench/<tier-name>/benchmark_metrics.ini`
+- GUI interaction trace: `target/bench/<tier-name>/gui_interaction_trace.csv`
+- GUI interaction metrics: `target/bench/<tier-name>/gui_interaction_metrics.ini`
 - Handoff evidence bundle: `docs/plans/handoffs/<stamp>/<tier-name>/`
 - Locked thresholds: `docs/v2/benchmarks/<tier-name>.thresholds.ini`
+- Locked GUI thresholds: `docs/v2/benchmarks/<tier-name>.gui_interaction.thresholds.ini`
 - Legacy CI software thresholds (non-authoritative): `.github/bench/ci_software.thresholds.ini`
 
 Threshold files are generated directly from measured baselines and include p50/p95 latency, frame time, and throughput bounds.

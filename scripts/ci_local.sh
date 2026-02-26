@@ -16,6 +16,7 @@ Description:
   Runs the full local CI gate for one hardware tier host.
   - validate: checks against existing locked thresholds
   - lock: regenerates and locks thresholds from this host's measurements
+  - validates deterministic GUI interaction trace thresholds
   - with no args: defaults to validate laptop_integrated
 
 Environment overrides:
@@ -99,6 +100,21 @@ else
     rm -f "${bench_log}"
   else
     rm -f "${bench_log}"
+    exit 1
+  fi
+fi
+
+echo "[ci_local] gui interaction thresholds (${mode}) for tier=${tier}"
+gui_log="$(mktemp)"
+if scripts/gui/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${gui_log}"; then
+  rm -f "${gui_log}"
+else
+  if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter|WAYLAND_DISPLAY|nor DISPLAY is set" "${gui_log}"; then
+    echo "[ci_local] warning: skipping gui interaction threshold enforcement in no-arg mode because no hardware GPU or display was detected"
+    echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host with desktop display for authoritative gui threshold gating"
+    rm -f "${gui_log}"
+  else
+    rm -f "${gui_log}"
     exit 1
   fi
 fi

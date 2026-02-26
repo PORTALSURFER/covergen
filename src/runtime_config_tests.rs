@@ -167,12 +167,15 @@ fn gui_flags_parse() {
         "--gui-perf-trace".to_string(),
         "target/gui_trace.csv".to_string(),
         "--gui-benchmark-drag".to_string(),
+        "--gui-benchmark-frames".to_string(),
+        "240".to_string(),
     ])
     .expect("gui flags should parse");
     assert_eq!(cfg.gui.target_fps, 200);
     assert_eq!(cfg.gui.vsync, GuiVsync::Adaptive);
     assert_eq!(cfg.gui.perf_trace.as_deref(), Some("target/gui_trace.csv"));
     assert!(cfg.gui.benchmark_drag);
+    assert_eq!(cfg.gui.benchmark_frames, 240);
 }
 
 #[test]

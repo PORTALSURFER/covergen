@@ -159,6 +159,9 @@ pub struct V2Args {
     /// Run deterministic synthetic drag motions for GUI benchmarking.
     #[arg(long)]
     gui_benchmark_drag: bool,
+    /// Stop GUI benchmark mode after this many rendered frames.
+    #[arg(long, default_value_t = 0)]
+    gui_benchmark_frames: u32,
 }
 
 /// Animation settings for clip generation.
@@ -178,6 +181,7 @@ pub struct GuiConfig {
     pub vsync: GuiVsync,
     pub perf_trace: Option<String>,
     pub benchmark_drag: bool,
+    pub benchmark_frames: u32,
 }
 
 impl Default for GuiConfig {
@@ -187,6 +191,7 @@ impl Default for GuiConfig {
             vsync: GuiVsync::On,
             perf_trace: None,
             benchmark_drag: false,
+            benchmark_frames: 0,
         }
     }
 }
@@ -273,6 +278,7 @@ impl V2Config {
                 vsync: args.gui_vsync,
                 perf_trace: args.gui_perf_trace,
                 benchmark_drag: args.gui_benchmark_drag,
+                benchmark_frames: args.gui_benchmark_frames,
             },
         };
         validate_v2_config(&config)?;

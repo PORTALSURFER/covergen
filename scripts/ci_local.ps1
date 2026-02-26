@@ -5,7 +5,7 @@ Run the full local CI gate for one hardware tier on Windows hosts.
 .DESCRIPTION
 PowerShell equivalent of scripts/ci_local.sh. Executes rust-gpu artifact
 validation, formatting/tests, visual regression checks, GPU confidence tests,
-then tier threshold lock/validation.
+then tier threshold lock/validation including deterministic GUI interaction gates.
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -39,6 +39,7 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $validateShaderScript = Join-Path $repoRoot "scripts/shaders/validate_rust_gpu_artifacts.ps1"
 $buildShaderScript = Join-Path $repoRoot "scripts/shaders/build_rust_gpu_artifacts.ps1"
 $tierGateScript = Join-Path $repoRoot "scripts/bench/tier_gate.ps1"
+$guiTierGateScript = Join-Path $repoRoot "scripts/gui/tier_gate.ps1"
 $handoffScript = Join-Path $repoRoot "scripts/bench/store_handoff_artifacts.ps1"
 
 $shaderRoot = [Environment]::GetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR")
@@ -82,6 +83,9 @@ Invoke-CheckedCommand -Label "gpu animation confidence regression" -Command {
 }
 Invoke-CheckedCommand -Label "benchmark thresholds ($Mode) for tier=$Tier" -Command {
     & $tierGateScript -Mode $Mode -Tier $Tier
+}
+Invoke-CheckedCommand -Label "gui interaction thresholds ($Mode) for tier=$Tier" -Command {
+    & $guiTierGateScript -Mode $Mode -Tier $Tier
 }
 
 if ($CaptureHandoff) {

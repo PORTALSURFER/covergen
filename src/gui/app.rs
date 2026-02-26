@@ -18,7 +18,9 @@ use crate::{animation::RawVideoEncoder, animation::StreamFrameFormat};
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
-use super::project::{GuiProject, GuiProjectInvalidation, PersistedGuiProject, ProjectNodeKind};
+use super::project::{
+    GuiProject, GuiProjectInvalidation, PersistedGuiProject, ProjectNodeKind, NODE_WIDTH,
+};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PendingAppAction, PreviewState};
@@ -239,6 +241,7 @@ pub(crate) struct GuiApp {
     frame_deadline: Instant,
     last_frame_start: Instant,
     frame_counter: u64,
+    benchmark_frame_limit: Option<u64>,
     benchmark_node: Option<u32>,
     export_session: Option<GuiExportSession>,
     start_export_requested: bool,
@@ -261,18 +264,23 @@ impl GuiApp {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
         let panel_width = clamp_panel_width(panel_width, renderer.width());
         let project_load_begin = Instant::now();
-        let mut project = match load_autosaved_project(panel_width, renderer.height()) {
-            Ok(Some(project)) => {
-                println!(
-                    "[gui] loaded autosave from {}",
-                    autosave_project_path().display()
-                );
-                project
-            }
-            Ok(None) => GuiProject::new_empty(config.width, config.height),
-            Err(err) => {
-                eprintln!("[gui] failed to load autosave: {err}");
-                GuiProject::new_empty(config.width, config.height)
+        let benchmark_mode = is_benchmark_mode(&config);
+        let mut project = if benchmark_mode {
+            GuiProject::new_empty(config.width, config.height)
+        } else {
+            match load_autosaved_project(panel_width, renderer.height()) {
+                Ok(Some(project)) => {
+                    println!(
+                        "[gui] loaded autosave from {}",
+                        autosave_project_path().display()
+                    );
+                    project
+                }
+                Ok(None) => GuiProject::new_empty(config.width, config.height),
+                Err(err) => {
+                    eprintln!("[gui] failed to load autosave: {err}");
+                    GuiProject::new_empty(config.width, config.height)
+                }
             }
         };
         let benchmark_node =
@@ -280,6 +288,7 @@ impl GuiApp {
         telemetry::record_timing("gui.startup.project_load", project_load_begin.elapsed());
         let state = PreviewState::new(&config);
         let frame_budget = frame_budget(GUI_LOCKED_FPS);
+        let benchmark_frame_limit = benchmark_frame_limit(&config);
         let now = Instant::now();
         println!(
             "[gui] {}x{} @ {}hz locked ({:?})",
@@ -308,6 +317,7 @@ impl GuiApp {
             frame_deadline: now,
             last_frame_start: now,
             frame_counter: 0,
+            benchmark_frame_limit,
             benchmark_node,
             export_session: None,
             start_export_requested: false,
@@ -555,6 +565,12 @@ impl GuiApp {
         self.update_title(frame_start);
         self.needs_redraw = false;
         self.frame_counter = self.frame_counter.wrapping_add(1);
+        if self
+            .benchmark_frame_limit
+            .is_some_and(|limit| self.frame_counter >= limit)
+        {
+            self.close_requested = true;
+        }
         Ok(())
     }
 
@@ -603,7 +619,9 @@ impl GuiApp {
     /// Flush trace output before event-loop shutdown.
     pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
         let _ = self.stop_export_session("stopped");
-        save_autosaved_project(&self.project)?;
+        if !is_benchmark_mode(&self.config) {
+            save_autosaved_project(&self.project)?;
+        }
         self.perf.flush()
     }
 
@@ -836,8 +854,37 @@ impl GuiApp {
         let cy = (self.renderer.height() as f32 * 0.5) as i32;
         let x = cx + (phase * 2.7).sin().mul_add(120.0, 0.0) as i32;
         let y = cy + (phase * 1.9).cos().mul_add(90.0, 0.0) as i32;
-        self.project
-            .move_node(node_id, x, y, self.panel_width, self.renderer.height())
+        let changed =
+            self.project
+                .move_node(node_id, x, y, self.panel_width, self.renderer.height());
+        self.run_synthetic_interaction_queries(x, y);
+        changed
+    }
+
+    /// Emit deterministic hit-test style workload so CI can gate scan regressions.
+    fn run_synthetic_interaction_queries(&self, x: i32, y: i32) {
+        let max_x = self.panel_width.saturating_sub(1) as i32;
+        let max_y = self.renderer.height().saturating_sub(1) as i32;
+        let sample_x = x.clamp(0, max_x);
+        let sample_y = y.clamp(0, max_y);
+        let _ = self.project.node_at(sample_x, sample_y);
+        let _ = self
+            .project
+            .node_at((sample_x + NODE_WIDTH / 2).clamp(0, max_x), sample_y);
+        let _ = self.project.output_pin_at(
+            (sample_x + NODE_WIDTH + 8).clamp(0, max_x),
+            sample_y + 12,
+            12,
+        );
+        let _ = self
+            .project
+            .input_pin_at((sample_x - 8).clamp(0, max_x), sample_y + 12, 12, None);
+        let _ = self.project.node_ids_overlapping_graph_rect(
+            sample_x - NODE_WIDTH,
+            sample_y - 90,
+            sample_x + NODE_WIDTH,
+            sample_y + 90,
+        );
     }
 
     fn with_perf_trace(mut self) -> Self {
@@ -913,7 +960,7 @@ impl GuiApp {
             || self.panel_resize_drag.is_some()
             || self.export_session.is_some()
             || self.start_export_requested;
-        if self.config.gui.benchmark_drag {
+        if self.config.gui.benchmark_drag || self.benchmark_frame_limit.is_some() {
             self.continuous_redraw = true;
         }
     }
@@ -946,21 +993,58 @@ fn maybe_seed_benchmark_nodes(
     if project.node_count() > 0 {
         return project.nodes().first().map(|node| node.id());
     }
-    let top = project.add_node(
-        ProjectNodeKind::TexSolid,
-        120,
-        120,
+    let source = project.add_node(ProjectNodeKind::TexSolid, 24, 32, panel_width, panel_height);
+    let mut previous = source;
+    let mut drag_target = source;
+    let mut chain = Vec::new();
+    for index in 0..10 {
+        let kind = if index == 4 {
+            ProjectNodeKind::TexFeedback
+        } else {
+            ProjectNodeKind::TexTransform2D
+        };
+        let x = if index % 2 == 0 { 188 } else { 24 };
+        let y = 96 + index * 64;
+        let node_id = project.add_node(kind, x, y, panel_width, panel_height);
+        let _ = project.connect_image_link(previous, node_id);
+        if index == 6 {
+            drag_target = node_id;
+        }
+        chain.push(node_id);
+        previous = node_id;
+    }
+    let lfo = project.add_node(
+        ProjectNodeKind::CtlLfo,
+        24,
+        96 + 10 * 64,
         panel_width,
         panel_height,
     );
+    for (index, node_id) in chain.iter().copied().enumerate() {
+        if index % 3 == 0 {
+            let _ = project.connect_signal_link_to_param(lfo, node_id, 0);
+        }
+    }
     let _out = project.add_node(
         ProjectNodeKind::IoWindowOut,
-        280,
-        220,
+        188,
+        96 + 11 * 64,
         panel_width,
         panel_height,
     );
-    Some(top)
+    let _ = project.connect_image_link(previous, _out);
+    Some(drag_target)
+}
+
+fn benchmark_frame_limit(config: &V2Config) -> Option<u64> {
+    match config.gui.benchmark_frames {
+        0 => None,
+        frames => Some(frames as u64),
+    }
+}
+
+fn is_benchmark_mode(config: &V2Config) -> bool {
+    config.gui.benchmark_drag || config.gui.benchmark_frames > 0
 }
 
 /// Return autosave file path in the process working directory.
