@@ -9,6 +9,110 @@ const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const DEFAULT_LOOP_FPS: u32 = 60;
+const SOLID_PARAM_KEYS: [&str; 4] = ["color_r", "color_g", "color_b", "alpha"];
+const SOLID_COLOR_R_SLOT: usize = 0;
+const SOLID_COLOR_G_SLOT: usize = 1;
+const SOLID_COLOR_B_SLOT: usize = 2;
+const SOLID_ALPHA_SLOT: usize = 3;
+const CIRCLE_PARAM_KEYS: [&str; 8] = [
+    "center_x", "center_y", "radius", "feather", "color_r", "color_g", "color_b", "alpha",
+];
+const CIRCLE_CENTER_X_SLOT: usize = 0;
+const CIRCLE_CENTER_Y_SLOT: usize = 1;
+const CIRCLE_RADIUS_SLOT: usize = 2;
+const CIRCLE_FEATHER_SLOT: usize = 3;
+const CIRCLE_COLOR_R_SLOT: usize = 4;
+const CIRCLE_COLOR_G_SLOT: usize = 5;
+const CIRCLE_COLOR_B_SLOT: usize = 6;
+const CIRCLE_ALPHA_SLOT: usize = 7;
+const SPHERE_BUFFER_PARAM_KEYS: [&str; 1] = ["radius"];
+const SPHERE_BUFFER_RADIUS_SLOT: usize = 0;
+const CIRCLE_NURBS_BUFFER_PARAM_KEYS: [&str; 7] = [
+    "radius",
+    "arc_start",
+    "arc_end",
+    "line_width",
+    "order",
+    "divisions",
+    "arc_style",
+];
+const CIRCLE_NURBS_BUFFER_RADIUS_SLOT: usize = 0;
+const CIRCLE_NURBS_BUFFER_ARC_START_SLOT: usize = 1;
+const CIRCLE_NURBS_BUFFER_ARC_END_SLOT: usize = 2;
+const CIRCLE_NURBS_BUFFER_LINE_WIDTH_SLOT: usize = 3;
+const CIRCLE_NURBS_BUFFER_ORDER_SLOT: usize = 4;
+const CIRCLE_NURBS_BUFFER_DIVISIONS_SLOT: usize = 5;
+const CIRCLE_NURBS_BUFFER_ARC_STYLE_SLOT: usize = 6;
+const BUFFER_NOISE_PARAM_KEYS: [&str; 9] = [
+    "amplitude",
+    "frequency",
+    "speed_hz",
+    "phase",
+    "seed",
+    "twist",
+    "stretch",
+    "loop_cyc",
+    "loop_mode",
+];
+const BUFFER_NOISE_AMPLITUDE_SLOT: usize = 0;
+const BUFFER_NOISE_FREQUENCY_SLOT: usize = 1;
+const BUFFER_NOISE_SPEED_HZ_SLOT: usize = 2;
+const BUFFER_NOISE_PHASE_SLOT: usize = 3;
+const BUFFER_NOISE_SEED_SLOT: usize = 4;
+const BUFFER_NOISE_TWIST_SLOT: usize = 5;
+const BUFFER_NOISE_STRETCH_SLOT: usize = 6;
+const BUFFER_NOISE_LOOP_CYC_SLOT: usize = 7;
+const BUFFER_NOISE_LOOP_MODE_SLOT: usize = 8;
+const SCENE_ENTITY_PARAM_KEYS: [&str; 8] = [
+    "pos_x", "pos_y", "scale", "ambient", "color_r", "color_g", "color_b", "alpha",
+];
+const SCENE_ENTITY_POS_X_SLOT: usize = 0;
+const SCENE_ENTITY_POS_Y_SLOT: usize = 1;
+const SCENE_ENTITY_SCALE_SLOT: usize = 2;
+const SCENE_ENTITY_AMBIENT_SLOT: usize = 3;
+const SCENE_ENTITY_COLOR_R_SLOT: usize = 4;
+const SCENE_ENTITY_COLOR_G_SLOT: usize = 5;
+const SCENE_ENTITY_COLOR_B_SLOT: usize = 6;
+const SCENE_ENTITY_ALPHA_SLOT: usize = 7;
+const CAMERA_PARAM_KEYS: [&str; 1] = ["zoom"];
+const CAMERA_ZOOM_SLOT: usize = 0;
+const SCENE_PASS_PARAM_KEYS: [&str; 7] = [
+    "res_width",
+    "res_height",
+    "bg_mode",
+    "edge_softness",
+    "light_x",
+    "light_y",
+    "light_z",
+];
+const SCENE_PASS_RES_WIDTH_SLOT: usize = 0;
+const SCENE_PASS_RES_HEIGHT_SLOT: usize = 1;
+const SCENE_PASS_BG_MODE_SLOT: usize = 2;
+const SCENE_PASS_EDGE_SOFTNESS_SLOT: usize = 3;
+const SCENE_PASS_LIGHT_X_SLOT: usize = 4;
+const SCENE_PASS_LIGHT_Y_SLOT: usize = 5;
+const SCENE_PASS_LIGHT_Z_SLOT: usize = 6;
+const TRANSFORM_PARAM_KEYS: [&str; 5] = ["brightness", "gain_r", "gain_g", "gain_b", "alpha_mul"];
+const TRANSFORM_BRIGHTNESS_SLOT: usize = 0;
+const TRANSFORM_GAIN_R_SLOT: usize = 1;
+const TRANSFORM_GAIN_G_SLOT: usize = 2;
+const TRANSFORM_GAIN_B_SLOT: usize = 3;
+const TRANSFORM_ALPHA_MUL_SLOT: usize = 4;
+const FEEDBACK_PARAM_KEYS: [&str; 3] = [
+    "feedback",
+    FEEDBACK_HISTORY_PARAM_KEY,
+    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+];
+const FEEDBACK_MIX_SLOT: usize = 0;
+const FEEDBACK_HISTORY_SLOT: usize = 1;
+const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
+const BLEND_PARAM_KEYS: [&str; 2] = ["blend_mode", "opacity"];
+const BLEND_MODE_SLOT: usize = 0;
+const BLEND_OPACITY_SLOT: usize = 1;
+
+/// Compile-time resolved parameter slot index for one node parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ParamSlotIndex(usize);
 
 /// One GPU operation emitted by GUI runtime evaluation.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -106,10 +210,11 @@ pub(crate) struct TopRuntimeFrameContext {
 }
 
 /// One compiled step in GUI TOP runtime order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct CompiledStep {
     node_id: u32,
     kind: CompiledStepKind,
+    param_slots: Box<[Option<ParamSlotIndex>]>,
 }
 
 /// Executable operation kind for one compiled GUI runtime step.
@@ -232,34 +337,74 @@ impl GuiCompiledRuntime {
             match step.kind {
                 CompiledStepKind::Solid => {
                     out_ops.push(TopRuntimeOp::Solid {
-                        color_r: project
-                            .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_g: project
-                            .node_param_value(step.node_id, "color_g", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_b: project
-                            .node_param_value(step.node_id, "color_b", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        alpha: project
-                            .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
-                            .unwrap_or(1.0),
+                        color_r: compiled_param_value_opt(
+                            project,
+                            step,
+                            SOLID_COLOR_R_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_g: compiled_param_value_opt(
+                            project,
+                            step,
+                            SOLID_COLOR_G_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            SOLID_COLOR_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        alpha: compiled_param_value_opt(
+                            project,
+                            step,
+                            SOLID_ALPHA_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
                     });
                 }
                 CompiledStepKind::Circle => {
                     out_ops.push(TopRuntimeOp::Circle {
-                        center_x: project
-                            .node_param_value(step.node_id, "center_x", time_secs, eval_stack)
-                            .unwrap_or(0.5),
-                        center_y: project
-                            .node_param_value(step.node_id, "center_y", time_secs, eval_stack)
-                            .unwrap_or(0.5),
-                        radius: project
-                            .node_param_value(step.node_id, "radius", time_secs, eval_stack)
-                            .unwrap_or(0.24),
-                        feather: project
-                            .node_param_value(step.node_id, "feather", time_secs, eval_stack)
-                            .unwrap_or(0.06),
+                        center_x: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_CENTER_X_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5),
+                        center_y: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_CENTER_Y_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5),
+                        radius: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_RADIUS_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.24),
+                        feather: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_FEATHER_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.06),
                         line_width: 0.0,
                         noise_amount: 0.0,
                         noise_freq: 1.0,
@@ -270,26 +415,51 @@ impl GuiCompiledRuntime {
                         arc_end_deg: 360.0,
                         segment_count: 0.0,
                         arc_open: 0.0,
-                        color_r: project
-                            .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_g: project
-                            .node_param_value(step.node_id, "color_g", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_b: project
-                            .node_param_value(step.node_id, "color_b", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        alpha: project
-                            .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
-                            .unwrap_or(1.0),
+                        color_r: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_COLOR_R_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_g: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_COLOR_G_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_COLOR_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        alpha: compiled_param_value_opt(
+                            project,
+                            step,
+                            CIRCLE_ALPHA_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
                         alpha_clip: false,
                     });
                 }
                 CompiledStepKind::SphereBuffer => {
-                    let radius = project
-                        .node_param_value(step.node_id, "radius", time_secs, eval_stack)
-                        .unwrap_or(0.28)
-                        .max(0.01);
+                    let radius = compiled_param_value_opt(
+                        project,
+                        step,
+                        SPHERE_BUFFER_RADIUS_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.28)
+                    .max(0.01);
                     mesh = Some(SceneMeshState {
                         profile: SceneMeshProfile::Sphere,
                         radius,
@@ -308,33 +478,68 @@ impl GuiCompiledRuntime {
                     scene_ready = false;
                 }
                 CompiledStepKind::CircleNurbsBuffer => {
-                    let radius = project
-                        .node_param_value(step.node_id, "radius", time_secs, eval_stack)
-                        .unwrap_or(0.28)
-                        .max(0.01);
-                    let arc_start_deg = project
-                        .node_param_value(step.node_id, "arc_start", time_secs, eval_stack)
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 360.0);
-                    let arc_end_deg = project
-                        .node_param_value(step.node_id, "arc_end", time_secs, eval_stack)
-                        .unwrap_or(360.0)
-                        .clamp(0.0, 360.0);
-                    let line_width = project
-                        .node_param_value(step.node_id, "line_width", time_secs, eval_stack)
-                        .unwrap_or(0.01)
-                        .clamp(0.0005, 0.35);
-                    let order = project
-                        .node_param_value(step.node_id, "order", time_secs, eval_stack)
-                        .unwrap_or(3.0)
-                        .clamp(2.0, 5.0);
-                    let segment_count = project
-                        .node_param_value(step.node_id, "divisions", time_secs, eval_stack)
-                        .unwrap_or(64.0)
-                        .clamp(3.0, 512.0);
-                    let arc_open = project
-                        .node_param_value(step.node_id, "arc_style", time_secs, eval_stack)
-                        .unwrap_or(0.0)
+                    let radius = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_RADIUS_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.28)
+                    .max(0.01);
+                    let arc_start_deg = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_ARC_START_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 360.0);
+                    let arc_end_deg = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_ARC_END_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(360.0)
+                    .clamp(0.0, 360.0);
+                    let line_width = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_LINE_WIDTH_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.01)
+                    .clamp(0.0005, 0.35);
+                    let order = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_ORDER_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(3.0)
+                    .clamp(2.0, 5.0);
+                    let segment_count = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_DIVISIONS_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(64.0)
+                    .clamp(3.0, 512.0);
+                    let arc_open = compiled_param_value_opt(
+                        project,
+                        step,
+                        CIRCLE_NURBS_BUFFER_ARC_STYLE_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
                         >= 0.5;
                     mesh = Some(SceneMeshState {
                         profile: SceneMeshProfile::CircleNurbs,
@@ -357,39 +562,84 @@ impl GuiCompiledRuntime {
                     let Some(mut mesh_state) = mesh else {
                         continue;
                     };
-                    let amplitude = project
-                        .node_param_value(step.node_id, "amplitude", time_secs, eval_stack)
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0);
-                    let frequency = project
-                        .node_param_value(step.node_id, "frequency", time_secs, eval_stack)
-                        .unwrap_or(2.0)
-                        .max(0.01);
-                    let speed_hz = project
-                        .node_param_value(step.node_id, "speed_hz", time_secs, eval_stack)
-                        .unwrap_or(0.35)
-                        .max(0.0);
-                    let phase = project
-                        .node_param_value(step.node_id, "phase", time_secs, eval_stack)
-                        .unwrap_or(0.0);
-                    let seed = project
-                        .node_param_value(step.node_id, "seed", time_secs, eval_stack)
-                        .unwrap_or(1.0);
-                    let twist = project
-                        .node_param_value(step.node_id, "twist", time_secs, eval_stack)
-                        .unwrap_or(0.0)
-                        .clamp(-8.0, 8.0);
-                    let stretch = project
-                        .node_param_value(step.node_id, "stretch", time_secs, eval_stack)
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0);
-                    let loop_cycles = project
-                        .node_param_value(step.node_id, "loop_cyc", time_secs, eval_stack)
-                        .unwrap_or(12.0)
-                        .clamp(0.0, 256.0);
-                    let loop_mode = project
-                        .node_param_value(step.node_id, "loop_mode", time_secs, eval_stack)
-                        .unwrap_or(0.0)
+                    let amplitude = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_AMPLITUDE_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 1.0);
+                    let frequency = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_FREQUENCY_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(2.0)
+                    .max(0.01);
+                    let speed_hz = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_SPEED_HZ_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.35)
+                    .max(0.0);
+                    let phase = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_PHASE_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0);
+                    let seed = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_SEED_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(1.0);
+                    let twist = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_TWIST_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
+                    .clamp(-8.0, 8.0);
+                    let stretch = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_STRETCH_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 1.0);
+                    let loop_cycles = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_LOOP_CYC_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(12.0)
+                    .clamp(0.0, 256.0);
+                    let loop_mode = compiled_param_value_opt(
+                        project,
+                        step,
+                        BUFFER_NOISE_LOOP_MODE_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
                         >= 0.5;
                     let (base_phase, warp_freq, warp_input) = if loop_mode {
                         let loop_phase = timeline_loop_phase(frame, time_secs);
@@ -427,31 +677,71 @@ impl GuiCompiledRuntime {
                 }
                 CompiledStepKind::SceneEntity => {
                     entity = Some(SceneEntityState {
-                        pos_x: project
-                            .node_param_value(step.node_id, "pos_x", time_secs, eval_stack)
-                            .unwrap_or(0.5),
-                        pos_y: project
-                            .node_param_value(step.node_id, "pos_y", time_secs, eval_stack)
-                            .unwrap_or(0.5),
-                        scale: project
-                            .node_param_value(step.node_id, "scale", time_secs, eval_stack)
-                            .unwrap_or(1.0)
-                            .max(0.01),
-                        ambient: project
-                            .node_param_value(step.node_id, "ambient", time_secs, eval_stack)
-                            .unwrap_or(0.2),
-                        color_r: project
-                            .node_param_value(step.node_id, "color_r", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_g: project
-                            .node_param_value(step.node_id, "color_g", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        color_b: project
-                            .node_param_value(step.node_id, "color_b", time_secs, eval_stack)
-                            .unwrap_or(0.9),
-                        alpha: project
-                            .node_param_value(step.node_id, "alpha", time_secs, eval_stack)
-                            .unwrap_or(1.0),
+                        pos_x: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_POS_X_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5),
+                        pos_y: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_POS_Y_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5),
+                        scale: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_SCALE_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .max(0.01),
+                        ambient: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_AMBIENT_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.2),
+                        color_r: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_COLOR_R_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_g: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_COLOR_G_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        color_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_COLOR_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.9),
+                        alpha: compiled_param_value_opt(
+                            project,
+                            step,
+                            SCENE_ENTITY_ALPHA_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
                     });
                     scene_ready = false;
                 }
@@ -459,10 +749,15 @@ impl GuiCompiledRuntime {
                     scene_ready = mesh.is_some() && entity.is_some();
                 }
                 CompiledStepKind::Camera => {
-                    camera_zoom = project
-                        .node_param_value(step.node_id, "zoom", time_secs, eval_stack)
-                        .unwrap_or(1.0)
-                        .clamp(0.1, 8.0);
+                    camera_zoom = compiled_param_value_opt(
+                        project,
+                        step,
+                        CAMERA_ZOOM_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(1.0)
+                    .clamp(0.1, 8.0);
                 }
                 CompiledStepKind::ScenePass => {
                     if !scene_ready {
@@ -471,42 +766,62 @@ impl GuiCompiledRuntime {
                     let (Some(mesh_state), Some(entity_state)) = (mesh, entity) else {
                         continue;
                     };
-                    let alpha_clip = project
-                        .node_param_value(step.node_id, "bg_mode", time_secs, eval_stack)
-                        .unwrap_or(0.0)
+                    let alpha_clip = compiled_param_value_opt(
+                        project,
+                        step,
+                        SCENE_PASS_BG_MODE_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.0)
                         >= 0.5;
                     let zoom = camera_zoom.max(0.1);
                     let center_x = (entity_state.pos_x - 0.5) * zoom + 0.5;
                     let center_y = (entity_state.pos_y - 0.5) * zoom + 0.5;
+                    let edge_softness = compiled_param_value_opt(
+                        project,
+                        step,
+                        SCENE_PASS_EDGE_SOFTNESS_SLOT,
+                        time_secs,
+                        eval_stack,
+                    )
+                    .unwrap_or(0.01)
+                    .max(0.0);
                     match mesh_state.profile {
                         SceneMeshProfile::Sphere => out_ops.push(TopRuntimeOp::Sphere {
                             center_x,
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
-                            edge_softness: project
-                                .node_param_value(
-                                    step.node_id,
-                                    "edge_softness",
-                                    time_secs,
-                                    eval_stack,
-                                )
-                                .unwrap_or(0.01)
-                                .max(0.0)
-                                * zoom,
+                            edge_softness: edge_softness * zoom,
                             noise_amount: mesh_state.noise_amount,
                             noise_freq: mesh_state.noise_freq,
                             noise_phase: mesh_state.noise_phase,
                             noise_twist: mesh_state.noise_twist,
                             noise_stretch: mesh_state.noise_stretch,
-                            light_x: project
-                                .node_param_value(step.node_id, "light_x", time_secs, eval_stack)
-                                .unwrap_or(0.4),
-                            light_y: project
-                                .node_param_value(step.node_id, "light_y", time_secs, eval_stack)
-                                .unwrap_or(-0.5),
-                            light_z: project
-                                .node_param_value(step.node_id, "light_z", time_secs, eval_stack)
-                                .unwrap_or(1.0),
+                            light_x: compiled_param_value_opt(
+                                project,
+                                step,
+                                SCENE_PASS_LIGHT_X_SLOT,
+                                time_secs,
+                                eval_stack,
+                            )
+                            .unwrap_or(0.4),
+                            light_y: compiled_param_value_opt(
+                                project,
+                                step,
+                                SCENE_PASS_LIGHT_Y_SLOT,
+                                time_secs,
+                                eval_stack,
+                            )
+                            .unwrap_or(-0.5),
+                            light_z: compiled_param_value_opt(
+                                project,
+                                step,
+                                SCENE_PASS_LIGHT_Z_SLOT,
+                                time_secs,
+                                eval_stack,
+                            )
+                            .unwrap_or(1.0),
                             ambient: entity_state.ambient,
                             color_r: entity_state.color_r,
                             color_g: entity_state.color_g,
@@ -518,14 +833,7 @@ impl GuiCompiledRuntime {
                             center_x,
                             center_y,
                             radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
-                            feather: project
-                                .node_param_value(
-                                    step.node_id,
-                                    "edge_softness",
-                                    time_secs,
-                                    eval_stack,
-                                )
-                                .unwrap_or(0.01)
+                            feather: edge_softness
                                 * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35)
                                 * zoom,
                             line_width: (mesh_state.line_width * entity_state.scale * zoom)
@@ -549,45 +857,76 @@ impl GuiCompiledRuntime {
                 }
                 CompiledStepKind::Transform => {
                     out_ops.push(TopRuntimeOp::Transform {
-                        brightness: project
-                            .node_param_value(step.node_id, "brightness", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        gain_r: project
-                            .node_param_value(step.node_id, "gain_r", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        gain_g: project
-                            .node_param_value(step.node_id, "gain_g", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        gain_b: project
-                            .node_param_value(step.node_id, "gain_b", time_secs, eval_stack)
-                            .unwrap_or(1.0),
-                        alpha_mul: project
-                            .node_param_value(step.node_id, "alpha_mul", time_secs, eval_stack)
-                            .unwrap_or(1.0),
+                        brightness: compiled_param_value_opt(
+                            project,
+                            step,
+                            TRANSFORM_BRIGHTNESS_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
+                        gain_r: compiled_param_value_opt(
+                            project,
+                            step,
+                            TRANSFORM_GAIN_R_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
+                        gain_g: compiled_param_value_opt(
+                            project,
+                            step,
+                            TRANSFORM_GAIN_G_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
+                        gain_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            TRANSFORM_GAIN_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
+                        alpha_mul: compiled_param_value_opt(
+                            project,
+                            step,
+                            TRANSFORM_ALPHA_MUL_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0),
                     });
                 }
                 CompiledStepKind::Feedback => {
-                    let history = project
-                        .texture_source_for_param_key(step.node_id, FEEDBACK_HISTORY_PARAM_KEY)
-                        .or_else(|| {
-                            project.texture_source_for_param_key(
-                                step.node_id,
-                                LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
-                            )
-                        })
-                        .map_or(
-                            TopRuntimeFeedbackHistoryBinding::Internal {
-                                feedback_node_id: step.node_id,
-                            },
-                            |texture_node_id| TopRuntimeFeedbackHistoryBinding::External {
-                                texture_node_id,
-                            },
-                        );
+                    let history =
+                        compiled_texture_source_for_param(project, step, FEEDBACK_HISTORY_SLOT)
+                            .or_else(|| {
+                                compiled_texture_source_for_param(
+                                    project,
+                                    step,
+                                    FEEDBACK_LEGACY_HISTORY_SLOT,
+                                )
+                            })
+                            .map_or(
+                                TopRuntimeFeedbackHistoryBinding::Internal {
+                                    feedback_node_id: step.node_id,
+                                },
+                                |texture_node_id| TopRuntimeFeedbackHistoryBinding::External {
+                                    texture_node_id,
+                                },
+                            );
                     out_ops.push(TopRuntimeOp::Feedback {
-                        mix: project
-                            .node_param_value(step.node_id, "feedback", time_secs, eval_stack)
-                            .unwrap_or(0.95)
-                            .clamp(0.0, 1.0),
+                        mix: compiled_param_value_opt(
+                            project,
+                            step,
+                            FEEDBACK_MIX_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.95)
+                        .clamp(0.0, 1.0),
                         history,
                     });
                 }
@@ -601,15 +940,25 @@ impl GuiCompiledRuntime {
                     layer_source_id,
                 } => {
                     out_ops.push(TopRuntimeOp::Blend {
-                        mode: project
-                            .node_param_value(step.node_id, "blend_mode", time_secs, eval_stack)
-                            .unwrap_or(0.0)
-                            .round()
-                            .clamp(0.0, 8.0),
-                        opacity: project
-                            .node_param_value(step.node_id, "opacity", time_secs, eval_stack)
-                            .unwrap_or(0.0)
-                            .clamp(0.0, 1.0),
+                        mode: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_MODE_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .round()
+                        .clamp(0.0, 8.0),
+                        opacity: compiled_param_value_opt(
+                            project,
+                            step,
+                            BLEND_OPACITY_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
                         base_texture_node_id: base_source_id,
                         layer_texture_node_id: layer_source_id,
                     });
@@ -635,12 +984,22 @@ impl GuiCompiledRuntime {
             if step.kind != CompiledStepKind::ScenePass {
                 continue;
             }
-            let raw_w = project
-                .node_param_value(step.node_id, "res_width", time_secs, eval_stack)
-                .unwrap_or(0.0);
-            let raw_h = project
-                .node_param_value(step.node_id, "res_height", time_secs, eval_stack)
-                .unwrap_or(0.0);
+            let raw_w = compiled_param_value_opt(
+                project,
+                step,
+                SCENE_PASS_RES_WIDTH_SLOT,
+                time_secs,
+                eval_stack,
+            )
+            .unwrap_or(0.0);
+            let raw_h = compiled_param_value_opt(
+                project,
+                step,
+                SCENE_PASS_RES_HEIGHT_SLOT,
+                time_secs,
+                eval_stack,
+            )
+            .unwrap_or(0.0);
             let width = if raw_w >= 1.0 {
                 raw_w.round().clamp(1.0, 8192.0) as u32
             } else {
@@ -655,6 +1014,54 @@ impl GuiCompiledRuntime {
         }
         (default_w, default_h)
     }
+}
+
+fn compile_param_slots(
+    project: &GuiProject,
+    node_id: u32,
+    keys: &[&'static str],
+) -> Box<[Option<ParamSlotIndex>]> {
+    keys.iter()
+        .map(|key| {
+            project
+                .node_param_slot_index(node_id, key)
+                .map(ParamSlotIndex)
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn compiled_step(
+    project: &GuiProject,
+    node_id: u32,
+    kind: CompiledStepKind,
+    param_keys: &[&'static str],
+) -> CompiledStep {
+    CompiledStep {
+        node_id,
+        kind,
+        param_slots: compile_param_slots(project, node_id, param_keys),
+    }
+}
+
+fn compiled_param_value_opt(
+    project: &GuiProject,
+    step: &CompiledStep,
+    param_slot: usize,
+    time_secs: f32,
+    eval_stack: &mut Vec<u32>,
+) -> Option<f32> {
+    let index = step.param_slots.get(param_slot).copied().flatten()?.0;
+    project.node_param_value_by_index(step.node_id, index, time_secs, eval_stack)
+}
+
+fn compiled_texture_source_for_param(
+    project: &GuiProject,
+    step: &CompiledStep,
+    param_slot: usize,
+) -> Option<u32> {
+    let index = step.param_slots.get(param_slot).copied().flatten()?.0;
+    project.texture_source_for_param(step.node_id, index)
 }
 
 fn compile_node(
@@ -676,31 +1083,39 @@ fn compile_node(
     visiting.push(node_id);
     let ok = match node.kind() {
         ProjectNodeKind::TexSolid => {
-            out_steps.push(CompiledStep {
+            out_steps.push(compiled_step(
+                project,
                 node_id,
-                kind: CompiledStepKind::Solid,
-            });
+                CompiledStepKind::Solid,
+                &SOLID_PARAM_KEYS,
+            ));
             true
         }
         ProjectNodeKind::TexCircle => {
-            out_steps.push(CompiledStep {
+            out_steps.push(compiled_step(
+                project,
                 node_id,
-                kind: CompiledStepKind::Circle,
-            });
+                CompiledStepKind::Circle,
+                &CIRCLE_PARAM_KEYS,
+            ));
             true
         }
         ProjectNodeKind::BufSphere => {
-            out_steps.push(CompiledStep {
+            out_steps.push(compiled_step(
+                project,
                 node_id,
-                kind: CompiledStepKind::SphereBuffer,
-            });
+                CompiledStepKind::SphereBuffer,
+                &SPHERE_BUFFER_PARAM_KEYS,
+            ));
             true
         }
         ProjectNodeKind::BufCircleNurbs => {
-            out_steps.push(CompiledStep {
+            out_steps.push(compiled_step(
+                project,
                 node_id,
-                kind: CompiledStepKind::CircleNurbsBuffer,
-            });
+                CompiledStepKind::CircleNurbsBuffer,
+                &CIRCLE_NURBS_BUFFER_PARAM_KEYS,
+            ));
             true
         }
         ProjectNodeKind::BufNoise => {
@@ -711,10 +1126,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::BufferNoise,
-                });
+                    CompiledStepKind::BufferNoise,
+                    &BUFFER_NOISE_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -726,10 +1143,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::Transform,
-                });
+                    CompiledStepKind::Transform,
+                    &TRANSFORM_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -741,10 +1160,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::Feedback,
-                });
+                    CompiledStepKind::Feedback,
+                    &FEEDBACK_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -752,8 +1173,9 @@ fn compile_node(
             let Some(base_source_id) = project.input_source_node_id(node_id) else {
                 return false;
             };
-            let layer_source_id =
-                project.texture_source_for_param_key(node_id, BLEND_LAYER_PARAM_KEY);
+            let layer_source_id = project
+                .node_param_slot_index(node_id, BLEND_LAYER_PARAM_KEY)
+                .and_then(|slot_index| project.texture_source_for_param(node_id, slot_index));
             let compile_layer_first = layer_source_id
                 .map(|layer_id| node_depends_on(project, base_source_id, layer_id))
                 .unwrap_or(false);
@@ -762,43 +1184,53 @@ fn compile_node(
                     if !compile_node(project, layer_id, visiting, visited, out_steps) {
                         return false;
                     }
-                    out_steps.push(CompiledStep {
-                        node_id: layer_id,
-                        kind: CompiledStepKind::StoreTexture,
-                    });
+                    out_steps.push(compiled_step(
+                        project,
+                        layer_id,
+                        CompiledStepKind::StoreTexture,
+                        &[],
+                    ));
                 }
                 if !compile_node(project, base_source_id, visiting, visited, out_steps) {
                     return false;
                 }
-                out_steps.push(CompiledStep {
-                    node_id: base_source_id,
-                    kind: CompiledStepKind::StoreTexture,
-                });
+                out_steps.push(compiled_step(
+                    project,
+                    base_source_id,
+                    CompiledStepKind::StoreTexture,
+                    &[],
+                ));
             } else {
                 if !compile_node(project, base_source_id, visiting, visited, out_steps) {
                     return false;
                 }
-                out_steps.push(CompiledStep {
-                    node_id: base_source_id,
-                    kind: CompiledStepKind::StoreTexture,
-                });
+                out_steps.push(compiled_step(
+                    project,
+                    base_source_id,
+                    CompiledStepKind::StoreTexture,
+                    &[],
+                ));
                 if let Some(layer_id) = layer_source_id {
                     if !compile_node(project, layer_id, visiting, visited, out_steps) {
                         return false;
                     }
-                    out_steps.push(CompiledStep {
-                        node_id: layer_id,
-                        kind: CompiledStepKind::StoreTexture,
-                    });
+                    out_steps.push(compiled_step(
+                        project,
+                        layer_id,
+                        CompiledStepKind::StoreTexture,
+                        &[],
+                    ));
                 }
             }
-            out_steps.push(CompiledStep {
+            out_steps.push(compiled_step(
+                project,
                 node_id,
-                kind: CompiledStepKind::Blend {
+                CompiledStepKind::Blend {
                     base_source_id,
                     layer_source_id,
                 },
-            });
+                &BLEND_PARAM_KEYS,
+            ));
             true
         }
         ProjectNodeKind::SceneEntity => {
@@ -809,10 +1241,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::SceneEntity,
-                });
+                    CompiledStepKind::SceneEntity,
+                    &SCENE_ENTITY_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -824,10 +1258,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::SceneBuild,
-                });
+                    CompiledStepKind::SceneBuild,
+                    &[],
+                ));
                 true
             }
         }
@@ -839,10 +1275,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::Camera,
-                });
+                    CompiledStepKind::Camera,
+                    &CAMERA_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -854,10 +1292,12 @@ fn compile_node(
             if !compile_node(project, source_id, visiting, visited, out_steps) {
                 false
             } else {
-                out_steps.push(CompiledStep {
+                out_steps.push(compiled_step(
+                    project,
                     node_id,
-                    kind: CompiledStepKind::ScenePass,
-                });
+                    CompiledStepKind::ScenePass,
+                    &SCENE_PASS_PARAM_KEYS,
+                ));
                 true
             }
         }
@@ -945,9 +1385,53 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding, TopRuntimeFrameContext, TopRuntimeOp,
+        compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
+        CompiledStepKind, GuiCompiledRuntime, TopRuntimeFeedbackHistoryBinding,
+        TopRuntimeFrameContext, TopRuntimeOp, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS,
+        SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
+
+    #[test]
+    fn compiled_param_slots_match_keyed_param_values() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        assert!(project.set_param_value(solid, 0, 0.15));
+        assert!(project.set_param_value(solid, 1, 0.35));
+        assert!(project.set_param_value(solid, 2, 0.55));
+        assert!(project.set_param_value(solid, 3, 0.75));
+        let step = compiled_step(&project, solid, CompiledStepKind::Solid, &SOLID_PARAM_KEYS);
+        let mut eval_stack = Vec::new();
+        for (slot_index, key) in SOLID_PARAM_KEYS.iter().enumerate() {
+            let keyed = project.node_param_value(solid, key, 0.0, &mut eval_stack);
+            eval_stack.clear();
+            let indexed =
+                compiled_param_value_opt(&project, &step, slot_index, 0.0, &mut eval_stack);
+            assert_eq!(
+                indexed, keyed,
+                "compiled slot {slot_index} should match keyed read for {key}"
+            );
+            eval_stack.clear();
+        }
+    }
+
+    #[test]
+    fn compiled_feedback_history_slot_matches_texture_binding() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 40, 420, 480);
+        assert!(project.connect_texture_link_to_param(solid, feedback, 0));
+        let step = compiled_step(
+            &project,
+            feedback,
+            CompiledStepKind::Feedback,
+            &FEEDBACK_PARAM_KEYS,
+        );
+        assert_eq!(
+            compiled_texture_source_for_param(&project, &step, FEEDBACK_HISTORY_SLOT),
+            Some(solid)
+        );
+    }
 
     #[test]
     fn transform_defaults_are_identity() {

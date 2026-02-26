@@ -1489,17 +1489,6 @@ impl GuiProject {
             .map(|source| (source, ResourceKind::Signal))
     }
 
-    /// Return texture source node id bound to one parameter key, if any.
-    pub(crate) fn texture_source_for_param_key(
-        &self,
-        target_id: u32,
-        key: &'static str,
-    ) -> Option<u32> {
-        let target = self.node(target_id)?;
-        let slot = target.params.iter().find(|slot| slot.key == key)?;
-        slot.texture_source
-    }
-
     /// Disconnect one explicit signal binding from a target parameter row.
     ///
     /// Returns `true` when the target parameter binding changed.
@@ -1912,16 +1901,25 @@ impl GuiProject {
             .unwrap_or(false)
     }
 
-    /// Return effective parameter value, resolving optional signal binding.
-    pub(crate) fn node_param_value(
+    /// Return parameter slot index for one key on one node.
+    pub(crate) fn node_param_slot_index(&self, node_id: u32, key: &'static str) -> Option<usize> {
+        let node = self.node(node_id)?;
+        node.params.iter().position(|slot| slot.key == key)
+    }
+
+    /// Return effective parameter value by pre-resolved slot index.
+    ///
+    /// This avoids per-sample key lookups and is intended for runtime hot-path
+    /// evaluation after compile-time slot resolution.
+    pub(crate) fn node_param_value_by_index(
         &self,
         node_id: u32,
-        key: &'static str,
+        param_index: usize,
         time_secs: f32,
         eval_stack: &mut Vec<u32>,
     ) -> Option<f32> {
         let node = self.node(node_id)?;
-        let slot = node.params.iter().find(|slot| slot.key == key)?;
+        let slot = node.params.get(param_index)?;
         let mut value = slot.value;
         if let Some(source_id) = slot.signal_source {
             if let Some(signal) = self.sample_signal_node(source_id, time_secs, eval_stack) {
@@ -1929,6 +1927,19 @@ impl GuiProject {
             }
         }
         Some(value.clamp(slot.min, slot.max))
+    }
+
+    /// Return effective parameter value, resolving optional signal binding.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn node_param_value(
+        &self,
+        node_id: u32,
+        key: &'static str,
+        time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+    ) -> Option<f32> {
+        let index = self.node_param_slot_index(node_id, key)?;
+        self.node_param_value_by_index(node_id, index, time_secs, eval_stack)
     }
 
     /// Evaluate one scalar signal node output.
@@ -1946,17 +1957,21 @@ impl GuiProject {
             return None;
         }
         eval_stack.push(node_id);
+        const LFO_RATE_INDEX: usize = 0;
+        const LFO_AMPLITUDE_INDEX: usize = 1;
+        const LFO_PHASE_INDEX: usize = 2;
+        const LFO_BIAS_INDEX: usize = 3;
         let rate = self
-            .node_param_value(node_id, "rate_hz", time_secs, eval_stack)
+            .node_param_value_by_index(node_id, LFO_RATE_INDEX, time_secs, eval_stack)
             .unwrap_or(0.4);
         let amplitude = self
-            .node_param_value(node_id, "amplitude", time_secs, eval_stack)
+            .node_param_value_by_index(node_id, LFO_AMPLITUDE_INDEX, time_secs, eval_stack)
             .unwrap_or(0.5);
         let phase = self
-            .node_param_value(node_id, "phase", time_secs, eval_stack)
+            .node_param_value_by_index(node_id, LFO_PHASE_INDEX, time_secs, eval_stack)
             .unwrap_or(0.0);
         let bias = self
-            .node_param_value(node_id, "bias", time_secs, eval_stack)
+            .node_param_value_by_index(node_id, LFO_BIAS_INDEX, time_secs, eval_stack)
             .unwrap_or(0.5);
         let v = (time_secs * rate * std::f32::consts::TAU + phase * std::f32::consts::TAU).sin()
             * amplitude
