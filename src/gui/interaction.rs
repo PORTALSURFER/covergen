@@ -24,7 +24,6 @@ const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
-const DROPDOWN_ITEM_MIN_PX: i32 = 12;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
@@ -859,17 +858,19 @@ fn dropdown_option_at_cursor(
     if !list_panel.contains(mx, my) {
         return None;
     }
-    let item_h = ((NODE_PARAM_DROPDOWN_ROW_HEIGHT as f32) * state.zoom)
-        .round()
-        .max(DROPDOWN_ITEM_MIN_PX as f32) as i32;
-    if item_h <= 0 {
-        return None;
+    for (index, _) in options.iter().enumerate() {
+        let row_world = Rect::new(
+            list_world.x,
+            list_world.y + index as i32 * NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+            list_world.w,
+            NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+        );
+        let row_panel = graph_rect_to_panel(row_world, state);
+        if row_panel.contains(mx, my) {
+            return Some(index);
+        }
     }
-    let index = ((my - list_panel.y) / item_h).max(0) as usize;
-    if index >= options.len() {
-        return None;
-    }
-    Some(index)
+    None
 }
 
 fn start_param_edit(
@@ -2194,13 +2195,15 @@ mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
         handle_delete_selected_nodes, handle_drag_input, handle_link_cut, handle_node_open_toggle,
-        handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
-        marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
-        segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+        handle_param_edit_input, handle_param_wheel_input, handle_right_selection,
+        handle_wire_input, insert_param_char, marquee_moved, move_param_cursor_left,
+        move_param_cursor_right, rects_overlap, segments_intersect, update_hover_state,
+        AddNodeMenuEntry, RightMarqueeState,
     };
+    use crate::gui::geometry::Rect;
     use crate::gui::project::{
-        input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center,
-        GuiProject, ProjectNodeKind, NODE_WIDTH,
+        input_pin_center, node_param_dropdown_rect, node_param_row_rect, node_param_value_rect,
+        output_pin_center, GuiProject, ProjectNodeKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
     };
     use crate::gui::state::{
         AddNodeMenuState, DragState, HoverInsertLink, HoverParamTarget, InputSnapshot,
@@ -2790,6 +2793,55 @@ mod tests {
             &mut state
         ));
         assert_eq!(project.signal_source_for_param(circle, 2), None);
+    }
+
+    #[test]
+    fn dropdown_click_selects_correct_option_at_low_zoom() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(pass, 420, 480));
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.zoom = 0.5;
+
+        let value_rect = {
+            let node = project.node(pass).expect("scene-pass node should exist");
+            node_param_value_rect(node, 2).expect("bg_mode value rect should exist")
+        };
+        let value_panel = super::graph_rect_to_panel(value_rect, &state);
+        let open_dropdown = InputSnapshot {
+            mouse_pos: Some((value_panel.x + 2, value_panel.y + 2)),
+            left_clicked: true,
+            ..InputSnapshot::default()
+        };
+        let (_, consumed_open) =
+            handle_param_edit_input(&open_dropdown, &mut project, 420, 480, &mut state);
+        assert!(consumed_open);
+        assert_eq!(state.param_dropdown.map(|d| d.node_id), Some(pass));
+
+        let second_row_panel = {
+            let node = project.node(pass).expect("scene-pass node should exist");
+            let options = project
+                .node_param_dropdown_options(pass, 2)
+                .expect("bg_mode dropdown options");
+            let list_world =
+                node_param_dropdown_rect(node, 2, options.len()).expect("dropdown rect");
+            let second_row_world = Rect::new(
+                list_world.x,
+                list_world.y + NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+                list_world.w,
+                NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+            );
+            super::graph_rect_to_panel(second_row_world, &state)
+        };
+        let select_second_option = InputSnapshot {
+            mouse_pos: Some((second_row_panel.x + 2, second_row_panel.y + 1)),
+            left_clicked: true,
+            ..InputSnapshot::default()
+        };
+        let (_, consumed_select) =
+            handle_param_edit_input(&select_second_option, &mut project, 420, 480, &mut state);
+        assert!(consumed_select);
+        assert_eq!(project.node_param_raw_text(pass, 2), Some("alpha_clip"));
     }
 
     #[test]
