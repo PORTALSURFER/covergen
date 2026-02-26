@@ -1,6 +1,9 @@
 //! GUI application state and frame orchestration.
 
 use std::error::Error;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -14,7 +17,7 @@ use crate::telemetry;
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
-use super::project::{GuiProject, ProjectNodeKind};
+use super::project::{GuiProject, PersistedGuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PreviewState};
@@ -24,6 +27,7 @@ const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
 const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
+const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
 
 /// Active divider drag metadata for panel resizing.
 #[derive(Clone, Copy, Debug)]
@@ -65,9 +69,23 @@ impl GuiApp {
     ) -> Result<Self, Box<dyn Error>> {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
         let panel_width = clamp_panel_width(panel_width, renderer.width());
-        let mut project = GuiProject::new_empty(config.width, config.height);
-        let benchmark_node =
-            maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
+        let mut project = match load_autosaved_project(panel_width, renderer.height()) {
+            Ok(Some(project)) => {
+                println!("[gui] loaded autosave from {}", autosave_project_path().display());
+                project
+            }
+            Ok(None) => GuiProject::new_empty(config.width, config.height),
+            Err(err) => {
+                eprintln!("[gui] failed to load autosave: {err}");
+                GuiProject::new_empty(config.width, config.height)
+            }
+        };
+        let benchmark_node = maybe_seed_benchmark_nodes(
+            &config,
+            &mut project,
+            panel_width,
+            renderer.height(),
+        );
         let state = PreviewState::new(&config);
         let frame_budget = frame_budget(GUI_LOCKED_FPS);
         let now = Instant::now();
@@ -296,6 +314,7 @@ impl GuiApp {
 
     /// Flush trace output before event-loop shutdown.
     pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        save_autosaved_project(&self.project)?;
         self.perf.flush()
     }
 
@@ -435,6 +454,9 @@ fn maybe_seed_benchmark_nodes(
     if !config.gui.benchmark_drag {
         return None;
     }
+    if project.node_count() > 0 {
+        return project.nodes().first().map(|node| node.id());
+    }
     let top = project.add_node(
         ProjectNodeKind::TexSolid,
         120,
@@ -450,6 +472,42 @@ fn maybe_seed_benchmark_nodes(
         panel_height,
     );
     Some(top)
+}
+
+/// Return autosave file path in the process working directory.
+fn autosave_project_path() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(GUI_PROJECT_AUTOSAVE_FILE)
+}
+
+/// Load autosaved GUI graph if present.
+fn load_autosaved_project(
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<Option<GuiProject>, Box<dyn Error>> {
+    let path = autosave_project_path();
+    let bytes = match fs::read(path.as_path()) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(Box::new(err)),
+    };
+    let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
+    let project = GuiProject::from_persisted(persisted, panel_width, panel_height)?;
+    Ok(Some(project))
+}
+
+/// Save current GUI graph to autosave file atomically.
+fn save_autosaved_project(project: &GuiProject) -> Result<(), Box<dyn Error>> {
+    let path = autosave_project_path();
+    let tmp = path.with_extension("tmp");
+    let data = serde_json::to_vec_pretty(&project.to_persisted())?;
+    fs::write(tmp.as_path(), data)?;
+    if path.exists() {
+        let _ = fs::remove_file(path.as_path());
+    }
+    fs::rename(tmp.as_path(), path.as_path())?;
+    Ok(())
 }
 
 fn frame_budget(target_fps: u32) -> Duration {

@@ -91,7 +91,12 @@ Realtime GUI controls:
 - `Up` / `Down`: change Add Node selection
 - `Enter` or left click in menu: place selected node
 - Left click + drag on node: move node in graph editor
-- `R`: create a fresh empty project
+
+GUI session persistence:
+
+- Current graph autosaves on shutdown to `.covergen_gui_graph.json` in the
+  working directory.
+- On next launch, GUI reloads that autosave automatically when present.
 
 GUI responsiveness notes:
 

@@ -10,11 +10,11 @@ mod interaction;
 mod perf;
 mod project;
 mod renderer;
+mod runtime;
 mod scene;
 mod state;
 mod text;
 mod theme;
-mod runtime;
 mod top_view;
 
 use std::error::Error;
@@ -58,7 +58,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
             Event::WindowEvent { window_id, event } if window_id == window.id() => {
                 if should_exit(&event) || app.handle_window_event(&event) {
                     if let Err(err) = app.shutdown() {
-                        eprintln!("Error: failed to flush GUI perf trace: {err}");
+                        eprintln!("Error: failed to shutdown GUI state: {err}");
                     }
                     target.exit();
                     return;
@@ -67,7 +67,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                     if let Err(err) = app.redraw() {
                         eprintln!("Error: {err}");
                         if let Err(shutdown_err) = app.shutdown() {
-                            eprintln!("Error: failed to flush GUI perf trace: {shutdown_err}");
+                            eprintln!("Error: failed to shutdown GUI state: {shutdown_err}");
                         }
                         target.exit();
                     }

@@ -5,7 +5,10 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
 
 /// Width of one graph node card in the editor canvas.
 pub(crate) const NODE_WIDTH: i32 = 128;
@@ -28,6 +31,7 @@ pub(crate) const NODE_PARAM_VALUE_BOX_WIDTH: i32 = 52;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
 const HIT_BIN_SIZE: i32 = 128;
+const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
 
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,7 +63,7 @@ pub(crate) enum ExecutionKind {
 }
 
 /// Minimal set of node kinds exposed by the Add Node menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ProjectNodeKind {
     /// `tex.solid` source node (full-frame solid color).
     TexSolid,
@@ -100,6 +104,24 @@ impl ProjectNodeKind {
             Self::RenderScenePass => "render.scene_pass",
             Self::CtlLfo => "ctl.lfo",
             Self::IoWindowOut => "io.window_out",
+        }
+    }
+
+    /// Parse node kind from a stable node id.
+    pub(crate) fn from_stable_id(id: &str) -> Option<Self> {
+        match id {
+            "tex.solid" => Some(Self::TexSolid),
+            "tex.circle" => Some(Self::TexCircle),
+            "buf.sphere" => Some(Self::BufSphere),
+            "buf.circle_nurbs" => Some(Self::BufCircleNurbs),
+            "buf.noise" => Some(Self::BufNoise),
+            "tex.transform_2d" => Some(Self::TexTransform2D),
+            "scene.entity" => Some(Self::SceneEntity),
+            "scene.build" => Some(Self::SceneBuild),
+            "render.scene_pass" => Some(Self::RenderScenePass),
+            "ctl.lfo" => Some(Self::CtlLfo),
+            "io.window_out" => Some(Self::IoWindowOut),
+            _ => None,
         }
     }
 
@@ -183,6 +205,76 @@ impl ProjectNodeKind {
         }
     }
 }
+
+/// Persisted GUI project payload used for autosave/reload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct PersistedGuiProject {
+    /// Schema version for migration compatibility.
+    pub(crate) version: u32,
+    /// Project display name.
+    pub(crate) name: String,
+    /// Preview texture width.
+    pub(crate) preview_width: u32,
+    /// Preview texture height.
+    pub(crate) preview_height: u32,
+    /// Persisted node records.
+    pub(crate) nodes: Vec<PersistedGuiNode>,
+}
+
+/// Persisted node record for GUI autosave.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct PersistedGuiNode {
+    /// Stable node id from saved graph.
+    pub(crate) id: u32,
+    /// Stable node kind id.
+    pub(crate) kind: String,
+    /// Node x-position in graph space.
+    pub(crate) x: i32,
+    /// Node y-position in graph space.
+    pub(crate) y: i32,
+    /// Optional source node id for the typed input pin.
+    pub(crate) texture_input: Option<u32>,
+    /// Saved selected parameter index.
+    pub(crate) selected_param: usize,
+    /// Saved expanded state.
+    pub(crate) expanded: bool,
+    /// Persisted parameter state.
+    pub(crate) params: Vec<PersistedGuiParam>,
+}
+
+/// Persisted parameter value and optional signal binding source.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct PersistedGuiParam {
+    /// Stable parameter key.
+    pub(crate) key: String,
+    /// Parameter scalar value.
+    pub(crate) value: f32,
+    /// Optional signal source node id.
+    pub(crate) signal_source: Option<u32>,
+}
+
+/// Error returned when persisted GUI project payload cannot be loaded.
+#[derive(Clone, Debug)]
+pub(crate) struct PersistedProjectLoadError {
+    message: String,
+}
+
+impl PersistedProjectLoadError {
+    /// Build one load error with an actionable message.
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for PersistedProjectLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for PersistedProjectLoadError {}
 
 /// Editable node-parameter state with optional signal binding.
 #[derive(Clone, Debug)]
@@ -373,6 +465,140 @@ impl GuiProject {
             hit_test_dirty: Cell::new(false),
             hit_test_scan_count: Cell::new(0),
         }
+    }
+
+    /// Export this in-memory graph to a persisted autosave payload.
+    pub(crate) fn to_persisted(&self) -> PersistedGuiProject {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|node| PersistedGuiNode {
+                id: node.id,
+                kind: node.kind.stable_id().to_string(),
+                x: node.x,
+                y: node.y,
+                texture_input: node.texture_input,
+                selected_param: node.selected_param,
+                expanded: node.expanded,
+                params: node
+                    .params
+                    .iter()
+                    .map(|slot| PersistedGuiParam {
+                        key: slot.key.to_string(),
+                        value: slot.value,
+                        signal_source: slot.signal_source,
+                    })
+                    .collect(),
+            })
+            .collect();
+        PersistedGuiProject {
+            version: PERSISTED_GUI_PROJECT_VERSION,
+            name: self.name.clone(),
+            preview_width: self.preview_width,
+            preview_height: self.preview_height,
+            nodes,
+        }
+    }
+
+    /// Reconstruct one GUI project from a persisted autosave payload.
+    pub(crate) fn from_persisted(
+        persisted: PersistedGuiProject,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> Result<Self, PersistedProjectLoadError> {
+        if persisted.version != PERSISTED_GUI_PROJECT_VERSION {
+            return Err(PersistedProjectLoadError::new(format!(
+                "unsupported gui autosave version {}; expected {}",
+                persisted.version, PERSISTED_GUI_PROJECT_VERSION
+            )));
+        }
+        let mut project = GuiProject::new_empty(
+            persisted.preview_width.max(1),
+            persisted.preview_height.max(1),
+        );
+        project.name = persisted.name;
+        let mut nodes = persisted.nodes;
+        nodes.sort_by_key(|node| node.id);
+        let mut id_map = HashMap::new();
+
+        for persisted_node in &nodes {
+            let kind = ProjectNodeKind::from_stable_id(persisted_node.kind.as_str()).ok_or_else(
+                || {
+                    PersistedProjectLoadError::new(format!(
+                        "unknown node kind '{}'",
+                        persisted_node.kind
+                    ))
+                },
+            )?;
+            if id_map.contains_key(&persisted_node.id) {
+                return Err(PersistedProjectLoadError::new(format!(
+                    "duplicate persisted node id {}",
+                    persisted_node.id
+                )));
+            }
+            let node_id = project.add_node(
+                kind,
+                persisted_node.x,
+                persisted_node.y,
+                panel_width,
+                panel_height,
+            );
+            id_map.insert(persisted_node.id, node_id);
+            let Some(node) = project.node_mut(node_id) else {
+                continue;
+            };
+            for persisted_param in &persisted_node.params {
+                let Some(slot) = node
+                    .params
+                    .iter_mut()
+                    .find(|slot| slot.key == persisted_param.key.as_str())
+                else {
+                    continue;
+                };
+                let clamped = persisted_param.value.clamp(slot.min, slot.max);
+                slot.value = clamped;
+                slot.value_text = format_param_value_text(clamped);
+            }
+            node.selected_param = persisted_node
+                .selected_param
+                .min(node.params.len().saturating_sub(1));
+            node.expanded = persisted_node.expanded && !node.params.is_empty();
+        }
+
+        for persisted_node in &nodes {
+            let Some(target_id) = id_map.get(&persisted_node.id).copied() else {
+                continue;
+            };
+            if let Some(source_old_id) = persisted_node.texture_input {
+                if let Some(source_id) = id_map.get(&source_old_id).copied() {
+                    let _ = project.connect_image_link(source_id, target_id);
+                }
+            }
+            for persisted_param in &persisted_node.params {
+                let Some(source_old_id) = persisted_param.signal_source else {
+                    continue;
+                };
+                let Some(source_id) = id_map.get(&source_old_id).copied() else {
+                    continue;
+                };
+                let Some(param_index) = project
+                    .node(target_id)
+                    .and_then(|target| {
+                        target
+                            .params
+                            .iter()
+                            .position(|slot| slot.key == persisted_param.key.as_str())
+                    })
+                else {
+                    continue;
+                };
+                let _ = project.connect_signal_link_to_param(source_id, target_id, param_index);
+            }
+        }
+
+        project.recount_edges();
+        project.invalidate_hit_test_cache();
+        Ok(project)
     }
 
     /// Return immutable node slice for rendering.
@@ -1519,7 +1745,7 @@ fn next_project_name() -> String {
 mod tests {
     use super::{
         input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
-        GraphBounds, GuiProject, ProjectNodeKind, ResourceKind, NODE_HEIGHT,
+        GraphBounds, GuiProject, PersistedGuiProject, ProjectNodeKind, ResourceKind, NODE_HEIGHT,
     };
 
     #[test]
@@ -1907,5 +2133,44 @@ mod tests {
                 max_y: 204,
             })
         );
+    }
+
+    #[test]
+    fn persisted_roundtrip_restores_nodes_links_and_bindings() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 200, 40, 420, 480);
+        let noise = project.add_node(ProjectNodeKind::BufNoise, 360, 40, 420, 480);
+        let entity = project.add_node(ProjectNodeKind::SceneEntity, 520, 40, 420, 480);
+        let scene = project.add_node(ProjectNodeKind::SceneBuild, 680, 40, 420, 480);
+        let pass = project.add_node(ProjectNodeKind::RenderScenePass, 840, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 1000, 40, 420, 480);
+        assert!(project.connect_image_link(circle, noise));
+        assert!(project.connect_image_link(noise, entity));
+        assert!(project.connect_image_link(entity, scene));
+        assert!(project.connect_image_link(scene, pass));
+        assert!(project.connect_image_link(pass, out));
+        assert!(project.connect_signal_link_to_param(lfo, noise, 0));
+        assert!(project.toggle_node_expanded(noise, 420, 480));
+        assert!(project.set_param_value(noise, 1, 4.5));
+
+        let persisted = project.to_persisted();
+        let restored = GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
+        assert_eq!(restored.node_count(), project.node_count());
+        assert_eq!(restored.edge_count(), project.edge_count());
+        assert_eq!(restored.render_signature(), project.render_signature());
+        assert!(restored.has_signal_bindings());
+    }
+
+    #[test]
+    fn from_persisted_rejects_unsupported_version() {
+        let persisted = PersistedGuiProject {
+            version: 999,
+            name: "broken".to_string(),
+            preview_width: 640,
+            preview_height: 480,
+            nodes: Vec::new(),
+        };
+        assert!(GuiProject::from_persisted(persisted, 420, 480).is_err());
     }
 }
