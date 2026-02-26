@@ -714,7 +714,7 @@ impl SceneBuilder {
                     menu_label_scratch.push_str(state.export_menu.file_name.as_str());
                 }
                 ExportMenuItem::Codec => {
-                    menu_label_scratch.push_str("Video: H.264 (ffmpeg)");
+                    menu_label_scratch.push_str("Video: H.264 (OpenH264)");
                 }
                 ExportMenuItem::StartStop => {
                     if state.export_menu.exporting {
