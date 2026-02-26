@@ -2381,8 +2381,8 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("seed", "seed", 1.0, 0.0, 1024.0, 1.0),
             param("twist", "twist", 0.0, -8.0, 8.0, 0.05),
             param("stretch", "stretch", 0.0, 0.0, 1.0, 0.01),
-            // Loop mode quantizes time to timeline phase for clean first/last
-            // frame matching and deterministic clip playback.
+            // Loop mode quantizes time to timeline phase for deterministic,
+            // endpoint-exclusive clip playback with seamless wrap.
             param("loop_cyc", "loop_cyc", 12.0, 0.0, 256.0, 1.0),
             param_dropdown("loop_mode", "loop_mode", 0, &BUF_NOISE_LOOP_MODE_OPTIONS),
         ],

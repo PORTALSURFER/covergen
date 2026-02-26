@@ -333,7 +333,7 @@ impl GuiCompiledRuntime {
     /// Evaluate compiled steps into GPU runtime operations for one frame.
     ///
     /// When `frame` is provided, loop-mode temporal nodes can lock animation to
-    /// timeline phase and guarantee seam-free first/last frame matching.
+    /// timeline phase and guarantee seam-free wrap at clip boundaries.
     pub(crate) fn evaluate_ops_with_frame(
         &self,
         project: &GuiProject,
@@ -1438,16 +1438,19 @@ fn layered_loop_sine_noise(loop_phase: f32, frequency: f32, phase: f32, seed: f3
     (n0 * 0.62 + n1 * 0.28 + n2 * 0.10).clamp(-1.0, 1.0)
 }
 
-/// Convert frame-clock context to a deterministic `[0, TAU]` loop phase.
+/// Convert frame-clock context to a deterministic `[0, TAU)` loop phase.
 ///
-/// The phase is end-inclusive, so first and last timeline frames resolve to
-/// identical loop positions when loop mode is enabled.
+/// The phase is end-exclusive so the last frame stays distinct and the next
+/// wrapped frame resolves back to frame `0` without a duplicated endpoint.
 fn timeline_loop_phase(frame: Option<TexRuntimeFrameContext>, time_secs: f32) -> f32 {
     let progress = match frame {
         Some(ctx) => normalized_loop_progress(ctx.frame_index, ctx.frame_total),
         None => {
-            let seconds = (time_secs / 30.0).clamp(0.0, 1.0);
-            normalized_loop_progress((seconds * 1_799.0).round() as u32, 30 * DEFAULT_LOOP_FPS)
+            let frame_total = 30 * DEFAULT_LOOP_FPS;
+            let loop_secs = frame_total as f32 / DEFAULT_LOOP_FPS as f32;
+            let wrapped_secs = time_secs.max(0.0).rem_euclid(loop_secs);
+            let frame_index = (wrapped_secs * DEFAULT_LOOP_FPS as f32).floor() as u32;
+            normalized_loop_progress(frame_index, frame_total)
         }
     };
     progress * std::f32::consts::TAU
@@ -1458,9 +1461,8 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
     if frame_total <= 1 {
         return 0.0;
     }
-    let max_index = frame_total - 1;
-    let clamped = frame_index.min(max_index);
-    clamped as f32 / max_index as f32
+    let wrapped = frame_index % frame_total;
+    wrapped as f32 / frame_total as f32
 }
 
 #[cfg(test)]
@@ -1985,7 +1987,7 @@ mod tests {
     }
 
     #[test]
-    fn buffer_noise_loop_mode_matches_first_and_last_timeline_frame() {
+    fn buffer_noise_loop_mode_wraps_without_duplicating_last_frame() {
         let mut project = GuiProject::new_empty(640, 480);
         let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
         let noise = project.add_node(ProjectNodeKind::BufNoise, 180, 40, 420, 480);
@@ -2030,6 +2032,17 @@ mod tests {
             &mut eval_stack,
             &mut ops_last,
         );
+        let mut ops_wrapped = Vec::new();
+        runtime.evaluate_ops_with_frame(
+            &project,
+            1_800.0 / 60.0,
+            Some(TexRuntimeFrameContext {
+                frame_index: 1_800,
+                frame_total: 1_800,
+            }),
+            &mut eval_stack,
+            &mut ops_wrapped,
+        );
         let phase_first = match ops_first[0] {
             TexRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
             _ => panic!("expected sphere op"),
@@ -2038,9 +2051,17 @@ mod tests {
             TexRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
             _ => panic!("expected sphere op"),
         };
+        let phase_wrapped = match ops_wrapped[0] {
+            TexRuntimeOp::Sphere { noise_phase, .. } => noise_phase,
+            _ => panic!("expected sphere op"),
+        };
         assert!(
-            (phase_first - phase_last).abs() < 1e-4,
-            "loop mode should match first/last frame phase: first={phase_first}, last={phase_last}"
+            (phase_first - phase_last).abs() > 1e-3,
+            "loop mode should keep the final frame distinct: first={phase_first}, last={phase_last}"
+        );
+        assert!(
+            (phase_first - phase_wrapped).abs() < 1e-4,
+            "loop mode should wrap back to frame 0 phase: first={phase_first}, wrapped={phase_wrapped}"
         );
     }
 }
