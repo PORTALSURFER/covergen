@@ -189,10 +189,10 @@ pub(crate) struct SceneBuilder {
     frame: SceneFrame,
     active_layer: ActiveLayer,
     cached_static_key: Option<(usize, usize, usize)>,
-    cached_nodes_key: Option<u64>,
-    cached_edges_key: Option<u64>,
-    cached_overlays_key: Option<u64>,
-    cached_timeline_key: Option<u64>,
+    cached_nodes_epoch: Option<u64>,
+    cached_edges_epoch: Option<u64>,
+    cached_overlays_epoch: Option<u64>,
+    cached_timeline_epoch: Option<u64>,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
@@ -219,30 +219,30 @@ impl SceneBuilder {
 
         self.rebuild_static_if_needed(width, height, panel_width);
 
-        let nodes_key = nodes_layer_key(project, state);
-        if self.cached_nodes_key != Some(nodes_key) {
-            self.cached_nodes_key = Some(nodes_key);
+        let nodes_epoch = state.invalidation.nodes;
+        if self.cached_nodes_epoch != Some(nodes_epoch) {
+            self.cached_nodes_epoch = Some(nodes_epoch);
             self.frame.dirty.nodes = true;
             self.rebuild_nodes_layer(project, state);
         }
 
-        let edges_key = edges_layer_key(project, state);
-        if self.cached_edges_key != Some(edges_key) {
-            self.cached_edges_key = Some(edges_key);
+        let edges_epoch = state.invalidation.wires;
+        if self.cached_edges_epoch != Some(edges_epoch) {
+            self.cached_edges_epoch = Some(edges_epoch);
             self.frame.dirty.edges = true;
             self.rebuild_edges_layer(project, state);
         }
 
-        let overlays_key = overlays_layer_key(project, state, panel_width, height);
-        if self.cached_overlays_key != Some(overlays_key) {
-            self.cached_overlays_key = Some(overlays_key);
+        let overlays_epoch = state.invalidation.overlays;
+        if self.cached_overlays_epoch != Some(overlays_epoch) {
+            self.cached_overlays_epoch = Some(overlays_epoch);
             self.frame.dirty.overlays = true;
             self.rebuild_overlays_layer(project, state);
         }
 
-        let timeline_key = timeline_layer_key(state, width, height);
-        if self.cached_timeline_key != Some(timeline_key) {
-            self.cached_timeline_key = Some(timeline_key);
+        let timeline_epoch = state.invalidation.timeline;
+        if self.cached_timeline_epoch != Some(timeline_epoch) {
+            self.cached_timeline_epoch = Some(timeline_epoch);
             self.frame.dirty.timeline = true;
             self.rebuild_timeline_layer(state, width, height);
         }
@@ -1346,218 +1346,8 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
 }
 
 fn param_route_obstacle_epoch(project: &GuiProject, state: &PreviewState) -> u64 {
-    let mut hash = hash_start();
-    hash = hash_u64(hash, project.ui_signature());
-    hash = hash_f32(hash, state.pan_x);
-    hash = hash_f32(hash, state.pan_y);
-    hash = hash_f32(hash, state.zoom);
-    hash
-}
-
-fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
-    let mut hash = hash_start();
-    hash = hash_u64(hash, project.graph_signature());
-    hash = hash_f32(hash, state.pan_x);
-    hash = hash_f32(hash, state.pan_y);
-    hash = hash_f32(hash, state.zoom);
-    hash = hash_opt_u32(hash, state.hover_node);
-    hash = hash_opt_u32(hash, state.hover_output_pin);
-    hash = hash_opt_u32(hash, state.hover_input_pin);
-    hash = hash_opt_param_target(hash, state.hover_param_target);
-    hash = hash_opt_u32(hash, state.wire_drag.map(|wire| wire.source_node_id));
-    hash = hash_opt_u32(hash, state.drag.map(|drag| drag.node_id));
-    for selected in &state.selected_nodes {
-        hash = hash_u64(hash, *selected as u64);
-    }
-    if let Some(edit) = state.param_edit.as_ref() {
-        hash = hash_u64(hash, edit.node_id as u64);
-        hash = hash_u64(hash, edit.param_index as u64);
-        hash = hash_u64(hash, edit.cursor as u64);
-        hash = hash_u64(hash, edit.anchor as u64);
-        for byte in edit.buffer.as_bytes() {
-            hash = hash_u64(hash, *byte as u64);
-        }
-    }
-    for byte in project.name.as_bytes() {
-        hash = hash_u64(hash, *byte as u64);
-    }
-    hash
-}
-
-fn edges_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
-    let mut hash = hash_start();
-    hash = hash_u64(hash, project.render_signature());
-    hash = hash_u64(hash, project.ui_signature());
-    hash = hash_f32(hash, state.pan_x);
-    hash = hash_f32(hash, state.pan_y);
-    hash = hash_f32(hash, state.zoom);
-    hash = hash_opt_cut_line(hash, state.link_cut);
-    hash = hash_opt_insert_link(hash, state.hover_insert_link);
-    for node in project.nodes() {
-        hash = hash_u64(hash, node.id() as u64);
-        hash = hash_i32(hash, node.x());
-        hash = hash_i32(hash, node.y());
-        for input in node.inputs() {
-            hash = hash_u64(hash, *input as u64);
-        }
-        hash = hash_u64(hash, 0xff);
-    }
-    hash
-}
-
-fn hash_opt_insert_link(seed: u64, value: Option<super::state::HoverInsertLink>) -> u64 {
-    let Some(link) = value else {
-        return hash_u64(seed, u64::MAX - 7);
-    };
-    let hash = hash_u64(seed, link.source_id as u64);
-    hash_u64(hash, link.target_id as u64)
-}
-
-fn overlays_layer_key(
-    project: &GuiProject,
-    state: &PreviewState,
-    panel_width: usize,
-    panel_height: usize,
-) -> u64 {
-    let mut hash = hash_start();
-    hash = hash_u64(hash, project.render_signature());
-    hash = hash_u64(hash, project.ui_signature());
-    hash = hash_f32(hash, state.pan_x);
-    hash = hash_f32(hash, state.pan_y);
-    hash = hash_f32(hash, state.zoom);
-    hash = hash_opt_u32(hash, state.hover_input_pin);
-    hash = hash_opt_param_target(hash, state.hover_param_target);
-    hash = hash_opt_dropdown(hash, state.param_dropdown);
-    hash = hash_opt_wire(hash, state.wire_drag);
-    hash = hash_opt_cut_line(hash, state.link_cut);
-    hash = hash_opt_marquee(hash, state.right_marquee);
-    if let Some(index) = state.hover_dropdown_item {
-        hash = hash_u64(hash, index as u64);
-    }
-    hash = hash_u64(hash, state.menu.open as u64);
-    hash = hash_i32(hash, state.menu.x);
-    hash = hash_i32(hash, state.menu.y);
-    hash = hash_u64(hash, state.menu.selected as u64);
-    if let Some(category) = state.menu.active_category {
-        for byte in category.label().as_bytes() {
-            hash = hash_u64(hash, *byte as u64);
-        }
-    } else {
-        hash = hash_u64(hash, u64::MAX - 5);
-    }
-    for byte in state.menu.query.as_bytes() {
-        hash = hash_u64(hash, *byte as u64);
-    }
-    if let Some(index) = state.hover_menu_item {
-        hash = hash_u64(hash, index as u64);
-    }
-    hash = hash_u64(hash, state.main_menu.open as u64);
-    hash = hash_i32(hash, state.main_menu.x);
-    hash = hash_i32(hash, state.main_menu.y);
-    hash = hash_u64(hash, state.main_menu.selected as u64);
-    if let Some(index) = state.hover_main_menu_item {
-        hash = hash_u64(hash, index as u64);
-    }
-    hash = hash_u64(hash, state.export_menu.open as u64);
-    hash = hash_i32(hash, state.export_menu.x);
-    hash = hash_i32(hash, state.export_menu.y);
-    hash = hash_u64(hash, state.export_menu.selected as u64);
-    hash = hash_u64(hash, state.export_menu.exporting as u64);
-    hash = hash_u64(hash, state.export_menu.preview_frame as u64);
-    hash = hash_u64(hash, state.export_menu.preview_total as u64);
-    for byte in state.export_menu.directory.as_bytes() {
-        hash = hash_u64(hash, *byte as u64);
-    }
-    for byte in state.export_menu.file_name.as_bytes() {
-        hash = hash_u64(hash, *byte as u64);
-    }
-    for byte in state.export_menu.status.as_bytes() {
-        hash = hash_u64(hash, *byte as u64);
-    }
-    if let Some(index) = state.hover_export_menu_item {
-        hash = hash_u64(hash, index as u64);
-    }
-    hash = hash_u64(hash, panel_width as u64);
-    hash = hash_u64(hash, panel_height as u64);
-    hash
-}
-
-fn timeline_layer_key(state: &PreviewState, viewport_width: usize, viewport_height: usize) -> u64 {
-    let mut hash = hash_start();
-    hash = hash_u64(hash, viewport_width as u64);
-    hash = hash_u64(hash, viewport_height as u64);
-    hash = hash_u64(hash, state.frame_index as u64);
-    hash = hash_u64(hash, state.paused as u64);
-    hash = hash_u64(hash, state.timeline_scrub_active as u64);
-    hash
-}
-
-fn hash_start() -> u64 {
-    0xcbf29ce484222325
-}
-
-fn hash_u64(seed: u64, value: u64) -> u64 {
-    seed.wrapping_mul(0x100000001b3) ^ value
-}
-
-fn hash_i32(seed: u64, value: i32) -> u64 {
-    hash_u64(seed, value as i64 as u64)
-}
-
-fn hash_f32(seed: u64, value: f32) -> u64 {
-    hash_u64(seed, value.to_bits() as u64)
-}
-
-fn hash_opt_u32(seed: u64, value: Option<u32>) -> u64 {
-    match value {
-        Some(v) => hash_u64(seed, v as u64),
-        None => hash_u64(seed, u64::MAX),
-    }
-}
-
-fn hash_opt_wire(seed: u64, value: Option<super::state::WireDragState>) -> u64 {
-    let Some(wire) = value else {
-        return hash_u64(seed, u64::MAX - 1);
-    };
-    let hash = hash_u64(seed, wire.source_node_id as u64);
-    let hash = hash_i32(hash, wire.cursor_x);
-    hash_i32(hash, wire.cursor_y)
-}
-
-fn hash_opt_cut_line(seed: u64, value: Option<super::state::LinkCutState>) -> u64 {
-    let Some(cut) = value else {
-        return hash_u64(seed, u64::MAX - 2);
-    };
-    let hash = hash_i32(seed, cut.start_x);
-    let hash = hash_i32(hash, cut.start_y);
-    let hash = hash_i32(hash, cut.cursor_x);
-    hash_i32(hash, cut.cursor_y)
-}
-
-fn hash_opt_marquee(seed: u64, value: Option<RightMarqueeState>) -> u64 {
-    let Some(marquee) = value else {
-        return hash_u64(seed, u64::MAX - 3);
-    };
-    let hash = hash_i32(seed, marquee.start_x);
-    let hash = hash_i32(hash, marquee.start_y);
-    let hash = hash_i32(hash, marquee.cursor_x);
-    hash_i32(hash, marquee.cursor_y)
-}
-
-fn hash_opt_param_target(seed: u64, value: Option<super::state::HoverParamTarget>) -> u64 {
-    let Some(target) = value else {
-        return hash_u64(seed, u64::MAX - 4);
-    };
-    let hash = hash_u64(seed, target.node_id as u64);
-    hash_u64(hash, target.param_index as u64)
-}
-
-fn hash_opt_dropdown(seed: u64, value: Option<super::state::ParamDropdownState>) -> u64 {
-    let Some(dropdown) = value else {
-        return hash_u64(seed, u64::MAX - 6);
-    };
-    let hash = hash_u64(seed, dropdown.node_id as u64);
-    hash_u64(hash, dropdown.param_index as u64)
+    let _ = project;
+    state.invalidation.wires
 }
 
 fn wire_drag_source_kind(

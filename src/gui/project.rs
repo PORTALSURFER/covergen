@@ -602,6 +602,17 @@ pub(crate) struct GuiProject {
     render_signature_cache: u64,
     ui_signature_cache: u64,
     graph_signature_cache: u64,
+    nodes_epoch: u64,
+    wires_epoch: u64,
+    top_eval_epoch: u64,
+}
+
+/// Project-scoped invalidation epochs consumed by GUI retained layers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GuiProjectInvalidation {
+    pub(crate) nodes: u64,
+    pub(crate) wires: u64,
+    pub(crate) top_eval: u64,
 }
 
 /// Cached spatial/index structures for fast graph hit-testing.
@@ -639,6 +650,9 @@ impl GuiProject {
             render_signature_cache: 0,
             ui_signature_cache: 0,
             graph_signature_cache: 0,
+            nodes_epoch: 0,
+            wires_epoch: 0,
+            top_eval_epoch: 0,
         };
         project.render_signature_cache = project.compute_render_signature();
         project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
@@ -842,6 +856,8 @@ impl GuiProject {
 
     fn invalidate_hit_test_cache(&mut self) {
         self.hit_test_dirty.set(true);
+        self.bump_nodes_epoch();
+        self.bump_wires_epoch();
         self.bump_ui_epoch();
     }
 
@@ -872,6 +888,8 @@ impl GuiProject {
 
     fn bump_render_epoch(&mut self) {
         self.render_epoch = self.render_epoch.wrapping_add(1);
+        self.bump_nodes_epoch();
+        self.bump_top_eval_epoch();
         self.render_signature_cache = self.compute_render_signature();
         self.graph_signature_cache =
             compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
@@ -882,6 +900,18 @@ impl GuiProject {
         self.ui_signature_cache = signature_from_ui_epoch(self.ui_epoch);
         self.graph_signature_cache =
             compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
+    }
+
+    fn bump_nodes_epoch(&mut self) {
+        self.nodes_epoch = self.nodes_epoch.wrapping_add(1);
+    }
+
+    fn bump_wires_epoch(&mut self) {
+        self.wires_epoch = self.wires_epoch.wrapping_add(1);
+    }
+
+    fn bump_top_eval_epoch(&mut self) {
+        self.top_eval_epoch = self.top_eval_epoch.wrapping_add(1);
     }
 
     fn compute_render_signature(&self) -> u64 {
@@ -1711,6 +1741,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param = next;
+        self.bump_nodes_epoch();
         self.bump_ui_epoch();
         true
     }
@@ -1724,6 +1755,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param -= 1;
+        self.bump_nodes_epoch();
         self.bump_ui_epoch();
         true
     }
@@ -1741,6 +1773,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param = next;
+        self.bump_nodes_epoch();
         self.bump_ui_epoch();
         true
     }
@@ -2050,14 +2083,25 @@ impl GuiProject {
     /// This cached signature is driven by render-epoch bumps on mutations and
     /// intentionally excludes UI-only fields so preview caches only invalidate
     /// when output content can change.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn render_signature(&self) -> u64 {
         self.render_signature_cache
+    }
+
+    /// Return scoped project invalidation epochs for retained GUI subtrees.
+    pub(crate) fn invalidation(&self) -> GuiProjectInvalidation {
+        GuiProjectInvalidation {
+            nodes: self.nodes_epoch,
+            wires: self.wires_epoch,
+            top_eval: self.top_eval_epoch,
+        }
     }
 
     /// Return stable signature for UI-only node-editor state.
     ///
     /// This cached signature tracks UI epoch updates for node-card expansion,
     /// row selection, and node positioning without forcing render invalidation.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn ui_signature(&self) -> u64 {
         self.ui_signature_cache
     }
@@ -2065,6 +2109,7 @@ impl GuiProject {
     /// Return stable signature for both render and UI graph state.
     ///
     /// Prefer [`Self::render_signature`] for TOP/render invalidation.
+    #[allow(dead_code)]
     pub(crate) fn graph_signature(&self) -> u64 {
         self.graph_signature_cache
     }
@@ -2109,6 +2154,7 @@ impl GuiProject {
 
     fn recount_edges(&mut self) {
         self.edge_count = self.nodes.iter().map(|node| node.inputs.len()).sum();
+        self.bump_wires_epoch();
         self.bump_render_epoch();
     }
 
@@ -3393,6 +3439,32 @@ mod tests {
 
         assert!(project.select_next_param(solid));
         assert_ne!(project.ui_signature(), after_expand);
+    }
+
+    #[test]
+    fn scoped_invalidation_epochs_track_nodes_wires_and_top_eval() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 40, 420, 480);
+        let base = project.invalidation();
+
+        assert!(project.toggle_node_expanded(solid, 420, 480));
+        let after_expand = project.invalidation();
+        assert_ne!(after_expand.nodes, base.nodes);
+        assert_ne!(after_expand.wires, base.wires);
+        assert_eq!(after_expand.top_eval, base.top_eval);
+
+        assert!(project.set_param_value(solid, 0, 0.25));
+        let after_param = project.invalidation();
+        assert_ne!(after_param.nodes, after_expand.nodes);
+        assert_eq!(after_param.wires, after_expand.wires);
+        assert_ne!(after_param.top_eval, after_expand.top_eval);
+
+        assert!(project.connect_image_link(solid, out));
+        let after_link = project.invalidation();
+        assert_ne!(after_link.nodes, after_param.nodes);
+        assert_ne!(after_link.wires, after_param.wires);
+        assert_ne!(after_link.top_eval, after_param.top_eval);
     }
 
     #[test]

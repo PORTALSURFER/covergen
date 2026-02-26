@@ -89,6 +89,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_main_menu_item = None;
         state.hover_export_menu_item = None;
         state.pending_app_action = None;
+        state.invalidation.invalidate_all();
         changed = true;
     }
 

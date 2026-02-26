@@ -55,8 +55,57 @@ pub(crate) struct InputSnapshot {
     pub(crate) param_cancel: bool,
 }
 
+/// Scoped invalidation epochs for retained GUI subtrees.
+///
+/// Each epoch bumps only when its subtree dependencies changed, so retained
+/// scene layers and TOP evaluation can skip hash polling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GuiInvalidation {
+    pub(crate) nodes: u64,
+    pub(crate) wires: u64,
+    pub(crate) overlays: u64,
+    pub(crate) timeline: u64,
+    pub(crate) top_eval: u64,
+}
+
+impl GuiInvalidation {
+    /// Mark all retained scene subtrees and TOP evaluation as dirty.
+    pub(crate) fn invalidate_all(&mut self) {
+        self.invalidate_nodes();
+        self.invalidate_wires();
+        self.invalidate_overlays();
+        self.invalidate_timeline();
+        self.invalidate_top_eval();
+    }
+
+    /// Mark node-card subtree dirty.
+    pub(crate) fn invalidate_nodes(&mut self) {
+        self.nodes = self.nodes.wrapping_add(1);
+    }
+
+    /// Mark wire/edge subtree dirty.
+    pub(crate) fn invalidate_wires(&mut self) {
+        self.wires = self.wires.wrapping_add(1);
+    }
+
+    /// Mark overlay/menu/dropdown subtree dirty.
+    pub(crate) fn invalidate_overlays(&mut self) {
+        self.overlays = self.overlays.wrapping_add(1);
+    }
+
+    /// Mark timeline subtree dirty.
+    pub(crate) fn invalidate_timeline(&mut self) {
+        self.timeline = self.timeline.wrapping_add(1);
+    }
+
+    /// Mark TOP evaluation subtree dirty.
+    pub(crate) fn invalidate_top_eval(&mut self) {
+        self.top_eval = self.top_eval.wrapping_add(1);
+    }
+}
+
 /// Active node drag state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DragState {
     pub(crate) node_id: u32,
     pub(crate) offset_x: i32,
@@ -66,7 +115,7 @@ pub(crate) struct DragState {
 }
 
 /// Active wire-drag state from a source output pin.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WireDragState {
     pub(crate) source_node_id: u32,
     pub(crate) cursor_x: i32,
@@ -88,7 +137,7 @@ pub(crate) struct HoverInsertLink {
 }
 
 /// Active alt-drag line used to cut links that intersect it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LinkCutState {
     pub(crate) start_x: i32,
     pub(crate) start_y: i32,
@@ -97,14 +146,14 @@ pub(crate) struct LinkCutState {
 }
 
 /// Active middle-mouse panning state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PanDragState {
     pub(crate) last_x: i32,
     pub(crate) last_y: i32,
 }
 
 /// Active right-drag marquee selection box.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RightMarqueeState {
     pub(crate) start_x: i32,
     pub(crate) start_y: i32,
@@ -113,7 +162,7 @@ pub(crate) struct RightMarqueeState {
 }
 
 /// Active parameter text-edit session for one node parameter.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ParamEditState {
     pub(crate) node_id: u32,
     pub(crate) param_index: usize,
@@ -123,7 +172,7 @@ pub(crate) struct ParamEditState {
 }
 
 /// Active dropdown session for one node parameter.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ParamDropdownState {
     pub(crate) node_id: u32,
     pub(crate) param_index: usize,
@@ -166,6 +215,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_export_menu_item: Option<usize>,
     pub(crate) pending_app_action: Option<PendingAppAction>,
     pub(crate) request_new_project: bool,
+    pub(crate) invalidation: GuiInvalidation,
 }
 
 impl PreviewState {
@@ -205,6 +255,13 @@ impl PreviewState {
             hover_export_menu_item: None,
             pending_app_action: None,
             request_new_project: false,
+            invalidation: GuiInvalidation {
+                nodes: 1,
+                wires: 1,
+                overlays: 1,
+                timeline: 1,
+                top_eval: 1,
+            },
         }
     }
 }

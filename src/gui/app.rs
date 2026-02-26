@@ -18,7 +18,7 @@ use crate::{animation::RawVideoEncoder, animation::StreamFrameFormat};
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
-use super::project::{GuiProject, PersistedGuiProject, ProjectNodeKind};
+use super::project::{GuiProject, GuiProjectInvalidation, PersistedGuiProject, ProjectNodeKind};
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
 use super::state::{InputSnapshot, PendingAppAction, PreviewState};
@@ -45,6 +45,179 @@ struct GuiExportSession {
 #[derive(Clone, Copy, Debug)]
 struct PanelResizeDrag {
     grab_offset_px: i32,
+}
+
+/// State subset that drives `scene` nodes-layer invalidation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NodesLayerState {
+    pan_x_bits: u32,
+    pan_y_bits: u32,
+    zoom_bits: u32,
+    hover_node: Option<u32>,
+    hover_output_pin: Option<u32>,
+    hover_input_pin: Option<u32>,
+    hover_param_target: Option<(u32, usize)>,
+    wire_drag_source: Option<u32>,
+    drag_node: Option<u32>,
+    selected_nodes: Vec<u32>,
+    param_edit: Option<(u32, usize, usize, usize, String)>,
+}
+
+/// State subset that drives `scene` edges-layer invalidation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WiresLayerState {
+    pan_x_bits: u32,
+    pan_y_bits: u32,
+    zoom_bits: u32,
+    hover_insert_link: Option<(u32, u32)>,
+    link_cut: Option<(i32, i32, i32, i32)>,
+}
+
+/// State subset that drives `scene` overlays-layer invalidation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OverlaysLayerState {
+    pan_x_bits: u32,
+    pan_y_bits: u32,
+    zoom_bits: u32,
+    hover_input_pin: Option<u32>,
+    hover_param_target: Option<(u32, usize)>,
+    hover_dropdown_item: Option<usize>,
+    wire_drag: Option<(u32, i32, i32)>,
+    link_cut: Option<(i32, i32, i32, i32)>,
+    right_marquee: Option<(i32, i32, i32, i32)>,
+    param_dropdown: Option<(u32, usize)>,
+    menu_open: bool,
+    menu_x: i32,
+    menu_y: i32,
+    menu_selected: usize,
+    menu_category: Option<&'static str>,
+    menu_query: String,
+    hover_menu_item: Option<usize>,
+    main_menu_open: bool,
+    main_menu_x: i32,
+    main_menu_y: i32,
+    main_menu_selected: usize,
+    hover_main_menu_item: Option<usize>,
+    export_menu_open: bool,
+    export_menu_x: i32,
+    export_menu_y: i32,
+    export_menu_selected: usize,
+    export_menu_exporting: bool,
+    export_preview_frame: u32,
+    export_preview_total: u32,
+    export_directory: String,
+    export_file_name: String,
+    export_status: String,
+    hover_export_menu_item: Option<usize>,
+}
+
+/// State subset that drives timeline-layer invalidation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TimelineLayerState {
+    frame_index: u32,
+    paused: bool,
+    timeline_scrub_active: bool,
+}
+
+/// Snapshot of all scene-related state dependencies used for scoped invalidation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SceneInvalidationSnapshot {
+    nodes: NodesLayerState,
+    wires: WiresLayerState,
+    overlays: OverlaysLayerState,
+    timeline: TimelineLayerState,
+}
+
+impl SceneInvalidationSnapshot {
+    /// Capture state dependencies before/after one update tick.
+    fn capture(state: &PreviewState) -> Self {
+        Self {
+            nodes: NodesLayerState {
+                pan_x_bits: state.pan_x.to_bits(),
+                pan_y_bits: state.pan_y.to_bits(),
+                zoom_bits: state.zoom.to_bits(),
+                hover_node: state.hover_node,
+                hover_output_pin: state.hover_output_pin,
+                hover_input_pin: state.hover_input_pin,
+                hover_param_target: state
+                    .hover_param_target
+                    .map(|target| (target.node_id, target.param_index)),
+                wire_drag_source: state.wire_drag.map(|wire| wire.source_node_id),
+                drag_node: state.drag.map(|drag| drag.node_id),
+                selected_nodes: state.selected_nodes.clone(),
+                param_edit: state.param_edit.as_ref().map(|edit| {
+                    (
+                        edit.node_id,
+                        edit.param_index,
+                        edit.cursor,
+                        edit.anchor,
+                        edit.buffer.clone(),
+                    )
+                }),
+            },
+            wires: WiresLayerState {
+                pan_x_bits: state.pan_x.to_bits(),
+                pan_y_bits: state.pan_y.to_bits(),
+                zoom_bits: state.zoom.to_bits(),
+                hover_insert_link: state
+                    .hover_insert_link
+                    .map(|link| (link.source_id, link.target_id)),
+                link_cut: state
+                    .link_cut
+                    .map(|cut| (cut.start_x, cut.start_y, cut.cursor_x, cut.cursor_y)),
+            },
+            overlays: OverlaysLayerState {
+                pan_x_bits: state.pan_x.to_bits(),
+                pan_y_bits: state.pan_y.to_bits(),
+                zoom_bits: state.zoom.to_bits(),
+                hover_input_pin: state.hover_input_pin,
+                hover_param_target: state
+                    .hover_param_target
+                    .map(|target| (target.node_id, target.param_index)),
+                hover_dropdown_item: state.hover_dropdown_item,
+                wire_drag: state
+                    .wire_drag
+                    .map(|wire| (wire.source_node_id, wire.cursor_x, wire.cursor_y)),
+                link_cut: state
+                    .link_cut
+                    .map(|cut| (cut.start_x, cut.start_y, cut.cursor_x, cut.cursor_y)),
+                right_marquee: state
+                    .right_marquee
+                    .map(|m| (m.start_x, m.start_y, m.cursor_x, m.cursor_y)),
+                param_dropdown: state
+                    .param_dropdown
+                    .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
+                menu_open: state.menu.open,
+                menu_x: state.menu.x,
+                menu_y: state.menu.y,
+                menu_selected: state.menu.selected,
+                menu_category: state.menu.active_category.map(|category| category.label()),
+                menu_query: state.menu.query.clone(),
+                hover_menu_item: state.hover_menu_item,
+                main_menu_open: state.main_menu.open,
+                main_menu_x: state.main_menu.x,
+                main_menu_y: state.main_menu.y,
+                main_menu_selected: state.main_menu.selected,
+                hover_main_menu_item: state.hover_main_menu_item,
+                export_menu_open: state.export_menu.open,
+                export_menu_x: state.export_menu.x,
+                export_menu_y: state.export_menu.y,
+                export_menu_selected: state.export_menu.selected,
+                export_menu_exporting: state.export_menu.exporting,
+                export_preview_frame: state.export_menu.preview_frame,
+                export_preview_total: state.export_menu.preview_total,
+                export_directory: state.export_menu.directory.clone(),
+                export_file_name: state.export_menu.file_name.clone(),
+                export_status: state.export_menu.status.clone(),
+                hover_export_menu_item: state.hover_export_menu_item,
+            },
+            timeline: TimelineLayerState {
+                frame_index: state.frame_index,
+                paused: state.paused,
+                timeline_scrub_active: state.timeline_scrub_active,
+            },
+        }
+    }
 }
 
 /// Frame scheduler and state owner for the realtime GUI loop.
@@ -239,6 +412,8 @@ impl GuiApp {
         let input_elapsed = input_start.elapsed();
 
         let update_start = Instant::now();
+        let project_invalidation_before = self.project.invalidation();
+        let scene_invalidation_before = SceneInvalidationSnapshot::capture(&self.state);
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
         if consume_editor_input {
@@ -290,6 +465,11 @@ impl GuiApp {
                 step_timeline_if_running(&mut self.state, frame_delta, self.config.animation.fps);
         }
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
+        self.apply_scoped_invalidation(
+            project_invalidation_before,
+            scene_invalidation_before,
+            resize_changed,
+        );
         let update_elapsed = update_start.elapsed();
         let hit_test_scans = self.project.take_hit_test_scan_count();
 
@@ -306,6 +486,7 @@ impl GuiApp {
                 self.panel_width,
                 self.state.frame_index,
                 self.config.animation.fps,
+                self.state.invalidation.top_eval,
             );
             self.try_start_export_from_request()?;
             let scene_start = Instant::now();
@@ -367,6 +548,48 @@ impl GuiApp {
         Ok(())
     }
 
+    /// Propagate project/state dependency deltas into scoped scene/TOP epochs.
+    fn apply_scoped_invalidation(
+        &mut self,
+        project_before: GuiProjectInvalidation,
+        state_before: SceneInvalidationSnapshot,
+        resize_changed: bool,
+    ) {
+        let project_after = self.project.invalidation();
+        if project_before.nodes != project_after.nodes {
+            self.state.invalidation.invalidate_nodes();
+        }
+        if project_before.wires != project_after.wires {
+            self.state.invalidation.invalidate_wires();
+            self.state.invalidation.invalidate_overlays();
+        }
+        if project_before.top_eval != project_after.top_eval {
+            self.state.invalidation.invalidate_top_eval();
+        }
+
+        let state_after = SceneInvalidationSnapshot::capture(&self.state);
+        if state_before.nodes != state_after.nodes {
+            self.state.invalidation.invalidate_nodes();
+        }
+        if state_before.wires != state_after.wires {
+            self.state.invalidation.invalidate_wires();
+            self.state.invalidation.invalidate_overlays();
+        }
+        if state_before.overlays != state_after.overlays {
+            self.state.invalidation.invalidate_overlays();
+        }
+        if state_before.timeline != state_after.timeline {
+            self.state.invalidation.invalidate_timeline();
+        }
+
+        if resize_changed {
+            self.state.invalidation.invalidate_nodes();
+            self.state.invalidation.invalidate_wires();
+            self.state.invalidation.invalidate_overlays();
+            self.state.invalidation.invalidate_timeline();
+        }
+    }
+
     /// Flush trace output before event-loop shutdown.
     pub(crate) fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
         let _ = self.stop_export_session("stopped");
@@ -402,6 +625,7 @@ impl GuiApp {
                     Ok(loaded) => {
                         self.project = loaded;
                         self.state = PreviewState::new(&self.config);
+                        self.state.invalidation.invalidate_all();
                         self.start_export_requested = false;
                         let _ = self.stop_export_session("stopped");
                         println!("[gui] loaded project: {}", path.display());

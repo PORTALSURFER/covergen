@@ -41,7 +41,7 @@ struct ViewerCacheKey {
     view_height: u32,
     texture_width: u32,
     texture_height: u32,
-    render_signature: u64,
+    top_eval_epoch: u64,
     frame_index: u32,
 }
 
@@ -53,7 +53,7 @@ pub(crate) struct TopViewerGenerator {
     height: u32,
     x: i32,
     y: i32,
-    compiled_signature: Option<u64>,
+    compiled_epoch: Option<u64>,
     compiled_runtime: Option<GuiCompiledRuntime>,
     ops: Vec<TopViewerOp>,
     eval_stack: Vec<u32>,
@@ -69,18 +69,18 @@ impl TopViewerGenerator {
         panel_width: usize,
         frame_index: u32,
         timeline_fps: u32,
+        top_eval_epoch: u64,
     ) {
         let panel_w = viewport_width.saturating_sub(panel_width) as u32;
         let panel_h = editor_panel_height(viewport_height) as u32;
-        let render_signature = project.render_signature();
         let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
             frame_index
         } else {
             0
         };
-        if self.compiled_signature != Some(render_signature) {
+        if self.compiled_epoch != Some(top_eval_epoch) {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
-            self.compiled_signature = Some(render_signature);
+            self.compiled_epoch = Some(top_eval_epoch);
         }
         let time_secs = frame_index as f32 / timeline_fps.max(1) as f32;
         let (texture_width, texture_height) = self
@@ -99,7 +99,7 @@ impl TopViewerGenerator {
             view_height,
             texture_width,
             texture_height,
-            render_signature,
+            top_eval_epoch,
             frame_index: dynamic_frame,
         };
         self.x = x;
@@ -176,7 +176,15 @@ mod tests {
         assert!(project.connect_image_link(top, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -195,7 +203,15 @@ mod tests {
         assert!(project.connect_image_link(xform, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -215,7 +231,15 @@ mod tests {
         assert!(project.connect_image_link(feedback, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -236,14 +260,30 @@ mod tests {
         assert!(project.connect_image_link(lfo, solid));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let r0 = match viewer.frame().expect("frame0").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
                 TopViewerOp::Solid { color_r, .. } => color_r,
                 _ => panic!("first op should be solid"),
             },
         };
-        viewer.update(&project, 960, 540, 420, 60, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            60,
+            60,
+            project.invalidation().top_eval,
+        );
         let r1 = match viewer.frame().expect("frame1").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
                 TopViewerOp::Solid { color_r, .. } => color_r,
@@ -261,7 +301,15 @@ mod tests {
         assert!(project.connect_image_link(circle, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -284,7 +332,15 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -309,7 +365,15 @@ mod tests {
         assert!(project.set_param_value(pass, 1, 256.0));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 1200, 700, 420, 0, 60);
+        viewer.update(
+            &project,
+            1200,
+            700,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         assert_eq!(frame.texture_width, 1024);
         assert_eq!(frame.texture_height, 256);
@@ -329,7 +393,15 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -354,7 +426,15 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 1200, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            1200,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -380,7 +460,15 @@ mod tests {
         assert!(!project.has_signal_bindings());
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 1200, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            1200,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let phase_t0 = match viewer.frame().expect("frame0").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
                 TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
@@ -388,7 +476,15 @@ mod tests {
             },
         };
 
-        viewer.update(&project, 1200, 540, 420, 60, 60);
+        viewer.update(
+            &project,
+            1200,
+            540,
+            420,
+            60,
+            60,
+            project.invalidation().top_eval,
+        );
         let phase_t1 = match viewer.frame().expect("frame1").payload {
             TopViewerPayload::GpuOps(ops) => match ops[0] {
                 TopViewerOp::Sphere { noise_phase, .. } => noise_phase,
@@ -407,15 +503,39 @@ mod tests {
         assert!(project.connect_image_link(solid, out));
 
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let base_key = viewer.key;
 
         assert!(project.toggle_node_expanded(solid, 420, 480));
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         assert_eq!(viewer.key, base_key);
 
         assert!(project.select_next_param(solid));
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         assert_eq!(viewer.key, base_key);
     }
 
@@ -423,7 +543,15 @@ mod tests {
     fn disconnected_graph_returns_empty_gpu_payload() {
         let project = GuiProject::new_empty(640, 480);
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 960, 540, 420, 0, 60);
+        viewer.update(
+            &project,
+            960,
+            540,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         let ops = match frame.payload {
             TopViewerPayload::GpuOps(ops) => ops,
@@ -435,7 +563,15 @@ mod tests {
     fn viewer_frame_fits_texture_aspect_inside_output_panel() {
         let project = GuiProject::new_empty(1920, 1080);
         let mut viewer = TopViewerGenerator::default();
-        viewer.update(&project, 1200, 900, 420, 0, 60);
+        viewer.update(
+            &project,
+            1200,
+            900,
+            420,
+            0,
+            60,
+            project.invalidation().top_eval,
+        );
         let frame = viewer.frame().expect("viewer frame should exist");
         assert_eq!(frame.texture_width, 1920);
         assert_eq!(frame.texture_height, 1080);
