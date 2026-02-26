@@ -30,6 +30,10 @@ use nvenc::sys::enums::{
 #[cfg(windows)]
 use nvenc::sys::guids::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P4_GUID};
 #[cfg(windows)]
+use nvenc::sys::result::NVencError;
+#[cfg(windows)]
+use nvenc::sys::version::{NVENC_MAJOR_VERSION, NVENC_MINOR_VERSION};
+#[cfg(windows)]
 use windows::Win32::Foundation::HMODULE;
 #[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
@@ -523,9 +527,21 @@ fn create_nvenc_backend(
     height: u32,
     fps: u32,
 ) -> Result<NvencEncoderState, Box<dyn Error>> {
+    let version_probe = probe_nvenc_api_versions();
     let device = create_nvenc_device()?;
-    let session: Session<NvencNeedsConfig> = Session::open_dx(&device)
-        .map_err(|err| format!("failed to create NVENC DX session: {err:?}"))?;
+    let session: Session<NvencNeedsConfig> = Session::open_dx(&device).map_err(|err| {
+        if err == NVencError::InvalidVersion {
+            format!(
+                "failed to create NVENC DX session: {err:?}; {}",
+                version_probe.describe_mismatch_hint()
+            )
+        } else {
+            format!(
+                "failed to create NVENC DX session: {err:?}; {}",
+                version_probe.describe_probe_result()
+            )
+        }
+    })?;
     let (session, mut config) = session
         .get_encode_preset_config_ex(
             NV_ENC_CODEC_H264_GUID,
@@ -569,6 +585,67 @@ fn create_nvenc_backend(
         input,
         bitstream,
     })
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug)]
+struct NvencApiVersionProbe {
+    required_major: u16,
+    required_minor: u8,
+    driver_max: Option<(u16, u8)>,
+}
+
+#[cfg(windows)]
+impl NvencApiVersionProbe {
+    fn describe_probe_result(self) -> String {
+        match self.driver_max {
+            Some((major, minor)) => format!(
+                "nvenc api required {}.{}, driver reports {}.{}",
+                self.required_major, self.required_minor, major, minor
+            ),
+            None => format!(
+                "nvenc api required {}.{}, driver max API could not be queried",
+                self.required_major, self.required_minor
+            ),
+        }
+    }
+
+    fn describe_mismatch_hint(self) -> String {
+        match self.driver_max {
+            Some((major, minor)) => format!(
+                "nvenc api mismatch (required {}.{}, driver reports {}.{}); update the NVIDIA driver or use {STREAM_ENCODER_ENV}=openh264",
+                self.required_major, self.required_minor, major, minor
+            ),
+            None => format!(
+                "nvenc api mismatch (required {}.{}); update the NVIDIA driver or use {STREAM_ENCODER_ENV}=openh264",
+                self.required_major, self.required_minor
+            ),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn probe_nvenc_api_versions() -> NvencApiVersionProbe {
+    NvencApiVersionProbe {
+        required_major: NVENC_MAJOR_VERSION,
+        required_minor: NVENC_MINOR_VERSION,
+        driver_max: read_nvenc_driver_max_api_version(),
+    }
+}
+
+#[cfg(windows)]
+fn read_nvenc_driver_max_api_version() -> Option<(u16, u8)> {
+    let library = nvenc::nvenc_init().ok()?;
+    let raw_version = library.get_max_version().ok()?;
+    Some(decode_nvenc_api_version(raw_version))
+}
+
+#[cfg(windows)]
+fn decode_nvenc_api_version(version: u32) -> (u16, u8) {
+    // `nvenc` currently normalizes this into an API-style packed integer.
+    let major = (version & 0xFFFF) as u16;
+    let minor = ((version >> 24) & 0xFF) as u8;
+    (major, minor)
 }
 
 #[cfg(windows)]
