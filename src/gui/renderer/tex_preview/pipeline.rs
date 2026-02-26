@@ -136,9 +136,9 @@ fn seamless_angular_noise(theta: f32, freq: f32, phase: f32) -> f32 {
     let freq_blend = fract(safe_freq);
     // Use integer harmonics only so the wave is guaranteed 2*pi periodic.
     let low_wave = sin(theta * low_freq + phase) * 0.7
-        + sin(theta * (low_freq * 2.0) - phase * 0.61) * 0.3;
+        + sin(theta * (low_freq * 2.0) - phase * 2.0) * 0.3;
     let high_wave = sin(theta * high_freq + phase) * 0.7
-        + sin(theta * (high_freq * 2.0) - phase * 0.61) * 0.3;
+        + sin(theta * (high_freq * 2.0) - phase * 2.0) * 0.3;
     return mix(low_wave, high_wave, freq_blend);
 }
 
@@ -171,7 +171,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
         c * src_delta.x + s * src_delta.y,
         -s * src_delta.x + c * src_delta.y
     );
-    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase * 0.37));
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase));
     let stretched_local = vec2(local.x * stretch_scale, local.y / stretch_scale);
     let delta = vec2(
         c * stretched_local.x - s * stretched_local.y,
@@ -241,7 +241,7 @@ fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
         c * src_delta.x + s * src_delta.y,
         -s * src_delta.x + c * src_delta.y
     );
-    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase * 0.31));
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(twist_theta + noise_phase));
     let stretched_local = vec2(local.x * stretch_scale, local.y / stretch_scale);
     let delta = vec2(
         c * stretched_local.x - s * stretched_local.y,
