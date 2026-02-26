@@ -3,6 +3,8 @@ use std::sync::mpsc::Receiver;
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::gpu_timestamp::OptionalGpuTimestampQueries;
+
 mod pipeline;
 use pipeline::{build_setup, map_buffer_async};
 
@@ -56,6 +58,7 @@ pub(crate) struct RetainedGpuPost {
     height: u32,
     output_width: u32,
     output_height: u32,
+    timestamps: OptionalGpuTimestampQueries,
 }
 
 impl RetainedGpuPost {
@@ -118,11 +121,12 @@ impl RetainedGpuPost {
             height,
             output_width,
             output_height,
+            timestamps: OptionalGpuTimestampQueries::new(device, "retained-compute-pass", 32),
         })
     }
 
     /// Dispatch clear pass for a new image.
-    pub(crate) fn begin_image(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub(crate) fn begin_image(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let clear = RetainedPostParams {
             width: self.width,
             height: self.height,
@@ -138,22 +142,32 @@ impl RetainedGpuPost {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("retained clear encoder"),
         });
+        self.timestamps.begin_frame();
+        let timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
+            wgpu::ComputePassTimestampWrites {
+                query_set: query_set.as_ref(),
+                beginning_of_pass_write_index: Some(*begin),
+                end_of_pass_write_index: Some(*end),
+            }
+        });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("retained clear pass"),
-                timestamp_writes: None,
+                timestamp_writes,
             });
             pass.set_pipeline(&self.clear_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
         }
+        self.timestamps.resolve_and_reset(&mut encoder);
         queue.submit(Some(encoder.finish()));
     }
 
     /// Encode one retained blend pass after the main fractal pass has populated source pixels.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn encode_blend_pass(
-        &self,
+        &mut self,
         encoder: &mut wgpu::CommandEncoder,
         queue: &wgpu::Queue,
         opacity: f32,
@@ -172,13 +186,27 @@ impl RetainedGpuPost {
         };
         queue.write_buffer(&self.post_uniform, 0, bytemuck::bytes_of(&post));
 
+        self.timestamps.begin_frame();
+        let timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
+            wgpu::ComputePassTimestampWrites {
+                query_set: query_set.as_ref(),
+                beginning_of_pass_write_index: Some(*begin),
+                end_of_pass_write_index: Some(*end),
+            }
+        });
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("retained blend pass"),
-            timestamp_writes: None,
+            timestamp_writes,
         });
         pass.set_pipeline(&self.blend_pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
+    }
+
+    /// Resolve retained timestamp queries into the per-node resolve buffer.
+    pub(crate) fn resolve_timestamps(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        self.timestamps.resolve_and_reset(encoder);
     }
 
     /// Map retained accumulation for legacy host-side processing.
@@ -220,7 +248,7 @@ impl RetainedGpuPost {
 
     /// Run final contrast/stretch/downsample on GPU and map final grayscale output.
     pub(crate) fn begin_final_readback(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         contrast: f32,
@@ -244,37 +272,74 @@ impl RetainedGpuPost {
             label: Some("retained final readback encoder"),
         });
 
+        self.timestamps.begin_frame();
+        let clear_hist_timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let clear_hist_timestamp =
+            clear_hist_timestamp_parts
+                .as_ref()
+                .map(|(query_set, begin, end)| wgpu::ComputePassTimestampWrites {
+                    query_set: query_set.as_ref(),
+                    beginning_of_pass_write_index: Some(*begin),
+                    end_of_pass_write_index: Some(*end),
+                });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("retained histogram clear pass"),
-                timestamp_writes: None,
+                timestamp_writes: clear_hist_timestamp,
             });
             pass.set_pipeline(&self.clear_hist_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups(4, 1, 1);
         }
+        let histogram_timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let histogram_timestamp =
+            histogram_timestamp_parts
+                .as_ref()
+                .map(|(query_set, begin, end)| wgpu::ComputePassTimestampWrites {
+                    query_set: query_set.as_ref(),
+                    beginning_of_pass_write_index: Some(*begin),
+                    end_of_pass_write_index: Some(*end),
+                });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("retained histogram pass"),
-                timestamp_writes: None,
+                timestamp_writes: histogram_timestamp,
             });
             pass.set_pipeline(&self.histogram_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
         }
+        let threshold_timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let threshold_timestamp =
+            threshold_timestamp_parts
+                .as_ref()
+                .map(|(query_set, begin, end)| wgpu::ComputePassTimestampWrites {
+                    query_set: query_set.as_ref(),
+                    beginning_of_pass_write_index: Some(*begin),
+                    end_of_pass_write_index: Some(*end),
+                });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("retained threshold pass"),
-                timestamp_writes: None,
+                timestamp_writes: threshold_timestamp,
             });
             pass.set_pipeline(&self.thresholds_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
+        let finalize_timestamp_parts = self.timestamps.next_compute_pass_parts();
+        let finalize_timestamp =
+            finalize_timestamp_parts
+                .as_ref()
+                .map(|(query_set, begin, end)| wgpu::ComputePassTimestampWrites {
+                    query_set: query_set.as_ref(),
+                    beginning_of_pass_write_index: Some(*begin),
+                    end_of_pass_write_index: Some(*end),
+                });
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("retained finalize pass"),
-                timestamp_writes: None,
+                timestamp_writes: finalize_timestamp,
             });
             pass.set_pipeline(&self.finalize_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
@@ -284,6 +349,7 @@ impl RetainedGpuPost {
                 1,
             );
         }
+        self.timestamps.resolve_and_reset(&mut encoder);
 
         encoder.copy_buffer_to_buffer(
             &self.final_output_buffer,

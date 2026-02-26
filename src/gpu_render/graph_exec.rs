@@ -11,7 +11,8 @@ use super::{GpuLayerRenderer, GraphFrameContext, GraphSubmitStats};
 
 impl GpuLayerRenderer {
     /// Start one frame-scoped graph execution context.
-    pub(crate) fn begin_graph_frame(&self, label: &'static str) -> GraphFrameContext {
+    pub(crate) fn begin_graph_frame(&mut self, label: &'static str) -> GraphFrameContext {
+        self.main_pass_timestamps.begin_frame();
         let encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
@@ -23,13 +24,15 @@ impl GpuLayerRenderer {
     }
 
     /// Submit one recorded graph frame and return submit count (0 or 1).
-    pub(crate) fn submit_graph_frame(&self, frame: GraphFrameContext) -> GraphSubmitStats {
+    pub(crate) fn submit_graph_frame(&mut self, mut frame: GraphFrameContext) -> GraphSubmitStats {
         if frame.encoded_ops == 0 {
             return GraphSubmitStats {
                 submit_count: 0,
                 upload_bytes: frame.upload_bytes,
             };
         }
+        self.main_pass_timestamps
+            .resolve_and_reset(&mut frame.encoder);
         let encoder = frame.encoder;
         self.queue.submit(Some(encoder.finish()));
         GraphSubmitStats {
@@ -134,7 +137,6 @@ impl GpuLayerRenderer {
         contrast: f32,
     ) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
-        let output = self.alias_luma(output_slot)?;
 
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
@@ -142,6 +144,7 @@ impl GpuLayerRenderer {
             .upload_bytes
             .saturating_add(std::mem::size_of::<Params>() as u64);
         self.dispatch_main_pass(&mut frame.encoder, params);
+        let output = self.alias_luma(output_slot)?;
         let decode_buffers = DecodeBuffers {
             src_u32: &self.out_buffer,
             dst: &self.node_layer_temp_buffer,

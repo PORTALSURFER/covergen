@@ -4,6 +4,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::gpu_retained::RetainedGpuPost;
+use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::image_ops::decode_luma;
 use crate::model::Params;
 use crate::shaders::{create_shader_module, ShaderProgram};
@@ -42,6 +43,7 @@ pub(crate) struct GpuLayerRenderer {
     node_alias_mask_buffers: Vec<wgpu::Buffer>,
     node_feedback_buffers: Vec<wgpu::Buffer>,
     node_feedback_clear_buffer: wgpu::Buffer,
+    main_pass_timestamps: OptionalGpuTimestampQueries,
 }
 
 #[derive(Debug)]
@@ -88,11 +90,16 @@ impl GpuLayerRenderer {
         output_width: u32,
         output_height: u32,
     ) -> Result<Self, Box<dyn Error>> {
+        let required_features = if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            wgpu::Features::TIMESTAMP_QUERY
+        } else {
+            wgpu::Features::empty()
+        };
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     required_limits: wgpu::Limits::default(),
                 },
                 None,
@@ -211,6 +218,8 @@ impl GpuLayerRenderer {
             usage: wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let main_pass_timestamps =
+            OptionalGpuTimestampQueries::new(&device, "v2-main-compute-pass", 8);
 
         Ok(Self {
             device,
@@ -233,6 +242,7 @@ impl GpuLayerRenderer {
             node_alias_mask_buffers: Vec::new(),
             node_feedback_buffers: Vec::new(),
             node_feedback_clear_buffer,
+            main_pass_timestamps,
         })
     }
 
@@ -309,14 +319,17 @@ impl GpuLayerRenderer {
 
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
+        self.main_pass_timestamps.begin_frame();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("retained layer encoder"),
             });
         self.dispatch_main_pass(&mut encoder, params);
+        self.main_pass_timestamps.resolve_and_reset(&mut encoder);
         self.retained
             .encode_blend_pass(&mut encoder, &self.queue, opacity, blend_mode, contrast);
+        self.retained.resolve_timestamps(&mut encoder);
         self.queue.submit(Some(encoder.finish()));
         Ok(())
     }
@@ -343,12 +356,14 @@ impl GpuLayerRenderer {
 
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(params));
+        self.main_pass_timestamps.begin_frame();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("command encoder"),
             });
         self.dispatch_main_pass(&mut encoder, params);
+        self.main_pass_timestamps.resolve_and_reset(&mut encoder);
         encoder.copy_buffer_to_buffer(
             &self.out_buffer,
             0,
@@ -410,10 +425,18 @@ impl GpuLayerRenderer {
         self.collect_layer(out)
     }
 
-    fn dispatch_main_pass(&self, encoder: &mut wgpu::CommandEncoder, params: &Params) {
+    fn dispatch_main_pass(&mut self, encoder: &mut wgpu::CommandEncoder, params: &Params) {
+        let timestamp_parts = self.main_pass_timestamps.next_compute_pass_parts();
+        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
+            wgpu::ComputePassTimestampWrites {
+                query_set: query_set.as_ref(),
+                beginning_of_pass_write_index: Some(*begin),
+                end_of_pass_write_index: Some(*end),
+            }
+        });
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("compute pass"),
-            timestamp_writes: None,
+            timestamp_writes,
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);

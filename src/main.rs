@@ -11,6 +11,7 @@ mod cli;
 mod compiler;
 mod gpu_render;
 mod gpu_retained;
+mod gpu_timestamp;
 mod graph;
 mod gui;
 mod image_ops;

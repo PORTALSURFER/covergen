@@ -11,6 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
+use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::gui::runtime::TopRuntimeFeedbackHistoryBinding;
 use crate::gui::top_view::TopViewerOp;
 
@@ -257,6 +258,7 @@ pub(super) struct TopPreviewRenderer {
     feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
     blend_source_slots: HashMap<u32, CachedTextureSlot>,
     blend_source_aliases: HashMap<u32, RenderTargetRef>,
+    op_pass_timestamps: OptionalGpuTimestampQueries,
 }
 
 impl TopPreviewRenderer {
@@ -474,6 +476,8 @@ impl TopPreviewRenderer {
         });
         let op_uniform_bind_group =
             Self::create_op_uniform_bind_group(device, &op_uniform_layout, &op_uniform_buffer);
+        let op_pass_timestamps =
+            OptionalGpuTimestampQueries::new(device, "gui-top-preview-op-pass", 2048);
 
         Self {
             viewer_pipeline,
@@ -512,6 +516,7 @@ impl TopPreviewRenderer {
             feedback_history: HashMap::new(),
             blend_source_slots: HashMap::new(),
             blend_source_aliases: HashMap::new(),
+            op_pass_timestamps,
         }
     }
 

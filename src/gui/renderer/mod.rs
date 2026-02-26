@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
+use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::runtime_config::GuiVsync;
 
 use super::scene::{Color, SceneFrame, SceneLayer};
@@ -238,6 +239,7 @@ pub(crate) struct GuiRenderer {
     hud_text: GuiTextRenderer,
     hud_label: String,
     cached_hud_key: Option<HudLayerKey>,
+    main_pass_timestamps: OptionalGpuTimestampQueries,
     uniform_dirty: bool,
     frame_perf: GuiRenderPerfCounters,
 }
@@ -256,11 +258,16 @@ impl GuiRenderer {
             .first()
             .copied()
             .ok_or("surface reported no alpha modes")?;
+        let required_features = if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            wgpu::Features::TIMESTAMP_QUERY
+        } else {
+            wgpu::Features::empty()
+        };
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("gui-device"),
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     required_limits: wgpu::Limits::default(),
                 },
                 None,
@@ -305,6 +312,7 @@ impl GuiRenderer {
         let overlays_geometry = LayerGpuGeometry::new(&device, "overlays", 2048);
         let timeline_geometry = LayerGpuGeometry::new(&device, "timeline", 1024);
         let hud_geometry = LayerGpuGeometry::new(&device, "hud", 512);
+        let main_pass_timestamps = OptionalGpuTimestampQueries::new(&device, "gui-main-pass", 8);
 
         Ok(Self {
             surface,
@@ -326,6 +334,7 @@ impl GuiRenderer {
             hud_text: GuiTextRenderer::default(),
             hud_label: String::with_capacity(24),
             cached_hud_key: None,
+            main_pass_timestamps,
             uniform_dirty: false,
             frame_perf: GuiRenderPerfCounters::default(),
         })
@@ -579,6 +588,15 @@ impl GuiRenderer {
             self.top_preview
                 .prepare(&self.device, &self.queue, top_view, &mut encoder);
 
+        self.main_pass_timestamps.begin_frame();
+        let timestamp_parts = self.main_pass_timestamps.next_render_pass_parts();
+        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
+            wgpu::RenderPassTimestampWrites {
+                query_set: query_set.as_ref(),
+                beginning_of_pass_write_index: Some(*begin),
+                end_of_pass_write_index: Some(*end),
+            }
+        });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gui-render-pass"),
@@ -597,7 +615,7 @@ impl GuiRenderer {
                 })],
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
-                timestamp_writes: None,
+                timestamp_writes,
             });
             let editor_scissor_w = panel_width.min(self.config.width as usize) as u32;
             let editor_scissor_h = editor_panel_height(self.config.height as usize).max(1) as u32;
@@ -614,6 +632,7 @@ impl GuiRenderer {
             self.draw_layer(&mut pass, &self.timeline_geometry);
             self.draw_layer(&mut pass, &self.hud_geometry);
         }
+        self.main_pass_timestamps.resolve_and_reset(&mut encoder);
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_tex.present();
         Ok(top_preview_upload_bytes)
