@@ -66,12 +66,12 @@ pub(super) fn create_texture_bind_group_layout(device: &wgpu::Device) -> wgpu::B
     })
 }
 
-/// Create linear sampler used for TOP viewer texture display.
+/// Create nearest-neighbor sampler used for TOP viewer texture display.
 pub(super) fn create_texture_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("gui-viewer-sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     })

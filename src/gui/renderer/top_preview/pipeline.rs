@@ -152,7 +152,6 @@ fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
 fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
-    let feather = max(u_op.p0.w, 0.0001);
     let noise_amount = clamp(u_op.p3.y, 0.0, 2.0);
     let noise_freq = max(u_op.p3.z, 0.01);
     let noise_phase = u_op.p3.w;
@@ -193,7 +192,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
         boundary = noisy_radius * cos(half_sector) / max(cos(local), 0.0001);
     }
 
-    let edge = smoothstep(boundary + feather, boundary - feather, dist);
+    let edge = select(0.0, 1.0, dist <= boundary);
     let theta_norm = fract((theta + pi) / tau);
     let start_norm = fract(u_op.p2.x / 360.0);
     let end_norm = fract(u_op.p2.y / 360.0);
@@ -212,7 +211,7 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
     var shape_alpha = edge;
     if (arc_open) {
         let inner = max(boundary - line_width, 0.0);
-        let inner_edge = smoothstep(inner + feather, inner - feather, dist);
+        let inner_edge = select(0.0, 1.0, dist <= inner);
         shape_alpha = clamp(edge - inner_edge, 0.0, 1.0);
     }
 
@@ -225,7 +224,6 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
 fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
-    let edge_softness = max(u_op.p0.w, 0.0);
     let noise_amount = clamp(u_op.p3.x, 0.0, 2.0);
     let noise_freq = max(u_op.p3.y, 0.01);
     let noise_phase = u_op.p3.z;
@@ -252,7 +250,7 @@ fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
     let theta = atan2(delta.y, delta.x);
     let noise_wave = seamless_angular_noise(theta, noise_freq, noise_phase);
     let boundary = radius * (1.0 + noise_amount * 0.35 * noise_wave);
-    let edge = smoothstep(boundary + edge_softness, boundary - edge_softness, dist);
+    let edge = select(0.0, 1.0, dist <= boundary);
     if (edge <= 0.0001) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }

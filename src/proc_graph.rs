@@ -158,8 +158,11 @@ fn sample_circle(circle: SopCircleNode, x: f32, y: f32) -> f32 {
     let dy = y - circle.center_y;
     let distance = (dx * dx + dy * dy).sqrt();
     let radius = circle.radius.max(0.01);
-    let feather = circle.feather.max(1e-4);
-    smoothstep(radius + feather, radius - feather, distance)
+    if distance <= radius {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn sample_sphere(sphere: SopSphereNode, x: f32, y: f32) -> f32 {
@@ -195,12 +198,4 @@ fn sample_sphere(sphere: SopSphereNode, x: f32, y: f32) -> f32 {
     let diffuse = (nx * lx + ny * ly + nz * lz).max(0.0);
     (sphere.ambient.clamp(0.0, 1.0) + (1.0 - sphere.ambient.clamp(0.0, 1.0)) * diffuse)
         .clamp(0.0, 1.0)
-}
-
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    if (edge1 - edge0).abs() < f32::EPSILON {
-        return if x >= edge0 { 1.0 } else { 0.0 };
-    }
-    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }

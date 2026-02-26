@@ -314,13 +314,12 @@ pub fn feedback_mix(
 }
 
 /// Circle primitive sampling in camera-normalized space.
-fn sample_circle_camera(radius: f32, feather: f32, center_x: f32, center_y: f32, x: f32, y: f32) -> f32 {
+fn sample_circle_camera(radius: f32, _feather: f32, center_x: f32, center_y: f32, x: f32, y: f32) -> f32 {
     let dx = x - center_x;
     let dy = y - center_y;
     let distance = (dx * dx + dy * dy).sqrt();
     let r = radius.max(0.01);
-    let f = feather.max(1e-4);
-    smoothstep(r + f, r - f, distance)
+    if distance <= r { 1.0 } else { 0.0 }
 }
 
 /// Sphere primitive sampling with simple diffuse shading in camera-normalized space.
