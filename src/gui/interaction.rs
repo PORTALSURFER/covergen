@@ -395,7 +395,33 @@ fn handle_node_open_toggle(
     let Some(node_id) = target else {
         return false;
     };
-    project.toggle_node_expanded(node_id, panel_width, panel_height)
+    let was_expanded = project.node_expanded(node_id);
+    let changed = if was_expanded {
+        project.collapse_node(node_id, panel_width, panel_height)
+    } else {
+        project.expand_node(node_id, panel_width, panel_height)
+    };
+    if !changed {
+        return false;
+    }
+    let now_expanded = !was_expanded;
+    let bind_drag = state
+        .wire_drag
+        .and_then(|wire| wire_drag_source_kind(project, wire))
+        .filter(|kind| matches!(kind, ResourceKind::Signal | ResourceKind::Texture2D))
+        .is_some();
+    if bind_drag {
+        if !was_expanded && now_expanded {
+            if !state.auto_expanded_binding_nodes.contains(&node_id) {
+                state.auto_expanded_binding_nodes.push(node_id);
+            }
+        } else if was_expanded && !now_expanded {
+            state
+                .auto_expanded_binding_nodes
+                .retain(|tracked| *tracked != node_id);
+        }
+    }
+    true
 }
 
 fn handle_parameter_shortcuts(
@@ -1670,39 +1696,24 @@ fn update_hover_state(
             let mut keep_auto_expanded_node = None;
             state.hover_node = project.node_at(graph_x, graph_y);
             if let Some(node_id) = state.hover_node {
-                let accepts_binding = project
-                    .node(node_id)
-                    .map(|node| match bind_kind {
-                        ResourceKind::Signal => node.kind().accepts_signal_bindings(),
+                if state.auto_expanded_binding_nodes.contains(&node_id) {
+                    keep_auto_expanded_node = Some(node_id);
+                }
+                if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+                    let accepts_param = match bind_kind {
+                        ResourceKind::Signal => {
+                            project.param_accepts_signal_link(node_id, param_index)
+                        }
                         ResourceKind::Texture2D => {
-                            node.kind() == super::project::ProjectNodeKind::TexFeedback
+                            project.param_accepts_texture_link(node_id, param_index)
                         }
                         _ => false,
-                    })
-                    .unwrap_or(false);
-                if accepts_binding {
-                    keep_auto_expanded_node = Some(node_id);
-                    let expanded = project.expand_node(node_id, panel_width, panel_height);
-                    changed |= expanded;
-                    if expanded && !state.auto_expanded_binding_nodes.contains(&node_id) {
-                        state.auto_expanded_binding_nodes.push(node_id);
-                    }
-                    if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-                        let accepts_param = match bind_kind {
-                            ResourceKind::Signal => {
-                                project.param_accepts_signal_link(node_id, param_index)
-                            }
-                            ResourceKind::Texture2D => {
-                                project.param_accepts_texture_link(node_id, param_index)
-                            }
-                            _ => false,
-                        };
-                        if accepts_param {
-                            state.hover_param_target = Some(HoverParamTarget {
-                                node_id,
-                                param_index,
-                            });
-                        }
+                    };
+                    if accepts_param {
+                        state.hover_param_target = Some(HoverParamTarget {
+                            node_id,
+                            param_index,
+                        });
                     }
                 }
             }
@@ -1884,10 +1895,10 @@ fn focus_bounds(
 mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
-        handle_delete_selected_nodes, handle_link_cut, handle_param_wheel_input,
-        handle_right_selection, handle_wire_input, insert_param_char, marquee_moved,
-        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
-        update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+        handle_delete_selected_nodes, handle_link_cut, handle_node_open_toggle,
+        handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
+        marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
+        segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::project::{
         input_pin_center, node_param_row_rect, node_param_value_rect, output_pin_center,
@@ -2038,10 +2049,11 @@ mod tests {
     }
 
     #[test]
-    fn signal_wire_hover_auto_expands_node_and_targets_parameter_row() {
+    fn signal_wire_hover_does_not_auto_expand_node() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        assert!(!project.node_expanded(solid));
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         state.wire_drag = Some(WireDragState {
             source_node_id: lfo,
@@ -2060,23 +2072,16 @@ mod tests {
             480,
             &mut state
         ));
-        assert!(project.node_expanded(solid));
-
-        let param_hover = InputSnapshot {
-            mouse_pos: Some((226, 126)),
-            ..InputSnapshot::default()
-        };
-        let _ = update_hover_state(&param_hover, &mut project, 420, 480, &mut state);
-        let target = state.hover_param_target.expect("hover parameter target");
-        assert_eq!(target.node_id, solid);
-        assert_eq!(target.param_index, 0);
+        assert!(!project.node_expanded(solid));
+        assert!(state.hover_param_target.is_none());
     }
 
     #[test]
-    fn signal_wire_hover_leave_collapses_auto_expanded_node() {
+    fn tab_opened_bind_hover_node_collapses_on_exit() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+        assert!(!project.node_expanded(solid));
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         state.wire_drag = Some(WireDragState {
             source_node_id: lfo,
@@ -2090,6 +2095,18 @@ mod tests {
         };
         assert!(update_hover_state(
             &hover_node,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(!project.node_expanded(solid));
+        let toggle = InputSnapshot {
+            toggle_node_open: true,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_node_open_toggle(
+            &toggle,
             &mut project,
             420,
             480,
@@ -2139,7 +2156,7 @@ mod tests {
     }
 
     #[test]
-    fn texture_wire_hover_over_feedback_auto_expands_node() {
+    fn texture_wire_hover_over_feedback_does_not_auto_expand_node() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
         let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
@@ -2162,7 +2179,8 @@ mod tests {
             480,
             &mut state
         ));
-        assert!(project.node_expanded(feedback));
+        assert!(!project.node_expanded(feedback));
+        assert!(state.hover_param_target.is_none());
     }
 
     #[test]
