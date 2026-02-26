@@ -13,6 +13,28 @@ const MAX_GRID_CELLS: usize = 24_000;
 pub(crate) struct NodeObstacle {
     pub(crate) rect: Rect,
 }
+
+/// Precomputed obstacle data reused across multiple route queries.
+///
+/// This cache stores inflated obstacle rectangles and, when possible, one
+/// rasterized occupancy grid that can be reused for many BFS path searches.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RouteObstacleMap {
+    blocked_rects: Vec<Rect>,
+    raster: Option<Grid>,
+}
+
+impl RouteObstacleMap {
+    /// Build one reusable obstacle map from panel-space node obstacles.
+    pub(crate) fn from_obstacles(obstacles: &[NodeObstacle]) -> Self {
+        let blocked_rects = collect_blocked_rects(obstacles);
+        let raster = Grid::build_from_blocked(blocked_rects.as_slice());
+        Self {
+            blocked_rects,
+            raster,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
     x: i32,
@@ -28,19 +50,35 @@ pub(crate) fn route_param_path(
     end: (i32, i32),
     obstacles: &[NodeObstacle],
 ) -> Vec<(i32, i32)> {
-    let mut blocked = collect_blocked_rects(obstacles);
-    blocked.retain(|rect| !rect.contains(start.0, start.1) && !rect.contains(end.0, end.1));
-    if blocked.is_empty() {
+    let obstacle_map = RouteObstacleMap::from_obstacles(obstacles);
+    route_param_path_with_map(start, end, &obstacle_map)
+}
+
+/// Build one obstacle-avoiding orthogonal path using a precomputed map.
+pub(crate) fn route_param_path_with_map(
+    start: (i32, i32),
+    end: (i32, i32),
+    obstacle_map: &RouteObstacleMap,
+) -> Vec<(i32, i32)> {
+    if obstacle_map.blocked_rects.is_empty() {
         return vec![start, end];
     }
-    let Some(grid) = Grid::build(start, end, blocked.as_slice()) else {
-        return fallback_route(start, end, blocked.as_slice());
-    };
-    let Some(cells) = grid.find_path() else {
+    let cells = obstacle_map
+        .raster
+        .as_ref()
+        .and_then(|grid| grid.find_path(start, end));
+    let Some(cells) = cells else {
+        let blocked = filtered_blocked_rects(obstacle_map.blocked_rects.as_slice(), start, end);
+        if blocked.is_empty() {
+            return vec![start, end];
+        }
         return fallback_route(start, end, blocked.as_slice());
     };
     let mut points = Vec::with_capacity(cells.len() + 2);
     points.push(start);
+    let Some(grid) = obstacle_map.raster.as_ref() else {
+        return vec![start, end];
+    };
     for cell in cells {
         points.push(grid.cell_point(cell));
     }
@@ -51,6 +89,14 @@ pub(crate) fn route_param_path(
         return vec![start, end];
     }
     points
+}
+
+fn filtered_blocked_rects(blocked_rects: &[Rect], start: (i32, i32), end: (i32, i32)) -> Vec<Rect> {
+    blocked_rects
+        .iter()
+        .copied()
+        .filter(|rect| !rect.contains(start.0, start.1) && !rect.contains(end.0, end.1))
+        .collect()
 }
 
 fn collect_blocked_rects(obstacles: &[NodeObstacle]) -> Vec<Rect> {
@@ -202,20 +248,24 @@ fn simplify_collinear(points: &mut Vec<(i32, i32)>) {
     points.truncate(write);
 }
 
+#[derive(Clone, Debug)]
 struct Grid {
     origin_x: i32,
     origin_y: i32,
     cols: i32,
     rows: i32,
-    start: Cell,
-    end: Cell,
     blocked: Vec<bool>,
 }
 
 impl Grid {
-    fn build(start: (i32, i32), end: (i32, i32), blocked: &[Rect]) -> Option<Self> {
-        let (mut min_x, mut max_x) = (start.0.min(end.0), start.0.max(end.0));
-        let (mut min_y, mut max_y) = (start.1.min(end.1), start.1.max(end.1));
+    fn build_from_blocked(blocked: &[Rect]) -> Option<Self> {
+        if blocked.is_empty() {
+            return None;
+        }
+        let mut min_x = blocked[0].x;
+        let mut max_x = blocked[0].x + blocked[0].w;
+        let mut min_y = blocked[0].y;
+        let mut max_y = blocked[0].y + blocked[0].h;
         for rect in blocked {
             min_x = min_x.min(rect.x);
             min_y = min_y.min(rect.y);
@@ -238,12 +288,8 @@ impl Grid {
             origin_y: min_y,
             cols,
             rows,
-            start: Cell { x: 0, y: 0 },
-            end: Cell { x: 0, y: 0 },
             blocked: vec![false; len],
         };
-        grid.start = grid.point_to_cell(start);
-        grid.end = grid.point_to_cell(end);
         for y in 0..rows {
             for x in 0..cols {
                 let cell = Cell { x, y };
@@ -252,23 +298,22 @@ impl Grid {
                 grid.blocked[index] = blocked.iter().any(|rect| rect.contains(p.0, p.1));
             }
         }
-        if let Some(index) = grid.cell_index(grid.start) {
-            grid.blocked[index] = false;
-        }
-        if let Some(index) = grid.cell_index(grid.end) {
-            grid.blocked[index] = false;
-        }
         Some(grid)
     }
 
-    fn find_path(&self) -> Option<Vec<Cell>> {
+    fn find_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<Cell>> {
+        if !self.contains_point(start) || !self.contains_point(end) {
+            return None;
+        }
         let len = self.blocked.len();
         let mut visited = vec![false; len];
         let mut parent = vec![usize::MAX; len];
-        let start = self.cell_index(self.start)?;
-        let end = self.cell_index(self.end)?;
+        let start_cell = self.point_to_cell(start);
+        let end_cell = self.point_to_cell(end);
+        let start = self.cell_index(start_cell)?;
+        let end = self.cell_index(end_cell)?;
         let mut queue = VecDeque::new();
-        queue.push_back(self.start);
+        queue.push_back(start_cell);
         visited[start] = true;
 
         while let Some(cell) = queue.pop_front() {
@@ -280,7 +325,7 @@ impl Grid {
                 let Some(next_index) = self.cell_index(next) else {
                     continue;
                 };
-                if self.blocked[next_index] || visited[next_index] {
+                if (self.blocked[next_index] && next_index != end) || visited[next_index] {
                     continue;
                 }
                 visited[next_index] = true;
@@ -297,9 +342,17 @@ impl Grid {
             out.push(self.index_cell(cursor));
             cursor = parent[cursor];
         }
-        out.push(self.start);
+        out.push(start_cell);
         out.reverse();
         Some(out)
+    }
+
+    fn contains_point(&self, point: (i32, i32)) -> bool {
+        let min_x = self.origin_x;
+        let min_y = self.origin_y;
+        let max_x = self.origin_x + (self.cols - 1) * GRID_STEP_PX;
+        let max_y = self.origin_y + (self.rows - 1) * GRID_STEP_PX;
+        point.0 >= min_x && point.0 <= max_x && point.1 >= min_y && point.1 <= max_y
     }
 
     fn neighbors(&self, cell: Cell) -> [Cell; 4] {
@@ -369,7 +422,7 @@ fn ceil_to_step(value: i32, step: i32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{route_param_path, NodeObstacle};
+    use super::{route_param_path, route_param_path_with_map, NodeObstacle, RouteObstacleMap};
     use crate::gui::geometry::Rect;
 
     #[test]
@@ -396,5 +449,23 @@ mod tests {
         assert_eq!(path.first().copied(), Some((10, 50)));
         assert_eq!(path.last().copied(), Some((110, 50)));
         assert!(path.len() >= 3);
+    }
+
+    #[test]
+    fn route_with_cached_obstacle_map_matches_direct_route_endpoints() {
+        let obstacles = [
+            NodeObstacle {
+                rect: Rect::new(40, 30, 40, 40),
+            },
+            NodeObstacle {
+                rect: Rect::new(120, 20, 40, 60),
+            },
+        ];
+        let direct = route_param_path((10, 50), (210, 50), &obstacles);
+        let cached = RouteObstacleMap::from_obstacles(&obstacles);
+        let from_cache = route_param_path_with_map((10, 50), (210, 50), &cached);
+        assert_eq!(from_cache.first().copied(), direct.first().copied());
+        assert_eq!(from_cache.last().copied(), direct.last().copied());
+        assert!(from_cache.len() >= 2);
     }
 }

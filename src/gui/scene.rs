@@ -7,6 +7,7 @@
 pub(super) mod wire_route;
 
 use std::fmt::Write as _;
+use std::{collections::HashMap, collections::HashSet, sync::Arc};
 
 use super::geometry::Rect;
 use super::project::{
@@ -166,6 +167,14 @@ enum ActiveLayer {
     Timeline,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ParamRouteCacheKey {
+    source_id: u32,
+    target_id: u32,
+    param_index: usize,
+    obstacle_epoch: u64,
+}
+
 /// Stateful scene builder that reuses allocation capacity across frames.
 #[derive(Default)]
 pub(crate) struct SceneBuilder {
@@ -179,6 +188,9 @@ pub(crate) struct SceneBuilder {
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
+    param_route_cache_epoch: Option<u64>,
+    param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
+    param_route_obstacle_map: wire_route::RouteObstacleMap,
     frame_alloc_bytes: u64,
 }
 
@@ -933,7 +945,15 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
-        let obstacles = collect_panel_node_obstacles(project, state);
+        let obstacle_epoch = param_route_obstacle_epoch(project, state);
+        if self.param_route_cache_epoch != Some(obstacle_epoch) {
+            self.param_route_cache_epoch = Some(obstacle_epoch);
+            self.param_route_cache.clear();
+            let obstacles = collect_panel_node_obstacles(project, state);
+            self.param_route_obstacle_map =
+                wire_route::RouteObstacleMap::from_obstacles(&obstacles);
+        }
+        let mut live_route_keys = HashSet::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -955,11 +975,28 @@ impl SceneBuilder {
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
                 let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
                 let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-                let route =
-                    wire_route::route_param_path((exit_x, from_y), (entry_x, to_y), &obstacles);
-                let smooth_route = smooth_param_wire_path(route.as_slice());
+                let route_key = ParamRouteCacheKey {
+                    source_id,
+                    target_id: target.id(),
+                    param_index,
+                    obstacle_epoch,
+                };
+                live_route_keys.insert(route_key);
+                if !self.param_route_cache.contains_key(&route_key) {
+                    let route = wire_route::route_param_path_with_map(
+                        (exit_x, from_y),
+                        (entry_x, to_y),
+                        &self.param_route_obstacle_map,
+                    );
+                    let smooth_route = smooth_param_wire_path(route.as_slice());
+                    self.param_route_cache
+                        .insert(route_key, Arc::from(smooth_route));
+                }
+                let Some(smooth_route) = self.param_route_cache.get(&route_key).cloned() else {
+                    continue;
+                };
                 let color = if edge_intersects_cut_line(state, from_x, from_y, exit_x, from_y)
-                    || path_intersects_cut_line(state, smooth_route.as_slice())
+                    || path_intersects_cut_line(state, smooth_route.as_ref())
                     || edge_intersects_cut_line(state, entry_x, to_y, to_x, to_y)
                 {
                     CUT_EDGE_COLOR
@@ -967,11 +1004,13 @@ impl SceneBuilder {
                     PARAM_EDGE_COLOR
                 };
                 self.push_line(from_x, from_y, exit_x, from_y, color);
-                self.push_path_lines(smooth_route.as_slice(), color);
+                self.push_path_lines(smooth_route.as_ref(), color);
                 self.push_line(entry_x, to_y, to_x, to_y, color);
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
+        self.param_route_cache
+            .retain(|key, _| key.obstacle_epoch == obstacle_epoch && live_route_keys.contains(key));
     }
 
     fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
@@ -1254,6 +1293,15 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
         ActiveLayer::Overlays => &mut frame.overlays,
         ActiveLayer::Timeline => &mut frame.timeline,
     }
+}
+
+fn param_route_obstacle_epoch(project: &GuiProject, state: &PreviewState) -> u64 {
+    let mut hash = hash_start();
+    hash = hash_u64(hash, project.ui_signature());
+    hash = hash_f32(hash, state.pan_x);
+    hash = hash_f32(hash, state.pan_y);
+    hash = hash_f32(hash, state.zoom);
+    hash
 }
 
 fn nodes_layer_key(project: &GuiProject, state: &PreviewState) -> u64 {
