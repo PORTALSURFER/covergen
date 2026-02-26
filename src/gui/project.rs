@@ -45,6 +45,7 @@ const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
 const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
+const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
 
 /// Arc style options exposed by the `buf.circle_nurbs` node.
 const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [
@@ -596,6 +597,11 @@ pub(crate) struct GuiProject {
     hit_test_cache: RefCell<HitTestCache>,
     hit_test_dirty: Cell<bool>,
     hit_test_scan_count: Cell<u64>,
+    render_epoch: u64,
+    ui_epoch: u64,
+    render_signature_cache: u64,
+    ui_signature_cache: u64,
+    graph_signature_cache: u64,
 }
 
 /// Cached spatial/index structures for fast graph hit-testing.
@@ -616,7 +622,9 @@ enum PinHitKind {
 impl GuiProject {
     /// Create a fresh empty project sized for the active preview canvas.
     pub(crate) fn new_empty(preview_width: u32, preview_height: u32) -> Self {
-        Self {
+        let render_epoch = 0;
+        let ui_epoch = 0;
+        let mut project = Self {
             name: next_project_name(),
             preview_width,
             preview_height,
@@ -626,7 +634,17 @@ impl GuiProject {
             hit_test_cache: RefCell::new(HitTestCache::default()),
             hit_test_dirty: Cell::new(false),
             hit_test_scan_count: Cell::new(0),
-        }
+            render_epoch,
+            ui_epoch,
+            render_signature_cache: 0,
+            ui_signature_cache: 0,
+            graph_signature_cache: 0,
+        };
+        project.render_signature_cache = project.compute_render_signature();
+        project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
+        project.graph_signature_cache =
+            compose_graph_signature(project.render_signature_cache, project.ui_signature_cache);
+        project
     }
 
     /// Export this in-memory graph to a persisted autosave payload.
@@ -822,8 +840,9 @@ impl GuiProject {
             .copied()
     }
 
-    fn invalidate_hit_test_cache(&self) {
+    fn invalidate_hit_test_cache(&mut self) {
         self.hit_test_dirty.set(true);
+        self.bump_ui_epoch();
     }
 
     fn ensure_hit_test_cache(&self) {
@@ -849,6 +868,48 @@ impl GuiProject {
         }
         *self.hit_test_cache.borrow_mut() = cache;
         self.hit_test_dirty.set(false);
+    }
+
+    fn bump_render_epoch(&mut self) {
+        self.render_epoch = self.render_epoch.wrapping_add(1);
+        self.render_signature_cache = self.compute_render_signature();
+        self.graph_signature_cache =
+            compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
+    }
+
+    fn bump_ui_epoch(&mut self) {
+        self.ui_epoch = self.ui_epoch.wrapping_add(1);
+        self.ui_signature_cache = signature_from_ui_epoch(self.ui_epoch);
+        self.graph_signature_cache =
+            compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
+    }
+
+    fn compute_render_signature(&self) -> u64 {
+        let mut hash = 0xcbf29ce484222325_u64;
+        for node in &self.nodes {
+            hash = fnv1a_u64(hash, node.id as u64);
+            for byte in node.kind.stable_id().as_bytes() {
+                hash = fnv1a_u64(hash, *byte as u64);
+            }
+            if let Some(texture_input) = node.texture_input {
+                hash = fnv1a_u64(hash, texture_input as u64);
+            }
+            hash = fnv1a_u64(hash, 0xff);
+            for slot in &node.params {
+                for byte in slot.key.as_bytes() {
+                    hash = fnv1a_u64(hash, *byte as u64);
+                }
+                hash = fnv1a_u64(hash, slot.value.to_bits() as u64);
+                if let Some(source) = slot.signal_source {
+                    hash = fnv1a_u64(hash, source as u64);
+                }
+                if let Some(source) = slot.texture_source {
+                    hash = fnv1a_u64(hash, source as u64);
+                }
+            }
+            hash = fnv1a_u64(hash, 0xfe);
+        }
+        hash
     }
 
     /// Add one node at canvas position and return created id.
@@ -877,6 +938,7 @@ impl GuiProject {
             expanded: false,
         });
         self.invalidate_hit_test_cache();
+        self.bump_render_epoch();
         node_id
     }
 
@@ -1595,6 +1657,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param = next;
+        self.bump_ui_epoch();
         true
     }
 
@@ -1607,6 +1670,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param -= 1;
+        self.bump_ui_epoch();
         true
     }
 
@@ -1623,6 +1687,7 @@ impl GuiProject {
             return false;
         }
         node.selected_param = next;
+        self.bump_ui_epoch();
         true
     }
 
@@ -1635,7 +1700,11 @@ impl GuiProject {
             return false;
         }
         let index = node.selected_param.min(node.params.len().saturating_sub(1));
-        adjust_slot_value(&mut node.params[index], direction)
+        let changed = adjust_slot_value(&mut node.params[index], direction);
+        if changed {
+            self.bump_render_epoch();
+        }
+        changed
     }
 
     /// Adjust one parameter value by `steps * slot.step` after clamping.
@@ -1649,7 +1718,11 @@ impl GuiProject {
             return false;
         }
         let index = param_index.min(node.params.len().saturating_sub(1));
-        adjust_slot_value(&mut node.params[index], steps)
+        let changed = adjust_slot_value(&mut node.params[index], steps);
+        if changed {
+            self.bump_render_epoch();
+        }
+        changed
     }
 
     /// Return raw parameter value at one index for one node.
@@ -1672,7 +1745,11 @@ impl GuiProject {
             return false;
         }
         let index = param_index.min(node.params.len().saturating_sub(1));
-        set_slot_value(&mut node.params[index], value)
+        let changed = set_slot_value(&mut node.params[index], value);
+        if changed {
+            self.bump_render_epoch();
+        }
+        changed
     }
 
     /// Return true when a parameter row is rendered as dropdown.
@@ -1777,7 +1854,11 @@ impl GuiProject {
             return false;
         }
         let next_index = option_index.min(options.len().saturating_sub(1));
-        apply_dropdown_value(slot, options, next_index)
+        let changed = apply_dropdown_value(slot, options, next_index);
+        if changed {
+            self.bump_render_epoch();
+        }
+        changed
     }
 
     /// Return expanded parameter row index hit by one graph-space point.
@@ -1886,59 +1967,26 @@ impl GuiProject {
 
     /// Return stable signature for render-affecting graph state.
     ///
-    /// This signature intentionally excludes UI-only fields such as expanded
-    /// state and selected parameter row so preview caches only invalidate when
-    /// output content can change.
+    /// This cached signature is driven by render-epoch bumps on mutations and
+    /// intentionally excludes UI-only fields so preview caches only invalidate
+    /// when output content can change.
     pub(crate) fn render_signature(&self) -> u64 {
-        let mut hash = 0xcbf29ce484222325_u64;
-        for node in &self.nodes {
-            hash = fnv1a_u64(hash, node.id as u64);
-            for byte in node.kind.stable_id().as_bytes() {
-                hash = fnv1a_u64(hash, *byte as u64);
-            }
-            if let Some(texture_input) = node.texture_input {
-                hash = fnv1a_u64(hash, texture_input as u64);
-            }
-            hash = fnv1a_u64(hash, 0xff);
-            for slot in &node.params {
-                for byte in slot.key.as_bytes() {
-                    hash = fnv1a_u64(hash, *byte as u64);
-                }
-                hash = fnv1a_u64(hash, slot.value.to_bits() as u64);
-                if let Some(source) = slot.signal_source {
-                    hash = fnv1a_u64(hash, source as u64);
-                }
-                if let Some(source) = slot.texture_source {
-                    hash = fnv1a_u64(hash, source as u64);
-                }
-            }
-            hash = fnv1a_u64(hash, 0xfe);
-        }
-        hash
+        self.render_signature_cache
     }
 
     /// Return stable signature for UI-only node-editor state.
     ///
-    /// This can be used by UI caches that should react to node-card expansion,
-    /// row selection, or node position updates without affecting render caches.
+    /// This cached signature tracks UI epoch updates for node-card expansion,
+    /// row selection, and node positioning without forcing render invalidation.
     pub(crate) fn ui_signature(&self) -> u64 {
-        let mut hash = 0xcbf29ce484222325_u64;
-        for node in &self.nodes {
-            hash = fnv1a_u64(hash, node.id as u64);
-            hash = fnv1a_u64(hash, node.x as i64 as u64);
-            hash = fnv1a_u64(hash, node.y as i64 as u64);
-            hash = fnv1a_u64(hash, node.expanded as u64);
-            hash = fnv1a_u64(hash, node.selected_param as u64);
-            hash = fnv1a_u64(hash, 0xfd);
-        }
-        hash
+        self.ui_signature_cache
     }
 
     /// Return stable signature for both render and UI graph state.
     ///
     /// Prefer [`Self::render_signature`] for TOP/render invalidation.
     pub(crate) fn graph_signature(&self) -> u64 {
-        fnv1a_u64(self.render_signature(), self.ui_signature())
+        self.graph_signature_cache
     }
 
     /// Return true when at least one parameter has a live signal binding.
@@ -1981,6 +2029,7 @@ impl GuiProject {
 
     fn recount_edges(&mut self) {
         self.edge_count = self.nodes.iter().map(|node| node.inputs.len()).sum();
+        self.bump_render_epoch();
     }
 
     fn bump_hit_test_scan_count(&self, delta: u64) {
@@ -2622,6 +2671,15 @@ fn hit_bin_key(x: i32, y: i32) -> i64 {
 
 fn fnv1a_u64(hash: u64, data: u64) -> u64 {
     (hash ^ data).wrapping_mul(0x100000001b3)
+}
+
+fn signature_from_ui_epoch(epoch: u64) -> u64 {
+    let hash = fnv1a_u64(0xcbf29ce484222325_u64, SIGNATURE_DOMAIN_UI);
+    fnv1a_u64(hash, epoch)
+}
+
+fn compose_graph_signature(render_signature: u64, ui_signature: u64) -> u64 {
+    fnv1a_u64(render_signature, ui_signature)
 }
 
 fn next_project_name() -> String {
