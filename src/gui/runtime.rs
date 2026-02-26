@@ -831,6 +831,34 @@ mod tests {
     }
 
     #[test]
+    fn feedback_accumulation_binding_allows_downstream_transform_source() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 340, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, xform));
+        assert!(project.connect_image_link(xform, out));
+        assert!(project.connect_texture_link_to_param(xform, feedback, 0));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 3);
+        assert!(matches!(ops[0], TopRuntimeOp::Solid { .. }));
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::Feedback {
+                history: TopRuntimeFeedbackHistoryBinding::External { texture_node_id },
+                ..
+            } if texture_node_id == xform
+        ));
+        assert!(matches!(ops[2], TopRuntimeOp::Transform { .. }));
+    }
+
+    #[test]
     fn sphere_buffer_pipeline_compiles_to_sphere_op() {
         let mut project = GuiProject::new_empty(640, 480);
         let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);

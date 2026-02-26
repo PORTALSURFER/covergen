@@ -1099,9 +1099,6 @@ impl GuiProject {
         if source_id == target_id {
             return false;
         }
-        if self.depends_on(source_id, target_id) {
-            return false;
-        }
         let Some(source) = self.node(source_id) else {
             return false;
         };
@@ -1109,6 +1106,19 @@ impl GuiProject {
             return false;
         }
         let source_label = texture_source_display_label(source);
+        let Some(target_view) = self.node(target_id) else {
+            return false;
+        };
+        let index = param_index.min(target_view.params.len().saturating_sub(1));
+        let Some(target_slot) = target_view.params.get(index) else {
+            return false;
+        };
+        let is_feedback_history_binding = target_view.kind == ProjectNodeKind::TexFeedback
+            && target_slot.widget.is_texture_target()
+            && is_feedback_history_param_key(target_slot.key);
+        if !is_feedback_history_binding && self.depends_on(source_id, target_id) {
+            return false;
+        }
         let Some(target) = self.node_mut(target_id) else {
             return false;
         };
@@ -2088,6 +2098,7 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
         ProjectNodeKind::TexFeedback => vec![
+            // Optional external accumulation-history binding for feedback.
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
         ],
@@ -2218,8 +2229,12 @@ fn persisted_param_key_matches(
         return true;
     }
     node_kind == ProjectNodeKind::TexFeedback
-        && slot_key == FEEDBACK_HISTORY_PARAM_KEY
+        && is_feedback_history_param_key(slot_key)
         && persisted_key == LEGACY_FEEDBACK_HISTORY_PARAM_KEY
+}
+
+fn is_feedback_history_param_key(slot_key: &str) -> bool {
+    slot_key == FEEDBACK_HISTORY_PARAM_KEY || slot_key == LEGACY_FEEDBACK_HISTORY_PARAM_KEY
 }
 
 fn assert_param_label_fits(label: &'static str) {
@@ -2363,6 +2378,11 @@ fn rebuild_node_inputs(node: &mut ProjectNode) {
         node.inputs.push(texture_source);
     }
     for slot in &node.params {
+        if node.kind == ProjectNodeKind::TexFeedback && is_feedback_history_param_key(slot.key) {
+            // Feedback accumulation binding is persistent storage routing, not
+            // dataflow dependency; exclude it from graph-cycle topology.
+            continue;
+        }
         let Some(texture_source) = slot.texture_source else {
             continue;
         };
@@ -2861,6 +2881,26 @@ mod tests {
             Some((solid, ResourceKind::Texture2D))
         );
         assert!(!project.connect_texture_link_to_param(solid, feedback, 0));
+    }
+
+    #[test]
+    fn connect_texture_link_to_feedback_accumulation_allows_downstream_source() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 340, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, xform));
+        assert!(project.connect_image_link(xform, out));
+
+        assert!(project.connect_texture_link_to_param(xform, feedback, 0));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(xform));
+        let expected_label = format!("tex.transform_2d#{xform}");
+        assert_eq!(
+            project.node_param_raw_text(feedback, 0),
+            Some(expected_label.as_str())
+        );
     }
 
     #[test]
