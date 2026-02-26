@@ -112,6 +112,7 @@ struct OverlaysLayerState {
     export_file_name: String,
     export_status: String,
     hover_export_menu_item: Option<usize>,
+    hover_export_menu_close: bool,
 }
 
 /// State subset that drives timeline-layer invalidation.
@@ -213,6 +214,7 @@ impl SceneInvalidationSnapshot {
                 export_file_name: state.export_menu.file_name.clone(),
                 export_status: state.export_menu.status.clone(),
                 hover_export_menu_item: state.hover_export_menu_item,
+                hover_export_menu_close: state.hover_export_menu_close,
             },
             timeline: TimelineLayerState {
                 frame_index: state.frame_index,

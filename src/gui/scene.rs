@@ -705,6 +705,25 @@ impl SceneBuilder {
             "Export H.264",
             MENU_TEXT,
         );
+        let close_rect = state.export_menu.close_button_rect();
+        if state.hover_export_menu_close {
+            self.push_rect(close_rect, MENU_SELECTED);
+        }
+        self.push_border(close_rect, MENU_BORDER);
+        self.push_line(
+            close_rect.x + 3,
+            close_rect.y + 3,
+            close_rect.x + close_rect.w - 4,
+            close_rect.y + close_rect.h - 4,
+            MENU_TEXT,
+        );
+        self.push_line(
+            close_rect.x + close_rect.w - 4,
+            close_rect.y + 3,
+            close_rect.x + 3,
+            close_rect.y + close_rect.h - 4,
+            MENU_TEXT,
+        );
         let mut menu_label_scratch = std::mem::take(&mut self.label_scratch);
         for (entry_index, item) in state.export_menu.items().iter().copied().enumerate() {
             let Some(row) = state.export_menu.entry_rect(entry_index) else {
@@ -741,10 +760,6 @@ impl SceneBuilder {
                         "Preview: {}/{}",
                         state.export_menu.preview_frame, state.export_menu.preview_total
                     );
-                }
-                ExportMenuItem::Back => {
-                    menu_label_scratch.push_str("< ");
-                    menu_label_scratch.push_str(item.label());
                 }
             }
             self.push_text(row.x + 6, row.y + 6, menu_label_scratch.as_str(), MENU_TEXT);

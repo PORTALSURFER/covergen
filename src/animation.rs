@@ -164,14 +164,7 @@ impl RawVideoEncoder {
     ) -> Result<Self, Box<dyn Error>> {
         validate_encoder_input(width, height, fps)?;
         let frame_format = preferred_stream_frame_format()?;
-
-        let config = EncoderConfig::new()
-            .bitrate(BitRate::from_bps(recommended_bitrate(width, height, fps)))
-            .max_frame_rate(FrameRate::from_hz(fps as f32))
-            .rate_control_mode(RateControlMode::Quality)
-            .usage_type(UsageType::ScreenContentNonRealTime)
-            .skip_frames(false);
-        let encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), config)?;
+        let encoder = create_compatible_encoder(width, height, fps)?;
 
         let file = File::create(output_path)?;
         let writer = std::io::BufWriter::new(file);
@@ -358,6 +351,33 @@ impl RawVideoEncoder {
         self.track_ready = true;
         Ok(())
     }
+}
+
+fn create_compatible_encoder(width: u32, height: u32, fps: u32) -> Result<Encoder, Box<dyn Error>> {
+    let usage_fallback = [
+        UsageType::ScreenContentRealTime,
+        UsageType::CameraVideoRealTime,
+        UsageType::CameraVideoNonRealTime,
+        UsageType::ScreenContentNonRealTime,
+    ];
+    let mut last_error = String::new();
+    for usage in usage_fallback {
+        let config = EncoderConfig::new()
+            .bitrate(BitRate::from_bps(recommended_bitrate(width, height, fps)))
+            .max_frame_rate(FrameRate::from_hz(fps as f32))
+            .rate_control_mode(RateControlMode::Quality)
+            .usage_type(usage)
+            .skip_frames(false);
+        match Encoder::with_api_config(openh264::OpenH264API::from_source(), config) {
+            Ok(encoder) => {
+                return Ok(encoder);
+            }
+            Err(err) => {
+                last_error = err.to_string();
+            }
+        }
+    }
+    Err(format!("OpenH264 initialization failed for all usage profiles: {last_error}").into())
 }
 
 fn sorted_frame_paths(frame_dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {

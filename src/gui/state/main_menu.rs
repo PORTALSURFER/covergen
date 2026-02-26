@@ -17,6 +17,7 @@ const EXPORT_MENU_ITEM_HEIGHT: i32 = 24;
 const EXPORT_MENU_INNER_PADDING: i32 = 6;
 const EXPORT_MENU_TITLE_HEIGHT: i32 = 24;
 const EXPORT_MENU_BOTTOM_PADDING: i32 = 8;
+const EXPORT_MENU_CLOSE_SIZE: i32 = 14;
 
 /// Selectable main-menu rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,30 +58,14 @@ pub(crate) enum ExportMenuItem {
     Codec,
     StartStop,
     Preview,
-    Back,
 }
 
-impl ExportMenuItem {
-    /// Return display label for one export-menu row.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Directory => "Directory",
-            Self::FileName => "File Name",
-            Self::Codec => "Video",
-            Self::StartStop => "Export",
-            Self::Preview => "Preview",
-            Self::Back => "Back",
-        }
-    }
-}
-
-const EXPORT_MENU_ITEMS: [ExportMenuItem; 6] = [
+const EXPORT_MENU_ITEMS: [ExportMenuItem; 5] = [
     ExportMenuItem::Directory,
     ExportMenuItem::FileName,
     ExportMenuItem::Codec,
     ExportMenuItem::StartStop,
     ExportMenuItem::Preview,
-    ExportMenuItem::Back,
 ];
 
 /// Backtick-toggleable hover main-menu state.
@@ -227,6 +212,16 @@ impl ExportMenuState {
     /// Return menu rectangle in panel coordinates.
     pub(crate) fn rect(&self) -> Rect {
         Rect::new(self.x, self.y, EXPORT_MENU_WIDTH, export_menu_height())
+    }
+
+    /// Return title-bar close button rectangle in panel coordinates.
+    pub(crate) fn close_button_rect(&self) -> Rect {
+        Rect::new(
+            self.x + EXPORT_MENU_WIDTH - EXPORT_MENU_CLOSE_SIZE - 6,
+            self.y + 5,
+            EXPORT_MENU_CLOSE_SIZE,
+            EXPORT_MENU_CLOSE_SIZE,
+        )
     }
 
     /// Return selected row item.

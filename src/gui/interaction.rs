@@ -83,7 +83,6 @@ pub(crate) fn apply_preview_actions(
         state.zoom = 1.0;
         state.menu = AddNodeMenuState::closed();
         state.main_menu = MainMenuState::closed();
-        state.export_menu = super::state::ExportMenuState::closed();
         state.active_node = None;
         state.hover_node = None;
         state.hover_output_pin = None;
@@ -95,6 +94,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_menu_item = None;
         state.hover_main_menu_item = None;
         state.hover_export_menu_item = None;
+        state.hover_export_menu_close = false;
         state.pending_app_action = None;
         state.help_modal = None;
         state.invalidation.invalidate_all();
@@ -123,7 +123,6 @@ pub(crate) fn apply_preview_actions(
         state.param_edit = None;
         state.menu = AddNodeMenuState::closed();
         state.main_menu = MainMenuState::closed();
-        state.export_menu = super::state::ExportMenuState::closed();
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
@@ -250,7 +249,6 @@ fn handle_help_input(
     state.help_modal = Some(modal);
     state.menu = AddNodeMenuState::closed();
     state.main_menu = MainMenuState::closed();
-    state.export_menu = super::state::ExportMenuState::closed();
     state.drag = None;
     state.wire_drag = None;
     state.link_cut = None;
@@ -478,13 +476,15 @@ fn handle_add_menu_toggle(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
+    if state.export_menu.open {
+        return false;
+    }
     if !input.toggle_add_menu {
         return false;
     }
     if state.menu.open {
         state.menu = AddNodeMenuState::closed();
         state.main_menu = super::state::MainMenuState::closed();
-        state.export_menu = super::state::ExportMenuState::closed();
         state.wire_drag = None;
         state.hover_param_target = None;
         state.param_edit = None;
@@ -497,7 +497,6 @@ fn handle_add_menu_toggle(
         .unwrap_or((panel_width as i32 / 2, panel_height as i32 / 3));
     state.menu = AddNodeMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
     state.main_menu = MainMenuState::closed();
-    state.export_menu = super::state::ExportMenuState::closed();
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;
@@ -516,14 +515,13 @@ fn handle_main_menu_toggle(
     if !input.toggle_main_menu {
         return false;
     }
-    if state.main_menu.open || state.export_menu.open {
-        return close_main_export_menus(state);
+    if state.main_menu.open {
+        return close_main_menu(state);
     }
     let (x, y) = input
         .mouse_pos
         .unwrap_or((panel_width as i32 / 4, panel_height as i32 / 4));
     state.main_menu = MainMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
-    state.export_menu = super::state::ExportMenuState::closed();
     state.menu = AddNodeMenuState::closed();
     state.param_edit = None;
     state.param_dropdown = None;
@@ -552,12 +550,7 @@ fn handle_main_export_menu_input(
         }
     }
     if input.param_cancel {
-        if state.export_menu.open {
-            state.export_menu.open = false;
-            state.hover_export_menu_item = None;
-            return true;
-        }
-        return close_main_export_menus(state);
+        return close_main_menu(state) || changed;
     }
 
     if state.export_menu.open {
@@ -589,10 +582,13 @@ fn handle_main_export_menu_input(
         return changed;
     }
     let Some((mx, my)) = input.mouse_pos else {
-        return close_main_export_menus(state) || changed;
+        return close_main_menu(state) || changed;
     };
 
     if state.export_menu.open {
+        if state.export_menu.close_button_rect().contains(mx, my) {
+            return close_export_menu(state) || changed;
+        }
         if let Some(index) = state.export_menu.item_at(mx, my) {
             let _ = state.export_menu.select_index(index);
             return activate_export_menu_selection(state) || changed;
@@ -606,9 +602,8 @@ fn handle_main_export_menu_input(
         }
     }
     let inside_main = state.main_menu.open && state.main_menu.rect().contains(mx, my);
-    let inside_export = state.export_menu.open && state.export_menu.rect().contains(mx, my);
-    if !inside_main && !inside_export {
-        return close_main_export_menus(state) || changed;
+    if state.main_menu.open && !inside_main {
+        return close_main_menu(state) || changed;
     }
     changed
 }
@@ -648,40 +643,40 @@ fn activate_main_menu_selection(
     match selected {
         MainMenuItem::New => {
             state.request_new_project = true;
-            close_main_export_menus(state)
+            close_main_menu(state)
         }
         MainMenuItem::Save => {
             state.pending_app_action = Some(PendingAppAction::SaveProject);
-            close_main_export_menus(state)
+            close_main_menu(state)
         }
         MainMenuItem::Load => {
             state.pending_app_action = Some(PendingAppAction::LoadProject);
-            close_main_export_menus(state)
+            close_main_menu(state)
         }
         MainMenuItem::Export => {
-            if state.export_menu.open {
-                return false;
-            }
             let export_x = state.main_menu.x + MAIN_MENU_WIDTH + 8;
             let export_y = state
                 .main_menu
                 .entry_rect(state.main_menu.selected)
                 .map(|rect| rect.y)
                 .unwrap_or(state.main_menu.y);
-            state.export_menu = super::state::ExportMenuState::open_at(
+            let opened = super::state::ExportMenuState::open_at(
                 export_x,
                 export_y,
                 panel_width,
                 editor_panel_height(panel_height),
             );
+            state.export_menu.open = true;
+            state.export_menu.x = opened.x;
+            state.export_menu.y = opened.y;
             if input.mouse_pos.is_none() {
                 state.export_menu.selected = 0;
             }
-            true
+            close_main_menu(state)
         }
         MainMenuItem::Exit => {
             state.pending_app_action = Some(PendingAppAction::Exit);
-            close_main_export_menus(state)
+            close_main_menu(state)
         }
     }
 }
@@ -700,23 +695,23 @@ fn activate_export_menu_selection(state: &mut PreviewState) -> bool {
             });
             true
         }
-        ExportMenuItem::Back => {
-            state.export_menu.open = false;
-            state.hover_export_menu_item = None;
-            true
-        }
     }
 }
 
-fn close_main_export_menus(state: &mut PreviewState) -> bool {
-    let changed = state.main_menu.open
-        || state.export_menu.open
-        || state.hover_main_menu_item.is_some()
-        || state.hover_export_menu_item.is_some();
+fn close_main_menu(state: &mut PreviewState) -> bool {
+    let changed = state.main_menu.open || state.hover_main_menu_item.is_some();
     state.main_menu = MainMenuState::closed();
-    state.export_menu.open = false;
     state.hover_main_menu_item = None;
+    changed
+}
+
+fn close_export_menu(state: &mut PreviewState) -> bool {
+    let changed = state.export_menu.open
+        || state.hover_export_menu_item.is_some()
+        || state.hover_export_menu_close;
+    state.export_menu.open = false;
     state.hover_export_menu_item = None;
+    state.hover_export_menu_close = false;
     changed
 }
 
@@ -2449,6 +2444,7 @@ fn update_hover_state(
     let prev_hover_item = state.hover_menu_item;
     let prev_hover_main_item = state.hover_main_menu_item;
     let prev_hover_export_item = state.hover_export_menu_item;
+    let prev_hover_export_close = state.hover_export_menu_close;
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
@@ -2457,6 +2453,7 @@ fn update_hover_state(
     state.hover_menu_item = None;
     state.hover_main_menu_item = None;
     state.hover_export_menu_item = None;
+    state.hover_export_menu_close = false;
     let param_bind_drag_kind = state
         .wire_drag
         .and_then(|wire| wire_drag_source_kind(project, wire))
@@ -2470,7 +2467,8 @@ fn update_hover_state(
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some();
+            || prev_hover_export_item.is_some()
+            || prev_hover_export_close;
         if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
@@ -2490,7 +2488,8 @@ fn update_hover_state(
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some();
+            || prev_hover_export_item.is_some()
+            || prev_hover_export_close;
         if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
@@ -2511,7 +2510,8 @@ fn update_hover_state(
             || prev_hover_param_target.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some();
+            || prev_hover_export_item.is_some()
+            || prev_hover_export_close;
         if param_bind_drag_kind.is_some() {
             changed |= collapse_auto_expanded_binding_nodes_except(
                 project,
@@ -2529,9 +2529,11 @@ fn update_hover_state(
         }
         if state.export_menu.open {
             state.hover_export_menu_item = state.export_menu.item_at(mx, my);
+            state.hover_export_menu_close = state.export_menu.close_button_rect().contains(mx, my);
         }
         let mut changed = state.hover_main_menu_item != prev_hover_main_item
             || state.hover_export_menu_item != prev_hover_export_item
+            || state.hover_export_menu_close != prev_hover_export_close
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
@@ -2559,7 +2561,8 @@ fn update_hover_state(
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some();
+            || prev_hover_export_item.is_some()
+            || prev_hover_export_close;
     }
     let mut param_bind_hover_changed = false;
     if state.wire_drag.is_some() {
@@ -2606,7 +2609,8 @@ fn update_hover_state(
                     || prev_hover_dropdown_item.is_some()
                     || prev_hover_item.is_some()
                     || prev_hover_main_item.is_some()
-                    || prev_hover_export_item.is_some();
+                    || prev_hover_export_item.is_some()
+                    || prev_hover_export_close;
             }
             param_bind_hover_changed = changed;
         }
@@ -2625,7 +2629,8 @@ fn update_hover_state(
             || prev_hover_item.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_main_item.is_some()
-            || prev_hover_export_item.is_some();
+            || prev_hover_export_item.is_some()
+            || prev_hover_export_close;
     }
     state.hover_node = project.node_at(graph_x, graph_y);
     if state.hover_node.is_some() {
@@ -2640,6 +2645,7 @@ fn update_hover_state(
         || prev_hover_param_target.is_some()
         || prev_hover_main_item.is_some()
         || prev_hover_export_item.is_some()
+        || prev_hover_export_close
 }
 
 fn wire_drag_source_kind(project: &GuiProject, wire: WireDragState) -> Option<ResourceKind> {
@@ -2775,10 +2781,10 @@ mod tests {
     use super::{
         backspace_param_text, can_append_param_char, handle_add_menu_input,
         handle_delete_selected_nodes, handle_drag_input, handle_help_input, handle_link_cut,
-        handle_node_open_toggle, handle_param_edit_input, handle_param_wheel_input,
-        handle_right_selection, handle_wire_input, insert_param_char, marquee_moved,
-        move_param_cursor_left, move_param_cursor_right, rects_overlap, segments_intersect,
-        update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+        handle_main_export_menu_input, handle_node_open_toggle, handle_param_edit_input,
+        handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
+        marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
+        segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
     };
     use crate::gui::geometry::Rect;
     use crate::gui::project::{
@@ -2786,8 +2792,8 @@ mod tests {
         output_pin_center, GuiProject, ProjectNodeKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
     };
     use crate::gui::state::{
-        AddNodeMenuState, DragState, HoverInsertLink, HoverParamTarget, InputSnapshot,
-        LinkCutState, ParamEditState, PreviewState, WireDragState,
+        AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink, HoverParamTarget,
+        InputSnapshot, LinkCutState, ParamEditState, PreviewState, WireDragState,
     };
     use crate::runtime_config::V2Config;
 
@@ -2939,6 +2945,43 @@ mod tests {
         assert!(changed);
         assert!(consumed);
         assert!(state.help_modal.is_none());
+    }
+
+    #[test]
+    fn export_panel_stays_open_on_outside_click() {
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.export_menu = ExportMenuState::open_at(80, 80, 420, 480);
+        let outside_click = InputSnapshot {
+            left_clicked: true,
+            mouse_pos: Some((12, 12)),
+            ..InputSnapshot::default()
+        };
+        assert!(!handle_main_export_menu_input(
+            &outside_click,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(state.export_menu.open);
+    }
+
+    #[test]
+    fn export_panel_close_button_closes_panel() {
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.export_menu = ExportMenuState::open_at(80, 80, 420, 480);
+        let close = state.export_menu.close_button_rect();
+        let click_close = InputSnapshot {
+            left_clicked: true,
+            mouse_pos: Some((close.x + close.w / 2, close.y + close.h / 2)),
+            ..InputSnapshot::default()
+        };
+        assert!(handle_main_export_menu_input(
+            &click_close,
+            420,
+            480,
+            &mut state
+        ));
+        assert!(!state.export_menu.open);
     }
 
     #[test]
