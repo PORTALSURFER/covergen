@@ -1142,6 +1142,10 @@ impl GuiProject {
 
     /// Delete all nodes in `node_ids` and remove any links that referenced them.
     ///
+    /// When possible, this also rewires surviving downstream links to the
+    /// nearest surviving upstream source from the deleted chain so linear
+    /// pipelines stay connected after node removal.
+    ///
     /// Returns `true` when at least one node was removed.
     pub(crate) fn delete_nodes(&mut self, node_ids: &[u32]) -> bool {
         if node_ids.is_empty() {
@@ -1150,13 +1154,23 @@ impl GuiProject {
         let mut removed_ids = node_ids.to_vec();
         removed_ids.sort_unstable();
         removed_ids.dedup();
+        let removed_primary_inputs =
+            collect_removed_primary_inputs(self.nodes.as_slice(), removed_ids.as_slice());
         let before_len = self.nodes.len();
         self.nodes
             .retain(|node| !contains_sorted_id(removed_ids.as_slice(), node.id()));
         let removed_any = self.nodes.len() != before_len;
+        let output_kinds = collect_output_kinds(self.nodes.as_slice());
+        let output_labels = collect_output_labels(self.nodes.as_slice());
         let mut links_changed = false;
         for node in &mut self.nodes {
-            links_changed |= clear_deleted_links(node, removed_ids.as_slice());
+            links_changed |= rewire_or_clear_deleted_links(
+                node,
+                removed_ids.as_slice(),
+                &removed_primary_inputs,
+                &output_kinds,
+                &output_labels,
+            );
         }
         if !removed_any && !links_changed {
             return false;
@@ -2256,12 +2270,76 @@ fn rebuild_node_inputs(node: &mut ProjectNode) {
     }
 }
 
-fn clear_deleted_links(node: &mut ProjectNode, removed_ids: &[u32]) -> bool {
+fn collect_removed_primary_inputs(
+    nodes: &[ProjectNode],
+    removed_ids: &[u32],
+) -> HashMap<u32, Option<u32>> {
+    let mut out = HashMap::new();
+    for node in nodes {
+        if !contains_sorted_id(removed_ids, node.id()) {
+            continue;
+        }
+        out.insert(node.id(), node.texture_input);
+    }
+    out
+}
+
+fn collect_output_kinds(nodes: &[ProjectNode]) -> HashMap<u32, ResourceKind> {
+    let mut out = HashMap::new();
+    for node in nodes {
+        let Some(kind) = node.kind.output_resource_kind() else {
+            continue;
+        };
+        out.insert(node.id(), kind);
+    }
+    out
+}
+
+fn collect_output_labels(nodes: &[ProjectNode]) -> HashMap<u32, &'static str> {
+    let mut out = HashMap::new();
+    for node in nodes {
+        out.insert(node.id(), node.kind.label());
+    }
+    out
+}
+
+fn resolve_replacement_source(
+    source_id: u32,
+    removed_primary_inputs: &HashMap<u32, Option<u32>>,
+) -> Option<u32> {
+    let mut current = source_id;
+    let mut hops = 0usize;
+    loop {
+        let Some(next) = removed_primary_inputs.get(&current) else {
+            return Some(current);
+        };
+        let next = (*next)?;
+        current = next;
+        hops = hops.saturating_add(1);
+        if hops > removed_primary_inputs.len() {
+            return None;
+        }
+    }
+}
+
+fn rewire_or_clear_deleted_links(
+    node: &mut ProjectNode,
+    removed_ids: &[u32],
+    removed_primary_inputs: &HashMap<u32, Option<u32>>,
+    output_kinds: &HashMap<u32, ResourceKind>,
+    output_labels: &HashMap<u32, &'static str>,
+) -> bool {
     let mut changed = false;
     if let Some(source) = node.texture_input {
         if contains_sorted_id(removed_ids, source) {
-            node.texture_input = None;
-            changed = true;
+            let replacement =
+                resolve_replacement_source(source, removed_primary_inputs).filter(|candidate| {
+                    output_kinds.get(candidate).copied() == node.kind.input_resource_kind()
+                });
+            if node.texture_input != replacement {
+                node.texture_input = replacement;
+                changed = true;
+            }
         }
     }
     for slot in &mut node.params {
@@ -2273,7 +2351,19 @@ fn clear_deleted_links(node: &mut ProjectNode, removed_ids: &[u32]) -> bool {
         }
         if let Some(source) = slot.texture_source {
             if contains_sorted_id(removed_ids, source) {
-                changed |= bind_texture_target_slot(slot, None);
+                let replacement = resolve_replacement_source(source, removed_primary_inputs)
+                    .filter(|candidate| {
+                        output_kinds.get(candidate).copied() == Some(ResourceKind::Texture2D)
+                    });
+                if let Some(source_id) = replacement {
+                    let source_label = output_labels
+                        .get(&source_id)
+                        .copied()
+                        .unwrap_or_else(texture_target_placeholder);
+                    changed |= bind_texture_target_slot(slot, Some((source_id, source_label)));
+                } else {
+                    changed |= bind_texture_target_slot(slot, None);
+                }
             }
         }
     }
@@ -2675,6 +2765,55 @@ mod tests {
         assert!(project.node(solid).is_none());
         assert_eq!(project.edge_count(), 0);
         assert!(project.window_out_input_node_id().is_none());
+    }
+
+    #[test]
+    fn delete_nodes_rewires_single_texture_gap() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, xform));
+        assert!(project.connect_image_link(xform, out));
+        assert_eq!(project.window_out_input_node_id(), Some(xform));
+
+        assert!(project.delete_nodes(&[xform]));
+        assert!(project.node(xform).is_none());
+        assert_eq!(project.window_out_input_node_id(), Some(solid));
+        assert_eq!(project.edge_count(), 1);
+    }
+
+    #[test]
+    fn delete_nodes_rewires_multiple_deleted_texture_nodes() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform_a = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let xform_b = project.add_node(ProjectNodeKind::TexTransform2D, 340, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
+        assert!(project.connect_image_link(solid, xform_a));
+        assert!(project.connect_image_link(xform_a, xform_b));
+        assert!(project.connect_image_link(xform_b, out));
+        assert_eq!(project.window_out_input_node_id(), Some(xform_b));
+
+        assert!(project.delete_nodes(&[xform_a, xform_b]));
+        assert!(project.node(xform_a).is_none());
+        assert!(project.node(xform_b).is_none());
+        assert_eq!(project.window_out_input_node_id(), Some(solid));
+        assert_eq!(project.edge_count(), 1);
+    }
+
+    #[test]
+    fn delete_nodes_rewires_texture_target_param_binding_gap() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, xform));
+        assert!(project.connect_texture_link_to_param(xform, feedback, 0));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(xform));
+
+        assert!(project.delete_nodes(&[xform]));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
     }
 
     #[test]
