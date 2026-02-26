@@ -767,6 +767,26 @@ mod tests {
     }
 
     #[test]
+    fn feedback_target_tex_binding_takes_precedence_over_primary_input() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let circle = project.add_node(ProjectNodeKind::TexCircle, 120, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 280, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 440, 40, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_texture_link_to_param(circle, feedback, 0));
+        assert!(project.connect_image_link(feedback, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopRuntimeOp::Circle { .. }));
+        assert!(matches!(ops[1], TopRuntimeOp::Feedback { .. }));
+    }
+
+    #[test]
     fn sphere_buffer_pipeline_compiles_to_sphere_op() {
         let mut project = GuiProject::new_empty(640, 480);
         let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);

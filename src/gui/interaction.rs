@@ -1447,7 +1447,14 @@ fn handle_wire_input(
                 }
             }
             Some(ResourceKind::Texture2D) => {
-                if let Some(target) = state.hover_param_target {
+                if let Some(target) = resolve_texture_param_target_on_release(
+                    input,
+                    project,
+                    panel_width,
+                    panel_height,
+                    state,
+                    wire,
+                ) {
                     let _ = project.connect_texture_link_to_param(
                         wire.source_node_id,
                         target.node_id,
@@ -1471,6 +1478,37 @@ fn handle_wire_input(
     changed |= state.wire_drag.map(|drag| drag.cursor_y) != Some(wire.cursor_y);
     state.wire_drag = Some(wire);
     changed
+}
+
+/// Resolve texture-parameter drop target on release.
+///
+/// This confirms the release cursor against parameter hit-testing so texture
+/// binds stay reliable even if hover state did not update on the same frame.
+fn resolve_texture_param_target_on_release(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+    wire: WireDragState,
+) -> Option<HoverParamTarget> {
+    if let Some(target) = state.hover_param_target {
+        return Some(target);
+    }
+    let (mx, my) = input.mouse_pos.unwrap_or((wire.cursor_x, wire.cursor_y));
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return None;
+    }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let node_id = project.node_at(graph_x, graph_y)?;
+    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
+    if !project.param_accepts_texture_link(node_id, param_index) {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id,
+        param_index,
+    })
 }
 
 fn begin_wire_drag_if_pin_hit(
@@ -2270,6 +2308,92 @@ mod tests {
             &mut state
         ));
         assert!(state.wire_drag.is_none());
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+    }
+
+    #[test]
+    fn dropping_texture_wire_on_feedback_target_value_box_binds_parameter() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(feedback, 420, 480));
+        let value_rect = {
+            let node = project.node(feedback).expect("feedback node should exist");
+            node_param_value_rect(node, 0).expect("feedback target value rect should exist")
+        };
+        let cursor = (value_rect.x + 2, value_rect.y + 2);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: cursor.0,
+            cursor_y: cursor.1,
+        });
+
+        let hover = InputSnapshot {
+            mouse_pos: Some(cursor),
+            left_down: true,
+            ..InputSnapshot::default()
+        };
+        assert!(update_hover_state(
+            &hover,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(
+            state.hover_param_target,
+            Some(HoverParamTarget {
+                node_id: feedback,
+                param_index: 0,
+            })
+        );
+
+        let release = InputSnapshot {
+            mouse_pos: Some(cursor),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(
+            &release,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
+        assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
+    }
+
+    #[test]
+    fn texture_drop_release_hit_test_binds_feedback_target_without_hover_target() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+        assert!(project.toggle_node_expanded(feedback, 420, 480));
+        let value_rect = {
+            let node = project.node(feedback).expect("feedback node should exist");
+            node_param_value_rect(node, 0).expect("feedback target value rect should exist")
+        };
+        let cursor = (value_rect.x + 2, value_rect.y + 2);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.wire_drag = Some(WireDragState {
+            source_node_id: solid,
+            cursor_x: cursor.0,
+            cursor_y: cursor.1,
+        });
+
+        let release = InputSnapshot {
+            mouse_pos: Some(cursor),
+            left_down: false,
+            ..InputSnapshot::default()
+        };
+        assert!(handle_wire_input(
+            &release,
+            &mut project,
+            420,
+            480,
+            &mut state
+        ));
         assert_eq!(project.texture_source_for_param(feedback, 0), Some(solid));
     }
 
