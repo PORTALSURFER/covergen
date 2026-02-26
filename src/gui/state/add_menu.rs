@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 
+use super::popup_list;
 use crate::gui::geometry::Rect;
 use crate::gui::project::ProjectNodeKind;
 
@@ -274,15 +275,9 @@ impl AddNodeMenuState {
 
     /// Return hovered entry index for cursor position.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        for index in 0..self.visible_entry_count() {
-            let Some(rect) = self.entry_rect(index) else {
-                continue;
-            };
-            if rect.contains(x, y) {
-                return Some(index);
-            }
-        }
-        None
+        popup_list::item_at(self.visible_entry_count(), x, y, |index| {
+            self.entry_rect(index)
+        })
     }
 
     /// Return selected entry in current picker stage.
@@ -297,51 +292,24 @@ impl AddNodeMenuState {
     /// Keep selected row inside current visible entry range.
     pub(crate) fn clamp_selection(&mut self) -> bool {
         let count = self.visible_entry_count();
-        if count == 0 {
-            if self.selected != 0 {
-                self.selected = 0;
-                return true;
-            }
-            return false;
-        }
-        let clamped = self.selected.min(count - 1);
-        if clamped == self.selected {
-            return false;
-        }
-        self.selected = clamped;
-        true
+        popup_list::clamp_selection(&mut self.selected, count)
     }
 
     /// Select one row index in current visible entry range.
     pub(crate) fn select_index(&mut self, index: usize) -> bool {
         let count = self.visible_entry_count();
-        if count == 0 {
-            return false;
-        }
-        let next = index.min(count - 1);
-        if self.selected == next {
-            return false;
-        }
-        self.selected = next;
-        true
+        popup_list::select_index(&mut self.selected, index, count)
     }
 
     /// Select the previous visible entry.
     pub(crate) fn select_prev(&mut self) -> bool {
-        let old = self.selected;
-        self.selected = self.selected.saturating_sub(1);
-        old != self.selected
+        popup_list::select_prev(&mut self.selected)
     }
 
     /// Select the next visible entry.
     pub(crate) fn select_next(&mut self) -> bool {
         let count = self.visible_entry_count();
-        if count == 0 {
-            return false;
-        }
-        let old = self.selected;
-        self.selected = (self.selected + 1).min(count - 1);
-        old != self.selected
+        popup_list::select_next(&mut self.selected, count)
     }
 
     /// Append search text in secondary picker and optionally remove one char.

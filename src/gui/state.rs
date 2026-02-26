@@ -5,6 +5,7 @@ use crate::runtime_config::V2Config;
 
 mod add_menu;
 mod main_menu;
+mod popup_list;
 
 pub(crate) use add_menu::{
     AddNodeCategory, AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,

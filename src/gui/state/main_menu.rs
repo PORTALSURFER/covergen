@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use hound::WavReader;
 
+use super::popup_list;
 use crate::gui::geometry::Rect;
 use crate::gui::timeline::{total_frames_from_music, TIMELINE_DEFAULT_TOTAL_FRAMES};
 
@@ -137,14 +138,7 @@ impl MainMenuState {
 
     /// Return row item at cursor coordinates.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        for index in 0..MAIN_MENU_ITEMS.len() {
-            if let Some(row) = self.entry_rect(index) {
-                if row.contains(x, y) {
-                    return Some(index);
-                }
-            }
-        }
-        None
+        popup_list::item_at(MAIN_MENU_ITEMS.len(), x, y, |index| self.entry_rect(index))
     }
 
     /// Return row rectangle in panel coordinates.
@@ -163,26 +157,17 @@ impl MainMenuState {
 
     /// Select one row index.
     pub(crate) fn select_index(&mut self, index: usize) -> bool {
-        let next = index.min(MAIN_MENU_ITEMS.len() - 1);
-        if next == self.selected {
-            return false;
-        }
-        self.selected = next;
-        true
+        popup_list::select_index(&mut self.selected, index, MAIN_MENU_ITEMS.len())
     }
 
     /// Select previous row.
     pub(crate) fn select_prev(&mut self) -> bool {
-        let old = self.selected;
-        self.selected = self.selected.saturating_sub(1);
-        old != self.selected
+        popup_list::select_prev(&mut self.selected)
     }
 
     /// Select next row.
     pub(crate) fn select_next(&mut self) -> bool {
-        let old = self.selected;
-        self.selected = (self.selected + 1).min(MAIN_MENU_ITEMS.len() - 1);
-        old != self.selected
+        popup_list::select_next(&mut self.selected, MAIN_MENU_ITEMS.len())
     }
 
     /// Return immutable row list.
@@ -290,14 +275,9 @@ impl ExportMenuState {
 
     /// Return row item at cursor coordinates.
     pub(crate) fn item_at(&self, x: i32, y: i32) -> Option<usize> {
-        for index in 0..EXPORT_MENU_ITEMS.len() {
-            if let Some(row) = self.entry_rect(index) {
-                if row.contains(x, y) {
-                    return Some(index);
-                }
-            }
-        }
-        None
+        popup_list::item_at(EXPORT_MENU_ITEMS.len(), x, y, |index| {
+            self.entry_rect(index)
+        })
     }
 
     /// Return row rectangle in panel coordinates.
@@ -316,26 +296,17 @@ impl ExportMenuState {
 
     /// Select one row index.
     pub(crate) fn select_index(&mut self, index: usize) -> bool {
-        let next = index.min(EXPORT_MENU_ITEMS.len() - 1);
-        if next == self.selected {
-            return false;
-        }
-        self.selected = next;
-        true
+        popup_list::select_index(&mut self.selected, index, EXPORT_MENU_ITEMS.len())
     }
 
     /// Select previous row.
     pub(crate) fn select_prev(&mut self) -> bool {
-        let old = self.selected;
-        self.selected = self.selected.saturating_sub(1);
-        old != self.selected
+        popup_list::select_prev(&mut self.selected)
     }
 
     /// Select next row.
     pub(crate) fn select_next(&mut self) -> bool {
-        let old = self.selected;
-        self.selected = (self.selected + 1).min(EXPORT_MENU_ITEMS.len() - 1);
-        old != self.selected
+        popup_list::select_next(&mut self.selected, EXPORT_MENU_ITEMS.len())
     }
 
     /// Return immutable row list.
