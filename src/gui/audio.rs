@@ -10,7 +10,7 @@ use super::state::ExportMenuState;
 use std::num::{NonZeroU16, NonZeroU32};
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 use std::time::Duration;
 
 #[cfg(windows)]
@@ -69,67 +69,13 @@ impl TimelineAudioPreview {
         }
         #[cfg(windows)]
         {
-            let requested_path = export_menu.audio_wav_path();
-            if requested_path != self.clip_path {
-                self.reload_clip(requested_path.as_deref());
-            }
-            let Some(clip_duration) = self.clip.as_ref().map(|clip| clip.duration) else {
-                self.stop();
-                self.last_frame_index = Some(frame_index);
-                return;
-            };
-            let volume = export_menu.parsed_audio_volume();
-            let target = timeline_position(
+            self.sync_windows(
+                export_menu,
+                paused,
                 frame_index,
                 timeline_total_frames,
                 timeline_fps,
-                clip_duration,
             );
-
-            if paused {
-                if let Some(player) = self.player.as_ref() {
-                    player.pause();
-                    player.set_volume(volume);
-                    if self.last_frame_index != Some(frame_index) {
-                        let _ = player.try_seek(target);
-                    }
-                }
-                self.last_frame_index = Some(frame_index);
-                return;
-            }
-
-            if self.player.is_none() {
-                if !self.start_player(target, volume) {
-                    self.last_frame_index = Some(frame_index);
-                    return;
-                }
-            }
-            let Some(player) = self.player.as_ref() else {
-                self.last_frame_index = Some(frame_index);
-                return;
-            };
-
-            player.play();
-            player.set_volume(volume);
-            let current = wrapped_duration(player.get_pos(), clip_duration);
-            let drift = duration_diff(current, target, clip_duration);
-            let frame_secs = 1.0 / timeline_fps.max(1) as f64;
-            let resync_threshold = Duration::from_secs_f64(
-                frame_secs
-                    .clamp(
-                        RESYNC_THRESHOLD_MIN_MS as f64 / 1000.0,
-                        RESYNC_THRESHOLD_MAX_MS as f64 / 1000.0,
-                    )
-                    .max(f64::EPSILON),
-            );
-            let loop_wrapped = self
-                .last_frame_index
-                .map(|prev| frame_index < prev)
-                .unwrap_or(false);
-            if drift > resync_threshold || loop_wrapped {
-                let _ = player.try_seek(target);
-            }
-            self.last_frame_index = Some(frame_index);
         }
     }
 
@@ -187,6 +133,83 @@ impl TimelineAudioPreview {
         let _ = player.try_seek(target);
         self.player = Some(player);
         true
+    }
+
+    #[cfg(windows)]
+    fn sync_windows(
+        &mut self,
+        export_menu: &ExportMenuState,
+        paused: bool,
+        frame_index: u32,
+        timeline_total_frames: u32,
+        timeline_fps: u32,
+    ) {
+        let requested_path = export_menu.audio_wav_path();
+        if requested_path != self.clip_path {
+            self.reload_clip(requested_path.as_deref());
+        }
+        let Some(clip_duration) = self.clip.as_ref().map(|clip| clip.duration) else {
+            self.stop();
+            self.last_frame_index = Some(frame_index);
+            return;
+        };
+        let volume = export_menu.parsed_audio_volume();
+        let target = timeline_position(
+            frame_index,
+            timeline_total_frames,
+            timeline_fps,
+            clip_duration,
+        );
+
+        if paused {
+            self.sync_paused(frame_index, target, volume);
+            return;
+        }
+        self.sync_playing(frame_index, target, volume, clip_duration, timeline_fps);
+    }
+
+    #[cfg(windows)]
+    fn sync_paused(&mut self, frame_index: u32, target: Duration, volume: f32) {
+        if let Some(player) = self.player.as_ref() {
+            player.pause();
+            player.set_volume(volume);
+            if self.last_frame_index != Some(frame_index) {
+                let _ = player.try_seek(target);
+            }
+        }
+        self.last_frame_index = Some(frame_index);
+    }
+
+    #[cfg(windows)]
+    fn sync_playing(
+        &mut self,
+        frame_index: u32,
+        target: Duration,
+        volume: f32,
+        clip_duration: Duration,
+        timeline_fps: u32,
+    ) {
+        if self.player.is_none() && !self.start_player(target, volume) {
+            self.last_frame_index = Some(frame_index);
+            return;
+        }
+        let Some(player) = self.player.as_ref() else {
+            self.last_frame_index = Some(frame_index);
+            return;
+        };
+
+        player.play();
+        player.set_volume(volume);
+        let current = wrapped_duration(player.get_pos(), clip_duration);
+        let drift = duration_diff(current, target, clip_duration);
+        let loop_wrapped = self
+            .last_frame_index
+            .map(|prev| frame_index < prev)
+            .unwrap_or(false);
+        if drift > resync_threshold(timeline_fps) || loop_wrapped {
+            let _ = player.try_seek(target);
+        }
+        self.last_frame_index = Some(frame_index);
     }
 }
 
@@ -262,7 +285,7 @@ fn decode_int_samples(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn timeline_position(frame_index: u32, frame_total: u32, fps: u32, duration: Duration) -> Duration {
     if duration.is_zero() {
         return Duration::ZERO;
@@ -279,7 +302,7 @@ fn timeline_position(frame_index: u32, frame_total: u32, fps: u32, duration: Dur
     Duration::from_secs_f64(wrapped)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn wrapped_duration(duration: Duration, period: Duration) -> Duration {
     if period.is_zero() {
         return Duration::ZERO;
@@ -287,7 +310,7 @@ fn wrapped_duration(duration: Duration, period: Duration) -> Duration {
     Duration::from_secs_f64(duration.as_secs_f64() % period.as_secs_f64().max(f64::EPSILON))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn duration_diff(a: Duration, b: Duration, period: Duration) -> Duration {
     if period.is_zero() {
         return Duration::ZERO;
@@ -297,4 +320,54 @@ fn duration_diff(a: Duration, b: Duration, period: Duration) -> Duration {
     let direct = (a_secs - b_secs).abs();
     let wrapped = (period.as_secs_f64() - direct).abs();
     Duration::from_secs_f64(direct.min(wrapped))
+}
+
+#[cfg(windows)]
+fn resync_threshold(timeline_fps: u32) -> Duration {
+    let frame_secs = 1.0 / timeline_fps.max(1) as f64;
+    Duration::from_secs_f64(
+        frame_secs
+            .clamp(
+                RESYNC_THRESHOLD_MIN_MS as f64 / 1000.0,
+                RESYNC_THRESHOLD_MAX_MS as f64 / 1000.0,
+            )
+            .max(f64::EPSILON),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{duration_diff, timeline_position, wrapped_duration};
+    use std::time::Duration;
+
+    #[test]
+    fn timeline_position_uses_frame_total_loop_domain() {
+        let period = Duration::from_secs_f64(8.0);
+        let pos = timeline_position(75, 100, 60, period);
+        assert!((pos.as_secs_f64() - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn timeline_position_falls_back_to_fps_domain_without_frame_total() {
+        let period = Duration::from_secs_f64(2.0);
+        let pos = timeline_position(150, 0, 60, period);
+        assert!((pos.as_secs_f64() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wrapped_duration_wraps_by_period() {
+        let wrapped = wrapped_duration(Duration::from_secs_f64(5.75), Duration::from_secs_f64(2.0));
+        assert!((wrapped.as_secs_f64() - 1.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn duration_diff_uses_shortest_wrapped_distance() {
+        let period = Duration::from_secs_f64(4.0);
+        let diff = duration_diff(
+            Duration::from_secs_f64(3.9),
+            Duration::from_secs_f64(0.1),
+            period,
+        );
+        assert!((diff.as_secs_f64() - 0.2).abs() < 1e-6);
+    }
 }

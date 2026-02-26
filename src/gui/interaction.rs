@@ -2629,12 +2629,9 @@ fn update_hover_state(
         if state.main_menu.open {
             state.hover_main_menu_item = state.main_menu.item_at(mx, my);
         }
-        if state.export_menu.open {
-            if state.export_menu_drag.is_none() {
-                state.hover_export_menu_item = state.export_menu.item_at(mx, my);
-                state.hover_export_menu_close =
-                    state.export_menu.close_button_rect().contains(mx, my);
-            }
+        if state.export_menu.open && state.export_menu_drag.is_none() {
+            state.hover_export_menu_item = state.export_menu.item_at(mx, my);
+            state.hover_export_menu_close = state.export_menu.close_button_rect().contains(mx, my);
         }
         let mut changed = state.hover_main_menu_item != prev_hover_main_item
             || state.hover_export_menu_item != prev_hover_export_item

@@ -1751,71 +1751,6 @@ fn smooth_param_wire_path(points: &[(i32, i32)]) -> Vec<(i32, i32)> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
-    };
-
-    #[test]
-    fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
-        let points = [(0, 0), (4, 0), (4, 2), (10, 2)];
-        let smooth = smooth_param_wire_path(&points);
-        assert_eq!(smooth.first().copied(), Some((0, 0)));
-        assert_eq!(smooth.last().copied(), Some((10, 2)));
-        for segment in smooth.windows(2) {
-            assert!(
-                segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1,
-                "segment is not axis aligned: {:?}",
-                segment
-            );
-        }
-    }
-
-    #[test]
-    fn param_wire_smoothing_skips_rounding_for_straight_path_points() {
-        let points = [(0, 0), (8, 0), (16, 0)];
-        let smooth = smooth_param_wire_path(&points);
-        assert_eq!(smooth, points);
-    }
-
-    #[test]
-    fn param_wire_smoothing_preserves_straight_pin_tails() {
-        let route = [(30, 0), (30, 32), (70, 32)];
-        let start = (0, 0);
-        let end = (40, 40);
-        let smooth = build_smoothed_param_wire(start, route.as_slice(), end);
-        assert_eq!(smooth.first().copied(), Some(start));
-        assert_eq!(smooth.last().copied(), Some(end));
-
-        let mut start_tail_max_x = start.0;
-        for point in smooth.iter().copied() {
-            if point.1 != start.1 {
-                break;
-            }
-            start_tail_max_x = start_tail_max_x.max(point.0);
-        }
-        assert!(
-            start_tail_max_x - start.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
-            "start tail too short: {}",
-            start_tail_max_x - start.0
-        );
-
-        let mut end_tail_max_x = end.0;
-        for point in smooth.iter().rev().copied() {
-            if point.1 != end.1 {
-                break;
-            }
-            end_tail_max_x = end_tail_max_x.max(point.0);
-        }
-        assert!(
-            end_tail_max_x - end.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
-            "end tail too short: {}",
-            end_tail_max_x - end.0
-        );
-    }
-}
-
 fn dedupe_adjacent_points(points: &mut Vec<(i32, i32)>) {
     if points.len() < 2 {
         return;
@@ -1921,4 +1856,69 @@ fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
 
 fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
     px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+    };
+
+    #[test]
+    fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
+        let points = [(0, 0), (4, 0), (4, 2), (10, 2)];
+        let smooth = smooth_param_wire_path(&points);
+        assert_eq!(smooth.first().copied(), Some((0, 0)));
+        assert_eq!(smooth.last().copied(), Some((10, 2)));
+        for segment in smooth.windows(2) {
+            assert!(
+                segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1,
+                "segment is not axis aligned: {:?}",
+                segment
+            );
+        }
+    }
+
+    #[test]
+    fn param_wire_smoothing_skips_rounding_for_straight_path_points() {
+        let points = [(0, 0), (8, 0), (16, 0)];
+        let smooth = smooth_param_wire_path(&points);
+        assert_eq!(smooth, points);
+    }
+
+    #[test]
+    fn param_wire_smoothing_preserves_straight_pin_tails() {
+        let route = [(30, 0), (30, 32), (70, 32)];
+        let start = (0, 0);
+        let end = (40, 40);
+        let smooth = build_smoothed_param_wire(start, route.as_slice(), end);
+        assert_eq!(smooth.first().copied(), Some(start));
+        assert_eq!(smooth.last().copied(), Some(end));
+
+        let mut start_tail_max_x = start.0;
+        for point in smooth.iter().copied() {
+            if point.1 != start.1 {
+                break;
+            }
+            start_tail_max_x = start_tail_max_x.max(point.0);
+        }
+        assert!(
+            start_tail_max_x - start.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+            "start tail too short: {}",
+            start_tail_max_x - start.0
+        );
+
+        let mut end_tail_max_x = end.0;
+        for point in smooth.iter().rev().copied() {
+            if point.1 != end.1 {
+                break;
+            }
+            end_tail_max_x = end_tail_max_x.max(point.0);
+        }
+        assert!(
+            end_tail_max_x - end.0 >= PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+            "end tail too short: {}",
+            end_tail_max_x - end.0
+        );
+    }
 }

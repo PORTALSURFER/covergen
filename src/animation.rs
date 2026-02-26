@@ -1099,7 +1099,7 @@ fn validate_encoder_input(width: u32, height: u32, fps: u32) -> Result<(), Box<d
     if width == 0 || height == 0 {
         return Err("invalid frame dimensions: width and height must be >= 1".into());
     }
-    if width % 2 != 0 || height % 2 != 0 {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         return Err(format!(
             "H.264 export requires even dimensions; got {}x{}",
             width, height

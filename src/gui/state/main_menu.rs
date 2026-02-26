@@ -29,6 +29,10 @@ const EXPORT_DEFAULT_BPM: &str = "120";
 const EXPORT_DEFAULT_BARS: &str = "15";
 const EXPORT_DEFAULT_BEATS_PER_BAR: &str = "4";
 const EXPORT_DEFAULT_AUDIO_VOLUME: &str = "1.0";
+const EXPORT_DEFAULT_BPM_VALUE: f32 = 120.0;
+const EXPORT_DEFAULT_BARS_VALUE: u32 = 15;
+const EXPORT_DEFAULT_BEATS_PER_BAR_VALUE: u32 = 4;
+const EXPORT_DEFAULT_AUDIO_VOLUME_VALUE: f32 = 1.0;
 
 /// Selectable main-menu rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -363,23 +367,29 @@ impl ExportMenuState {
 
     /// Return parsed BPM value, falling back to defaults when invalid.
     pub(crate) fn parsed_bpm(&self) -> f32 {
-        parse_positive_f32_or_default(self.bpm.as_str(), EXPORT_DEFAULT_BPM)
+        parse_positive_f32_or_default(self.bpm.as_str(), EXPORT_DEFAULT_BPM_VALUE)
     }
 
     /// Return parsed bars value, falling back to defaults when invalid.
     pub(crate) fn parsed_bars(&self) -> u32 {
-        parse_positive_u32_or_default(self.bars.as_str(), EXPORT_DEFAULT_BARS)
+        parse_positive_u32_or_default(self.bars.as_str(), EXPORT_DEFAULT_BARS_VALUE)
     }
 
     /// Return parsed beats-per-bar value, falling back to defaults when invalid.
     pub(crate) fn parsed_beats_per_bar(&self) -> u32 {
-        parse_positive_u32_or_default(self.beats_per_bar.as_str(), EXPORT_DEFAULT_BEATS_PER_BAR)
+        parse_positive_u32_or_default(
+            self.beats_per_bar.as_str(),
+            EXPORT_DEFAULT_BEATS_PER_BAR_VALUE,
+        )
     }
 
     /// Return parsed audio output volume in `[0.0, 2.0]`.
     pub(crate) fn parsed_audio_volume(&self) -> f32 {
-        parse_positive_f32_or_default(self.audio_volume.as_str(), EXPORT_DEFAULT_AUDIO_VOLUME)
-            .clamp(0.0, 2.0)
+        parse_positive_f32_or_default(
+            self.audio_volume.as_str(),
+            EXPORT_DEFAULT_AUDIO_VOLUME_VALUE,
+        )
+        .clamp(0.0, 2.0)
     }
 
     /// Refresh cached WAV duration metadata if the configured path changed.
@@ -412,7 +422,7 @@ impl ExportMenuState {
     /// Return derived timeline frame count from the current music settings.
     pub(crate) fn timeline_total_frames(&self, fps: u32) -> u32 {
         if let Some(duration_secs) = self.audio_wav_duration_secs {
-            return total_frames_from_audio_length(duration_secs, fps, self.parsed_bpm());
+            return total_frames_from_audio_length(duration_secs, fps);
         }
         total_frames_from_music(
             fps,
@@ -471,20 +481,20 @@ pub(crate) fn export_menu_height() -> i32 {
         + EXPORT_MENU_BOTTOM_PADDING
 }
 
-fn parse_positive_f32_or_default(raw: &str, fallback: &str) -> f32 {
+fn parse_positive_f32_or_default(raw: &str, fallback: f32) -> f32 {
     let parsed = raw.trim().parse::<f32>().ok().filter(|value| *value > 0.0);
     if let Some(value) = parsed {
         return value;
     }
-    fallback.parse::<f32>().unwrap_or(120.0)
+    fallback
 }
 
-fn parse_positive_u32_or_default(raw: &str, fallback: &str) -> u32 {
+fn parse_positive_u32_or_default(raw: &str, fallback: u32) -> u32 {
     let parsed = raw.trim().parse::<u32>().ok().filter(|value| *value > 0);
     if let Some(value) = parsed {
         return value;
     }
-    fallback.parse::<u32>().unwrap_or(1)
+    fallback
 }
 
 fn probe_wav_duration_secs(path_raw: &str) -> Option<f32> {
@@ -502,20 +512,11 @@ fn probe_wav_duration_secs(path_raw: &str) -> Option<f32> {
     Some((duration_samples / sample_rate) as f32)
 }
 
-fn total_frames_from_audio_length(duration_secs: f32, fps: u32, bpm: f32) -> u32 {
-    if fps == 0
-        || !duration_secs.is_finite()
-        || duration_secs <= 0.0
-        || !bpm.is_finite()
-        || bpm <= 0.0
-    {
+fn total_frames_from_audio_length(duration_secs: f32, fps: u32) -> u32 {
+    if fps == 0 || !duration_secs.is_finite() || duration_secs <= 0.0 {
         return 1;
     }
-    // Convert audio length -> beat domain via BPM and back to seconds so timeline
-    // length stays audio-accurate while preserving tempo-derived semantics.
-    let beats = duration_secs as f64 * bpm as f64 / 60.0;
-    let normalized_secs = beats * 60.0 / bpm as f64;
-    (normalized_secs * fps as f64).round().max(1.0) as u32
+    (duration_secs as f64 * fps as f64).round().max(1.0) as u32
 }
 
 #[cfg(test)]
@@ -588,6 +589,25 @@ mod tests {
             .expect("derived bars should be available");
         assert!((derived - (2.0 * 100.0 / 60.0 / 4.0)).abs() < 0.001);
 
+        let _ = fs::remove_file(wav_path);
+    }
+
+    #[test]
+    fn export_menu_audio_length_drives_timeline_even_when_bpm_changes() {
+        let wav_path = temp_wav_path("timeline_audio_source");
+        write_silence_wav(&wav_path, 48_000, 1.5);
+
+        let mut menu = ExportMenuState::closed();
+        menu.audio_wav = wav_path.to_string_lossy().to_string();
+        menu.bpm = "80".to_string();
+        menu.refresh_audio_duration_cache();
+        let first = menu.timeline_total_frames(60);
+
+        menu.bpm = "220".to_string();
+        let second = menu.timeline_total_frames(60);
+
+        assert_eq!(first, 90);
+        assert_eq!(second, 90);
         let _ = fs::remove_file(wav_path);
     }
 }

@@ -71,6 +71,17 @@ pub(crate) struct GuiInvalidation {
 }
 
 impl GuiInvalidation {
+    /// Return initial epochs with all retained subtrees marked dirty once.
+    pub(crate) const fn initial_dirty() -> Self {
+        Self {
+            nodes: 1,
+            wires: 1,
+            overlays: 1,
+            timeline: 1,
+            tex_eval: 1,
+        }
+    }
+
     /// Mark all retained scene subtrees and tex evaluation as dirty.
     pub(crate) fn invalidate_all(&mut self) {
         self.invalidate_nodes();
@@ -270,13 +281,7 @@ impl PreviewState {
             pending_app_action: None,
             request_new_project: false,
             help_modal: None,
-            invalidation: GuiInvalidation {
-                nodes: 1,
-                wires: 1,
-                overlays: 1,
-                timeline: 1,
-                tex_eval: 1,
-            },
+            invalidation: GuiInvalidation::initial_dirty(),
         }
     }
 }
