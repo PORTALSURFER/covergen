@@ -234,6 +234,36 @@ mod tests {
     }
 
     #[test]
+    fn level_chain_produces_solid_then_level_ops() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+        let level = project.add_node(ProjectNodeKind::TexLevel, 180, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, level));
+        assert!(project.connect_image_link(level, out));
+
+        let mut viewer = TopViewerGenerator::default();
+        viewer.update(
+            &project,
+            TopViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_fps: 60,
+                top_eval_epoch: project.invalidation().top_eval,
+            },
+        );
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TopViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TopViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TopViewerOp::Level { .. }));
+    }
+
+    #[test]
     fn feedback_chain_produces_solid_then_feedback_ops() {
         let mut project = GuiProject::new_empty(640, 480);
         let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);

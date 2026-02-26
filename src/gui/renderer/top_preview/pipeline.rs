@@ -292,6 +292,26 @@ fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(rgb, a);
 }
 
+@fragment
+fn fs_level(v: VertexOut) -> @location(0) vec4<f32> {
+    let src = textureSample(t_src, s_src, v.uv);
+    let in_low = clamp(u_op.p0.x, 0.0, 1.0);
+    let in_high = clamp(u_op.p0.y, 0.0, 1.0);
+    let gamma = clamp(u_op.p0.z, 0.1, 8.0);
+    let out_low = clamp(u_op.p1.x, 0.0, 1.0);
+    let out_high = clamp(u_op.p1.y, 0.0, 1.0);
+    let input_range = in_high - in_low;
+    let safe_range = select(
+        min(input_range, -1e-5),
+        max(input_range, 1e-5),
+        input_range >= 0.0
+    );
+    let normalized = clamp((src.rgb - vec3<f32>(in_low)) / vec3<f32>(safe_range), vec3<f32>(0.0), vec3<f32>(1.0));
+    let shaped = pow(normalized, vec3<f32>(1.0 / gamma));
+    let leveled = mix(vec3<f32>(out_low), vec3<f32>(out_high), shaped);
+    return vec4<f32>(leveled, src.a);
+}
+
 fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) -> vec4<f32> {
     let brightness = transform.x;
     let gain_r = transform.y;

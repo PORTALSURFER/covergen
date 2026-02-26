@@ -144,6 +144,26 @@ impl TopOpUniform {
         }
     }
 
+    fn level(op: TopViewerOp) -> Self {
+        let TopViewerOp::Level {
+            in_low,
+            in_high,
+            gamma,
+            out_low,
+            out_high,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [in_low, in_high, gamma, 0.0],
+            p1: [out_low, out_high, 0.0, 0.0],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
     fn feedback(op: TopViewerOp) -> Self {
         let TopViewerOp::Feedback { mix, .. } = op else {
             return Self::zeroed();
@@ -243,6 +263,7 @@ pub(super) struct TopPreviewRenderer {
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_pipeline: Option<wgpu::RenderPipeline>,
+    op_level_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
@@ -331,6 +352,7 @@ impl TopPreviewRenderer {
             && self.op_circle_pipeline.is_some()
             && self.op_sphere_pipeline.is_some()
             && self.op_transform_pipeline.is_some()
+            && self.op_level_pipeline.is_some()
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
@@ -376,6 +398,13 @@ impl TopPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_transform",
+            self.op_surface_format,
+        ));
+        self.op_level_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_level",
             self.op_surface_format,
         ));
         self.op_transform_fused_pipeline = Some(create_op_pipeline(
@@ -503,6 +532,7 @@ impl TopPreviewRenderer {
             op_circle_pipeline: None,
             op_sphere_pipeline: None,
             op_transform_pipeline: None,
+            op_level_pipeline: None,
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_blend_pipeline: None,

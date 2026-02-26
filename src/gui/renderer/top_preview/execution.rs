@@ -184,6 +184,14 @@ impl TopPreviewRenderer {
                         pass.set_bind_group(1, src_bind_group, &[]);
                         pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
                     }
+                    PlannedRenderOp::Runtime(TopViewerOp::Level { .. }) => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        pass.set_pipeline(self.op_level_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
                     PlannedRenderOp::TransformPair { .. } => {
                         let src_target = source_target?;
                         let src_bind_group = self.target_bind_group(src_target)?;
@@ -271,6 +279,7 @@ impl TopPreviewRenderer {
                 TopViewerOp::Circle { .. } => TopOpUniform::circle(runtime_op),
                 TopViewerOp::Sphere { .. } => TopOpUniform::sphere(runtime_op),
                 TopViewerOp::Transform { .. } => TopOpUniform::transform(runtime_op),
+                TopViewerOp::Level { .. } => TopOpUniform::level(runtime_op),
                 TopViewerOp::Feedback { .. } => TopOpUniform::feedback(runtime_op),
                 TopViewerOp::Blend { .. } => TopOpUniform::blend(runtime_op),
                 TopViewerOp::StoreTexture { .. } => TopOpUniform::solid(runtime_op),

@@ -98,6 +98,12 @@ const TRANSFORM_GAIN_R_SLOT: usize = 1;
 const TRANSFORM_GAIN_G_SLOT: usize = 2;
 const TRANSFORM_GAIN_B_SLOT: usize = 3;
 const TRANSFORM_ALPHA_MUL_SLOT: usize = 4;
+const LEVEL_PARAM_KEYS: [&str; 5] = ["in_low", "in_high", "gamma", "out_low", "out_high"];
+const LEVEL_IN_LOW_SLOT: usize = 0;
+const LEVEL_IN_HIGH_SLOT: usize = 1;
+const LEVEL_GAMMA_SLOT: usize = 2;
+const LEVEL_OUT_LOW_SLOT: usize = 3;
+const LEVEL_OUT_HIGH_SLOT: usize = 4;
 const FEEDBACK_PARAM_KEYS: [&str; 3] = [
     "feedback",
     FEEDBACK_HISTORY_PARAM_KEY,
@@ -175,6 +181,14 @@ pub(crate) enum TopRuntimeOp {
         gain_b: f32,
         alpha_mul: f32,
     },
+    /// `tex.level` operation.
+    Level {
+        in_low: f32,
+        in_high: f32,
+        gamma: f32,
+        out_low: f32,
+        out_high: f32,
+    },
     /// `tex.feedback` one-frame delayed feedback operation.
     Feedback {
         mix: f32,
@@ -230,6 +244,7 @@ enum CompiledStepKind {
     Camera,
     ScenePass,
     Transform,
+    Level,
     Feedback,
     StoreTexture,
     Blend {
@@ -899,6 +914,55 @@ impl GuiCompiledRuntime {
                         .unwrap_or(1.0),
                     });
                 }
+                CompiledStepKind::Level => {
+                    out_ops.push(TopRuntimeOp::Level {
+                        in_low: compiled_param_value_opt(
+                            project,
+                            step,
+                            LEVEL_IN_LOW_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
+                        in_high: compiled_param_value_opt(
+                            project,
+                            step,
+                            LEVEL_IN_HIGH_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0),
+                        gamma: compiled_param_value_opt(
+                            project,
+                            step,
+                            LEVEL_GAMMA_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.1, 8.0),
+                        out_low: compiled_param_value_opt(
+                            project,
+                            step,
+                            LEVEL_OUT_LOW_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 1.0),
+                        out_high: compiled_param_value_opt(
+                            project,
+                            step,
+                            LEVEL_OUT_HIGH_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0),
+                    });
+                }
                 CompiledStepKind::Feedback => {
                     let history =
                         compiled_texture_source_for_param(project, step, FEEDBACK_HISTORY_SLOT)
@@ -1148,6 +1212,23 @@ fn compile_node(
                     node_id,
                     CompiledStepKind::Transform,
                     &TRANSFORM_PARAM_KEYS,
+                ));
+                true
+            }
+        }
+        ProjectNodeKind::TexLevel => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, visiting, visited, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::Level,
+                    &LEVEL_PARAM_KEYS,
                 ));
                 true
             }
@@ -1460,6 +1541,36 @@ mod tests {
                 && gain_g == 1.0
                 && gain_b == 1.0
                 && alpha_mul == 1.0
+        ));
+    }
+
+    #[test]
+    fn level_defaults_are_identity() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let level = project.add_node(ProjectNodeKind::TexLevel, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, level));
+        assert!(project.connect_image_link(level, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(
+            ops[1],
+            TopRuntimeOp::Level {
+                in_low,
+                in_high,
+                gamma,
+                out_low,
+                out_high
+            } if in_low == 0.0
+                && in_high == 1.0
+                && gamma == 1.0
+                && out_low == 0.0
+                && out_high == 1.0
         ));
     }
 

@@ -164,6 +164,8 @@ pub(crate) enum ProjectNodeKind {
     BufNoise,
     /// `tex.transform_2d` render node for texture-space color/alpha mutation.
     TexTransform2D,
+    /// `tex.level` render node for input/output remapping and gamma shaping.
+    TexLevel,
     /// `tex.feedback` one-frame delayed texture feedback node.
     TexFeedback,
     /// `tex.blend` two-texture composite node.
@@ -192,6 +194,7 @@ impl ProjectNodeKind {
             Self::BufCircleNurbs => "buf.circle_nurbs",
             Self::BufNoise => "buf.noise",
             Self::TexTransform2D => "tex.transform_2d",
+            Self::TexLevel => "tex.level",
             Self::TexFeedback => "tex.feedback",
             Self::TexBlend => "tex.blend",
             Self::SceneEntity => "scene.entity",
@@ -212,6 +215,7 @@ impl ProjectNodeKind {
             "buf.circle_nurbs" => Some(Self::BufCircleNurbs),
             "buf.noise" => Some(Self::BufNoise),
             "tex.transform_2d" => Some(Self::TexTransform2D),
+            "tex.level" => Some(Self::TexLevel),
             "tex.feedback" => Some(Self::TexFeedback),
             "tex.blend" => Some(Self::TexBlend),
             "scene.entity" => Some(Self::SceneEntity),
@@ -234,6 +238,7 @@ impl ProjectNodeKind {
             Self::BufCircleNurbs => ExecutionKind::Cpu,
             Self::BufNoise => ExecutionKind::Cpu,
             Self::TexTransform2D => ExecutionKind::Render,
+            Self::TexLevel => ExecutionKind::Render,
             Self::TexFeedback => ExecutionKind::Render,
             Self::TexBlend => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
@@ -253,9 +258,11 @@ impl ProjectNodeKind {
     /// Return required primary input resource kind for this node, if any.
     pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
         match self {
-            Self::TexTransform2D | Self::TexFeedback | Self::TexBlend | Self::IoWindowOut => {
-                Some(ResourceKind::Texture2D)
-            }
+            Self::TexTransform2D
+            | Self::TexLevel
+            | Self::TexFeedback
+            | Self::TexBlend
+            | Self::IoWindowOut => Some(ResourceKind::Texture2D),
             Self::BufNoise => Some(ResourceKind::Buffer),
             Self::SceneEntity => Some(ResourceKind::Buffer),
             Self::SceneBuild => Some(ResourceKind::Entity),
@@ -275,6 +282,7 @@ impl ProjectNodeKind {
                 | Self::BufCircleNurbs
                 | Self::BufNoise
                 | Self::TexTransform2D
+                | Self::TexLevel
                 | Self::TexFeedback
                 | Self::TexBlend
                 | Self::SceneEntity
@@ -308,6 +316,7 @@ impl ProjectNodeKind {
             Self::TexSolid
             | Self::TexCircle
             | Self::TexTransform2D
+            | Self::TexLevel
             | Self::TexFeedback
             | Self::TexBlend
             | Self::RenderScenePass => Some(ResourceKind::Texture2D),
@@ -2335,6 +2344,15 @@ fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlot> {
             param("gain_b", "gain_b", 1.0, 0.0, 64.0, 0.1),
             param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
         ],
+        ProjectNodeKind::TexLevel => vec![
+            // Keep level as identity by default so inserting this node
+            // never changes output until the user edits parameters.
+            param("in_low", "in_low", 0.0, 0.0, 1.0, 0.01),
+            param("in_high", "in_high", 1.0, 0.0, 1.0, 0.01),
+            param("gamma", "gamma", 1.0, 0.1, 8.0, 0.01),
+            param("out_low", "out_low", 0.0, 0.0, 1.0, 0.01),
+            param("out_high", "out_high", 1.0, 0.0, 1.0, 0.01),
+        ],
         ProjectNodeKind::TexFeedback => vec![
             // Optional external accumulation-history binding for feedback.
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
@@ -3347,6 +3365,7 @@ mod tests {
             ProjectNodeKind::BufCircleNurbs,
             ProjectNodeKind::BufNoise,
             ProjectNodeKind::TexTransform2D,
+            ProjectNodeKind::TexLevel,
             ProjectNodeKind::TexFeedback,
             ProjectNodeKind::TexBlend,
             ProjectNodeKind::SceneEntity,

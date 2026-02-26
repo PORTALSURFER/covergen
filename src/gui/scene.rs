@@ -1353,6 +1353,7 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::BufCircleNurbs => Color::argb(AGIO.node_header_buf_circle_nurbs),
         ProjectNodeKind::BufNoise => Color::argb(AGIO.node_header_buf_noise),
         ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
+        ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
         ProjectNodeKind::TexFeedback => Color::argb(AGIO.node_header_tex_feedback),
         ProjectNodeKind::TexBlend => Color::argb(AGIO.node_header_tex_blend),
         ProjectNodeKind::SceneEntity => Color::argb(AGIO.node_header_scene_entity),
