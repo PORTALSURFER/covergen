@@ -253,8 +253,18 @@ fn route_wire_path_internal(
     grid.carve_corridor(start_point, start.corridor_dir);
     grid.carve_corridor(end_point, end.corridor_dir);
 
-    let Some(cells) = grid.find_path_with_blocked_edges(start_point, end_point, blocked_edges)
-    else {
+    let cells = grid
+        .find_path_with_blocked_edges(start_point, end_point, blocked_edges)
+        .or_else(|| {
+            if blocked_edges.is_some() {
+                // When overlap-avoidance edge blocking over-constrains the search,
+                // retry without edge blocks so we still honor node obstacles.
+                grid.find_path_with_blocked_edges(start_point, end_point, None)
+            } else {
+                None
+            }
+        });
+    let Some(cells) = cells else {
         return fallback_octilinear(start_point, end_point);
     };
 
@@ -731,11 +741,12 @@ fn step_point(point: (i32, i32), direction: RouteDirection, steps: i32) -> (i32,
 #[cfg(test)]
 mod tests {
     use super::{
-        route_param_path, route_wire_path, route_wire_path_with_map,
+        route_param_path, route_wire_path, route_wire_path_internal, route_wire_path_with_map,
         route_wire_path_with_tails_with_map, snap_endpoint_to_grid, NodeObstacle, RouteDirection,
-        RouteEndpoint, RouteObstacleMap,
+        RouteEdgeKey, RouteEndpoint, RouteObstacleMap, GRID_PITCH_PX, ROUTE_DIRECTIONS,
     };
     use crate::gui::geometry::Rect;
+    use std::collections::HashSet;
 
     fn assert_octilinear(points: &[(i32, i32)]) {
         for segment in points.windows(2) {
@@ -746,6 +757,33 @@ mod tests {
                 "segment is not octilinear: {:?}",
                 segment
             );
+        }
+    }
+
+    fn assert_path_avoids_rect_except_endpoints(
+        points: &[(i32, i32)],
+        rect: Rect,
+        start: (i32, i32),
+        end: (i32, i32),
+    ) {
+        for segment in points.windows(2) {
+            let dx = segment[1].0 - segment[0].0;
+            let dy = segment[1].1 - segment[0].1;
+            let steps = (dx.abs().max(dy.abs()) / GRID_PITCH_PX).max(1);
+            let step_x = dx.signum() * GRID_PITCH_PX;
+            let step_y = dy.signum() * GRID_PITCH_PX;
+            let mut point = segment[0];
+            for _ in 0..=steps {
+                if point != start && point != end {
+                    assert!(
+                        !rect.contains(point.0, point.1),
+                        "path enters blocked rect at {:?}: {:?}",
+                        point,
+                        points
+                    );
+                }
+                point = (point.0 + step_x, point.1 + step_y);
+            }
         }
     }
 
@@ -866,5 +904,42 @@ mod tests {
         let end_tail = path[path.len() - 2];
         assert_eq!(end.1, end_tail.1, "end tail should be horizontal");
         assert!(end_tail.0 < end.0, "end tail should enter from the left");
+    }
+
+    #[test]
+    fn blocked_edge_retry_preserves_obstacle_avoidance() {
+        let source_rect = Rect::new(0, 0, 80, 80);
+        let map = RouteObstacleMap::from_obstacles(&[NodeObstacle { rect: source_rect }]);
+        let start = RouteEndpoint {
+            point: (80, 40),
+            corridor_dir: RouteDirection::East,
+        };
+        let end = RouteEndpoint {
+            point: (20, 140),
+            corridor_dir: RouteDirection::West,
+        };
+
+        let start_point = snap_endpoint_to_grid(start);
+        let mut blocked_edges = HashSet::new();
+        for direction in ROUTE_DIRECTIONS {
+            let next = (
+                start_point.0 + direction.dx() * GRID_PITCH_PX,
+                start_point.1 + direction.dy() * GRID_PITCH_PX,
+            );
+            blocked_edges.insert(RouteEdgeKey::new(start_point, next));
+        }
+
+        let path = route_wire_path_internal(start, end, &map, Some(&blocked_edges));
+        assert_octilinear(path.as_slice());
+        assert!(
+            path.len() > 3,
+            "expected A* route, got fallback path: {path:?}"
+        );
+        assert_path_avoids_rect_except_endpoints(
+            path.as_slice(),
+            source_rect,
+            snap_endpoint_to_grid(start),
+            snap_endpoint_to_grid(end),
+        );
     }
 }
