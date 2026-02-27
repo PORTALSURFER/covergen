@@ -350,6 +350,7 @@ pub(crate) struct SceneBuilder {
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
     frame_alloc_bytes: u64,
+    was_dragging: bool,
 }
 
 impl SceneBuilder {
@@ -380,6 +381,16 @@ impl SceneBuilder {
         self.frame.camera_pan_x = state.pan_x;
         self.frame.camera_pan_y = state.pan_y;
         self.frame.camera_zoom = state.zoom.max(0.001);
+        let drag_just_released = self.was_dragging && state.drag.is_none();
+        self.was_dragging = state.drag.is_some();
+        if drag_just_released {
+            // Force one post-drop recompute pass so cached wire routes refresh even
+            // when epoch invalidation was suppressed during drag freeze.
+            self.cached_edges_epoch = None;
+            self.cached_overlays_epoch = None;
+            self.edge_route_cache_epoch = None;
+            self.param_route_cache_epoch = None;
+        }
 
         self.rebuild_static_if_needed(width, height, panel_width);
 
@@ -3119,6 +3130,59 @@ mod tests {
             .param_route_cache_epoch
             .expect("param route epoch should remain initialized");
         assert_ne!(release_epoch, initial_epoch);
+        let release_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should be recomputed on release")
+            .to_vec();
+        assert_ne!(release_route, initial_route);
+    }
+
+    #[test]
+    fn param_routes_refresh_on_drag_release_without_overlay_epoch_bump() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 640, 480);
+        let target = project.add_node(ProjectNodeKind::TexCircle, 280, 40, 640, 480);
+        assert!(project.connect_signal_link_to_param(source, target, 0));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let mut scene = SceneBuilder::default();
+
+        state.invalidation.invalidate_overlays();
+        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let initial_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should exist")
+            .to_vec();
+
+        assert!(project.move_node(source, 140, 40, 640, 480));
+        state.invalidation.invalidate_overlays();
+        state.drag = Some(DragState {
+            node_id: source,
+            offset_x: 0,
+            offset_y: 0,
+            origin_x: 40,
+            origin_y: 40,
+        });
+        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let drag_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should stay cached during drag")
+            .to_vec();
+        assert_eq!(drag_route, initial_route);
+
+        // Drop/release without explicitly bumping overlay invalidation.
+        state.drag = None;
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            frame.dirty.overlays,
+            "drop should force one overlay refresh so parameter routes update"
+        );
         let release_route = scene
             .param_route_cache
             .values()
