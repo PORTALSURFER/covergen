@@ -1136,7 +1136,7 @@ fn alt_cut_unbinds_parameter_link_when_cut_crosses_routed_param_wire() {
         let row = node_param_row_rect(target, 2).expect("row rect should exist");
         (row.x + row.w - 4, row.y + row.h / 2)
     };
-    let obstacles = super::collect_panel_node_obstacles(&project, &state);
+    let obstacles = super::collect_graph_node_obstacles(&project);
     let exit_x = from_x.saturating_add(super::PARAM_WIRE_EXIT_TAIL_PX);
     let entry_x = to_x.saturating_add(super::PARAM_WIRE_ENTRY_TAIL_PX);
     let route = crate::gui::scene::wire_route::route_param_path(

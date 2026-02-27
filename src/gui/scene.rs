@@ -391,25 +391,25 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
-        let obstacles = collect_panel_node_obstacles(project, state);
+        let obstacles = collect_graph_node_obstacles(project);
         let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
         let mut drawn_segments = Vec::new();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = HashMap::new();
         for target in project.nodes() {
-            let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
+            let Some((default_to_x_graph, default_to_y_graph)) = input_pin_center(target) else {
                 continue;
             };
             let (default_to_x, default_to_y) =
-                graph_point_to_panel(default_to_x, default_to_y, state);
+                graph_point_to_panel(default_to_x_graph, default_to_y_graph, state);
             for source_id in target.inputs() {
                 let Some(source) = project.node(*source_id) else {
                     continue;
                 };
-                let Some((from_x, from_y)) = output_pin_center(source) else {
+                let Some((from_x_graph, from_y_graph)) = output_pin_center(source) else {
                     continue;
                 };
-                let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
+                let (from_x, from_y) = graph_point_to_panel(from_x_graph, from_y_graph, state);
                 let link_kind = project.link_resource_kind(*source_id, target.id());
                 if link_kind == Some(ResourceKind::Signal) {
                     continue;
@@ -421,32 +421,38 @@ impl SceneBuilder {
                         .map(|link| link.source_id == *source_id && link.target_id == target.id())
                         .unwrap_or(false);
                 let start_endpoint = wire_route::RouteEndpoint {
-                    point: (from_x, from_y),
+                    point: (from_x_graph, from_y_graph),
                     corridor_dir: wire_route::RouteDirection::East,
                 };
                 let end_endpoint = wire_route::RouteEndpoint {
-                    point: (to_x, to_y),
+                    point: (default_to_x_graph, default_to_y_graph),
                     corridor_dir: wire_route::RouteDirection::West,
                 };
                 let start_tail_cells = next_staggered_tail_cells(&mut tail_slots, start_endpoint);
                 let end_tail_cells = next_staggered_tail_cells(&mut tail_slots, end_endpoint);
-                let route = wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
-                    start_endpoint,
-                    end_endpoint,
-                    &route_map,
-                    &occupied_edges,
-                    start_tail_cells,
-                    end_tail_cells,
-                );
+                let route_graph =
+                    wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+                        start_endpoint,
+                        end_endpoint,
+                        &route_map,
+                        &occupied_edges,
+                        start_tail_cells,
+                        end_tail_cells,
+                    );
+                let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
                 let color = if insert_hover {
                     EDGE_INSERT_HOVER
-                } else if path_intersects_cut_line(state, route.as_slice()) {
+                } else if path_intersects_cut_line(state, route_panel.as_slice()) {
                     CUT_EDGE_COLOR
                 } else {
                     EDGE_COLOR
                 };
-                self.push_path_lines_with_bridges(route.as_slice(), color, &mut drawn_segments);
-                occupied_edges.record_path_non_tail(route.as_slice());
+                self.push_path_lines_with_bridges(
+                    route_panel.as_slice(),
+                    color,
+                    &mut drawn_segments,
+                );
+                occupied_edges.record_path_non_tail(route_graph.as_slice());
                 self.push_round_endpoint(from_x, from_y, color);
                 self.push_round_endpoint(to_x, to_y, color);
             }
@@ -1351,7 +1357,7 @@ impl SceneBuilder {
         if self.param_route_cache_epoch != Some(obstacle_epoch) {
             self.param_route_cache_epoch = Some(obstacle_epoch);
             self.param_route_cache.clear();
-            let obstacles = collect_panel_node_obstacles(project, state);
+            let obstacles = collect_graph_node_obstacles(project);
             self.param_route_obstacle_map =
                 wire_route::RouteObstacleMap::from_obstacles(&obstacles);
         }
@@ -1373,21 +1379,21 @@ impl SceneBuilder {
                 let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
-                let (gx, gy) = if let Some(row) = node_param_row_rect(target, param_index) {
-                    (row.x + row.w - 4, row.y + row.h / 2)
-                } else if let Some((pin_x, pin_y)) = collapsed_param_entry_pin_center(target) {
-                    (pin_x, pin_y)
-                } else {
-                    continue;
-                };
-                let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-                let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
+                let (to_x_graph, to_y_graph) =
+                    if let Some(row) = node_param_row_rect(target, param_index) {
+                        (row.x + row.w - 4, row.y + row.h / 2)
+                    } else if let Some((pin_x, pin_y)) = collapsed_param_entry_pin_center(target) {
+                        (pin_x, pin_y)
+                    } else {
+                        continue;
+                    };
+                let (to_x, to_y) = graph_point_to_panel(to_x_graph, to_y_graph, state);
                 let start_endpoint = wire_route::RouteEndpoint {
                     point: (from_x, from_y),
                     corridor_dir: wire_route::RouteDirection::East,
                 };
                 let end_endpoint = wire_route::RouteEndpoint {
-                    point: (to_x, to_y),
+                    point: (to_x_graph, to_y_graph),
                     corridor_dir: wire_route::RouteDirection::East,
                 };
                 let start_tail_cells = next_staggered_tail_cells(&mut tail_slots, start_endpoint);
@@ -1416,12 +1422,17 @@ impl SceneBuilder {
                 let Some(route) = self.param_route_cache.get(&route_key).cloned() else {
                     continue;
                 };
-                let color = if path_intersects_cut_line(state, route.as_ref()) {
+                let route_panel = map_graph_path_to_panel(route.as_ref(), state);
+                let color = if path_intersects_cut_line(state, route_panel.as_slice()) {
                     CUT_EDGE_COLOR
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_path_lines_with_bridges(route.as_ref(), color, &mut drawn_segments);
+                self.push_path_lines_with_bridges(
+                    route_panel.as_slice(),
+                    color,
+                    &mut drawn_segments,
+                );
                 occupied_edges.record_path_non_tail(route.as_ref());
                 self.push_param_target_marker(to_x, to_y, color);
             }
@@ -1769,14 +1780,11 @@ fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
     )
 }
 
-fn collect_panel_node_obstacles(
-    project: &GuiProject,
-    state: &PreviewState,
-) -> Vec<wire_route::NodeObstacle> {
+fn collect_graph_node_obstacles(project: &GuiProject) -> Vec<wire_route::NodeObstacle> {
     let mut out = Vec::new();
     for node in project.nodes() {
         out.push(wire_route::NodeObstacle {
-            rect: node_rect(node, state),
+            rect: Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
         });
     }
     out
@@ -1808,6 +1816,14 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
     let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
     (sx, sy)
+}
+
+fn map_graph_path_to_panel(points: &[(i32, i32)], state: &PreviewState) -> Vec<(i32, i32)> {
+    points
+        .iter()
+        .copied()
+        .map(|(x, y)| graph_point_to_panel(x, y, state))
+        .collect()
 }
 
 fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut SceneLayer {

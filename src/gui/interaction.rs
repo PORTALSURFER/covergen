@@ -14,7 +14,7 @@ use super::help::{build_global_help_modal, build_node_help_modal, build_param_he
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, output_pin_center, GraphBounds, GuiProject,
-    ProjectNode, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
+    ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, ExportMenuItem, HoverInsertLink, HoverParamTarget,
@@ -1407,7 +1407,7 @@ fn collect_cut_links(
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
-    let obstacles = collect_panel_node_obstacles(project, state);
+    let obstacles = collect_graph_node_obstacles(project);
     let route_map =
         super::scene::wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
     let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
@@ -1448,9 +1448,7 @@ fn collect_cut_links_for_target(
         let Some((from_x, from_y)) = output_pin_center(source) else {
             return;
         };
-        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-        let route = super::scene::wire_route::route_wire_path_with_tails_with_map(
+        let route_graph = super::scene::wire_route::route_wire_path_with_tails_with_map(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
@@ -1461,7 +1459,8 @@ fn collect_cut_links_for_target(
             },
             route_map,
         );
-        if cut_intersects_path(cut, route.as_slice()) {
+        let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
+        if cut_intersects_path(cut, route_panel.as_slice()) {
             links.push(CutLink {
                 source_id: texture_source_id,
                 target_id,
@@ -1488,9 +1487,7 @@ fn collect_cut_links_for_target(
         } else {
             continue;
         };
-        let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-        let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        let route = super::scene::wire_route::route_wire_path_with_tails_with_map(
+        let route_graph = super::scene::wire_route::route_wire_path_with_tails_with_map(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
@@ -1501,7 +1498,8 @@ fn collect_cut_links_for_target(
             },
             route_map,
         );
-        if cut_intersects_path(cut, route.as_slice()) {
+        let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
+        if cut_intersects_path(cut, route_panel.as_slice()) {
             links.push(CutLink {
                 source_id,
                 target_id,
@@ -1532,21 +1530,13 @@ fn cut_intersects_path(cut: LinkCutState, path: &[(i32, i32)]) -> bool {
     false
 }
 
-fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
-    graph_rect_to_panel(
-        Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
-        state,
-    )
-}
-
-fn collect_panel_node_obstacles(
+fn collect_graph_node_obstacles(
     project: &GuiProject,
-    state: &PreviewState,
 ) -> Vec<super::scene::wire_route::NodeObstacle> {
     let mut out = Vec::new();
     for node in project.nodes() {
         out.push(super::scene::wire_route::NodeObstacle {
-            rect: node_rect(node, state),
+            rect: Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
         });
     }
     out
@@ -1899,6 +1889,14 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
     let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
     (sx, sy)
+}
+
+fn map_graph_path_to_panel(points: &[(i32, i32)], state: &PreviewState) -> Vec<(i32, i32)> {
+    points
+        .iter()
+        .copied()
+        .map(|(x, y)| graph_point_to_panel(x, y, state))
+        .collect()
 }
 
 fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {

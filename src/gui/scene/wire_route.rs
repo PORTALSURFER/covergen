@@ -28,7 +28,7 @@ const BEND_180_COST: i32 = 160;
 const START_DIR_INDEX: usize = 8;
 const DIR_STATE_COUNT: usize = 9;
 
-/// One node obstacle in panel coordinates.
+/// One node obstacle in graph/world coordinates.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeObstacle {
     pub(crate) rect: Rect,
@@ -102,7 +102,7 @@ pub(crate) struct RouteObstacleMap {
 }
 
 impl RouteObstacleMap {
-    /// Build one reusable obstacle map from panel-space node obstacles.
+    /// Build one reusable obstacle map from graph-space node obstacles.
     pub(crate) fn from_obstacles(obstacles: &[NodeObstacle]) -> Self {
         Self {
             blocked_rects: collect_blocked_rects(obstacles),
@@ -175,7 +175,7 @@ struct Cell {
     y: i32,
 }
 
-/// Build an obstacle-avoiding octilinear path between two panel points.
+/// Build an obstacle-avoiding octilinear path between two graph points.
 ///
 /// This compatibility wrapper keeps signal-link call sites unchanged and
 /// assumes both endpoints carve east-facing pin corridors.
