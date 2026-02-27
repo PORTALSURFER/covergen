@@ -865,32 +865,67 @@ impl SceneBuilder {
                 .unwrap_or(&[]);
         }
         if shift > 0 {
-            let new_start_index = sample_count.saturating_sub(shift);
-            let start_time = {
-                let entry = self
-                    .signal_scope_cache
-                    .get_mut(&node_id)
-                    .expect("signal scope cache entry should exist");
-                entry.values.rotate_left(shift);
-                entry.start_time += step_secs * shift as f32;
-                entry.start_time
-            };
-            let mut tail_values = Vec::with_capacity(shift);
-            for index in new_start_index..sample_count {
-                let sample_t = start_time + step_secs * index as f32;
-                tail_values.push(self.sample_scope_value(project, node_id, sample_t.max(0.0)));
-                self.frame.signal_scope_samples = self.frame.signal_scope_samples.saturating_add(1);
-            }
-            if let Some(entry) = self.signal_scope_cache.get_mut(&node_id) {
-                for (offset, value) in tail_values.into_iter().enumerate() {
-                    entry.values[new_start_index + offset] = value;
-                }
+            let shift_applied = self.try_shift_signal_scope_values(
+                project,
+                node_id,
+                sample_count,
+                step_secs,
+                shift,
+            );
+            if !shift_applied {
+                self.recompute_signal_scope_values(
+                    project,
+                    node_id,
+                    SignalScopeRecomputeConfig {
+                        start_time: target_start,
+                        sample_count,
+                        step_secs,
+                        window_secs_bits,
+                        tex_eval_epoch,
+                    },
+                );
             }
         }
         self.signal_scope_cache
             .get(&node_id)
             .map(|cached| cached.values.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Shift one existing signal-scope cache window and append freshly sampled tail values.
+    ///
+    /// Returns `true` when the shift path applied successfully. Returns `false`
+    /// when the expected cache entry is missing so callers can safely fall back
+    /// to full recompute without panicking.
+    fn try_shift_signal_scope_values(
+        &mut self,
+        project: &GuiProject,
+        node_id: u32,
+        sample_count: usize,
+        step_secs: f32,
+        shift: usize,
+    ) -> bool {
+        let new_start_index = sample_count.saturating_sub(shift);
+        let Some(start_time) = self.signal_scope_cache.get_mut(&node_id).map(|entry| {
+            entry.values.rotate_left(shift);
+            entry.start_time += step_secs * shift as f32;
+            entry.start_time
+        }) else {
+            return false;
+        };
+        let mut tail_values = Vec::with_capacity(shift);
+        for index in new_start_index..sample_count {
+            let sample_t = start_time + step_secs * index as f32;
+            tail_values.push(self.sample_scope_value(project, node_id, sample_t.max(0.0)));
+            self.frame.signal_scope_samples = self.frame.signal_scope_samples.saturating_add(1);
+        }
+        let Some(entry) = self.signal_scope_cache.get_mut(&node_id) else {
+            return false;
+        };
+        for (offset, value) in tail_values.into_iter().enumerate() {
+            entry.values[new_start_index + offset] = value;
+        }
+        true
     }
 
     fn recompute_signal_scope_values(
@@ -3015,6 +3050,25 @@ mod tests {
         assert!(
             frame.signal_scope_samples < initial_samples,
             "incremental update should evaluate fewer samples than full rebuild"
+        );
+    }
+
+    #[test]
+    fn signal_scope_shift_handles_missing_cache_entry_without_panic() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let lfo = project.add_node(ProjectNodeKind::CtlLfo, 80, 80, 640, 480);
+        let mut scene = SceneBuilder::default();
+        let window_secs = 1.0;
+        let sample_count: usize = 16;
+        let step_secs = window_secs / sample_count.saturating_sub(1) as f32;
+        let _ = scene.sample_signal_scope_values(&project, lfo, 1.0, window_secs, sample_count, 0);
+        scene.signal_scope_cache.remove(&lfo);
+
+        let shifted =
+            scene.try_shift_signal_scope_values(&project, lfo, sample_count, step_secs, 1);
+        assert!(
+            !shifted,
+            "missing cache entry should return false instead of panicking"
         );
     }
 
