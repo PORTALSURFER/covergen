@@ -595,6 +595,45 @@ fn lfo_shape_modifies_waveform() {
 }
 
 #[test]
+fn drift_lfo_is_slow_soft_and_non_repeating() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    assert!(project.set_param_dropdown_index(lfo, 6, 4));
+    assert!(project.set_param_value(lfo, 0, 0.2));
+    assert!(project.set_param_value(lfo, 1, 1.0));
+    assert!(project.set_param_value(lfo, 3, 0.0));
+    assert!(project.set_param_value(lfo, 7, -0.5));
+
+    let mut max_delta = 0.0f32;
+    let mut prev = project
+        .sample_signal_node(lfo, 0.0, &mut Vec::new())
+        .expect("drift lfo should evaluate");
+    for step in 1..=40 {
+        let t = step as f32 * 0.05;
+        let current = project
+            .sample_signal_node(lfo, t, &mut Vec::new())
+            .expect("drift lfo should evaluate");
+        max_delta = max_delta.max((current - prev).abs());
+        prev = current;
+    }
+    assert!(
+        max_delta < 0.25,
+        "drift should move smoothly without sharp jumps (max delta {max_delta})"
+    );
+
+    let a = project
+        .sample_signal_node(lfo, 0.30, &mut Vec::new())
+        .expect("drift lfo should evaluate");
+    let b = project
+        .sample_signal_node(lfo, 5.30, &mut Vec::new())
+        .expect("drift lfo should evaluate");
+    assert!(
+        (a - b).abs() > 0.02,
+        "drift should not lock to exact short periodic repetition"
+    );
+}
+
+#[test]
 fn circle_nurbs_arc_style_uses_dropdown_options() {
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 40, 40, 420, 480);

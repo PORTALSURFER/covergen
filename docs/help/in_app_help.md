@@ -350,6 +350,12 @@ Constant output offset applied after oscillation.
 Timing mode: free-running hertz or beat-synced to timeline BPM.
 ### Param `beat_mul`
 Beat-sync multiplier; cycles per beat when `sync_mode` is `beat`.
+### Param `lfo_type`
+Wave shape selector: sine, saw, triangle, pulse, or drift.
+`drift` is a slow, smooth, softly random undulating curve.
+### Param `shape`
+Wave-shape morph control.
+For `drift`, lower values bias smoother motion; higher values add subtle roughness.
 
 ## Node `io.window_out`
 Final output sink that presents the incoming texture to the window.

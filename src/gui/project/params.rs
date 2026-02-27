@@ -699,14 +699,15 @@ impl GuiProject {
         } else {
             rate
         };
-        let cycle = (time_secs * rate_hz + phase).rem_euclid(1.0);
-        let v = (lfo_wave_sample(cycle, lfo_type, shape) * amplitude) + bias;
+        let phase_time = time_secs * rate_hz + phase;
+        let cycle = phase_time.rem_euclid(1.0);
+        let v = (lfo_wave_sample(cycle, phase_time, lfo_type, shape) * amplitude) + bias;
         eval_stack.pop();
         Some(v)
     }
 }
 
-fn lfo_wave_sample(cycle: f32, lfo_type: usize, shape: f32) -> f32 {
+fn lfo_wave_sample(cycle: f32, phase_time: f32, lfo_type: usize, shape: f32) -> f32 {
     let cycle = cycle.rem_euclid(1.0);
     let shaped_cycle = apply_cycle_shape(cycle, shape);
     match lfo_type {
@@ -721,13 +722,16 @@ fn lfo_wave_sample(cycle: f32, lfo_type: usize, shape: f32) -> f32 {
             }
         }
         4 => {
-            let slow = (shaped_cycle * std::f32::consts::TAU).sin();
-            let mid = ((shaped_cycle * 0.51 + 0.17) * std::f32::consts::TAU).sin();
-            let fast = ((shaped_cycle * 2.03 + 0.61) * std::f32::consts::TAU).sin();
-            let roughness = (shape.abs() * 0.75).clamp(0.0, 0.75);
-            let blend =
-                (slow * (1.0 - roughness)) + (mid * roughness * 0.6) + (fast * roughness * 0.4);
-            blend.clamp(-1.0, 1.0)
+            // Drift is intentionally soft and slowly moving, using smooth 1D
+            // value-noise layers over unwrapped phase time.
+            let roughness = ((shape + 1.0) * 0.5).clamp(0.0, 1.0);
+            let base = phase_time * (0.42 + roughness * 0.48);
+            let low = smooth_value_noise(base * 0.65, 7.13);
+            let mid = smooth_value_noise(base * 1.20, 19.71);
+            let hi = smooth_value_noise(base * 2.30, 43.09);
+            let blend = low * 0.72 + mid * 0.23 + hi * (0.05 + roughness * 0.12);
+            let neighbor = smooth_value_noise((base - 0.35) * 0.65, 7.13);
+            (blend * 0.78 + neighbor * 0.22).clamp(-1.0, 1.0)
         }
         _ => {
             let base = (shaped_cycle * std::f32::consts::TAU).sin();
@@ -735,6 +739,21 @@ fn lfo_wave_sample(cycle: f32, lfo_type: usize, shape: f32) -> f32 {
             (base + harmonic).clamp(-1.0, 1.0)
         }
     }
+}
+
+fn smooth_value_noise(t: f32, offset: f32) -> f32 {
+    let x = t + offset;
+    let i0 = x.floor() as i32;
+    let frac = x - i0 as f32;
+    let v0 = hash01(i0);
+    let v1 = hash01(i0 + 1);
+    let smooth = frac * frac * (3.0 - 2.0 * frac);
+    ((v0 + (v1 - v0) * smooth) * 2.0) - 1.0
+}
+
+fn hash01(index: i32) -> f32 {
+    let value = ((index as f32 + 1.0) * 12.9898).sin() * 43_758.547;
+    value - value.floor()
 }
 
 fn apply_cycle_shape(cycle: f32, shape: f32) -> f32 {
