@@ -102,7 +102,7 @@ Green channel gain multiplier.
 ### Param `gain_b`
 Blue channel gain multiplier.
 ### Param `alpha_mul`
-Alpha channel multiplier.
+Opacity/energy multiplier applied to the transformed output (alpha and visible color).
 
 ## Node `tex.level`
 Performs level remapping and gamma shaping on input textures.

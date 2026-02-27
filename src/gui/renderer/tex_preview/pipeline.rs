@@ -284,9 +284,9 @@ fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     let gain_b = u_op.p0.w;
     let alpha_mul = u_op.p1.x;
     let rgb = vec3<f32>(
-        clamp(src.r * gain_r * brightness, 0.0, 1.0),
-        clamp(src.g * gain_g * brightness, 0.0, 1.0),
-        clamp(src.b * gain_b * brightness, 0.0, 1.0)
+        clamp(src.r * gain_r * brightness * alpha_mul, 0.0, 1.0),
+        clamp(src.g * gain_g * brightness * alpha_mul, 0.0, 1.0),
+        clamp(src.b * gain_b * brightness * alpha_mul, 0.0, 1.0)
     );
     let a = clamp(src.a * alpha_mul, 0.0, 1.0);
     return vec4<f32>(rgb, a);
@@ -318,9 +318,9 @@ fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) ->
     let gain_g = transform.z;
     let gain_b = transform.w;
     let rgb = vec3<f32>(
-        clamp(src.r * gain_r * brightness, 0.0, 1.0),
-        clamp(src.g * gain_g * brightness, 0.0, 1.0),
-        clamp(src.b * gain_b * brightness, 0.0, 1.0)
+        clamp(src.r * gain_r * brightness * alpha_mul, 0.0, 1.0),
+        clamp(src.g * gain_g * brightness * alpha_mul, 0.0, 1.0),
+        clamp(src.b * gain_b * brightness * alpha_mul, 0.0, 1.0)
     );
     let a = clamp(src.a * alpha_mul, 0.0, 1.0);
     return vec4<f32>(rgb, a);

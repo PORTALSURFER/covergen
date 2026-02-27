@@ -9,7 +9,7 @@ This directory contains ready-to-load GUI project graphs.
     1. `tex.circle` produces the moving live shape.
     2. `tex.feedback` reads prior history (one-frame delayed).
     3. `tex.blend` composites live circle over prior history.
-    4. `tex.transform_2d` fades the composite via `alpha_mul`.
+    4. `tex.transform_2d` fades the composite via `alpha_mul` (opacity/energy).
     5. `tex.feedback.accumulation_tex` is bound to `tex.transform_2d` output to store the faded result for the next frame.
 
 ## Load In GUI

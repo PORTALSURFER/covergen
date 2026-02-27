@@ -180,7 +180,7 @@
         },
         {
           "key": "alpha_mul",
-          "value": 0.93,
+          "value": 0.97,
           "signal_source": null,
           "texture_source": null
         }
