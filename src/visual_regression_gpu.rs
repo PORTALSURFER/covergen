@@ -11,6 +11,7 @@ use super::node::GraphTimeInput;
 use super::runtime_config::V2Profile;
 use super::runtime_gpu::render_graph_luma_gpu;
 use super::runtime_test_support::finalize_luma_for_output_for_test;
+use super::test_gpu_env::should_skip_gpu_adapter_probe;
 use super::visual_regression_fixtures as fixtures;
 use crate::gpu_render::GpuLayerRenderer;
 
@@ -180,6 +181,9 @@ fn try_create_hardware_gpu_renderer(
     width: u32,
     height: u32,
 ) -> Result<Option<GpuLayerRenderer>, Box<dyn Error>> {
+    if should_skip_gpu_adapter_probe() {
+        return Ok(None);
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

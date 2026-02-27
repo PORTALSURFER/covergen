@@ -39,6 +39,8 @@ mod sop;
 mod telemetry;
 mod temporal;
 #[cfg(test)]
+mod test_gpu_env;
+#[cfg(test)]
 mod visual_regression;
 #[cfg(test)]
 mod visual_regression_fixtures;

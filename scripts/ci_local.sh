@@ -34,6 +34,18 @@ is_truthy() {
   esac
 }
 
+is_linux_host() {
+  [[ "$(uname -s 2>/dev/null)" == "Linux" ]]
+}
+
+missing_linux_dri() {
+  is_linux_host && [[ ! -d "/dev/dri" ]]
+}
+
+missing_linux_display() {
+  is_linux_host && [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]
+}
+
 allow_missing_gpu=0
 if [[ $# -eq 0 ]]; then
   mode="validate"
@@ -119,32 +131,47 @@ echo "[ci_local] gpu animation confidence regression"
 cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available
 
 echo "[ci_local] benchmark thresholds (${mode}) for tier=${tier}"
-bench_log="$(mktemp)"
-if scripts/bench/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${bench_log}"; then
-  rm -f "${bench_log}"
+if [[ "${allow_missing_gpu}" -eq 1 ]] && missing_linux_dri; then
+  echo "[ci_local] warning: skipping tier benchmark threshold enforcement in no-arg mode because no /dev/dri hardware GPU device was detected"
+  echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host for authoritative benchmark gating"
 else
-  if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter" "${bench_log}"; then
-    echo "[ci_local] warning: skipping tier benchmark threshold enforcement in no-arg mode because no hardware GPU was detected"
-    echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host for authoritative benchmark gating"
+  bench_log="$(mktemp)"
+  if scripts/bench/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${bench_log}"; then
     rm -f "${bench_log}"
   else
-    rm -f "${bench_log}"
-    exit 1
+    if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter" "${bench_log}"; then
+      echo "[ci_local] warning: skipping tier benchmark threshold enforcement in no-arg mode because no hardware GPU was detected"
+      echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host for authoritative benchmark gating"
+      rm -f "${bench_log}"
+    else
+      rm -f "${bench_log}"
+      exit 1
+    fi
   fi
 fi
 
 echo "[ci_local] gui interaction thresholds (${mode}) for tier=${tier}"
-gui_log="$(mktemp)"
-if scripts/gui/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${gui_log}"; then
-  rm -f "${gui_log}"
+if [[ "${allow_missing_gpu}" -eq 1 ]] && (missing_linux_dri || missing_linux_display); then
+  if missing_linux_dri; then
+    echo "[ci_local] warning: skipping gui interaction threshold enforcement in no-arg mode because no /dev/dri hardware GPU device was detected"
+  fi
+  if missing_linux_display; then
+    echo "[ci_local] warning: skipping gui interaction threshold enforcement in no-arg mode because no desktop display was detected"
+  fi
+  echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host with desktop display for authoritative gui threshold gating"
 else
-  if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter|WAYLAND_DISPLAY|nor DISPLAY is set" "${gui_log}"; then
-    echo "[ci_local] warning: skipping gui interaction threshold enforcement in no-arg mode because no hardware GPU or display was detected"
-    echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host with desktop display for authoritative gui threshold gating"
+  gui_log="$(mktemp)"
+  if scripts/gui/tier_gate.sh "${mode}" "${tier}" 2>&1 | tee "${gui_log}"; then
     rm -f "${gui_log}"
   else
-    rm -f "${gui_log}"
-    exit 1
+    if [[ "${allow_missing_gpu}" -eq 1 ]] && rg -qi "requires a hardware GPU|software adapter|WAYLAND_DISPLAY|nor DISPLAY is set" "${gui_log}"; then
+      echo "[ci_local] warning: skipping gui interaction threshold enforcement in no-arg mode because no hardware GPU or display was detected"
+      echo "[ci_local] warning: run 'scripts/ci_local.sh validate <tier>' on a hardware tier host with desktop display for authoritative gui threshold gating"
+      rm -f "${gui_log}"
+    else
+      rm -f "${gui_log}"
+      exit 1
+    fi
   fi
 fi
 

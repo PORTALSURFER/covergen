@@ -1,7 +1,11 @@
 use super::GpuGraphOps;
+use crate::test_gpu_env::should_skip_gpu_adapter_probe;
 
 #[test]
 fn graph_ops_shader_compiles_when_adapter_is_available() {
+    if should_skip_gpu_adapter_probe() {
+        return;
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
