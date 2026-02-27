@@ -1,6 +1,7 @@
 //! Shader/pipeline setup and geometry upload helpers for the GUI renderer.
 
 use std::error::Error;
+use std::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
@@ -108,6 +109,8 @@ pub(super) fn create_uniform_bind_group(
     device: &wgpu::Device,
     uniform_buffer: &wgpu::Buffer,
 ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
+    let min_binding_size = NonZeroU64::new(std::mem::size_of::<ViewportUniform>() as u64)
+        .expect("viewport uniform size must be non-zero");
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("gui-uniform-layout"),
         entries: &[wgpu::BindGroupLayoutEntry {
@@ -116,7 +119,7 @@ pub(super) fn create_uniform_bind_group(
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
-                min_binding_size: None,
+                min_binding_size: Some(min_binding_size),
             },
             count: None,
         }],
@@ -292,7 +295,9 @@ struct ViewportUniform {
     viewport_size: vec2<f32>,
     camera_pan: vec2<f32>,
     camera_zoom: f32,
-    _pad: vec3<f32>,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0)
