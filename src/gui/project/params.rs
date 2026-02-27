@@ -816,7 +816,7 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
         ProjectNodeKind::TexFeedback => vec![
             // Optional external accumulation-history binding for feedback.
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
-            // History carry amount used by accumulation (`src + history * feedback`).
+            // History output gain for delayed feedback (`history * feedback`).
             param("feedback", "feedback", 1.0, 0.0, 1.0, 0.01),
             // Clears this node's feedback history buffer.
             param_action_button(

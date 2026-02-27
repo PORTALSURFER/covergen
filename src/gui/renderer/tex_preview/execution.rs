@@ -223,14 +223,30 @@ impl TexPreviewRenderer {
             }
         };
         let planned_op = *render_ops.get(render_index)?;
+        let source_target_before = state.source_target;
         let prepared =
             self.prepare_targets_for_op(dispatch, planned_op, render_ops.len(), state)?;
-        self.encode_pass_for_op(dispatch.encoder, prepared, state.source_target)?;
-        state.source_target = if let Some(history_key) = prepared.feedback_history_key {
-            self.swap_feedback_history(history_key)
+        self.encode_pass_for_op(dispatch.encoder, prepared, source_target_before)?;
+        if Self::is_feedback_history_tap_op(prepared.planned_op) {
+            let history_key = prepared.feedback_history_key?;
+            let source_target = source_target_before?;
+            let history_write_target = self.feedback_history_write_target(history_key)?;
+            self.copy_target_to_target(
+                dispatch.encoder,
+                source_target,
+                history_write_target,
+                dispatch.width,
+                dispatch.height,
+            );
+            self.swap_feedback_history(history_key)?;
+            state.source_target = Some(prepared.target);
         } else {
-            Some(prepared.target)
-        };
+            state.source_target = if let Some(history_key) = prepared.feedback_history_key {
+                self.swap_feedback_history(history_key)
+            } else {
+                Some(prepared.target)
+            };
+        }
         state.rendered_count = state.rendered_count.saturating_add(1);
         Some(())
     }
@@ -259,7 +275,8 @@ impl TexPreviewRenderer {
         } else {
             self.choose_intermediate_target(&mut state.scratch_flip)
         };
-        if let Some(history_key) = feedback_history_key {
+        if feedback_history_key.is_some() && !Self::is_feedback_history_tap_op(planned_op) {
+            let history_key = feedback_history_key?;
             target = self.feedback_history_write_target(history_key)?;
         }
         self.materialize_blend_source_aliases_for_target(
@@ -516,6 +533,10 @@ impl TexPreviewRenderer {
             return PREVIEW_BG;
         };
         op_clear_color(runtime_op)
+    }
+
+    fn is_feedback_history_tap_op(op: PlannedRenderOp) -> bool {
+        matches!(op, PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }))
     }
 
     fn choose_intermediate_target(&self, scratch_flip: &mut bool) -> RenderTargetRef {
@@ -868,6 +889,44 @@ impl TexPreviewRenderer {
         );
     }
 
+    fn copy_target_to_target(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        src_target: RenderTargetRef,
+        dst_target: RenderTargetRef,
+        width: u32,
+        height: u32,
+    ) {
+        if src_target == dst_target {
+            return;
+        }
+        let Some(src_texture) = self.target_texture(src_target) else {
+            return;
+        };
+        let Some(dst_texture) = self.target_texture(dst_target) else {
+            return;
+        };
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: src_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: dst_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     fn ensure_blend_source_slot(
         &mut self,
         device: &wgpu::Device,
@@ -946,5 +1005,52 @@ fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
             alpha_clip: true, ..
         } => TRANSPARENT_BG,
         _ => PREVIEW_BG,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PlannedRenderOp, TexPreviewRenderer};
+    use crate::gui::runtime::{PostProcessCategory, TexRuntimeFeedbackHistoryBinding};
+    use crate::gui::tex_view::TexViewerOp;
+
+    #[test]
+    fn feedback_ops_use_history_tap_mode() {
+        let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+            mix: 1.0,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 11,
+            },
+        });
+        assert!(TexPreviewRenderer::is_feedback_history_tap_op(op));
+    }
+
+    #[test]
+    fn temporal_history_ops_except_feedback_keep_history_render_target_mode() {
+        let reaction = PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion {
+            diffusion_a: 1.0,
+            diffusion_b: 0.5,
+            feed: 0.06,
+            kill: 0.04,
+            dt: 1.0,
+            seed_mix: 0.25,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 22,
+            },
+        });
+        let post = PlannedRenderOp::Runtime(TexViewerOp::PostProcess {
+            category: PostProcessCategory::Temporal,
+            effect: 0.0,
+            amount: 0.5,
+            scale: 0.5,
+            threshold: 0.0,
+            speed: 0.0,
+            time: 1.0,
+            history: Some(TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 44,
+            }),
+        });
+        assert!(!TexPreviewRenderer::is_feedback_history_tap_op(reaction));
+        assert!(!TexPreviewRenderer::is_feedback_history_tap_op(post));
     }
 }

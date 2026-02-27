@@ -221,7 +221,7 @@ pub(crate) enum TexRuntimeOp {
         out_low: f32,
         out_high: f32,
     },
-    /// `tex.feedback` one-frame delayed feedback operation.
+    /// `tex.feedback` one-frame delayed history output operation.
     Feedback {
         mix: f32,
         history: TexRuntimeFeedbackHistoryBinding,

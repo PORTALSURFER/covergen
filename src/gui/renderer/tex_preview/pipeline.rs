@@ -336,25 +336,19 @@ fn fs_transform_fused(v: VertexOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
-    let src = textureSample(t_src, s_src, v.uv);
     let history = textureSample(t_feedback, s_feedback, v.uv);
     let feedback_amount = clamp(u_op.p0.x, 0.0, 1.0);
-    let src_pm = src.rgb * src.a;
+    // TD-style delayed feedback output: emit only prior-frame history and scale
+    // it by the feedback amount. The current input is written into history in
+    // the execution layer after this pass to become next frame's output.
     let history_pm = history.rgb * history.a;
-    // TD-style accumulation: inject the current source each frame, then carry
-    // scaled history forward. This means `feedback=1` preserves full history
-    // and requires external attenuation (for example transform alpha) to fade.
-    let out_a = clamp(src.a + history.a * feedback_amount, 0.0, 1.0);
+    let out_a = clamp(history.a * feedback_amount, 0.0, 1.0);
     let out_pm = clamp(
-        src_pm + history_pm * feedback_amount,
+        history_pm * feedback_amount,
         vec3<f32>(0.0),
         vec3<f32>(out_a)
     );
-    // Quantized RGBA8 feedback can leave residual tails at high mix values.
-    // Increase the fade floor as feedback approaches 1.0 so stale history
-    // converges to black instead of lingering as gray patches.
-    let tail_boost = smoothstep(0.75, 1.0, feedback_amount);
-    let fade_epsilon = mix(1.5 / 255.0, 6.0 / 255.0, tail_boost);
+    let fade_epsilon = 1.5 / 255.0;
     if (out_a <= fade_epsilon || max(max(out_pm.r, out_pm.g), out_pm.b) <= fade_epsilon) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
