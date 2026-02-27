@@ -12,6 +12,7 @@ use super::{GpuLayerRenderer, GraphFrameContext, GraphSubmitStats};
 impl GpuLayerRenderer {
     /// Start one frame-scoped graph execution context.
     pub(crate) fn begin_graph_frame(&mut self, label: &'static str) -> GraphFrameContext {
+        self.graph_ops.begin_frame();
         self.main_pass_timestamps.begin_frame();
         let encoder = self
             .device
@@ -25,10 +26,12 @@ impl GpuLayerRenderer {
 
     /// Submit one recorded graph frame and return submit count (0 or 1).
     pub(crate) fn submit_graph_frame(&mut self, mut frame: GraphFrameContext) -> GraphSubmitStats {
+        let bind_group_creates = self.graph_ops.frame_bind_group_creates();
         if frame.encoded_ops == 0 {
             return GraphSubmitStats {
                 submit_count: 0,
                 upload_bytes: frame.upload_bytes,
+                bind_group_creates,
             };
         }
         self.main_pass_timestamps
@@ -38,6 +41,7 @@ impl GpuLayerRenderer {
         GraphSubmitStats {
             submit_count: 1,
             upload_bytes: frame.upload_bytes,
+            bind_group_creates,
         }
     }
 

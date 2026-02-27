@@ -1,6 +1,9 @@
 //! GPU compute pipelines for V2 graph-native node operations.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
@@ -82,6 +85,42 @@ pub(super) struct DecodeBuffers<'a> {
     pub(super) dst: &'a wgpu::Buffer,
 }
 
+/// Cache key for graph-op bind groups that share the same storage bindings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct GraphBindGroupKey {
+    src0: usize,
+    src1: usize,
+    src2: usize,
+    dst: usize,
+}
+
+impl GraphBindGroupKey {
+    fn from_buffers(buffers: &GraphBuffers<'_>) -> Self {
+        Self {
+            src0: buffer_key(buffers.src0),
+            src1: buffer_key(buffers.src1),
+            src2: buffer_key(buffers.src2),
+            dst: buffer_key(buffers.dst),
+        }
+    }
+}
+
+/// Cache key for decode-pass bind groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct DecodeBindGroupKey {
+    src_u32: usize,
+    dst: usize,
+}
+
+impl DecodeBindGroupKey {
+    fn from_buffers(buffers: &DecodeBuffers<'_>) -> Self {
+        Self {
+            src_u32: buffer_key(buffers.src_u32),
+            dst: buffer_key(buffers.dst),
+        }
+    }
+}
+
 /// GPU dispatch helpers for graph-node operations over aliased buffers.
 #[derive(Debug)]
 pub(super) struct GpuGraphOps {
@@ -97,6 +136,9 @@ pub(super) struct GpuGraphOps {
     top_camera_pipeline: wgpu::ComputePipeline,
     tone_map_pipeline: wgpu::ComputePipeline,
     warp_pipeline: wgpu::ComputePipeline,
+    graph_bind_group_cache: RefCell<HashMap<GraphBindGroupKey, Arc<wgpu::BindGroup>>>,
+    decode_bind_group_cache: RefCell<HashMap<DecodeBindGroupKey, Arc<wgpu::BindGroup>>>,
+    frame_bind_group_creates: Cell<u64>,
 }
 
 impl GpuGraphOps {
@@ -154,7 +196,22 @@ impl GpuGraphOps {
             ),
             tone_map_pipeline: create_pipeline(device, &graph_layout, &shader_module, "tone_map"),
             warp_pipeline: create_pipeline(device, &graph_layout, &shader_module, "warp_luma"),
+            graph_bind_group_cache: RefCell::new(HashMap::with_capacity(64)),
+            decode_bind_group_cache: RefCell::new(HashMap::with_capacity(16)),
+            frame_bind_group_creates: Cell::new(0),
         })
+    }
+
+    /// Reset frame-scoped bind-group caches before a new graph frame begins.
+    pub(super) fn begin_frame(&self) {
+        self.graph_bind_group_cache.borrow_mut().clear();
+        self.decode_bind_group_cache.borrow_mut().clear();
+        self.frame_bind_group_creates.set(0);
+    }
+
+    /// Return the number of bind groups created in the current graph frame.
+    pub(super) fn frame_bind_group_creates(&self) -> u64 {
+        self.frame_bind_group_creates.get()
     }
 
     pub(super) fn encode_copy(
@@ -333,32 +390,7 @@ impl GpuGraphOps {
     ) -> u64 {
         let uploaded = std::mem::size_of::<GraphOpUniforms>() as u64;
         queue.write_buffer(&self.graph_uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("v2 graph op bind group"),
-            layout: &self.graph_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffers.src0.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: buffers.src1.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: buffers.src2.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: buffers.dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.graph_uniform_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = self.cached_graph_bind_group(device, buffers);
 
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("v2 graph op pass"),
@@ -384,7 +416,71 @@ impl GpuGraphOps {
             0,
             bytemuck::bytes_of(&uniforms),
         );
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = self.cached_decode_bind_group(device, buffers);
+
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("v2 graph decode pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.decode_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(uniforms.width.div_ceil(16), uniforms.height.div_ceil(16), 1);
+        uploaded
+    }
+
+    fn cached_graph_bind_group(
+        &self,
+        device: &wgpu::Device,
+        buffers: GraphBuffers<'_>,
+    ) -> Arc<wgpu::BindGroup> {
+        let key = GraphBindGroupKey::from_buffers(&buffers);
+        let mut cache = self.graph_bind_group_cache.borrow_mut();
+        if let Some(bind_group) = cache.get(&key) {
+            return bind_group.clone();
+        }
+        let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("v2 graph op bind group"),
+            layout: &self.graph_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffers.src0.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: buffers.src1.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: buffers.src2.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: buffers.dst.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.graph_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        }));
+        self.frame_bind_group_creates
+            .set(self.frame_bind_group_creates.get().saturating_add(1));
+        cache.insert(key, bind_group.clone());
+        bind_group
+    }
+
+    fn cached_decode_bind_group(
+        &self,
+        device: &wgpu::Device,
+        buffers: DecodeBuffers<'_>,
+    ) -> Arc<wgpu::BindGroup> {
+        let key = DecodeBindGroupKey::from_buffers(&buffers);
+        let mut cache = self.decode_bind_group_cache.borrow_mut();
+        if let Some(bind_group) = cache.get(&key) {
+            return bind_group.clone();
+        }
+        let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("v2 graph decode bind group"),
             layout: &self.decode_bind_group_layout,
             entries: &[
@@ -401,17 +497,16 @@ impl GpuGraphOps {
                     resource: self.decode_uniform_buffer.as_entire_binding(),
                 },
             ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("v2 graph decode pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&self.decode_pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(uniforms.width.div_ceil(16), uniforms.height.div_ceil(16), 1);
-        uploaded
+        }));
+        self.frame_bind_group_creates
+            .set(self.frame_bind_group_creates.get().saturating_add(1));
+        cache.insert(key, bind_group.clone());
+        bind_group
     }
+}
+
+fn buffer_key(buffer: &wgpu::Buffer) -> usize {
+    std::ptr::from_ref(buffer).cast::<()>() as usize
 }
 
 #[cfg(test)]

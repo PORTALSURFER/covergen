@@ -67,8 +67,12 @@ pub(crate) struct GraphFrameContext {
 /// Submission metrics for one frame-scoped graph execution.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct GraphSubmitStats {
+    /// Number of queue submissions emitted for this frame.
     pub(crate) submit_count: u32,
+    /// Total CPU->GPU uniform upload bytes recorded while encoding.
     pub(crate) upload_bytes: u64,
+    /// Number of bind groups created while encoding this frame.
+    pub(crate) bind_group_creates: u64,
 }
 
 impl GpuLayerRenderer {

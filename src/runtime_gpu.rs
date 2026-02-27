@@ -220,6 +220,11 @@ pub(crate) fn render_graph_luma_gpu(
         submit.submit_count as u64,
     );
     telemetry::record_counter_u64("v2.gpu.graph.upload_bytes_per_frame", submit.upload_bytes);
+    telemetry::record_counter_u64(
+        "v2.gpu.graph.bind_group_creates_per_frame",
+        submit.bind_group_creates,
+    );
+    telemetry::record_counter_u64("bind_group_creates_per_frame", submit.bind_group_creates);
     telemetry::record_timing("v2.gpu.final_compositor", compositor_start.elapsed());
 
     Ok(())
