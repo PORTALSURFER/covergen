@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) const NODE_WIDTH: i32 = 208;
 /// Height of one graph node card in the editor canvas.
 pub(crate) const NODE_HEIGHT: i32 = 44;
+/// Shared graph grid pitch used for node placement and wire routing.
+pub(crate) const NODE_GRID_PITCH: i32 = 4;
 /// Maximum allowed length for one parameter label.
 ///
 /// New parameter labels should fit in this budget to keep row naming
@@ -47,6 +49,17 @@ const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
 const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
 const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
+
+/// Snap one graph-space scalar position to the shared node grid.
+pub(crate) fn snap_to_node_grid(value: i32) -> i32 {
+    let base = value.div_euclid(NODE_GRID_PITCH) * NODE_GRID_PITCH;
+    let next = base + NODE_GRID_PITCH;
+    if (value - base).abs() <= (next - value).abs() {
+        base
+    } else {
+        next
+    }
+}
 
 /// Arc style options exposed by the `buf.circle_nurbs` node.
 const BUF_CIRCLE_ARC_STYLE_OPTIONS: [NodeParamOption; 2] = [

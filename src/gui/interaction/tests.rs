@@ -755,10 +755,10 @@ fn dragging_selected_nodes_moves_selection_as_one_group() {
     assert!(handle_drag_input(&drag, &mut project, 420, 480, &mut state));
     let first_node = project.node(first).expect("first node should exist");
     let second_node = project.node(second).expect("second node should exist");
-    assert_eq!(first_node.x(), 90);
-    assert_eq!(first_node.y(), 130);
-    assert_eq!(second_node.x(), 230);
-    assert_eq!(second_node.y(), 170);
+    assert_eq!(first_node.x(), 88);
+    assert_eq!(first_node.y(), 128);
+    assert_eq!(second_node.x(), 228);
+    assert_eq!(second_node.y(), 168);
 }
 
 #[test]
@@ -1174,7 +1174,7 @@ fn add_menu_category_then_secondary_picker_spawns_node() {
             break;
         }
     }
-    assert_eq!(spawned_lfo, Some((36, 35)));
+    assert_eq!(spawned_lfo, Some((36, 36)));
     assert!(!state.menu.open);
 }
 

@@ -615,9 +615,8 @@ pub(super) fn clamp_node_position(
     _panel_height: usize,
     _node_height: i32,
 ) -> (i32, i32) {
-    // Keep the call sites stable for now, but stop clamping node coordinates:
-    // the graph canvas is intentionally unbounded.
-    (x, y)
+    // Keep the graph canvas unbounded while enforcing deterministic grid snap.
+    (snap_to_node_grid(x), snap_to_node_grid(y))
 }
 
 fn node_card_height_for_param_count(expanded: bool, param_count: usize) -> i32 {

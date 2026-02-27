@@ -195,8 +195,8 @@ pub(crate) fn output_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
     if !node.kind().has_output_pin() {
         return None;
     }
-    let x = node.x() + NODE_WIDTH - 1;
-    let y = node.y() + (node.card_height() / 2);
+    let x = snap_to_node_grid(node.x() + NODE_WIDTH);
+    let y = snap_to_node_grid(node.y() + (node.card_height() / 2));
     Some((x, y))
 }
 
@@ -205,8 +205,8 @@ pub(crate) fn input_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
     if !node.kind().has_input_pin() {
         return None;
     }
-    let x = node.x();
-    let y = node.y() + (node.card_height() / 2);
+    let x = snap_to_node_grid(node.x());
+    let y = snap_to_node_grid(node.y() + (node.card_height() / 2));
     Some((x, y))
 }
 

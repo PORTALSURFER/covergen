@@ -1,50 +1,124 @@
-//! Orthogonal path routing for parameter wires in the graph scene.
+//! Grid-aligned octilinear routing for graph wires.
 //!
-//! The router builds a coarse grid around endpoints and node obstacles, then
-//! runs a bounded BFS to find a path that does not cross blocked cells.
+//! The router operates on an integer grid and uses A* with direction-aware
+//! state so bend penalties are deterministic. Node rectangles are treated as
+//! hard obstacles with clearance inflation, while endpoint corridors are carved
+//! to guarantee stable entry/exit near pin boundaries.
+
 use crate::gui::geometry::Rect;
-use std::collections::VecDeque;
-const GRID_STEP_PX: i32 = 14;
-const ROUTE_PADDING_PX: i32 = GRID_STEP_PX * 4;
-const OBSTACLE_MARGIN_PX: i32 = 8;
-const MAX_GRID_CELLS: usize = 24_000;
-/// One node obstacle in panel coordinates for pathfinding.
+use crate::gui::project::NODE_GRID_PITCH;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
+const GRID_PITCH_PX: i32 = NODE_GRID_PITCH;
+const ROUTE_PADDING_CELLS: i32 = 6;
+const OBSTACLE_CLEARANCE_CELLS: i32 = 2;
+const ENDPOINT_CORRIDOR_CELLS: i32 = 3;
+const MAX_GRID_CELLS: usize = 48_000;
+
+const STEP_CARDINAL_COST: i32 = 10;
+const STEP_DIAGONAL_COST: i32 = 14;
+const BEND_45_COST: i32 = 50;
+const BEND_90_COST: i32 = 80;
+const BEND_135_COST: i32 = 120;
+const BEND_180_COST: i32 = 160;
+
+const START_DIR_INDEX: usize = 8;
+const DIR_STATE_COUNT: usize = 9;
+
+/// One node obstacle in panel coordinates.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeObstacle {
     pub(crate) rect: Rect,
 }
 
+/// One endpoint routing direction used for pin corridor carving.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RouteDirection {
+    East,
+    NorthEast,
+    North,
+    NorthWest,
+    West,
+    SouthWest,
+    South,
+    SouthEast,
+}
+
+impl RouteDirection {
+    const fn dx(self) -> i32 {
+        match self {
+            Self::East | Self::NorthEast | Self::SouthEast => 1,
+            Self::West | Self::NorthWest | Self::SouthWest => -1,
+            Self::North | Self::South => 0,
+        }
+    }
+
+    const fn dy(self) -> i32 {
+        match self {
+            Self::South | Self::SouthEast | Self::SouthWest => 1,
+            Self::North | Self::NorthEast | Self::NorthWest => -1,
+            Self::East | Self::West => 0,
+        }
+    }
+
+    const fn is_diagonal(self) -> bool {
+        self.dx() != 0 && self.dy() != 0
+    }
+
+    const fn step_cost(self) -> i32 {
+        if self.is_diagonal() {
+            STEP_DIAGONAL_COST
+        } else {
+            STEP_CARDINAL_COST
+        }
+    }
+}
+
+const ROUTE_DIRECTIONS: [RouteDirection; 8] = [
+    RouteDirection::East,
+    RouteDirection::NorthEast,
+    RouteDirection::North,
+    RouteDirection::NorthWest,
+    RouteDirection::West,
+    RouteDirection::SouthWest,
+    RouteDirection::South,
+    RouteDirection::SouthEast,
+];
+
+/// One routed endpoint with pin direction and corridor carving hint.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RouteEndpoint {
+    pub(crate) point: (i32, i32),
+    pub(crate) corridor_dir: RouteDirection,
+}
+
 /// Precomputed obstacle data reused across multiple route queries.
-///
-/// This cache stores inflated obstacle rectangles and, when possible, one
-/// rasterized occupancy grid that can be reused for many BFS path searches.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RouteObstacleMap {
     blocked_rects: Vec<Rect>,
-    raster: Option<Grid>,
 }
 
 impl RouteObstacleMap {
     /// Build one reusable obstacle map from panel-space node obstacles.
     pub(crate) fn from_obstacles(obstacles: &[NodeObstacle]) -> Self {
-        let blocked_rects = collect_blocked_rects(obstacles);
-        let raster = Grid::build_from_blocked(blocked_rects.as_slice());
         Self {
-            blocked_rects,
-            raster,
+            blocked_rects: collect_blocked_rects(obstacles),
         }
     }
 }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
     x: i32,
     y: i32,
 }
 
-/// Build an obstacle-avoiding, orthogonal path between two panel points.
+/// Build an obstacle-avoiding octilinear path between two panel points.
 ///
-/// The returned list includes `start` and `end`. When no route is found within
-/// grid limits, the router falls back to a best-effort orthogonal detour.
+/// This compatibility wrapper keeps signal-link call sites unchanged and
+/// assumes both endpoints carve east-facing pin corridors.
+#[cfg(test)]
 pub(crate) fn route_param_path(
     start: (i32, i32),
     end: (i32, i32),
@@ -54,55 +128,81 @@ pub(crate) fn route_param_path(
     route_param_path_with_map(start, end, &obstacle_map)
 }
 
-/// Build one obstacle-avoiding orthogonal path using a precomputed map.
+/// Build one obstacle-avoiding octilinear path using a precomputed map.
+#[cfg(test)]
 pub(crate) fn route_param_path_with_map(
     start: (i32, i32),
     end: (i32, i32),
     obstacle_map: &RouteObstacleMap,
 ) -> Vec<(i32, i32)> {
-    if obstacle_map.blocked_rects.is_empty() {
-        return vec![start, end];
+    route_wire_path_with_map(
+        RouteEndpoint {
+            point: start,
+            corridor_dir: RouteDirection::East,
+        },
+        RouteEndpoint {
+            point: end,
+            corridor_dir: RouteDirection::East,
+        },
+        obstacle_map,
+    )
+}
+
+/// Build one obstacle-avoiding octilinear path between two directed endpoints.
+#[cfg(test)]
+pub(crate) fn route_wire_path(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacles: &[NodeObstacle],
+) -> Vec<(i32, i32)> {
+    let obstacle_map = RouteObstacleMap::from_obstacles(obstacles);
+    route_wire_path_with_map(start, end, &obstacle_map)
+}
+
+/// Build one obstacle-avoiding octilinear path with a precomputed obstacle map.
+pub(crate) fn route_wire_path_with_map(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+) -> Vec<(i32, i32)> {
+    let start_point = (snap_to_grid(start.point.0), snap_to_grid(start.point.1));
+    let end_point = (snap_to_grid(end.point.0), snap_to_grid(end.point.1));
+    if start_point == end_point {
+        return vec![start_point];
     }
-    let cells = obstacle_map
-        .raster
-        .as_ref()
-        .and_then(|grid| grid.find_path(start, end));
-    let Some(cells) = cells else {
-        let blocked = filtered_blocked_rects(obstacle_map.blocked_rects.as_slice(), start, end);
-        if blocked.is_empty() {
-            return vec![start, end];
-        }
-        return fallback_route(start, end, blocked.as_slice());
+
+    let Some(mut grid) = SearchGrid::build(
+        obstacle_map.blocked_rects.as_slice(),
+        start_point,
+        end_point,
+    ) else {
+        return fallback_octilinear(start_point, end_point);
     };
-    let mut points = Vec::with_capacity(cells.len() + 2);
-    points.push(start);
-    let Some(grid) = obstacle_map.raster.as_ref() else {
-        return vec![start, end];
+
+    grid.carve_corridor(start);
+    grid.carve_corridor(end);
+
+    let Some(cells) = grid.find_path(start_point, end_point) else {
+        return fallback_octilinear(start_point, end_point);
     };
+
+    let mut points = Vec::with_capacity(cells.len());
     for cell in cells {
         points.push(grid.cell_point(cell));
     }
-    points.push(end);
     dedupe_points(&mut points);
-    simplify_collinear(&mut points);
-    if points.len() < 2 {
-        return vec![start, end];
+    collapse_collinear_octilinear(&mut points);
+    if points.is_empty() {
+        return vec![start_point, end_point];
     }
     points
 }
 
-fn filtered_blocked_rects(blocked_rects: &[Rect], start: (i32, i32), end: (i32, i32)) -> Vec<Rect> {
-    blocked_rects
-        .iter()
-        .copied()
-        .filter(|rect| !rect.contains(start.0, start.1) && !rect.contains(end.0, end.1))
-        .collect()
-}
-
 fn collect_blocked_rects(obstacles: &[NodeObstacle]) -> Vec<Rect> {
     let mut blocked = Vec::new();
+    let pad = OBSTACLE_CLEARANCE_CELLS * GRID_PITCH_PX;
     for obstacle in obstacles {
-        blocked.push(inflate_rect(obstacle.rect, OBSTACLE_MARGIN_PX));
+        blocked.push(inflate_rect(obstacle.rect, pad));
     }
     blocked
 }
@@ -116,93 +216,26 @@ fn inflate_rect(rect: Rect, pad: i32) -> Rect {
     )
 }
 
-fn fallback_route(start: (i32, i32), end: (i32, i32), blocked: &[Rect]) -> Vec<(i32, i32)> {
-    let horizontal_first = vec![start, (end.0, start.1), end];
-    if path_clear(horizontal_first.as_slice(), blocked) {
-        return horizontal_first;
+fn fallback_octilinear(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
+    if start == end {
+        return vec![start];
     }
-    let vertical_first = vec![start, (start.0, end.1), end];
-    if path_clear(vertical_first.as_slice(), blocked) {
-        return vertical_first;
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    let diag_steps = dx.abs().min(dy.abs());
+    if diag_steps == 0 {
+        return vec![start, end];
     }
-
-    let mut min_y = start.1.min(end.1);
-    let mut max_y = start.1.max(end.1);
-    for rect in blocked {
-        min_y = min_y.min(rect.y);
-        max_y = max_y.max(rect.y + rect.h);
+    let diag = (
+        start.0 + dx.signum() * diag_steps,
+        start.1 + dy.signum() * diag_steps,
+    );
+    let mut out = vec![start, diag];
+    if diag != end {
+        out.push(end);
     }
-    let up_y = min_y - ROUTE_PADDING_PX;
-    let down_y = max_y + ROUTE_PADDING_PX;
-    let up = vec![start, (start.0, up_y), (end.0, up_y), end];
-    if path_clear(up.as_slice(), blocked) {
-        return up;
-    }
-    let down = vec![start, (start.0, down_y), (end.0, down_y), end];
-    if path_clear(down.as_slice(), blocked) {
-        return down;
-    }
-    for step in 1..=16 {
-        let dy = ROUTE_PADDING_PX + step * GRID_STEP_PX;
-        let upper = min_y - dy;
-        let lower = max_y + dy;
-        let up_lane = vec![start, (start.0, upper), (end.0, upper), end];
-        if path_clear(up_lane.as_slice(), blocked) {
-            return up_lane;
-        }
-        let down_lane = vec![start, (start.0, lower), (end.0, lower), end];
-        if path_clear(down_lane.as_slice(), blocked) {
-            return down_lane;
-        }
-    }
-    vec![start, end]
-}
-
-fn path_clear(points: &[(i32, i32)], blocked: &[Rect]) -> bool {
-    if points.len() < 2 {
-        return true;
-    }
-    for segment in points.windows(2) {
-        if axis_segment_hits_any(segment[0], segment[1], blocked) {
-            return false;
-        }
-    }
-    true
-}
-
-fn axis_segment_hits_any(a: (i32, i32), b: (i32, i32), blocked: &[Rect]) -> bool {
-    for rect in blocked {
-        if axis_segment_hits_rect(a, b, *rect) {
-            return true;
-        }
-    }
-    false
-}
-
-fn axis_segment_hits_rect(a: (i32, i32), b: (i32, i32), rect: Rect) -> bool {
-    let (x0, y0) = a;
-    let (x1, y1) = b;
-    let rx0 = rect.x;
-    let ry0 = rect.y;
-    let rx1 = rect.x + rect.w;
-    let ry1 = rect.y + rect.h;
-    if x0 == x1 {
-        if x0 < rx0 || x0 > rx1 {
-            return false;
-        }
-        let seg_min = y0.min(y1);
-        let seg_max = y0.max(y1);
-        return seg_max >= ry0 && seg_min <= ry1;
-    }
-    if y0 == y1 {
-        if y0 < ry0 || y0 > ry1 {
-            return false;
-        }
-        let seg_min = x0.min(x1);
-        let seg_max = x0.max(x1);
-        return seg_max >= rx0 && seg_min <= rx1;
-    }
-    false
+    collapse_collinear_octilinear(&mut out);
+    out
 }
 
 fn dedupe_points(points: &mut Vec<(i32, i32)>) {
@@ -217,13 +250,10 @@ fn dedupe_points(points: &mut Vec<(i32, i32)>) {
         points[write] = points[read];
         write += 1;
     }
-    for index in write..points.len() {
-        points[index] = points[write - 1];
-    }
     points.truncate(write);
 }
 
-fn simplify_collinear(points: &mut Vec<(i32, i32)>) {
+fn collapse_collinear_octilinear(points: &mut Vec<(i32, i32)>) {
     if points.len() < 3 {
         return;
     }
@@ -232,24 +262,24 @@ fn simplify_collinear(points: &mut Vec<(i32, i32)>) {
         let prev = points[write - 1];
         let curr = points[read];
         let next = points[read + 1];
-        let vertical = prev.0 == curr.0 && curr.0 == next.0;
-        let horizontal = prev.1 == curr.1 && curr.1 == next.1;
-        if vertical || horizontal {
+        let prev_dir = unit_dir(prev, curr);
+        let next_dir = unit_dir(curr, next);
+        if prev_dir == next_dir {
             continue;
         }
         points[write] = curr;
         write += 1;
     }
     points[write] = points[points.len() - 1];
-    write += 1;
-    for index in write..points.len() {
-        points[index] = points[write - 1];
-    }
-    points.truncate(write);
+    points.truncate(write + 1);
+}
+
+fn unit_dir(a: (i32, i32), b: (i32, i32)) -> (i32, i32) {
+    ((b.0 - a.0).signum(), (b.1 - a.1).signum())
 }
 
 #[derive(Clone, Debug)]
-struct Grid {
+struct SearchGrid {
     origin_x: i32,
     origin_y: i32,
     cols: i32,
@@ -257,123 +287,180 @@ struct Grid {
     blocked: Vec<bool>,
 }
 
-impl Grid {
-    fn build_from_blocked(blocked: &[Rect]) -> Option<Self> {
-        if blocked.is_empty() {
-            return None;
-        }
-        let mut min_x = blocked[0].x;
-        let mut max_x = blocked[0].x + blocked[0].w;
-        let mut min_y = blocked[0].y;
-        let mut max_y = blocked[0].y + blocked[0].h;
-        for rect in blocked {
+impl SearchGrid {
+    fn build(blocked_rects: &[Rect], start: (i32, i32), end: (i32, i32)) -> Option<Self> {
+        let mut min_x = start.0.min(end.0);
+        let mut min_y = start.1.min(end.1);
+        let mut max_x = start.0.max(end.0);
+        let mut max_y = start.1.max(end.1);
+        for rect in blocked_rects {
             min_x = min_x.min(rect.x);
             min_y = min_y.min(rect.y);
             max_x = max_x.max(rect.x + rect.w);
             max_y = max_y.max(rect.y + rect.h);
         }
-        min_x = floor_to_step(min_x - ROUTE_PADDING_PX, GRID_STEP_PX);
-        min_y = floor_to_step(min_y - ROUTE_PADDING_PX, GRID_STEP_PX);
-        max_x = ceil_to_step(max_x + ROUTE_PADDING_PX, GRID_STEP_PX);
-        max_y = ceil_to_step(max_y + ROUTE_PADDING_PX, GRID_STEP_PX);
-        let cols = ((max_x - min_x) / GRID_STEP_PX) + 1;
-        let rows = ((max_y - min_y) / GRID_STEP_PX) + 1;
-        let len = cols.saturating_mul(rows) as usize;
-        if cols <= 0 || rows <= 0 || len > MAX_GRID_CELLS {
+        let pad = ROUTE_PADDING_CELLS * GRID_PITCH_PX;
+        min_x = floor_to_step(min_x - pad, GRID_PITCH_PX);
+        min_y = floor_to_step(min_y - pad, GRID_PITCH_PX);
+        max_x = ceil_to_step(max_x + pad, GRID_PITCH_PX);
+        max_y = ceil_to_step(max_y + pad, GRID_PITCH_PX);
+        let cols = ((max_x - min_x) / GRID_PITCH_PX) + 1;
+        let rows = ((max_y - min_y) / GRID_PITCH_PX) + 1;
+        if cols <= 0 || rows <= 0 {
             return None;
         }
-
-        let mut grid = Self {
+        let len = cols.saturating_mul(rows) as usize;
+        if len > MAX_GRID_CELLS {
+            return None;
+        }
+        let mut blocked = vec![false; len];
+        for y in 0..rows {
+            for x in 0..cols {
+                let index = (y * cols + x) as usize;
+                let point = (min_x + x * GRID_PITCH_PX, min_y + y * GRID_PITCH_PX);
+                blocked[index] = blocked_rects
+                    .iter()
+                    .any(|rect| rect.contains(point.0, point.1));
+            }
+        }
+        Some(Self {
             origin_x: min_x,
             origin_y: min_y,
             cols,
             rows,
-            blocked: vec![false; len],
-        };
-        for y in 0..rows {
-            for x in 0..cols {
-                let cell = Cell { x, y };
-                let p = grid.cell_point(cell);
-                let index = grid.cell_index(cell)?;
-                grid.blocked[index] = blocked.iter().any(|rect| rect.contains(p.0, p.1));
+            blocked,
+        })
+    }
+
+    fn carve_corridor(&mut self, endpoint: RouteEndpoint) {
+        let start = (
+            snap_to_grid(endpoint.point.0),
+            snap_to_grid(endpoint.point.1),
+        );
+        for step in 0..=ENDPOINT_CORRIDOR_CELLS {
+            let px = start.0 + endpoint.corridor_dir.dx() * step * GRID_PITCH_PX;
+            let py = start.1 + endpoint.corridor_dir.dy() * step * GRID_PITCH_PX;
+            let cell = self.point_to_cell((px, py));
+            if let Some(index) = self.cell_index(cell) {
+                self.blocked[index] = false;
             }
         }
-        Some(grid)
     }
 
     fn find_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<Cell>> {
-        if !self.contains_point(start) || !self.contains_point(end) {
-            return None;
-        }
-        let len = self.blocked.len();
-        let mut visited = vec![false; len];
-        let mut parent = vec![usize::MAX; len];
         let start_cell = self.point_to_cell(start);
         let end_cell = self.point_to_cell(end);
-        let start = self.cell_index(start_cell)?;
-        let end = self.cell_index(end_cell)?;
-        let mut queue = VecDeque::new();
-        queue.push_back(start_cell);
-        visited[start] = true;
+        let start_cell_index = self.cell_index(start_cell)?;
+        let end_cell_index = self.cell_index(end_cell)?;
 
-        while let Some(cell) = queue.pop_front() {
-            let index = self.cell_index(cell)?;
-            if index == end {
+        let state_len = self.blocked.len().saturating_mul(DIR_STATE_COUNT);
+        let mut best_cost = vec![i32::MAX; state_len];
+        let mut parent = vec![usize::MAX; state_len];
+        let start_key = state_key(start_cell_index, START_DIR_INDEX);
+        best_cost[start_key] = 0;
+
+        let mut open = BinaryHeap::new();
+        let h0 = octile_heuristic(start_cell, end_cell);
+        open.push((Reverse(h0), Reverse(0), start_key));
+
+        let mut goal_key = None;
+        while let Some((Reverse(_f), Reverse(g), key)) = open.pop() {
+            if g > best_cost[key] {
+                continue;
+            }
+            let (cell_index, dir_index) = decode_state_key(key);
+            let cell = self.index_cell(cell_index);
+            if cell_index == end_cell_index {
+                goal_key = Some(key);
                 break;
             }
-            for next in self.neighbors(cell) {
-                let Some(next_index) = self.cell_index(next) else {
+
+            for (next_dir_index, direction) in ROUTE_DIRECTIONS.iter().copied().enumerate() {
+                let next = Cell {
+                    x: cell.x + direction.dx(),
+                    y: cell.y + direction.dy(),
+                };
+                let Some(next_cell_index) = self.cell_index(next) else {
                     continue;
                 };
-                if (self.blocked[next_index] && next_index != end) || visited[next_index] {
+                if self.blocked[next_cell_index] && next_cell_index != end_cell_index {
                     continue;
                 }
-                visited[next_index] = true;
-                parent[next_index] = index;
-                queue.push_back(next);
+                if direction.is_diagonal()
+                    && !self.diagonal_corner_clear(cell, direction, end_cell_index)
+                {
+                    continue;
+                }
+                let step_cost = direction.step_cost();
+                let bend_cost = bend_penalty(dir_index, next_dir_index);
+                let next_cost = g.saturating_add(step_cost).saturating_add(bend_cost);
+                let next_key = state_key(next_cell_index, next_dir_index);
+                if next_cost >= best_cost[next_key] {
+                    continue;
+                }
+                best_cost[next_key] = next_cost;
+                parent[next_key] = key;
+                let heuristic = octile_heuristic(next, end_cell);
+                let next_f = next_cost.saturating_add(heuristic);
+                open.push((Reverse(next_f), Reverse(next_cost), next_key));
             }
         }
-        if !visited[end] {
-            return None;
+
+        let goal_key = goal_key?;
+        let mut cells = Vec::new();
+        let mut cursor = goal_key;
+        loop {
+            let (cell_index, _dir_index) = decode_state_key(cursor);
+            cells.push(self.index_cell(cell_index));
+            if cursor == start_key {
+                break;
+            }
+            let next = parent[cursor];
+            if next == usize::MAX {
+                return None;
+            }
+            cursor = next;
         }
-        let mut out = Vec::new();
-        let mut cursor = end;
-        while cursor != start {
-            out.push(self.index_cell(cursor));
-            cursor = parent[cursor];
-        }
-        out.push(start_cell);
-        out.reverse();
-        Some(out)
+        cells.reverse();
+        Some(cells)
     }
 
-    fn contains_point(&self, point: (i32, i32)) -> bool {
-        let min_x = self.origin_x;
-        let min_y = self.origin_y;
-        let max_x = self.origin_x + (self.cols - 1) * GRID_STEP_PX;
-        let max_y = self.origin_y + (self.rows - 1) * GRID_STEP_PX;
-        point.0 >= min_x && point.0 <= max_x && point.1 >= min_y && point.1 <= max_y
+    fn diagonal_corner_clear(
+        &self,
+        cell: Cell,
+        direction: RouteDirection,
+        goal_cell_index: usize,
+    ) -> bool {
+        let side_a = Cell {
+            x: cell.x + direction.dx(),
+            y: cell.y,
+        };
+        let side_b = Cell {
+            x: cell.x,
+            y: cell.y + direction.dy(),
+        };
+        for side in [side_a, side_b] {
+            let Some(index) = self.cell_index(side) else {
+                return false;
+            };
+            if self.blocked[index] && index != goal_cell_index {
+                return false;
+            }
+        }
+        true
     }
 
-    fn neighbors(&self, cell: Cell) -> [Cell; 4] {
-        [
-            Cell {
-                x: cell.x - 1,
-                y: cell.y,
-            },
-            Cell {
-                x: cell.x + 1,
-                y: cell.y,
-            },
-            Cell {
-                x: cell.x,
-                y: cell.y - 1,
-            },
-            Cell {
-                x: cell.x,
-                y: cell.y + 1,
-            },
-        ]
+    fn point_to_cell(&self, point: (i32, i32)) -> Cell {
+        let x = ((point.0 - self.origin_x) / GRID_PITCH_PX).clamp(0, self.cols - 1);
+        let y = ((point.1 - self.origin_y) / GRID_PITCH_PX).clamp(0, self.rows - 1);
+        Cell { x, y }
+    }
+
+    fn cell_point(&self, cell: Cell) -> (i32, i32) {
+        (
+            self.origin_x + cell.x * GRID_PITCH_PX,
+            self.origin_y + cell.y * GRID_PITCH_PX,
+        )
     }
 
     fn cell_index(&self, cell: Cell) -> Option<usize> {
@@ -384,26 +471,45 @@ impl Grid {
     }
 
     fn index_cell(&self, index: usize) -> Cell {
-        let x = (index as i32) % self.cols;
-        let y = (index as i32) / self.cols;
+        let cols = self.cols.max(1) as usize;
+        let x = (index % cols) as i32;
+        let y = (index / cols) as i32;
         Cell { x, y }
     }
+}
 
-    fn point_to_cell(&self, point: (i32, i32)) -> Cell {
-        let x = ((point.0 - self.origin_x) as f32 / GRID_STEP_PX as f32).round() as i32;
-        let y = ((point.1 - self.origin_y) as f32 / GRID_STEP_PX as f32).round() as i32;
-        Cell {
-            x: x.clamp(0, self.cols - 1),
-            y: y.clamp(0, self.rows - 1),
-        }
+fn bend_penalty(prev_dir_index: usize, next_dir_index: usize) -> i32 {
+    if prev_dir_index == START_DIR_INDEX {
+        return 0;
     }
+    let diff = prev_dir_index
+        .abs_diff(next_dir_index)
+        .min(8 - prev_dir_index.abs_diff(next_dir_index));
+    match diff {
+        0 => 0,
+        1 => BEND_45_COST,
+        2 => BEND_90_COST,
+        3 => BEND_135_COST,
+        _ => BEND_180_COST,
+    }
+}
 
-    fn cell_point(&self, cell: Cell) -> (i32, i32) {
-        (
-            self.origin_x + cell.x * GRID_STEP_PX,
-            self.origin_y + cell.y * GRID_STEP_PX,
-        )
-    }
+fn octile_heuristic(from: Cell, to: Cell) -> i32 {
+    let dx = (from.x - to.x).abs();
+    let dy = (from.y - to.y).abs();
+    let diag = dx.min(dy);
+    let straight = dx.max(dy) - diag;
+    diag * STEP_DIAGONAL_COST + straight * STEP_CARDINAL_COST
+}
+
+fn state_key(cell_index: usize, dir_index: usize) -> usize {
+    cell_index
+        .saturating_mul(DIR_STATE_COUNT)
+        .saturating_add(dir_index)
+}
+
+fn decode_state_key(key: usize) -> (usize, usize) {
+    (key / DIR_STATE_COUNT, key % DIR_STATE_COUNT)
 }
 
 fn floor_to_step(value: i32, step: i32) -> i32 {
@@ -420,35 +526,47 @@ fn ceil_to_step(value: i32, step: i32) -> i32 {
     }
 }
 
+fn snap_to_grid(value: i32) -> i32 {
+    let base = floor_to_step(value, GRID_PITCH_PX);
+    let next = base + GRID_PITCH_PX;
+    if (value - base).abs() <= (next - value).abs() {
+        base
+    } else {
+        next
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{route_param_path, route_param_path_with_map, NodeObstacle, RouteObstacleMap};
+    use super::{
+        route_param_path, route_wire_path, route_wire_path_with_map, NodeObstacle, RouteDirection,
+        RouteEndpoint, RouteObstacleMap,
+    };
     use crate::gui::geometry::Rect;
+
+    fn assert_octilinear(points: &[(i32, i32)]) {
+        for segment in points.windows(2) {
+            let dx = (segment[1].0 - segment[0].0).abs();
+            let dy = (segment[1].1 - segment[0].1).abs();
+            assert!(
+                dx == 0 || dy == 0 || dx == dy,
+                "segment is not octilinear: {:?}",
+                segment
+            );
+        }
+    }
 
     #[test]
     fn route_avoids_middle_obstacle() {
         let obstacles = [NodeObstacle {
             rect: Rect::new(60, 30, 60, 60),
         }];
-        let path = route_param_path((10, 60), (180, 60), &obstacles);
+        let path = route_param_path((8, 56), (184, 56), &obstacles);
         assert!(path.len() >= 3);
-        for segment in path[1..path.len() - 1].windows(2) {
-            assert!(segment[0].0 == segment[1].0 || segment[0].1 == segment[1].1);
-        }
+        assert_octilinear(path.as_slice());
         for point in path {
             assert!(!obstacles[0].rect.contains(point.0, point.1));
         }
-    }
-
-    #[test]
-    fn route_avoids_obstacle_without_ignore_exceptions() {
-        let obstacles = [NodeObstacle {
-            rect: Rect::new(40, 30, 40, 40),
-        }];
-        let path = route_param_path((10, 50), (110, 50), &obstacles);
-        assert_eq!(path.first().copied(), Some((10, 50)));
-        assert_eq!(path.last().copied(), Some((110, 50)));
-        assert!(path.len() >= 3);
     }
 
     #[test]
@@ -461,11 +579,31 @@ mod tests {
                 rect: Rect::new(120, 20, 40, 60),
             },
         ];
-        let direct = route_param_path((10, 50), (210, 50), &obstacles);
+        let direct = route_wire_path(
+            RouteEndpoint {
+                point: (8, 48),
+                corridor_dir: RouteDirection::East,
+            },
+            RouteEndpoint {
+                point: (208, 48),
+                corridor_dir: RouteDirection::West,
+            },
+            &obstacles,
+        );
         let cached = RouteObstacleMap::from_obstacles(&obstacles);
-        let from_cache = route_param_path_with_map((10, 50), (210, 50), &cached);
+        let from_cache = route_wire_path_with_map(
+            RouteEndpoint {
+                point: (8, 48),
+                corridor_dir: RouteDirection::East,
+            },
+            RouteEndpoint {
+                point: (208, 48),
+                corridor_dir: RouteDirection::West,
+            },
+            &cached,
+        );
         assert_eq!(from_cache.first().copied(), direct.first().copied());
         assert_eq!(from_cache.last().copied(), direct.last().copied());
-        assert!(from_cache.len() >= 2);
+        assert_octilinear(from_cache.as_slice());
     }
 }

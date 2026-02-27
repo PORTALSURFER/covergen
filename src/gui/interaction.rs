@@ -32,9 +32,10 @@ const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
+#[cfg(test)]
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
+#[cfg(test)]
 const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
-const PARAM_WIRE_ROUTE_LEAD_PX: i32 = 12;
 const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
 const NODE_OVERLAP_SNAP_GAP_PX: i32 = 12;
 
@@ -1407,30 +1408,18 @@ fn collect_cut_links(
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
     let obstacles = collect_panel_node_obstacles(project, state);
+    let route_map =
+        super::scene::wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
     let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
     let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
     for target_id in target_ids.iter().copied() {
-        collect_cut_links_for_target(
-            project,
-            state,
-            cut,
-            obstacles.as_slice(),
-            target_id,
-            &mut links,
-        );
+        collect_cut_links_for_target(project, state, cut, &route_map, target_id, &mut links);
     }
     let cut_outside_panel = !inside_panel(cut.start_x, cut.start_y, panel_width, panel_height)
         || !inside_panel(cut.cursor_x, cut.cursor_y, panel_width, panel_height);
     if (links.is_empty() || cut_outside_panel) && target_ids.len() < project.node_count() {
         for target in project.nodes() {
-            collect_cut_links_for_target(
-                project,
-                state,
-                cut,
-                obstacles.as_slice(),
-                target.id(),
-                &mut links,
-            );
+            collect_cut_links_for_target(project, state, cut, &route_map, target.id(), &mut links);
         }
     }
     links.sort_unstable();
@@ -1442,7 +1431,7 @@ fn collect_cut_links_for_target(
     project: &GuiProject,
     state: &PreviewState,
     cut: LinkCutState,
-    obstacles: &[super::scene::wire_route::NodeObstacle],
+    route_map: &super::scene::wire_route::RouteObstacleMap,
     target_id: u32,
     links: &mut Vec<CutLink>,
 ) {
@@ -1461,16 +1450,18 @@ fn collect_cut_links_for_target(
         };
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-        if segments_intersect(
-            cut.start_x,
-            cut.start_y,
-            cut.cursor_x,
-            cut.cursor_y,
-            from_x,
-            from_y,
-            to_x,
-            to_y,
-        ) {
+        let route = super::scene::wire_route::route_wire_path_with_map(
+            super::scene::wire_route::RouteEndpoint {
+                point: (from_x, from_y),
+                corridor_dir: super::scene::wire_route::RouteDirection::East,
+            },
+            super::scene::wire_route::RouteEndpoint {
+                point: (to_x, to_y),
+                corridor_dir: super::scene::wire_route::RouteDirection::West,
+            },
+            route_map,
+        );
+        if cut_intersects_path(cut, route.as_slice()) {
             links.push(CutLink {
                 source_id: texture_source_id,
                 target_id,
@@ -1497,55 +1488,18 @@ fn collect_cut_links_for_target(
         let to_y = row.y + row.h / 2;
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        let exit_x = from_x.saturating_add(PARAM_WIRE_EXIT_TAIL_PX);
-        let route_start_x = exit_x.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
-        let entry_x = to_x.saturating_add(PARAM_WIRE_ENTRY_TAIL_PX);
-        let route_end_x = entry_x.saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
-        let route = super::scene::wire_route::route_param_path(
-            (route_start_x, from_y),
-            (route_end_x, to_y),
-            obstacles,
+        let route = super::scene::wire_route::route_wire_path_with_map(
+            super::scene::wire_route::RouteEndpoint {
+                point: (from_x, from_y),
+                corridor_dir: super::scene::wire_route::RouteDirection::East,
+            },
+            super::scene::wire_route::RouteEndpoint {
+                point: (to_x, to_y),
+                corridor_dir: super::scene::wire_route::RouteDirection::East,
+            },
+            route_map,
         );
-        if segments_intersect(
-            cut.start_x,
-            cut.start_y,
-            cut.cursor_x,
-            cut.cursor_y,
-            from_x,
-            from_y,
-            exit_x,
-            from_y,
-        ) || segments_intersect(
-            cut.start_x,
-            cut.start_y,
-            cut.cursor_x,
-            cut.cursor_y,
-            exit_x,
-            from_y,
-            route_start_x,
-            from_y,
-        ) || cut_intersects_path(cut, route.as_slice())
-            || segments_intersect(
-                cut.start_x,
-                cut.start_y,
-                cut.cursor_x,
-                cut.cursor_y,
-                route_end_x,
-                to_y,
-                entry_x,
-                to_y,
-            )
-            || segments_intersect(
-                cut.start_x,
-                cut.start_y,
-                cut.cursor_x,
-                cut.cursor_y,
-                entry_x,
-                to_y,
-                to_x,
-                to_y,
-            )
-        {
+        if cut_intersects_path(cut, route.as_slice()) {
             links.push(CutLink {
                 source_id,
                 target_id,

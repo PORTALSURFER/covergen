@@ -94,6 +94,11 @@ const PARAM_WIRE_ENDPOINT_STRAIGHT_PX: i32 = 10;
 const PARAM_WIRE_CORNER_RADIUS_MIN_PX: i32 = 3;
 const PARAM_WIRE_CORNER_RADIUS_MAX_PX: i32 = 8;
 const PARAM_WIRE_CURVE_STEPS: usize = 4;
+const WIRE_BRIDGE_SPAN_PX: f32 = 16.0;
+const WIRE_BRIDGE_HEIGHT_PX: f32 = 6.0;
+const WIRE_BRIDGE_LINK_THRESHOLD_PX: f32 = 14.0;
+const WIRE_BRIDGE_CORNER_GUARD_PX: f32 = 10.0;
+const WIRE_BRIDGE_STEPS: usize = 6;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
 const FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
 
@@ -196,6 +201,12 @@ struct ParamWireAnchors {
     route_start: (i32, i32),
     route_end: (i32, i32),
     target_entry: (i32, i32),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DrawnWireSegment {
+    from: (i32, i32),
+    to: (i32, i32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -376,6 +387,9 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
+        let obstacles = collect_panel_node_obstacles(project, state);
+        let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
+        let mut drawn_segments = Vec::new();
         for target in project.nodes() {
             let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
                 continue;
@@ -400,14 +414,27 @@ impl SceneBuilder {
                         .hover_insert_link
                         .map(|link| link.source_id == *source_id && link.target_id == target.id())
                         .unwrap_or(false);
+                let route = wire_route::route_wire_path_with_map(
+                    wire_route::RouteEndpoint {
+                        point: (from_x, from_y),
+                        corridor_dir: wire_route::RouteDirection::East,
+                    },
+                    wire_route::RouteEndpoint {
+                        point: (to_x, to_y),
+                        corridor_dir: wire_route::RouteDirection::West,
+                    },
+                    &route_map,
+                );
                 let color = if insert_hover {
                     EDGE_INSERT_HOVER
-                } else if edge_intersects_cut_line(state, from_x, from_y, to_x, to_y) {
+                } else if path_intersects_cut_line(state, route.as_slice()) {
                     CUT_EDGE_COLOR
                 } else {
                     EDGE_COLOR
                 };
-                self.push_straight_wire_with_round_caps(from_x, from_y, to_x, to_y, color);
+                self.push_path_lines_with_bridges(route.as_slice(), color, &mut drawn_segments);
+                self.push_round_endpoint(from_x, from_y, color);
+                self.push_round_endpoint(to_x, to_y, color);
             }
         }
     }
@@ -1274,9 +1301,8 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
-        let defer_routing_while_dragging = state.drag.is_some();
         let obstacle_epoch = param_route_obstacle_epoch(project, state);
-        if !defer_routing_while_dragging && self.param_route_cache_epoch != Some(obstacle_epoch) {
+        if self.param_route_cache_epoch != Some(obstacle_epoch) {
             self.param_route_cache_epoch = Some(obstacle_epoch);
             self.param_route_cache.clear();
             let obstacles = collect_panel_node_obstacles(project, state);
@@ -1285,6 +1311,7 @@ impl SceneBuilder {
         }
         let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
+        let mut drawn_segments = Vec::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1304,49 +1331,41 @@ impl SceneBuilder {
                 let (gx, gy) = (row.x + row.w - 4, row.y + row.h / 2);
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
-                let anchors = param_wire_anchors(from_x, from_y, to_x, to_y);
-                let smooth_route = if defer_routing_while_dragging {
-                    let provisional = provisional_param_route(anchors);
-                    build_smoothed_param_wire(
-                        (from_x, from_y),
-                        provisional.as_slice(),
-                        (to_x, to_y),
-                    )
-                } else {
-                    let route_key = ParamRouteCacheKey {
-                        source_id,
-                        target_id: target.id(),
-                        param_index,
-                        obstacle_epoch: active_epoch,
-                    };
-                    live_route_keys.insert(route_key);
-                    if !self.param_route_cache.contains_key(&route_key) {
-                        let route = wire_route::route_param_path_with_map(
-                            anchors.route_start,
-                            anchors.route_end,
-                            &self.param_route_obstacle_map,
-                        );
-                        self.param_route_cache.insert(route_key, Arc::from(route));
-                    }
-                    let Some(route) = self.param_route_cache.get(&route_key) else {
-                        continue;
-                    };
-                    build_smoothed_param_wire((from_x, from_y), route.as_ref(), (to_x, to_y))
+                let route_key = ParamRouteCacheKey {
+                    source_id,
+                    target_id: target.id(),
+                    param_index,
+                    obstacle_epoch: active_epoch,
                 };
-                let color = if path_intersects_cut_line(state, smooth_route.as_slice()) {
+                live_route_keys.insert(route_key);
+                if !self.param_route_cache.contains_key(&route_key) {
+                    let route = wire_route::route_wire_path_with_map(
+                        wire_route::RouteEndpoint {
+                            point: (from_x, from_y),
+                            corridor_dir: wire_route::RouteDirection::East,
+                        },
+                        wire_route::RouteEndpoint {
+                            point: (to_x, to_y),
+                            corridor_dir: wire_route::RouteDirection::East,
+                        },
+                        &self.param_route_obstacle_map,
+                    );
+                    self.param_route_cache.insert(route_key, Arc::from(route));
+                }
+                let Some(route) = self.param_route_cache.get(&route_key).cloned() else {
+                    continue;
+                };
+                let color = if path_intersects_cut_line(state, route.as_ref()) {
                     CUT_EDGE_COLOR
                 } else {
                     PARAM_EDGE_COLOR
                 };
-                self.push_path_lines(smooth_route.as_slice(), color);
+                self.push_path_lines_with_bridges(route.as_ref(), color, &mut drawn_segments);
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
-        if !defer_routing_while_dragging {
-            self.param_route_cache.retain(|key, _| {
-                key.obstacle_epoch == active_epoch && live_route_keys.contains(key)
-            });
-        }
+        self.param_route_cache
+            .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
     }
 
     fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
@@ -1358,6 +1377,48 @@ impl SceneBuilder {
             let (x1, y1) = segment[1];
             self.push_line(x0, y0, x1, y1, color);
         }
+    }
+
+    fn push_path_lines_with_bridges(
+        &mut self,
+        points: &[(i32, i32)],
+        color: Color,
+        drawn_segments: &mut Vec<DrawnWireSegment>,
+    ) {
+        if points.len() < 2 {
+            return;
+        }
+        let mut new_segments = Vec::new();
+        let total_segments = points.len().saturating_sub(1);
+        for (segment_index, pair) in points.windows(2).enumerate() {
+            let segment = DrawnWireSegment {
+                from: pair[0],
+                to: pair[1],
+            };
+            if segment.from == segment.to {
+                continue;
+            }
+            let segment_len = segment_length(segment.from, segment.to);
+            if segment_len <= 0.0 {
+                continue;
+            }
+            let mut crossings = Vec::new();
+            for existing in drawn_segments.iter().copied() {
+                let Some(distance) = segment_crossing_distance(segment, existing) else {
+                    continue;
+                };
+                if !bridge_distance_allowed(segment_index, total_segments, segment_len, distance) {
+                    continue;
+                }
+                crossings.push(distance);
+            }
+            crossings.sort_by(|a, b| a.total_cmp(b));
+            let bridge_clusters = cluster_bridge_ranges(crossings.as_slice(), segment_len);
+            let bridged_points = bridged_segment_points(segment, bridge_clusters.as_slice());
+            self.push_path_lines(bridged_points.as_slice(), color);
+            new_segments.push(segment);
+        }
+        drawn_segments.extend(new_segments);
     }
 
     fn push_signal_wire_right_exit(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
@@ -1746,6 +1807,147 @@ fn category_chip_rect(item: Rect) -> Rect {
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
 
+fn segment_length(from: (i32, i32), to: (i32, i32)) -> f32 {
+    let dx = (to.0 - from.0) as f32;
+    let dy = (to.1 - from.1) as f32;
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn segment_crossing_distance(a: DrawnWireSegment, b: DrawnWireSegment) -> Option<f32> {
+    let p = (a.from.0 as f32, a.from.1 as f32);
+    let p2 = (a.to.0 as f32, a.to.1 as f32);
+    let q = (b.from.0 as f32, b.from.1 as f32);
+    let q2 = (b.to.0 as f32, b.to.1 as f32);
+    let r = (p2.0 - p.0, p2.1 - p.1);
+    let s = (q2.0 - q.0, q2.1 - q.1);
+    let denom = r.0 * s.1 - r.1 * s.0;
+    if denom.abs() <= f32::EPSILON {
+        return None;
+    }
+    let qp = (q.0 - p.0, q.1 - p.1);
+    let t = (qp.0 * s.1 - qp.1 * s.0) / denom;
+    let u = (qp.0 * r.1 - qp.1 * r.0) / denom;
+    const ENDPOINT_EPS: f32 = 0.001;
+    if t <= ENDPOINT_EPS || t >= 1.0 - ENDPOINT_EPS || u <= ENDPOINT_EPS || u >= 1.0 - ENDPOINT_EPS
+    {
+        return None;
+    }
+    Some(segment_length(a.from, a.to) * t)
+}
+
+fn bridge_distance_allowed(
+    segment_index: usize,
+    total_segments: usize,
+    segment_len: f32,
+    distance: f32,
+) -> bool {
+    let mut min_distance = WIRE_ENDPOINT_RADIUS_PX as f32 + 1.0;
+    let mut max_distance = (segment_len - (WIRE_ENDPOINT_RADIUS_PX as f32 + 1.0)).max(0.0);
+    if segment_index > 0 {
+        min_distance = min_distance.max(WIRE_BRIDGE_CORNER_GUARD_PX);
+    }
+    if segment_index + 1 < total_segments {
+        max_distance = max_distance.min(segment_len - WIRE_BRIDGE_CORNER_GUARD_PX);
+    }
+    if max_distance <= min_distance {
+        return false;
+    }
+    distance > min_distance && distance < max_distance
+}
+
+fn cluster_bridge_ranges(crossings: &[f32], segment_len: f32) -> Vec<(f32, f32)> {
+    if crossings.is_empty() {
+        return Vec::new();
+    }
+    let half_span = WIRE_BRIDGE_SPAN_PX * 0.5;
+    let mut clusters = Vec::new();
+    let mut start = (crossings[0] - half_span).max(0.0);
+    let mut end = (crossings[0] + half_span).min(segment_len);
+    for &distance in crossings.iter().skip(1) {
+        let next_start = (distance - half_span).max(0.0);
+        let next_end = (distance + half_span).min(segment_len);
+        if next_start <= end + WIRE_BRIDGE_LINK_THRESHOLD_PX {
+            end = end.max(next_end);
+        } else {
+            if end > start {
+                clusters.push((start, end));
+            }
+            start = next_start;
+            end = next_end;
+        }
+    }
+    if end > start {
+        clusters.push((start, end));
+    }
+    clusters
+}
+
+fn bridged_segment_points(segment: DrawnWireSegment, bridges: &[(f32, f32)]) -> Vec<(i32, i32)> {
+    let segment_len = segment_length(segment.from, segment.to);
+    if segment_len <= 0.0 {
+        return vec![segment.from];
+    }
+    if bridges.is_empty() {
+        return vec![segment.from, segment.to];
+    }
+    let mut points = Vec::new();
+    points.push(segment.from);
+    let mut cursor = 0.0_f32;
+    for &(start, end) in bridges {
+        let start = start.clamp(0.0, segment_len);
+        let end = end.clamp(0.0, segment_len);
+        if end <= start {
+            continue;
+        }
+        if start > cursor {
+            let point = point_along_segment(segment, start);
+            if points.last().copied() != Some(point) {
+                points.push(point);
+            }
+        }
+        for step in 1..=WIRE_BRIDGE_STEPS {
+            let t = step as f32 / (WIRE_BRIDGE_STEPS as f32 + 1.0);
+            let distance = start + (end - start) * t;
+            let lift = (std::f32::consts::PI * t).sin() * WIRE_BRIDGE_HEIGHT_PX;
+            let point = offset_point_from_segment(segment, distance, lift);
+            if points.last().copied() != Some(point) {
+                points.push(point);
+            }
+        }
+        let exit = point_along_segment(segment, end);
+        if points.last().copied() != Some(exit) {
+            points.push(exit);
+        }
+        cursor = end;
+    }
+    if points.last().copied() != Some(segment.to) {
+        points.push(segment.to);
+    }
+    dedupe_adjacent_points(&mut points);
+    points
+}
+
+fn point_along_segment(segment: DrawnWireSegment, distance: f32) -> (i32, i32) {
+    offset_point_from_segment(segment, distance, 0.0)
+}
+
+fn offset_point_from_segment(
+    segment: DrawnWireSegment,
+    distance: f32,
+    normal_offset: f32,
+) -> (i32, i32) {
+    let dx = (segment.to.0 - segment.from.0) as f32;
+    let dy = (segment.to.1 - segment.from.1) as f32;
+    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+    let tx = dx / len;
+    let ty = dy / len;
+    let nx = -ty;
+    let ny = tx;
+    let x = segment.from.0 as f32 + tx * distance + nx * normal_offset;
+    let y = segment.from.1 as f32 + ty * distance + ny * normal_offset;
+    (x.round() as i32, y.round() as i32)
+}
+
 fn rounded_corner_radius(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i32 {
     let in_len = (bx - ax).abs() + (by - ay).abs();
     let out_len = (cx - bx).abs() + (cy - by).abs();
@@ -1789,24 +1991,6 @@ fn param_wire_anchors(from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> ParamWi
         route_end,
         target_entry,
     }
-}
-
-/// Build one low-cost provisional route used while dragging nodes.
-fn provisional_param_route(anchors: ParamWireAnchors) -> Vec<(i32, i32)> {
-    let bypass_x = anchors
-        .route_start
-        .0
-        .max(anchors.route_end.0)
-        .saturating_add(PARAM_WIRE_ROUTE_LEAD_PX);
-    let mut route = Vec::with_capacity(4);
-    route.push(anchors.route_start);
-    route.push((bypass_x, anchors.route_start.1));
-    if anchors.route_start.1 != anchors.route_end.1 {
-        route.push((bypass_x, anchors.route_end.1));
-    }
-    route.push(anchors.route_end);
-    dedupe_adjacent_points(&mut route);
-    route
 }
 
 /// Build one smoothed parameter wire polyline with guaranteed straight pin tails.
