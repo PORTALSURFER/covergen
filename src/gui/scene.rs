@@ -390,6 +390,7 @@ impl SceneBuilder {
         let obstacles = collect_panel_node_obstacles(project, state);
         let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
         let mut drawn_segments = Vec::new();
+        let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         for target in project.nodes() {
             let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
                 continue;
@@ -414,7 +415,7 @@ impl SceneBuilder {
                         .hover_insert_link
                         .map(|link| link.source_id == *source_id && link.target_id == target.id())
                         .unwrap_or(false);
-                let route = wire_route::route_wire_path_with_tails_with_map(
+                let route = wire_route::route_wire_path_with_tails_avoiding_overlaps_with_map(
                     wire_route::RouteEndpoint {
                         point: (from_x, from_y),
                         corridor_dir: wire_route::RouteDirection::East,
@@ -424,6 +425,7 @@ impl SceneBuilder {
                         corridor_dir: wire_route::RouteDirection::West,
                     },
                     &route_map,
+                    &occupied_edges,
                 );
                 let color = if insert_hover {
                     EDGE_INSERT_HOVER
@@ -433,6 +435,7 @@ impl SceneBuilder {
                     EDGE_COLOR
                 };
                 self.push_path_lines_with_bridges(route.as_slice(), color, &mut drawn_segments);
+                occupied_edges.record_path_non_tail(route.as_slice());
                 self.push_round_endpoint(from_x, from_y, color);
                 self.push_round_endpoint(to_x, to_y, color);
             }
@@ -1312,6 +1315,7 @@ impl SceneBuilder {
         let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
+        let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1339,7 +1343,7 @@ impl SceneBuilder {
                 };
                 live_route_keys.insert(route_key);
                 if !self.param_route_cache.contains_key(&route_key) {
-                    let route = wire_route::route_wire_path_with_tails_with_map(
+                    let route = wire_route::route_wire_path_with_tails_avoiding_overlaps_with_map(
                         wire_route::RouteEndpoint {
                             point: (from_x, from_y),
                             corridor_dir: wire_route::RouteDirection::East,
@@ -1349,6 +1353,7 @@ impl SceneBuilder {
                             corridor_dir: wire_route::RouteDirection::East,
                         },
                         &self.param_route_obstacle_map,
+                        &occupied_edges,
                     );
                     self.param_route_cache.insert(route_key, Arc::from(route));
                 }
@@ -1361,6 +1366,7 @@ impl SceneBuilder {
                     PARAM_EDGE_COLOR
                 };
                 self.push_path_lines_with_bridges(route.as_ref(), color, &mut drawn_segments);
+                occupied_edges.record_path_non_tail(route.as_ref());
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }

@@ -8,7 +8,7 @@
 use crate::gui::geometry::Rect;
 use crate::gui::project::NODE_GRID_PITCH;
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 
 const GRID_PITCH_PX: i32 = NODE_GRID_PITCH;
 const ROUTE_PADDING_CELLS: i32 = 6;
@@ -109,6 +109,65 @@ impl RouteObstacleMap {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RouteEdgeKey {
+    a: (i32, i32),
+    b: (i32, i32),
+}
+
+impl RouteEdgeKey {
+    fn new(a: (i32, i32), b: (i32, i32)) -> Self {
+        if a <= b {
+            Self { a, b }
+        } else {
+            Self { a: b, b: a }
+        }
+    }
+}
+
+/// Accumulated routed edges used to avoid direct wire overlap on reroutes.
+///
+/// Only horizontal endpoint tail segments are excluded from overlap blocking.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RouteOccupiedEdges {
+    blocked: HashSet<RouteEdgeKey>,
+}
+
+impl RouteOccupiedEdges {
+    /// Record one already-routed polyline.
+    ///
+    /// This blocks all edges except horizontal first/last segments so multiple
+    /// wires may still share short pin exit/entry tails.
+    pub(crate) fn record_path_non_tail(&mut self, points: &[(i32, i32)]) {
+        if points.len() < 2 {
+            return;
+        }
+        let last_segment = points.len().saturating_sub(2);
+        for (segment_index, pair) in points.windows(2).enumerate() {
+            let is_endpoint_segment = segment_index == 0 || segment_index == last_segment;
+            let is_horizontal = pair[0].1 == pair[1].1;
+            if is_endpoint_segment && is_horizontal {
+                continue;
+            }
+            self.block_segment(pair[0], pair[1]);
+        }
+    }
+
+    fn block_segment(&mut self, from: (i32, i32), to: (i32, i32)) {
+        let dx = to.0 - from.0;
+        let dy = to.1 - from.1;
+        let steps = (dx.abs().max(dy.abs()) / GRID_PITCH_PX).max(1);
+        let step_x = dx.signum() * GRID_PITCH_PX;
+        let step_y = dy.signum() * GRID_PITCH_PX;
+        let mut current = from;
+        for _ in 0..steps {
+            let next = (current.0 + step_x, current.1 + step_y);
+            self.blocked.insert(RouteEdgeKey::new(current, next));
+            current = next;
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Cell {
     x: i32,
@@ -161,10 +220,20 @@ pub(crate) fn route_wire_path(
 }
 
 /// Build one obstacle-avoiding octilinear path with a precomputed obstacle map.
+#[cfg(test)]
 pub(crate) fn route_wire_path_with_map(
     start: RouteEndpoint,
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
+) -> Vec<(i32, i32)> {
+    route_wire_path_internal(start, end, obstacle_map, None)
+}
+
+fn route_wire_path_internal(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+    blocked_edges: Option<&HashSet<RouteEdgeKey>>,
 ) -> Vec<(i32, i32)> {
     let start_point = snap_endpoint_to_grid(start);
     let end_point = snap_endpoint_to_grid(end);
@@ -183,7 +252,8 @@ pub(crate) fn route_wire_path_with_map(
     grid.carve_corridor(start_point, start.corridor_dir);
     grid.carve_corridor(end_point, end.corridor_dir);
 
-    let Some(cells) = grid.find_path(start_point, end_point) else {
+    let Some(cells) = grid.find_path_with_blocked_edges(start_point, end_point, blocked_edges)
+    else {
         return fallback_octilinear(start_point, end_point);
     };
 
@@ -210,12 +280,32 @@ pub(crate) fn route_wire_path_with_tails_with_map(
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
 ) -> Vec<(i32, i32)> {
+    route_wire_path_with_tails_internal(start, end, obstacle_map, None)
+}
+
+/// Build one obstacle-avoiding path with endpoint tails while avoiding already
+/// occupied wire edges.
+pub(crate) fn route_wire_path_with_tails_avoiding_overlaps_with_map(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+    occupied_edges: &RouteOccupiedEdges,
+) -> Vec<(i32, i32)> {
+    route_wire_path_with_tails_internal(start, end, obstacle_map, Some(&occupied_edges.blocked))
+}
+
+fn route_wire_path_with_tails_internal(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+    blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+) -> Vec<(i32, i32)> {
     let start_pin = snap_endpoint_to_grid(start);
     let end_pin = snap_endpoint_to_grid(end);
     let start_tail = step_point(start_pin, start.corridor_dir, ENDPOINT_TAIL_CELLS);
     let end_tail = step_point(end_pin, end.corridor_dir, ENDPOINT_TAIL_CELLS);
 
-    let core = route_wire_path_with_map(
+    let core = route_wire_path_internal(
         RouteEndpoint {
             point: start_tail,
             corridor_dir: start.corridor_dir,
@@ -225,6 +315,7 @@ pub(crate) fn route_wire_path_with_tails_with_map(
             corridor_dir: end.corridor_dir,
         },
         obstacle_map,
+        blocked_edges,
     );
 
     let mut points = Vec::with_capacity(core.len().saturating_add(4));
@@ -392,7 +483,12 @@ impl SearchGrid {
         }
     }
 
-    fn find_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<Cell>> {
+    fn find_path_with_blocked_edges(
+        &self,
+        start: (i32, i32),
+        end: (i32, i32),
+        blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+    ) -> Option<Vec<Cell>> {
         let start_cell = self.point_to_cell(start);
         let end_cell = self.point_to_cell(end);
         let start_cell_index = self.cell_index(start_cell)?;
@@ -428,6 +524,17 @@ impl SearchGrid {
                 let Some(next_cell_index) = self.cell_index(next) else {
                     continue;
                 };
+                if blocked_edges
+                    .map(|blocked| {
+                        blocked.contains(&RouteEdgeKey::new(
+                            self.cell_point(cell),
+                            self.cell_point(next),
+                        ))
+                    })
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
                 if self.blocked[next_cell_index] && next_cell_index != end_cell_index {
                     continue;
                 }
