@@ -60,209 +60,6 @@ struct PanelResizeDrag {
     grab_offset_px: i32,
 }
 
-/// State subset that drives `scene` nodes-layer invalidation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct NodesLayerState {
-    zoom_bits: u32,
-    hover_node: Option<u32>,
-    hover_output_pin: Option<u32>,
-    hover_input_pin: Option<u32>,
-    hover_param: Option<(u32, usize)>,
-    hover_param_target: Option<(u32, usize)>,
-    hover_alt_param: Option<(u32, usize)>,
-    wire_drag_source: Option<u32>,
-    drag_node: Option<u32>,
-    selected_nodes: Vec<u32>,
-    param_edit: Option<(u32, usize, usize, usize, String)>,
-}
-
-/// State subset that drives `scene` edges-layer invalidation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct WiresLayerState {
-    zoom_bits: u32,
-    hover_insert_link: Option<(u32, u32)>,
-    link_cut: Option<(i32, i32, i32, i32)>,
-}
-
-/// State subset that drives `scene` overlays-layer invalidation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct OverlaysLayerState {
-    zoom_bits: u32,
-    hover_input_pin: Option<u32>,
-    hover_param_target: Option<(u32, usize)>,
-    hover_dropdown_item: Option<usize>,
-    wire_drag: Option<(u32, i32, i32)>,
-    link_cut: Option<(i32, i32, i32, i32)>,
-    right_marquee: Option<(i32, i32, i32, i32)>,
-    param_dropdown: Option<(u32, usize)>,
-    menu_open: bool,
-    menu_x: i32,
-    menu_y: i32,
-    menu_selected: usize,
-    menu_category: Option<&'static str>,
-    menu_query: String,
-    hover_menu_item: Option<usize>,
-    main_menu_open: bool,
-    main_menu_x: i32,
-    main_menu_y: i32,
-    main_menu_selected: usize,
-    hover_main_menu_item: Option<usize>,
-    export_menu_open: bool,
-    export_menu_x: i32,
-    export_menu_y: i32,
-    export_menu_selected: usize,
-    export_menu_exporting: bool,
-    export_preview_frame: u32,
-    export_preview_total: u32,
-    export_directory: String,
-    export_file_name: String,
-    export_status: String,
-    export_audio_wav: String,
-    export_audio_volume: String,
-    export_bpm: String,
-    export_beats_per_bar: String,
-    hover_export_menu_item: Option<usize>,
-    hover_export_menu_close: bool,
-}
-
-/// State subset that drives timeline-layer invalidation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct TimelineLayerState {
-    frame_index: u32,
-    total_frames: u32,
-    paused: bool,
-    timeline_scrub_active: bool,
-    timeline_volume_drag_active: bool,
-    audio_volume_bits: u32,
-    bpm_bits: u32,
-    bpm_edit: Option<(usize, usize, String)>,
-    bar_length_bits: u32,
-    bar_edit: Option<(usize, usize, String)>,
-    bar_overridden: bool,
-    beats_per_bar: u32,
-}
-
-/// Snapshot of all scene-related state dependencies used for scoped invalidation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct SceneInvalidationSnapshot {
-    nodes: NodesLayerState,
-    wires: WiresLayerState,
-    overlays: OverlaysLayerState,
-    timeline: TimelineLayerState,
-}
-
-impl SceneInvalidationSnapshot {
-    /// Capture state dependencies before/after one update tick.
-    fn capture(state: &PreviewState, timeline_fps: u32) -> Self {
-        Self {
-            nodes: NodesLayerState {
-                zoom_bits: state.zoom.to_bits(),
-                hover_node: state.hover_node,
-                hover_output_pin: state.hover_output_pin,
-                hover_input_pin: state.hover_input_pin,
-                hover_param: state
-                    .hover_param
-                    .map(|target| (target.node_id, target.param_index)),
-                hover_param_target: state
-                    .hover_param_target
-                    .map(|target| (target.node_id, target.param_index)),
-                hover_alt_param: state
-                    .hover_alt_param
-                    .map(|target| (target.node_id, target.param_index)),
-                wire_drag_source: state.wire_drag.map(|wire| wire.source_node_id),
-                drag_node: state.drag.map(|drag| drag.node_id),
-                selected_nodes: state.selected_nodes.clone(),
-                param_edit: state.param_edit.as_ref().map(|edit| {
-                    (
-                        edit.node_id,
-                        edit.param_index,
-                        edit.cursor,
-                        edit.anchor,
-                        edit.buffer.clone(),
-                    )
-                }),
-            },
-            wires: WiresLayerState {
-                zoom_bits: state.zoom.to_bits(),
-                hover_insert_link: state
-                    .hover_insert_link
-                    .map(|link| (link.source_id, link.target_id)),
-                link_cut: state
-                    .link_cut
-                    .map(|cut| (cut.start_x, cut.start_y, cut.cursor_x, cut.cursor_y)),
-            },
-            overlays: OverlaysLayerState {
-                zoom_bits: state.zoom.to_bits(),
-                hover_input_pin: state.hover_input_pin,
-                hover_param_target: state
-                    .hover_param_target
-                    .map(|target| (target.node_id, target.param_index)),
-                hover_dropdown_item: state.hover_dropdown_item,
-                wire_drag: state
-                    .wire_drag
-                    .map(|wire| (wire.source_node_id, wire.cursor_x, wire.cursor_y)),
-                link_cut: state
-                    .link_cut
-                    .map(|cut| (cut.start_x, cut.start_y, cut.cursor_x, cut.cursor_y)),
-                right_marquee: state
-                    .right_marquee
-                    .map(|m| (m.start_x, m.start_y, m.cursor_x, m.cursor_y)),
-                param_dropdown: state
-                    .param_dropdown
-                    .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
-                menu_open: state.menu.open,
-                menu_x: state.menu.x,
-                menu_y: state.menu.y,
-                menu_selected: state.menu.selected,
-                menu_category: state.menu.active_category.map(|category| category.label()),
-                menu_query: state.menu.query.clone(),
-                hover_menu_item: state.hover_menu_item,
-                main_menu_open: state.main_menu.open,
-                main_menu_x: state.main_menu.x,
-                main_menu_y: state.main_menu.y,
-                main_menu_selected: state.main_menu.selected,
-                hover_main_menu_item: state.hover_main_menu_item,
-                export_menu_open: state.export_menu.open,
-                export_menu_x: state.export_menu.x,
-                export_menu_y: state.export_menu.y,
-                export_menu_selected: state.export_menu.selected,
-                export_menu_exporting: state.export_menu.exporting,
-                export_preview_frame: state.export_menu.preview_frame,
-                export_preview_total: state.export_menu.preview_total,
-                export_directory: state.export_menu.directory.clone(),
-                export_file_name: state.export_menu.file_name.clone(),
-                export_status: state.export_menu.status.clone(),
-                export_audio_wav: state.export_menu.audio_wav.clone(),
-                export_audio_volume: state.export_menu.audio_volume.clone(),
-                export_bpm: state.export_menu.bpm.clone(),
-                export_beats_per_bar: state.export_menu.beats_per_bar.clone(),
-                hover_export_menu_item: state.hover_export_menu_item,
-                hover_export_menu_close: state.hover_export_menu_close,
-            },
-            timeline: TimelineLayerState {
-                frame_index: state.frame_index,
-                total_frames: state.export_menu.timeline_total_frames(timeline_fps),
-                paused: state.paused,
-                timeline_scrub_active: state.timeline_scrub_active,
-                timeline_volume_drag_active: state.timeline_volume_drag_active,
-                audio_volume_bits: state.export_menu.parsed_audio_volume().to_bits(),
-                bpm_bits: state.export_menu.parsed_bpm().to_bits(),
-                bpm_edit: state
-                    .timeline_bpm_edit
-                    .as_ref()
-                    .map(|edit| (edit.cursor, edit.anchor, edit.buffer.clone())),
-                bar_length_bits: state.export_menu.parsed_bar_length().to_bits(),
-                bar_edit: state
-                    .timeline_bar_edit
-                    .as_ref()
-                    .map(|edit| (edit.cursor, edit.anchor, edit.buffer.clone())),
-                bar_overridden: state.export_menu.bar_length_overridden_by_audio(),
-                beats_per_bar: state.export_menu.parsed_beats_per_bar(),
-            },
-        }
-    }
-}
-
 /// Frame scheduler and state owner for the realtime GUI loop.
 pub(crate) struct GuiApp {
     config: V2Config,
@@ -501,8 +298,6 @@ impl GuiApp {
 
         let update_start = Instant::now();
         let project_invalidation_before = self.project.invalidation();
-        let scene_invalidation_before =
-            SceneInvalidationSnapshot::capture(&self.state, self.config.animation.fps);
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
         scene_dirty |= self
@@ -523,6 +318,9 @@ impl GuiApp {
                     );
                 }
             }
+            self.state.invalidation.invalidate_nodes();
+            self.state.invalidation.invalidate_wires();
+            self.state.invalidation.invalidate_overlays();
             self.state.prev_left_down = snapshot.left_down;
         } else {
             scene_dirty |= apply_preview_actions(
@@ -541,14 +339,28 @@ impl GuiApp {
             if self.state.frame_index != 0 {
                 self.state.frame_index = 0;
                 scene_dirty = true;
+                self.state.invalidation.invalidate_timeline();
+                if self.project.has_signal_preview_nodes() {
+                    self.state.invalidation.invalidate_nodes();
+                }
             }
-            self.state.paused = true;
+            if !self.state.paused {
+                self.state.paused = true;
+                self.state.invalidation.invalidate_timeline();
+            }
         }
         if let Some(session) = self.export_session.as_ref() {
-            self.state.paused = true;
+            if !self.state.paused {
+                self.state.paused = true;
+                self.state.invalidation.invalidate_timeline();
+            }
             if self.state.frame_index != session.next_frame {
                 self.state.frame_index = session.next_frame;
                 scene_dirty = true;
+                self.state.invalidation.invalidate_timeline();
+                if self.project.has_signal_preview_nodes() {
+                    self.state.invalidation.invalidate_nodes();
+                }
             }
         }
         if self.config.gui.benchmark_drag {
@@ -559,31 +371,40 @@ impl GuiApp {
             .export_menu
             .timeline_total_frames(self.config.animation.fps);
         if self.export_session.is_none() && !self.start_export_requested {
-            scene_dirty |= step_timeline_if_running(
+            let timeline_advanced = step_timeline_if_running(
                 &mut self.state,
                 frame_delta,
                 self.config.animation.fps,
                 timeline_total_frames,
             );
+            scene_dirty |= timeline_advanced;
+            if timeline_advanced {
+                self.state.invalidation.invalidate_timeline();
+                if self.project.has_signal_preview_nodes() {
+                    self.state.invalidation.invalidate_nodes();
+                }
+            }
         }
         let clamped_frame = clamp_frame(self.state.frame_index, timeline_total_frames);
         if clamped_frame != self.state.frame_index {
             self.state.frame_index = clamped_frame;
             scene_dirty = true;
+            self.state.invalidation.invalidate_timeline();
+            if self.project.has_signal_preview_nodes() {
+                self.state.invalidation.invalidate_nodes();
+            }
         }
         if self.export_session.is_none()
             && self.state.export_menu.preview_total != timeline_total_frames
         {
             self.state.export_menu.preview_total = timeline_total_frames;
             scene_dirty = true;
+            self.state.invalidation.invalidate_timeline();
+            self.state.invalidation.invalidate_overlays();
         }
         self.sync_timeline_audio_preview(timeline_total_frames);
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
-        self.apply_scoped_invalidation(
-            project_invalidation_before,
-            scene_invalidation_before,
-            resize_changed,
-        );
+        self.apply_project_scoped_invalidation(project_invalidation_before, resize_changed);
         let update_elapsed = update_start.elapsed();
         let hit_test_scans = self.project.take_hit_test_scan_count();
 
@@ -685,11 +506,10 @@ impl GuiApp {
         Ok(())
     }
 
-    /// Propagate project/state dependency deltas into scoped scene/tex epochs.
-    fn apply_scoped_invalidation(
+    /// Propagate project mutation deltas into scoped scene/tex epochs.
+    fn apply_project_scoped_invalidation(
         &mut self,
         project_before: GuiProjectInvalidation,
-        state_before: SceneInvalidationSnapshot,
         resize_changed: bool,
     ) {
         let project_after = self.project.invalidation();
@@ -702,25 +522,6 @@ impl GuiApp {
         }
         if project_before.tex_eval != project_after.tex_eval {
             self.state.invalidation.invalidate_tex_eval();
-        }
-
-        let state_after =
-            SceneInvalidationSnapshot::capture(&self.state, self.config.animation.fps);
-        if state_before.nodes != state_after.nodes {
-            self.state.invalidation.invalidate_nodes();
-        }
-        if state_before.wires != state_after.wires {
-            self.state.invalidation.invalidate_wires();
-            self.state.invalidation.invalidate_overlays();
-        }
-        if state_before.overlays != state_after.overlays {
-            self.state.invalidation.invalidate_overlays();
-        }
-        if state_before.timeline != state_after.timeline {
-            self.state.invalidation.invalidate_timeline();
-            if self.project.has_signal_preview_nodes() {
-                self.state.invalidation.invalidate_nodes();
-            }
         }
 
         if resize_changed {

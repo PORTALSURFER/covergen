@@ -64,6 +64,65 @@ fn rects_overlap_detects_intersection() {
 }
 
 #[test]
+fn apply_preview_actions_toggle_pause_invalidates_timeline() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let mut state = PreviewState::new(&config);
+    let before = state.invalidation;
+    let input = InputSnapshot {
+        toggle_pause: true,
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        &config,
+        input,
+        &mut project,
+        640,
+        420,
+        480,
+        &mut state,
+    ));
+    assert!(
+        state.invalidation.timeline != before.timeline,
+        "pause toggle should invalidate timeline layer"
+    );
+}
+
+#[test]
+fn apply_preview_actions_hover_updates_invalidate_graph_layers() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let _solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+    let mut state = PreviewState::new(&config);
+    let before = state.invalidation;
+    let input = InputSnapshot {
+        mouse_pos: Some((90, 90)),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        &config,
+        input,
+        &mut project,
+        640,
+        420,
+        480,
+        &mut state,
+    ));
+    assert!(
+        state.invalidation.nodes != before.nodes,
+        "hover updates should invalidate nodes layer"
+    );
+    assert!(
+        state.invalidation.wires != before.wires,
+        "hover updates should invalidate wires layer"
+    );
+    assert!(
+        state.invalidation.overlays != before.overlays,
+        "hover updates should invalidate overlays layer"
+    );
+}
+
+#[test]
 fn insert_param_char_replaces_selection() {
     let mut edit = ParamEditState {
         node_id: 7,

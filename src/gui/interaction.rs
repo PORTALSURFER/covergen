@@ -53,6 +53,19 @@ enum HelpTarget {
     Param { node_id: u32, param_index: usize },
 }
 
+fn invalidate_graph_layers(state: &mut PreviewState) {
+    state.invalidation.invalidate_nodes();
+    state.invalidation.invalidate_wires();
+    state.invalidation.invalidate_overlays();
+}
+
+fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut PreviewState) {
+    state.invalidation.invalidate_timeline();
+    if project.has_signal_preview_nodes() {
+        state.invalidation.invalidate_nodes();
+    }
+}
+
 /// Shared panel-size context for interaction submodules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct InteractionPanelContext {
@@ -87,6 +100,7 @@ pub(crate) fn apply_preview_actions(
     }
     if input.toggle_pause {
         state.paused = !state.paused;
+        state.invalidation.invalidate_timeline();
         changed = true;
     }
     if input.new_project || state.request_new_project {
@@ -149,6 +163,9 @@ pub(crate) fn apply_preview_actions(
         state,
     );
     changed |= timeline_changed;
+    if timeline_changed {
+        invalidate_timeline_and_signal_previews(project, state);
+    }
     if timeline_consumed {
         state.drag = None;
         state.wire_drag = None;
@@ -181,7 +198,11 @@ pub(crate) fn apply_preview_actions(
         return changed;
     }
 
+    let zoom_before = state.zoom.to_bits();
     changed |= handle_pan_zoom_and_focus(&input, project, panel_width, panel_height, state);
+    if zoom_before != state.zoom.to_bits() {
+        invalidate_graph_layers(state);
+    }
     if state.pan_drag.is_some() {
         state.drag = None;
         state.wire_drag = None;
@@ -198,6 +219,10 @@ pub(crate) fn apply_preview_actions(
     let (param_scrub_changed, param_scrub_active) =
         handle_alt_param_drag(&input, project, panel_width, panel_height, state);
     changed |= param_scrub_changed;
+    if param_scrub_changed {
+        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_overlays();
+    }
     if param_scrub_active {
         state.drag = None;
         state.wire_drag = None;
@@ -214,7 +239,12 @@ pub(crate) fn apply_preview_actions(
         return true;
     }
 
-    changed |= handle_link_cut(&input, project, panel_width, panel_height, state);
+    let cut_changed = handle_link_cut(&input, project, panel_width, panel_height, state);
+    changed |= cut_changed;
+    if cut_changed {
+        state.invalidation.invalidate_wires();
+        state.invalidation.invalidate_overlays();
+    }
     if state.link_cut.is_some() {
         state.drag = None;
         state.wire_drag = None;
@@ -228,7 +258,13 @@ pub(crate) fn apply_preview_actions(
         return true;
     }
 
-    changed |= handle_right_selection(&input, project, panel_width, panel_height, state);
+    let right_sel_changed =
+        handle_right_selection(&input, project, panel_width, panel_height, state);
+    changed |= right_sel_changed;
+    if right_sel_changed {
+        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_overlays();
+    }
     if state.right_marquee.is_some() {
         state.drag = None;
         state.wire_drag = None;
@@ -242,13 +278,34 @@ pub(crate) fn apply_preview_actions(
         return true;
     }
 
-    changed |= handle_add_menu_toggle(&input, panel_width, panel_height, state);
-    changed |= handle_main_menu_toggle(&input, panel_width, panel_height, state);
-    changed |= update_hover_state(&input, project, panel_width, panel_height, state);
-    changed |= handle_node_open_toggle(&input, project, panel_width, panel_height, state);
+    let add_menu_changed = handle_add_menu_toggle(&input, panel_width, panel_height, state);
+    changed |= add_menu_changed;
+    if add_menu_changed {
+        state.invalidation.invalidate_overlays();
+    }
+    let main_menu_changed = handle_main_menu_toggle(&input, panel_width, panel_height, state);
+    changed |= main_menu_changed;
+    if main_menu_changed {
+        state.invalidation.invalidate_overlays();
+    }
+    let hover_changed = update_hover_state(&input, project, panel_width, panel_height, state);
+    changed |= hover_changed;
+    if hover_changed {
+        invalidate_graph_layers(state);
+    }
+    let node_toggle_changed =
+        handle_node_open_toggle(&input, project, panel_width, panel_height, state);
+    changed |= node_toggle_changed;
+    if node_toggle_changed {
+        state.invalidation.invalidate_overlays();
+    }
     let (param_changed, param_click_consumed) =
         handle_param_edit_input(&input, project, panel_width, panel_height, state);
     changed |= param_changed;
+    if param_changed {
+        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_overlays();
+    }
     if param_click_consumed {
         state.drag = None;
         state.wire_drag = None;
@@ -273,15 +330,40 @@ pub(crate) fn apply_preview_actions(
         return changed;
     }
     if state.export_menu.open || state.main_menu.open {
-        changed |= handle_main_export_menu_input(&input, panel_width, panel_height, state);
+        let menu_changed = handle_main_export_menu_input(&input, panel_width, panel_height, state);
+        changed |= menu_changed;
+        if menu_changed {
+            state.invalidation.invalidate_overlays();
+            state.invalidation.invalidate_timeline();
+        }
     } else if state.menu.open {
-        changed |= handle_add_menu_input(&input, project, panel_width, panel_height, state);
+        let menu_changed = handle_add_menu_input(&input, project, panel_width, panel_height, state);
+        changed |= menu_changed;
+        if menu_changed {
+            state.invalidation.invalidate_overlays();
+        }
     } else {
-        changed |= handle_delete_selected_nodes(&input, project, state);
-        changed |= handle_parameter_shortcuts(&input, project, state);
-        changed |= handle_wire_input(&input, project, panel_width, panel_height, state);
+        let delete_changed = handle_delete_selected_nodes(&input, project, state);
+        changed |= delete_changed;
+        if delete_changed {
+            state.invalidation.invalidate_overlays();
+        }
+        let param_shortcut_changed = handle_parameter_shortcuts(&input, project, state);
+        changed |= param_shortcut_changed;
+        if param_shortcut_changed {
+            state.invalidation.invalidate_nodes();
+        }
+        let wire_changed = handle_wire_input(&input, project, panel_width, panel_height, state);
+        changed |= wire_changed;
+        if wire_changed {
+            invalidate_graph_layers(state);
+        }
         if state.wire_drag.is_none() {
-            changed |= handle_drag_input(&input, project, panel_width, panel_height, state);
+            let drag_changed = handle_drag_input(&input, project, panel_width, panel_height, state);
+            changed |= drag_changed;
+            if drag_changed {
+                invalidate_graph_layers(state);
+            }
         } else {
             state.drag = None;
         }
