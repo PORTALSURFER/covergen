@@ -2,9 +2,10 @@
 
 use super::{
     graph_rect_to_panel, inside_panel, node_param_dropdown_rect, screen_to_graph, GuiProject,
-    InputSnapshot, InteractionPanelContext, ParamDropdownState, ParamEditState, PreviewState, Rect,
-    NODE_PARAM_DROPDOWN_ROW_HEIGHT,
+    InputSnapshot, InteractionPanelContext, ParamDropdownState, ParamEditState, PendingAppAction,
+    PreviewState, Rect, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
 };
+use crate::gui::project::{ProjectNodeKind, FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_RESET_PARAM_KEY};
 
 /// Handle parameter text-edit and dropdown interaction for one input frame.
 pub(super) fn handle_param_edit_input(
@@ -118,6 +119,13 @@ pub(super) fn handle_param_click(
         state.hover_dropdown_item = None;
         return true;
     }
+    if project.param_is_action_button(node_id, param_index) {
+        let _ = finish_param_edit(project, state);
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
+        state.pending_app_action = feedback_reset_action(project, node_id, param_index);
+        return true;
+    }
     if project.param_is_dropdown(node_id, param_index) {
         state.param_edit = None;
         if state
@@ -154,6 +162,27 @@ pub(super) fn handle_param_click(
     let _ = finish_param_edit(project, state);
     let _ = start_param_edit(project, state, node_id, param_index);
     true
+}
+
+fn feedback_reset_action(
+    project: &GuiProject,
+    node_id: u32,
+    param_index: usize,
+) -> Option<PendingAppAction> {
+    let descriptor = project.node_param_descriptor(node_id, param_index)?;
+    if descriptor.key != FEEDBACK_RESET_PARAM_KEY {
+        return None;
+    }
+    if project.node(node_id)?.kind() != ProjectNodeKind::TexFeedback {
+        return None;
+    }
+    let accumulation_texture_node_id = project
+        .node_param_slot_index(node_id, FEEDBACK_HISTORY_PARAM_KEY)
+        .and_then(|slot_index| project.texture_source_for_param(node_id, slot_index));
+    Some(PendingAppAction::ResetFeedback {
+        feedback_node_id: node_id,
+        accumulation_texture_node_id,
+    })
 }
 
 /// Handle clicks on an open dropdown list.

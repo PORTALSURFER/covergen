@@ -29,7 +29,7 @@ impl GuiProject {
         }
         let index = param_index.min(target.params.len().saturating_sub(1));
         let slot = &mut target.params[index];
-        if slot.widget.is_texture_target() {
+        if slot.widget.is_texture_target() || slot.widget.is_action_button() {
             return false;
         }
         if slot.signal_source == Some(source_id) {
@@ -413,6 +413,20 @@ impl GuiProject {
         slot.widget.is_dropdown()
     }
 
+    /// Return true when a parameter row is rendered as action button.
+    pub(crate) fn param_is_action_button(&self, node_id: u32, param_index: usize) -> bool {
+        let Some(node) = self.node(node_id) else {
+            return false;
+        };
+        let Some(slot) = node
+            .params
+            .get(param_index.min(node.params.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        slot.widget.is_action_button()
+    }
+
     /// Return true when a parameter row can be edited as free-form numeric text.
     pub(crate) fn param_supports_text_edit(&self, node_id: u32, param_index: usize) -> bool {
         let Some(node) = self.node(node_id) else {
@@ -424,7 +438,9 @@ impl GuiProject {
         else {
             return false;
         };
-        !slot.widget.is_dropdown() && !slot.widget.is_texture_target()
+        !slot.widget.is_dropdown()
+            && !slot.widget.is_texture_target()
+            && !slot.widget.is_action_button()
     }
 
     /// Return true when one row accepts signal-source parameter bindings.
@@ -441,7 +457,7 @@ impl GuiProject {
         else {
             return false;
         };
-        !slot.widget.is_texture_target()
+        !slot.widget.is_texture_target() && !slot.widget.is_action_button()
     }
 
     /// Return true when one row accepts texture-source parameter bindings.
@@ -802,6 +818,12 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             // History carry amount used by accumulation (`src + history * feedback`).
             param("feedback", "feedback", 1.0, 0.0, 1.0, 0.01),
+            // Clears this node's feedback history buffer.
+            param_action_button(
+                FEEDBACK_RESET_PARAM_KEY,
+                FEEDBACK_RESET_PARAM_LABEL,
+                "reset",
+            ),
         ],
         ProjectNodeKind::TexReactionDiffusion => vec![
             // Gray-Scott diffusion coefficient for reagent A.
@@ -938,6 +960,27 @@ fn param_texture_target(key: &'static str, label: &'static str) -> NodeParamSlot
     }
 }
 
+/// Build one action-button parameter slot.
+fn param_action_button(
+    key: &'static str,
+    label: &'static str,
+    button_text: &'static str,
+) -> NodeParamSlot {
+    assert_param_label_fits(label);
+    NodeParamSlot {
+        key,
+        label,
+        value: 0.0,
+        value_text: button_text.to_string(),
+        min: 0.0,
+        max: 0.0,
+        step: 0.0,
+        signal_source: None,
+        texture_source: None,
+        widget: NodeParamWidget::ActionButton,
+    }
+}
+
 /// Build one dropdown-parameter slot.
 fn param_dropdown(
     key: &'static str,
@@ -1043,7 +1086,7 @@ pub(super) fn texture_source_display_label(source: &ProjectNode) -> String {
 
 /// Set one slot value while respecting widget semantics.
 pub(super) fn set_slot_value(slot: &mut NodeParamSlot, value: f32) -> bool {
-    if slot.widget.is_texture_target() {
+    if slot.widget.is_texture_target() || slot.widget.is_action_button() {
         return false;
     }
     if let Some(options) = slot.widget.dropdown_options() {
@@ -1067,7 +1110,7 @@ fn adjust_slot_value(slot: &mut NodeParamSlot, steps: f32) -> bool {
     if !steps.is_finite() || steps.abs() <= f32::EPSILON {
         return false;
     }
-    if slot.widget.is_texture_target() {
+    if slot.widget.is_texture_target() || slot.widget.is_action_button() {
         return false;
     }
     if let Some(options) = slot.widget.dropdown_options() {

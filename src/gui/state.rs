@@ -22,6 +22,10 @@ pub(crate) enum PendingAppAction {
     LoadProject,
     StartExport,
     StopExport,
+    ResetFeedback {
+        feedback_node_id: u32,
+        accumulation_texture_node_id: Option<u32>,
+    },
     Exit,
 }
 

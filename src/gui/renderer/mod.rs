@@ -442,6 +442,16 @@ impl GuiRenderer {
         counters
     }
 
+    /// Clear cached feedback history textures for one feedback node.
+    pub(crate) fn reset_feedback_history(
+        &mut self,
+        feedback_node_id: u32,
+        accumulation_texture_node_id: Option<u32>,
+    ) -> bool {
+        self.tex_preview
+            .reset_feedback_history(feedback_node_id, accumulation_texture_node_id)
+    }
+
     /// Capture current tex preview texture to tightly packed BGRA bytes.
     pub(crate) fn capture_tex_preview_bgra(
         &mut self,

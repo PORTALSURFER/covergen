@@ -139,6 +139,7 @@ fn param_value_line(param: &NodeParamDescriptor) -> String {
             }
         }
         NodeParamWidget::Dropdown { .. } => format!("Current Option: {}", param.value_text),
+        NodeParamWidget::ActionButton => format!("Button Label: {}", param.value_text),
         NodeParamWidget::Number => format!(
             "Current Value: {} (raw {:.4}, range {:.4}..{:.4}, step {:.4})",
             param.value_text, param.value, param.min, param.max, param.step
@@ -160,5 +161,6 @@ fn param_widget_line(param: &NodeParamDescriptor) -> String {
                 .join(", ");
             format!("Widget: dropdown [{labels}]")
         }
+        NodeParamWidget::ActionButton => "Widget: action button".to_string(),
     }
 }

@@ -791,6 +791,25 @@ impl GuiApp {
                 Ok(true)
             }
             PendingAppAction::StopExport => Ok(self.stop_export_session("stopped by user")),
+            PendingAppAction::ResetFeedback {
+                feedback_node_id,
+                accumulation_texture_node_id,
+            } => {
+                let cleared = self
+                    .renderer
+                    .reset_feedback_history(feedback_node_id, accumulation_texture_node_id);
+                if cleared {
+                    self.state.export_menu.set_status(format!(
+                        "Reset feedback history for node #{feedback_node_id}"
+                    ));
+                } else {
+                    self.state.export_menu.set_status(format!(
+                        "Feedback history already clear for node #{feedback_node_id}"
+                    ));
+                }
+                self.state.invalidation.invalidate_overlays();
+                Ok(true)
+            }
             PendingAppAction::Exit => {
                 self.close_requested = true;
                 Ok(true)

@@ -15,8 +15,8 @@ use crate::gui::project::{
 use crate::gui::scene::wire_route;
 use crate::gui::state::{
     AddNodeCategory, AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink,
-    HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState, PreviewState, WireDragState,
-    ADD_NODE_OPTIONS,
+    HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState, PendingAppAction, PreviewState,
+    WireDragState, ADD_NODE_OPTIONS,
 };
 use crate::gui::timeline::{editor_panel_height, timeline_control_layout, timeline_rect};
 use crate::runtime_config::V2Config;
@@ -1110,6 +1110,37 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
             .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
         Some((pass, 2))
     );
+}
+
+#[test]
+fn feedback_reset_button_click_queues_reset_action() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(feedback, 420, 480));
+    assert!(project.connect_texture_link_to_param(solid, feedback, 0));
+    let value_rect = {
+        let node = project.node(feedback).expect("feedback node should exist");
+        node_param_value_rect(node, 2).expect("reset value rect should exist")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let click = InputSnapshot {
+        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = handle_param_edit_input(&click, &mut project, 420, 480, &mut state);
+    assert!(!changed);
+    assert!(consumed);
+    assert!(matches!(
+        state.pending_app_action,
+        Some(PendingAppAction::ResetFeedback {
+            feedback_node_id,
+            accumulation_texture_node_id,
+        }) if feedback_node_id == feedback && accumulation_texture_node_id == Some(solid)
+    ));
+    assert!(state.param_edit.is_none());
+    assert!(state.param_dropdown.is_none());
 }
 
 #[test]

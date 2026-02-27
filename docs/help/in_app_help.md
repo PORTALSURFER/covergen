@@ -126,6 +126,8 @@ Optional external history texture target for read/write accumulation.
 Leave unbound to use the node's internal persistent history buffer.
 ### Param `feedback`
 History carry amount in accumulation (`src + history * feedback`, clamped).
+### Param `reset`
+Clears persistent feedback history for this node.
 
 ## Node `tex.reaction_diffusion`
 Runs one Gray-Scott reaction-diffusion simulation step per frame.

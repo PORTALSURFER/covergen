@@ -680,6 +680,25 @@ impl TexPreviewRenderer {
         pass.draw(0..6, 0..1);
     }
 
+    /// Drop cached feedback history slots for one feedback node.
+    pub(in crate::gui::renderer) fn reset_feedback_history(
+        &mut self,
+        feedback_node_id: u32,
+        accumulation_texture_node_id: Option<u32>,
+    ) -> bool {
+        let mut cleared = self
+            .feedback_history
+            .remove(&FeedbackHistoryKey::Internal { feedback_node_id })
+            .is_some();
+        if let Some(texture_node_id) = accumulation_texture_node_id {
+            cleared |= self
+                .feedback_history
+                .remove(&FeedbackHistoryKey::External { texture_node_id })
+                .is_some();
+        }
+        cleared
+    }
+
     /// Return current viewer render target texture and size.
     pub(in crate::gui::renderer) fn viewer_texture_and_size(
         &self,

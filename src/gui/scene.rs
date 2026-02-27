@@ -67,6 +67,8 @@ const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_VALUE_SOFT_HOVER: Color = Color::argb(0x166AA7D8);
 const PARAM_VALUE_SOFT_BORDER: Color = Color::argb(0xFF4D6175);
 const PARAM_VALUE_ALT_HOVER: Color = Color::argb(0x3342A5F5);
+const PARAM_ACTION_BG: Color = Color::argb(0xFF152029);
+const PARAM_ACTION_BG_HOVER: Color = Color::argb(0xFF1E3140);
 const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
 const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
@@ -665,39 +667,66 @@ impl SceneBuilder {
                 NODE_TEXT
             };
             self.push_graph_text_in_rect(label_rect, 0, fitted_label, bound_color, state);
-            self.push_rect(value_rect, PARAM_VALUE_BG);
+            self.push_rect(
+                value_rect,
+                if row.action_button {
+                    if soft_hover {
+                        PARAM_ACTION_BG_HOVER
+                    } else {
+                        PARAM_ACTION_BG
+                    }
+                } else {
+                    PARAM_VALUE_BG
+                },
+            );
             let alt_hover = state
                 .hover_alt_param
                 .map(|target| target.node_id == node.id() && target.param_index == index)
                 .unwrap_or(false);
-            if alt_hover {
-                self.push_rect(value_rect, PARAM_VALUE_ALT_HOVER);
-            }
             let editing = state
                 .param_edit
                 .as_ref()
                 .map(|edit| edit.node_id == node.id() && edit.param_index == index)
                 .unwrap_or(false);
-            if soft_hover && !alt_hover && !editing {
-                self.push_rect(value_rect, PARAM_VALUE_SOFT_HOVER);
-            }
-            let active_edit = state
-                .param_edit
-                .as_ref()
-                .filter(|edit| edit.node_id == node.id() && edit.param_index == index);
-            let value_text = active_edit
-                .map(|edit| edit.buffer.as_str())
-                .unwrap_or(row.value_text);
-            self.push_value_editor_text(value_rect, value_text, active_edit, bound_color, state);
-            if row.dropdown {
-                let arrow_y = value_rect.y + value_rect.h / 2;
-                let arrow_x = value_rect.x + value_rect.w - 8;
-                self.push_line(arrow_x - 3, arrow_y - 1, arrow_x, arrow_y + 2, bound_color);
-                self.push_line(arrow_x, arrow_y + 2, arrow_x + 3, arrow_y - 1, bound_color);
+            if row.action_button {
+                self.push_graph_text_in_rect(value_rect, 4, row.value_text, NODE_TEXT, state);
+            } else {
+                if alt_hover {
+                    self.push_rect(value_rect, PARAM_VALUE_ALT_HOVER);
+                }
+                if soft_hover && !alt_hover && !editing {
+                    self.push_rect(value_rect, PARAM_VALUE_SOFT_HOVER);
+                }
+                let active_edit = state
+                    .param_edit
+                    .as_ref()
+                    .filter(|edit| edit.node_id == node.id() && edit.param_index == index);
+                let value_text = active_edit
+                    .map(|edit| edit.buffer.as_str())
+                    .unwrap_or(row.value_text);
+                self.push_value_editor_text(
+                    value_rect,
+                    value_text,
+                    active_edit,
+                    bound_color,
+                    state,
+                );
+                if row.dropdown {
+                    let arrow_y = value_rect.y + value_rect.h / 2;
+                    let arrow_x = value_rect.x + value_rect.w - 8;
+                    self.push_line(arrow_x - 3, arrow_y - 1, arrow_x, arrow_y + 2, bound_color);
+                    self.push_line(arrow_x, arrow_y + 2, arrow_x + 3, arrow_y - 1, bound_color);
+                }
             }
             self.push_border(
                 value_rect,
-                if editing || alt_hover {
+                if row.action_button {
+                    if soft_hover {
+                        PARAM_VALUE_ACTIVE
+                    } else {
+                        PARAM_VALUE_BORDER
+                    }
+                } else if editing || alt_hover {
                     PARAM_VALUE_ACTIVE
                 } else if soft_hover {
                     PARAM_VALUE_SOFT_BORDER

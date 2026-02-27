@@ -43,9 +43,13 @@ const NODE_SIGNAL_SCOPE_EXTRA_HEIGHT: i32 = 20;
 const HIT_BIN_SIZE: i32 = 128;
 const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
 const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
-const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
+/// Stable parameter key for feedback accumulation history texture binding.
+pub(crate) const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
+/// Stable parameter key for the feedback history reset action button.
+pub(crate) const FEEDBACK_RESET_PARAM_KEY: &str = "reset";
+const FEEDBACK_RESET_PARAM_LABEL: &str = "reset";
 const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
 const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
@@ -827,6 +831,8 @@ pub(crate) enum NodeParamWidget {
     },
     /// Texture-node binding target used by feedback routing parameters.
     TextureTarget,
+    /// Stateless action button rendered in the value field.
+    ActionButton,
 }
 
 impl NodeParamWidget {
@@ -841,12 +847,18 @@ impl NodeParamWidget {
             Self::Number => None,
             Self::Dropdown { options } => Some(options),
             Self::TextureTarget => None,
+            Self::ActionButton => None,
         }
     }
 
     /// Return true when this parameter binds one texture node source id.
     pub(crate) const fn is_texture_target(self) -> bool {
         matches!(self, Self::TextureTarget)
+    }
+
+    /// Return true when this parameter is an action button.
+    pub(crate) const fn is_action_button(self) -> bool {
+        matches!(self, Self::ActionButton)
     }
 }
 
@@ -898,6 +910,7 @@ pub(crate) struct NodeParamView<'a> {
     pub(crate) bound: bool,
     pub(crate) selected: bool,
     pub(crate) dropdown: bool,
+    pub(crate) action_button: bool,
 }
 
 /// Zero-allocation iterator over one node's parameter rows.
@@ -923,6 +936,7 @@ impl<'a> Iterator for NodeParamIter<'a> {
             bound: slot.signal_source.is_some() || slot.texture_source.is_some(),
             selected,
             dropdown: slot.widget.is_dropdown(),
+            action_button: slot.widget.is_action_button(),
         })
     }
 }
@@ -1030,6 +1044,7 @@ impl ProjectNode {
             bound: slot.signal_source.is_some() || slot.texture_source.is_some(),
             selected,
             dropdown: slot.widget.is_dropdown(),
+            action_button: slot.widget.is_action_button(),
         })
     }
 }
