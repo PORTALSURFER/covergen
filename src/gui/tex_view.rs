@@ -3,7 +3,7 @@
 //! The generator caches one compiled render chain and frame-keyed operation
 //! payload so the renderer executes a single GPU-only preview path.
 
-use super::project::GuiProject;
+use super::project::{GuiProject, SignalEvalStack};
 use super::runtime::{GuiCompiledRuntime, TexRuntimeFrameContext};
 use super::timeline::editor_panel_height;
 
@@ -56,7 +56,7 @@ pub(crate) struct TexViewerGenerator {
     compiled_epoch: Option<u64>,
     compiled_runtime: Option<GuiCompiledRuntime>,
     ops: Vec<TexViewerOp>,
-    eval_stack: Vec<u32>,
+    eval_stack: SignalEvalStack,
 }
 
 /// Immutable update inputs for one tex viewer cache tick.

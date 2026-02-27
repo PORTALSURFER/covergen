@@ -613,23 +613,23 @@ impl GuiProject {
     ///
     /// This avoids per-sample key lookups and is intended for runtime hot-path
     /// evaluation after compile-time slot resolution.
-    pub(crate) fn node_param_value_by_index(
+    pub(crate) fn node_param_value_by_index<S: SignalEvalPath>(
         &self,
         node_id: u32,
         param_index: usize,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
     ) -> Option<f32> {
         let mut memo = None;
         self.node_param_value_by_index_impl(node_id, param_index, time_secs, eval_stack, &mut memo)
     }
 
-    fn node_param_value_by_index_impl(
+    fn node_param_value_by_index_impl<S: SignalEvalPath>(
         &self,
         node_id: u32,
         param_index: usize,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
         memo: &mut Option<&mut SignalSampleMemo>,
     ) -> Option<f32> {
         let node = self.node(node_id)?;
@@ -647,23 +647,23 @@ impl GuiProject {
 
     /// Return effective parameter value, resolving optional signal binding.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn node_param_value(
+    pub(crate) fn node_param_value<S: SignalEvalPath>(
         &self,
         node_id: u32,
         key: &'static str,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
     ) -> Option<f32> {
         let index = self.node_param_slot_index(node_id, key)?;
         self.node_param_value_by_index(node_id, index, time_secs, eval_stack)
     }
 
     /// Evaluate one scalar signal node output.
-    pub(crate) fn sample_signal_node(
+    pub(crate) fn sample_signal_node<S: SignalEvalPath>(
         &self,
         node_id: u32,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
     ) -> Option<f32> {
         let mut memo = None;
         self.sample_signal_node_impl(node_id, time_secs, eval_stack, &mut memo)
@@ -673,22 +673,22 @@ impl GuiProject {
     ///
     /// The memo map is keyed by node id and a quantized time bucket so repeated
     /// graph evaluations within one frame can reuse prior signal samples.
-    pub(crate) fn sample_signal_node_with_memo(
+    pub(crate) fn sample_signal_node_with_memo<S: SignalEvalPath>(
         &self,
         node_id: u32,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
         memo: &mut SignalSampleMemo,
     ) -> Option<f32> {
         let mut memo = Some(memo);
         self.sample_signal_node_impl(node_id, time_secs, eval_stack, &mut memo)
     }
 
-    fn sample_signal_node_impl(
+    fn sample_signal_node_impl<S: SignalEvalPath>(
         &self,
         node_id: u32,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut S,
         memo: &mut Option<&mut SignalSampleMemo>,
     ) -> Option<f32> {
         let bucket = sample_time_bucket(time_secs);
@@ -698,7 +698,7 @@ impl GuiProject {
         {
             return cached;
         }
-        if eval_stack.contains(&node_id) {
+        if eval_stack.contains_node(node_id) {
             if let Some(map) = memo.as_deref_mut() {
                 map.insert((node_id, bucket), None);
             }
@@ -711,7 +711,7 @@ impl GuiProject {
             }
             return None;
         }
-        eval_stack.push(node_id);
+        eval_stack.push_node(node_id);
         const LFO_RATE_INDEX: usize = 0;
         const LFO_AMPLITUDE_INDEX: usize = 1;
         const LFO_PHASE_INDEX: usize = 2;
@@ -775,7 +775,7 @@ impl GuiProject {
         let phase_time = time_secs * rate_hz + phase;
         let cycle = phase_time.rem_euclid(1.0);
         let v = (lfo_wave_sample(cycle, phase_time, lfo_type, shape) * amplitude) + bias;
-        eval_stack.pop();
+        eval_stack.pop_node();
         let sampled = Some(v);
         if let Some(map) = memo.as_deref_mut() {
             map.insert((node_id, bucket), sampled);

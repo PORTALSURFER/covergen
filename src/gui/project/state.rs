@@ -580,15 +580,14 @@ impl GuiProject {
 
     pub(super) fn depends_on(&self, start_node_id: u32, target_node_id: u32) -> bool {
         let mut stack = vec![start_node_id];
-        let mut visited = Vec::new();
+        let mut visited = HashSet::new();
         while let Some(node_id) = stack.pop() {
             if node_id == target_node_id {
                 return true;
             }
-            if visited.contains(&node_id) {
+            if !visited.insert(node_id) {
                 continue;
             }
-            visited.push(node_id);
             if let Some(node) = self.node(node_id) {
                 stack.extend(node.inputs.iter().copied());
             }

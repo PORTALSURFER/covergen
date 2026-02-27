@@ -3,7 +3,11 @@
 //! This module normalizes GUI node graphs into a deterministic, executable
 //! step list that can be evaluated directly into GPU preview operations.
 
-use super::project::{GuiProject, ProjectNodeKind};
+use std::collections::HashSet;
+use std::time::Instant;
+
+use super::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
+use crate::telemetry;
 
 const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
@@ -355,28 +359,39 @@ pub(crate) struct GuiCompiledRuntime {
     steps: Vec<CompiledStep>,
 }
 
+#[derive(Debug, Default)]
+struct CompileTraversalState {
+    visiting: HashSet<u32>,
+    visited: HashSet<u32>,
+}
+
 impl GuiCompiledRuntime {
     /// Compile one GUI project to an executable tex runtime sequence.
     ///
     /// Returns `None` when no valid `io.window_out` chain can be compiled.
     pub(crate) fn compile(project: &GuiProject) -> Option<Self> {
-        let output_source_id = project.window_out_input_node_id()?;
-        let mut steps = Vec::new();
-        let mut visiting = Vec::new();
-        let mut visited = Vec::new();
-        if !compile_node(
-            project,
-            output_source_id,
-            &mut visiting,
-            &mut visited,
-            &mut steps,
-        ) {
-            return None;
-        }
-        if steps.is_empty() {
-            return None;
-        }
-        Some(Self { steps })
+        let compile_begin = Instant::now();
+        let compiled = (|| {
+            let output_source_id = project.window_out_input_node_id()?;
+            let mut steps = Vec::new();
+            let mut traversal = CompileTraversalState::default();
+            if !compile_node(project, output_source_id, &mut traversal, &mut steps) {
+                return None;
+            }
+            if steps.is_empty() {
+                return None;
+            }
+            Some(Self { steps })
+        })();
+        telemetry::record_timing("gui.runtime.compile", compile_begin.elapsed());
+        telemetry::record_counter_u64(
+            "gui.runtime.compile.step_count",
+            compiled
+                .as_ref()
+                .map(|runtime| runtime.steps.len() as u64)
+                .unwrap_or(0),
+        );
+        compiled
     }
 
     /// Evaluate compiled steps into GPU runtime operations for one frame.
@@ -385,7 +400,7 @@ impl GuiCompiledRuntime {
         &self,
         project: &GuiProject,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut SignalEvalStack,
         out_ops: &mut Vec<TexRuntimeOp>,
     ) {
         self.evaluate_ops_with_frame(project, time_secs, None, eval_stack, out_ops);
@@ -400,11 +415,11 @@ impl GuiCompiledRuntime {
         project: &GuiProject,
         time_secs: f32,
         frame: Option<TexRuntimeFrameContext>,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut SignalEvalStack,
         out_ops: &mut Vec<TexRuntimeOp>,
     ) {
         out_ops.clear();
-        eval_stack.clear();
+        eval_stack.clear_nodes();
         let mut mesh = None;
         let mut entity = None;
         let mut scene_ready = false;
@@ -1255,9 +1270,9 @@ impl GuiCompiledRuntime {
         &self,
         project: &GuiProject,
         time_secs: f32,
-        eval_stack: &mut Vec<u32>,
+        eval_stack: &mut SignalEvalStack,
     ) -> (u32, u32) {
-        eval_stack.clear();
+        eval_stack.clear_nodes();
         let default_w = project.preview_width.max(1);
         let default_h = project.preview_height.max(1);
         for step in self.steps.iter().rev() {
@@ -1329,7 +1344,7 @@ fn compiled_param_value_opt(
     step: &CompiledStep,
     param_slot: usize,
     time_secs: f32,
-    eval_stack: &mut Vec<u32>,
+    eval_stack: &mut SignalEvalStack,
 ) -> Option<f32> {
     let index = step.param_slots.get(param_slot).copied().flatten()?.0;
     project.node_param_value_by_index(step.node_id, index, time_secs, eval_stack)
@@ -1357,14 +1372,13 @@ fn compile_post_process_node(
     project: &GuiProject,
     node_id: u32,
     category: PostProcessCategory,
-    visiting: &mut Vec<u32>,
-    visited: &mut Vec<u32>,
+    traversal: &mut CompileTraversalState,
     out_steps: &mut Vec<CompiledStep>,
 ) -> bool {
     let Some(source_id) = project.input_source_node_id(node_id) else {
         return false;
     };
-    if !compile_node(project, source_id, visiting, visited, out_steps) {
+    if !compile_node(project, source_id, traversal, out_steps) {
         return false;
     }
     out_steps.push(compiled_step(
@@ -1379,20 +1393,19 @@ fn compile_post_process_node(
 fn compile_node(
     project: &GuiProject,
     node_id: u32,
-    visiting: &mut Vec<u32>,
-    visited: &mut Vec<u32>,
+    traversal: &mut CompileTraversalState,
     out_steps: &mut Vec<CompiledStep>,
 ) -> bool {
-    if visiting.contains(&node_id) {
+    if traversal.visiting.contains(&node_id) {
         return false;
     }
-    if visited.contains(&node_id) {
+    if traversal.visited.contains(&node_id) {
         return true;
     }
     let Some(node) = project.node(node_id) else {
         return false;
     };
-    visiting.push(node_id);
+    traversal.visiting.insert(node_id);
     let ok = match node.kind() {
         ProjectNodeKind::TexSolid => {
             out_steps.push(compiled_step(
@@ -1435,7 +1448,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1452,7 +1465,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1469,7 +1482,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1486,7 +1499,7 @@ fn compile_node(
             let Some(source_id) = source_id else {
                 return false;
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1503,7 +1516,7 @@ fn compile_node(
             let Some(source_id) = source_id else {
                 return false;
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1519,72 +1532,63 @@ fn compile_node(
             project,
             node_id,
             PostProcessCategory::ColorTone,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostEdgeStructure => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::EdgeStructure,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostBlurDiffusion => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::BlurDiffusion,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostDistortion => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Distortion,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostTemporal => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Temporal,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostNoiseTexture => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::NoiseTexture,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostLighting => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Lighting,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostScreenSpace => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::ScreenSpace,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexPostExperimental => compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Experimental,
-            visiting,
-            visited,
+            traversal,
             out_steps,
         ),
         ProjectNodeKind::TexBlend => {
@@ -1599,7 +1603,7 @@ fn compile_node(
                 .unwrap_or(false);
             if compile_layer_first {
                 if let Some(layer_id) = layer_source_id {
-                    if !compile_node(project, layer_id, visiting, visited, out_steps) {
+                    if !compile_node(project, layer_id, traversal, out_steps) {
                         return false;
                     }
                     out_steps.push(compiled_step(
@@ -1609,7 +1613,7 @@ fn compile_node(
                         &[],
                     ));
                 }
-                if !compile_node(project, base_source_id, visiting, visited, out_steps) {
+                if !compile_node(project, base_source_id, traversal, out_steps) {
                     return false;
                 }
                 out_steps.push(compiled_step(
@@ -1619,7 +1623,7 @@ fn compile_node(
                     &[],
                 ));
             } else {
-                if !compile_node(project, base_source_id, visiting, visited, out_steps) {
+                if !compile_node(project, base_source_id, traversal, out_steps) {
                     return false;
                 }
                 out_steps.push(compiled_step(
@@ -1629,7 +1633,7 @@ fn compile_node(
                     &[],
                 ));
                 if let Some(layer_id) = layer_source_id {
-                    if !compile_node(project, layer_id, visiting, visited, out_steps) {
+                    if !compile_node(project, layer_id, traversal, out_steps) {
                         return false;
                     }
                     out_steps.push(compiled_step(
@@ -1656,7 +1660,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1673,7 +1677,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1690,7 +1694,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1707,7 +1711,7 @@ fn compile_node(
                 Some(id) => id,
                 None => return false,
             };
-            if !compile_node(project, source_id, visiting, visited, out_steps) {
+            if !compile_node(project, source_id, traversal, out_steps) {
                 false
             } else {
                 out_steps.push(compiled_step(
@@ -1721,9 +1725,9 @@ fn compile_node(
         }
         ProjectNodeKind::CtlLfo | ProjectNodeKind::IoWindowOut => false,
     };
-    let _ = visiting.pop();
+    traversal.visiting.remove(&node_id);
     if ok {
-        visited.push(node_id);
+        traversal.visited.insert(node_id);
     }
     ok
 }
@@ -1733,15 +1737,14 @@ fn node_depends_on(project: &GuiProject, start_node_id: u32, target_node_id: u32
         return true;
     }
     let mut stack = vec![start_node_id];
-    let mut visited = Vec::new();
+    let mut visited = HashSet::new();
     while let Some(node_id) = stack.pop() {
         if node_id == target_node_id {
             return true;
         }
-        if visited.contains(&node_id) {
+        if !visited.insert(node_id) {
             continue;
         }
-        visited.push(node_id);
         let Some(node) = project.node(node_id) else {
             continue;
         };
@@ -1811,7 +1814,7 @@ mod tests {
         TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext, TexRuntimeOp,
         FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
     };
-    use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
 
     #[test]
     fn compiled_param_slots_match_keyed_param_values() {
@@ -1822,17 +1825,17 @@ mod tests {
         assert!(project.set_param_value(solid, 2, 0.55));
         assert!(project.set_param_value(solid, 3, 0.75));
         let step = compiled_step(&project, solid, CompiledStepKind::Solid, &SOLID_PARAM_KEYS);
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         for (slot_index, key) in SOLID_PARAM_KEYS.iter().enumerate() {
             let keyed = project.node_param_value(solid, key, 0.0, &mut eval_stack);
-            eval_stack.clear();
+            eval_stack.clear_nodes();
             let indexed =
                 compiled_param_value_opt(&project, &step, slot_index, 0.0, &mut eval_stack);
             assert_eq!(
                 indexed, keyed,
                 "compiled slot {slot_index} should match keyed read for {key}"
             );
-            eval_stack.clear();
+            eval_stack.clear_nodes();
         }
     }
 
@@ -1864,7 +1867,7 @@ mod tests {
         assert!(project.connect_image_link(transform, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -1894,7 +1897,7 @@ mod tests {
         assert!(project.connect_image_link(level, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -1924,7 +1927,7 @@ mod tests {
         assert!(project.connect_image_link(reaction, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -1958,7 +1961,7 @@ mod tests {
         assert!(project.connect_image_link(post, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 1.25, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -1998,7 +2001,7 @@ mod tests {
         assert!(project.set_param_value(blend, 6, 0.5));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
@@ -2046,7 +2049,7 @@ mod tests {
         assert!(project.connect_image_link(blend, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
@@ -2079,7 +2082,7 @@ mod tests {
         assert!(project.connect_image_link(feedback, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -2117,7 +2120,7 @@ mod tests {
         assert!(project.connect_image_link(feedback, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 2);
@@ -2144,7 +2147,7 @@ mod tests {
         assert!(project.connect_texture_link_to_param(xform, feedback, 0));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 3);
@@ -2173,7 +2176,7 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
@@ -2194,7 +2197,7 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
@@ -2218,7 +2221,7 @@ mod tests {
         assert!(project.connect_image_link(circle, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
@@ -2243,7 +2246,7 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         let radius_default = match ops[0] {
@@ -2273,7 +2276,7 @@ mod tests {
         assert!(project.connect_image_link(scene, pass));
         assert!(project.connect_image_link(pass, out));
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let (w, h) = runtime.output_texture_size(&project, 0.0, &mut eval_stack);
         assert_eq!((w, h), (640, 480));
         assert!(project.set_param_value(pass, 0, 320.0));
@@ -2296,7 +2299,7 @@ mod tests {
         assert!(project.connect_image_link(pass, out));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         assert_eq!(ops.len(), 1);
@@ -2324,7 +2327,7 @@ mod tests {
         assert!(project.set_param_value(circle, 6, 12.0));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
         match ops[0] {
@@ -2371,7 +2374,7 @@ mod tests {
         assert!(project.set_param_value(noise, 6, 0.4));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops_t0 = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops_t0);
         let mut ops_t1 = Vec::new();
@@ -2425,7 +2428,7 @@ mod tests {
         assert!(project.set_param_dropdown_index(noise, 8, 1));
 
         let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
-        let mut eval_stack = Vec::new();
+        let mut eval_stack = SignalEvalStack::default();
         let mut ops_first = Vec::new();
         runtime.evaluate_ops_with_frame(
             &project,

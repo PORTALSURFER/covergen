@@ -4,7 +4,7 @@
 //! moving nodes directly on the graph canvas.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -56,6 +56,66 @@ const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
 
 /// Per-frame signal sampling memo keyed by `(node_id, quantized_time_bucket)`.
 pub(crate) type SignalSampleMemo = HashMap<(u32, i32), Option<f32>>;
+
+/// Stack abstraction for recursive signal evaluation cycle checks.
+pub(crate) trait SignalEvalPath {
+    /// Return `true` when the node is currently active on the recursion path.
+    fn contains_node(&self, node_id: u32) -> bool;
+    /// Push one active node id onto the recursion path.
+    fn push_node(&mut self, node_id: u32);
+    /// Pop one active node id from the recursion path.
+    fn pop_node(&mut self);
+    /// Reset recursion path state.
+    fn clear_nodes(&mut self);
+}
+
+impl SignalEvalPath for Vec<u32> {
+    fn contains_node(&self, node_id: u32) -> bool {
+        self.contains(&node_id)
+    }
+
+    fn push_node(&mut self, node_id: u32) {
+        self.push(node_id);
+    }
+
+    fn pop_node(&mut self) {
+        let _ = self.pop();
+    }
+
+    fn clear_nodes(&mut self) {
+        self.clear();
+    }
+}
+
+/// Hash-backed signal recursion stack used by runtime hot paths.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SignalEvalStack {
+    order: Vec<u32>,
+    active: HashSet<u32>,
+}
+
+impl SignalEvalPath for SignalEvalStack {
+    fn contains_node(&self, node_id: u32) -> bool {
+        self.active.contains(&node_id)
+    }
+
+    fn push_node(&mut self, node_id: u32) {
+        self.order.push(node_id);
+        self.active.insert(node_id);
+    }
+
+    fn pop_node(&mut self) {
+        let Some(node_id) = self.order.pop() else {
+            return;
+        };
+        self.active.remove(&node_id);
+    }
+
+    fn clear_nodes(&mut self) {
+        self.order.clear();
+        self.active.clear();
+    }
+}
 
 /// Snap one graph-space scalar position to the shared node grid.
 pub(crate) fn snap_to_node_grid(value: i32) -> i32 {

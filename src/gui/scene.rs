@@ -13,7 +13,8 @@ use super::geometry::Rect;
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
-    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, SignalSampleMemo, NODE_WIDTH,
+    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, SignalEvalPath,
+    SignalEvalStack, SignalSampleMemo, NODE_WIDTH,
 };
 use super::state::{
     AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
@@ -340,7 +341,7 @@ pub(crate) struct SceneBuilder {
     param_route_cache_epoch: Option<u64>,
     param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
     param_route_obstacle_map: wire_route::RouteObstacleMap,
-    signal_eval_stack: Vec<u32>,
+    signal_eval_stack: SignalEvalStack,
     signal_sample_memo: SignalSampleMemo,
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
@@ -893,7 +894,7 @@ impl SceneBuilder {
     }
 
     fn sample_scope_value(&mut self, project: &GuiProject, node_id: u32, time_secs: f32) -> f32 {
-        self.signal_eval_stack.clear();
+        self.signal_eval_stack.clear_nodes();
         let value = project
             .sample_signal_node_with_memo(
                 node_id,
