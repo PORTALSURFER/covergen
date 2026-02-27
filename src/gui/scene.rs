@@ -199,6 +199,15 @@ enum ActiveLayer {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct EdgeRouteCacheKey {
+    source_id: u32,
+    target_id: u32,
+    obstacle_epoch: u64,
+    start_tail_cells: i32,
+    end_tail_cells: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct ParamRouteCacheKey {
     source_id: u32,
     target_id: u32,
@@ -238,6 +247,9 @@ pub(crate) struct SceneBuilder {
     cached_edges_epoch: Option<u64>,
     cached_overlays_epoch: Option<u64>,
     cached_timeline_epoch: Option<u64>,
+    edge_route_cache_epoch: Option<u64>,
+    edge_route_cache: HashMap<EdgeRouteCacheKey, Arc<[(i32, i32)]>>,
+    edge_route_obstacle_map: wire_route::RouteObstacleMap,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
@@ -401,11 +413,20 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
-        let obstacles = collect_graph_node_obstacles(project);
-        let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
+        let obstacle_epoch = edge_route_obstacle_epoch(project);
+        if self.edge_route_cache_epoch != Some(obstacle_epoch) {
+            self.edge_route_cache_epoch = Some(obstacle_epoch);
+            self.edge_route_cache.clear();
+            let obstacles = collect_graph_node_obstacles(project);
+            self.edge_route_obstacle_map =
+                wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
+        }
+        let active_epoch = self.edge_route_cache_epoch.unwrap_or(obstacle_epoch);
+        let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = HashMap::new();
+        let mut route_panel = Vec::new();
         for target in project.nodes() {
             let Some((default_to_x_graph, default_to_y_graph)) = input_pin_center(target) else {
                 continue;
@@ -440,16 +461,36 @@ impl SceneBuilder {
                 };
                 let start_tail_cells = next_staggered_tail_cells(&mut tail_slots, start_endpoint);
                 let end_tail_cells = next_staggered_tail_cells(&mut tail_slots, end_endpoint);
-                let route_graph =
-                    wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
-                        start_endpoint,
-                        end_endpoint,
-                        &route_map,
-                        &occupied_edges,
-                        start_tail_cells,
-                        end_tail_cells,
-                    );
-                let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
+                let route_key = EdgeRouteCacheKey {
+                    source_id: *source_id,
+                    target_id: target.id(),
+                    obstacle_epoch: active_epoch,
+                    start_tail_cells,
+                    end_tail_cells,
+                };
+                live_route_keys.insert(route_key);
+                if !self.edge_route_cache.contains_key(&route_key) {
+                    let route =
+                        wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+                            start_endpoint,
+                            end_endpoint,
+                            &self.edge_route_obstacle_map,
+                            &occupied_edges,
+                            start_tail_cells,
+                            end_tail_cells,
+                        );
+                    self.edge_route_cache.insert(route_key, Arc::from(route));
+                }
+                let Some(route_graph) = self.edge_route_cache.get(&route_key).cloned() else {
+                    continue;
+                };
+                route_panel.clear();
+                route_panel.extend(
+                    route_graph
+                        .iter()
+                        .copied()
+                        .map(|(x, y)| graph_point_to_panel(x, y, state)),
+                );
                 let color = if insert_hover {
                     EDGE_INSERT_HOVER
                 } else if path_intersects_cut_line(state, route_panel.as_slice()) {
@@ -463,11 +504,13 @@ impl SceneBuilder {
                     &mut drawn_segments,
                     state.zoom,
                 );
-                occupied_edges.record_path_non_tail(route_graph.as_slice());
+                occupied_edges.record_path_non_tail(route_graph.as_ref());
                 self.push_round_endpoint(from_x, from_y, color);
                 self.push_round_endpoint(to_x, to_y, color);
             }
         }
+        self.edge_route_cache
+            .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
     }
 
     fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState, timeline_fps: u32) {
@@ -1937,6 +1980,14 @@ fn param_route_obstacle_epoch(
     layout_epoch
 }
 
+/// Return obstacle epoch used to invalidate cached primary-edge routes.
+///
+/// Primary routes depend on node obstacle layout only; pan/zoom remapping is
+/// applied after graph-space routing and does not invalidate this cache.
+fn edge_route_obstacle_epoch(project: &GuiProject) -> u64 {
+    project.invalidation().nodes
+}
+
 fn wire_drag_source_kind(
     project: &GuiProject,
     wire: super::state::WireDragState,
@@ -2644,5 +2695,45 @@ mod tests {
             .expect("route should be recomputed on release")
             .to_vec();
         assert_ne!(release_route, initial_route);
+    }
+
+    #[test]
+    fn edge_routes_reuse_cache_across_pan_rebuilds() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 40, 40, 640, 480);
+        let target = project.add_node(ProjectNodeKind::IoWindowOut, 280, 40, 640, 480);
+        assert!(project.connect_image_link(source, target));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let mut scene = SceneBuilder::default();
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(frame.dirty.edges, "initial build should populate edges");
+        assert_eq!(scene.edge_route_cache.len(), 1);
+        let initial_epoch = scene
+            .edge_route_cache_epoch
+            .expect("edge route epoch should be initialized");
+        let initial_route = scene
+            .edge_route_cache
+            .values()
+            .next()
+            .expect("cached edge route should exist")
+            .to_vec();
+
+        state.pan_x += 40.0;
+        state.pan_y += 16.0;
+        state.invalidation.invalidate_wires();
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            frame.dirty.edges,
+            "pan should rebuild panel-space edge layer"
+        );
+        assert_eq!(scene.edge_route_cache_epoch, Some(initial_epoch));
+        let pan_route = scene
+            .edge_route_cache
+            .values()
+            .next()
+            .expect("cached edge route should remain populated")
+            .to_vec();
+        assert_eq!(pan_route, initial_route);
     }
 }
