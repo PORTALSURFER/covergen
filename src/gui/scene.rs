@@ -108,6 +108,7 @@ const WIRE_BRIDGE_HEIGHT_PX: f32 = 6.0;
 const WIRE_BRIDGE_LINK_THRESHOLD_PX: f32 = 14.0;
 const WIRE_BRIDGE_CORNER_GUARD_PX: f32 = 10.0;
 const WIRE_BRIDGE_STEPS: usize = 6;
+const WIRE_BRIDGE_HASH_CELL_PX: i32 = 64;
 // Keep wire bridge geometry anchored to fully zoomed-out layout.
 const WIRE_LAYOUT_BASE_ZOOM: f32 = 0.35;
 const WIRE_TAIL_STAGGER_STEP_CELLS: i32 = 1;
@@ -164,6 +165,7 @@ pub(crate) struct SceneFrame {
     pub(crate) timeline: SceneLayer,
     pub(crate) dirty: SceneLayerDirty,
     pub(crate) ui_alloc_bytes: u64,
+    pub(crate) bridge_intersection_tests: u64,
 }
 
 /// One retained GUI geometry layer.
@@ -233,6 +235,57 @@ struct DrawnWireSegment {
     to: (i32, i32),
 }
 
+/// Spatial hash over already drawn wire segments for bridge candidate lookup.
+#[derive(Debug)]
+struct BridgeSegmentSpatialHash {
+    buckets: HashMap<(i32, i32), Vec<usize>>,
+}
+
+impl Default for BridgeSegmentSpatialHash {
+    fn default() -> Self {
+        Self {
+            buckets: HashMap::new(),
+        }
+    }
+}
+
+impl BridgeSegmentSpatialHash {
+    fn insert_segment(&mut self, segment: DrawnWireSegment, segment_index: usize) {
+        let (min_x, min_y, max_x, max_y) = segment_bounds(segment);
+        let min_bucket_x = min_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let max_bucket_x = max_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let min_bucket_y = min_y.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let max_bucket_y = max_y.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        for bucket_y in min_bucket_y..=max_bucket_y {
+            for bucket_x in min_bucket_x..=max_bucket_x {
+                self.buckets
+                    .entry((bucket_x, bucket_y))
+                    .or_default()
+                    .push(segment_index);
+            }
+        }
+    }
+
+    fn collect_candidates(&self, segment: DrawnWireSegment, out: &mut Vec<usize>) {
+        out.clear();
+        let (min_x, min_y, max_x, max_y) = segment_bounds(segment);
+        let min_bucket_x = min_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let max_bucket_x = max_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let min_bucket_y = min_y.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        let max_bucket_y = max_y.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
+        for bucket_y in min_bucket_y..=max_bucket_y {
+            for bucket_x in min_bucket_x..=max_bucket_x {
+                let Some(indices) = self.buckets.get(&(bucket_x, bucket_y)) else {
+                    continue;
+                };
+                out.extend(indices.iter().copied());
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct FittedLabelCacheBucketKey {
     max_width: i32,
@@ -282,6 +335,7 @@ impl SceneBuilder {
             .then(|| state.export_menu.preview_viewport_rect());
         self.frame.dirty = SceneLayerDirty::default();
         self.frame_alloc_bytes = 0;
+        self.frame.bridge_intersection_tests = 0;
 
         self.rebuild_static_if_needed(width, height, panel_width);
 
@@ -428,6 +482,7 @@ impl SceneBuilder {
         let active_epoch = self.edge_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
+        let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = HashMap::new();
         let mut route_panel = Vec::new();
@@ -506,6 +561,7 @@ impl SceneBuilder {
                     route_panel.as_slice(),
                     color,
                     &mut drawn_segments,
+                    &mut drawn_segment_hash,
                     state.zoom,
                 );
                 occupied_edges.record_path_non_tail(route_graph.as_ref());
@@ -1525,6 +1581,7 @@ impl SceneBuilder {
         let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
+        let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = self.edge_route_occupied.clone();
         let mut tail_slots = HashMap::new();
         for target in project.nodes() {
@@ -1593,6 +1650,7 @@ impl SceneBuilder {
                     route_panel.as_slice(),
                     color,
                     &mut drawn_segments,
+                    &mut drawn_segment_hash,
                     state.zoom,
                 );
                 occupied_edges.record_path_non_tail(route.as_ref());
@@ -1619,6 +1677,7 @@ impl SceneBuilder {
         points: &[(i32, i32)],
         color: Color,
         drawn_segments: &mut Vec<DrawnWireSegment>,
+        drawn_segment_hash: &mut BridgeSegmentSpatialHash,
         zoom: f32,
     ) {
         if points.len() < 2 {
@@ -1626,7 +1685,9 @@ impl SceneBuilder {
         }
         let bridge_scale = wire_layout_scale(zoom);
         let mut new_segments = Vec::new();
+        let mut candidate_indices = Vec::new();
         let total_segments = points.len().saturating_sub(1);
+        let mut bridge_intersection_tests = 0u64;
         for (segment_index, pair) in points.windows(2).enumerate() {
             let segment = DrawnWireSegment {
                 from: pair[0],
@@ -1640,7 +1701,10 @@ impl SceneBuilder {
                 continue;
             }
             let mut crossings = Vec::new();
-            for existing in drawn_segments.iter().copied() {
+            drawn_segment_hash.collect_candidates(segment, &mut candidate_indices);
+            for existing_index in candidate_indices.iter().copied() {
+                let existing = drawn_segments[existing_index];
+                bridge_intersection_tests = bridge_intersection_tests.saturating_add(1);
                 let Some(distance) = segment_crossing_distance(segment, existing) else {
                     continue;
                 };
@@ -1663,7 +1727,15 @@ impl SceneBuilder {
             self.push_path_lines(bridged_points.as_slice(), color);
             new_segments.push(segment);
         }
-        drawn_segments.extend(new_segments);
+        for segment in new_segments {
+            let index = drawn_segments.len();
+            drawn_segments.push(segment);
+            drawn_segment_hash.insert_segment(segment, index);
+        }
+        self.frame.bridge_intersection_tests = self
+            .frame
+            .bridge_intersection_tests
+            .saturating_add(bridge_intersection_tests);
     }
 
     fn push_signal_wire_right_exit(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
@@ -2117,6 +2189,14 @@ fn segment_length(from: (i32, i32), to: (i32, i32)) -> f32 {
     let dx = (to.0 - from.0) as f32;
     let dy = (to.1 - from.1) as f32;
     (dx * dx + dy * dy).sqrt()
+}
+
+fn segment_bounds(segment: DrawnWireSegment) -> (i32, i32, i32, i32) {
+    let min_x = segment.from.0.min(segment.to.0);
+    let min_y = segment.from.1.min(segment.to.1);
+    let max_x = segment.from.0.max(segment.to.0);
+    let max_y = segment.from.1.max(segment.to.1);
+    (min_x, min_y, max_x, max_y)
 }
 
 fn segment_crossing_distance(a: DrawnWireSegment, b: DrawnWireSegment) -> Option<f32> {

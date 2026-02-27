@@ -6,7 +6,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const TRACE_HEADER: &[u8] = b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms,submit_count,upload_bytes,hit_test_scans,ui_alloc_bytes\n";
+const TRACE_HEADER: &[u8] = b"frame,input_ms,update_ms,scene_ms,render_ms,total_ms,submit_count,upload_bytes,hit_test_scans,bridge_intersection_tests,ui_alloc_bytes\n";
 const TRACE_RING_CAPACITY: usize = 8_192;
 
 /// Per-frame timing sample written to GUI trace output.
@@ -21,6 +21,7 @@ pub(crate) struct GuiFrameSample {
     pub(crate) submit_count: u32,
     pub(crate) upload_bytes: u64,
     pub(crate) hit_test_scans: u64,
+    pub(crate) bridge_intersection_tests: u64,
     pub(crate) ui_alloc_bytes: u64,
 }
 
@@ -61,6 +62,7 @@ impl GuiPerfRecorder {
         submit_count: u32,
         upload_bytes: u64,
         hit_test_scans: u64,
+        bridge_intersection_tests: u64,
         ui_alloc_bytes: u64,
     ) {
         if self.output_path.is_none() {
@@ -76,6 +78,7 @@ impl GuiPerfRecorder {
             submit_count,
             upload_bytes,
             hit_test_scans,
+            bridge_intersection_tests,
             ui_alloc_bytes,
         };
         if self.writer.is_none() {
@@ -177,7 +180,7 @@ fn write_sample_line<W: Write>(
 ) -> Result<(), std::io::Error> {
     writeln!(
         writer,
-        "{},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{},{}",
+        "{},{:.4},{:.4},{:.4},{:.4},{:.4},{},{},{},{},{}",
         sample.frame_index,
         sample.input_ms,
         sample.update_ms,
@@ -187,6 +190,7 @@ fn write_sample_line<W: Write>(
         sample.submit_count,
         sample.upload_bytes,
         sample.hit_test_scans,
+        sample.bridge_intersection_tests,
         sample.ui_alloc_bytes
     )
 }
@@ -219,6 +223,7 @@ mod tests {
                 128,
                 32,
                 0,
+                0,
             );
         }
         assert_eq!(recorder.fallback_samples.len(), TRACE_RING_CAPACITY);
@@ -247,6 +252,7 @@ mod tests {
             1,
             256,
             64,
+            8,
             1024,
         );
         recorder.record(
@@ -259,6 +265,7 @@ mod tests {
             1,
             128,
             16,
+            4,
             0,
         );
         assert!(recorder.fallback_samples.is_empty());

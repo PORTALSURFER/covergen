@@ -604,6 +604,7 @@ impl GuiApp {
         let mut submit_count = 0u32;
         let mut upload_bytes = 0u64;
         let mut ui_alloc_bytes = 0u64;
+        let mut bridge_intersection_tests = 0u64;
         let export_active = self.export_session.is_some() || self.start_export_requested;
         if scene_dirty || self.needs_redraw || export_active {
             self.tex_view.update(
@@ -630,6 +631,7 @@ impl GuiApp {
             );
             scene_elapsed = scene_start.elapsed();
             ui_alloc_bytes = frame.ui_alloc_bytes;
+            bridge_intersection_tests = frame.bridge_intersection_tests;
 
             let render_start = Instant::now();
             self.renderer.render(
@@ -652,6 +654,10 @@ impl GuiApp {
         telemetry::record_counter_u64("gui.gpu.submit_count_per_frame", submit_count as u64);
         telemetry::record_counter_u64("gui.gpu.upload_bytes_per_frame", upload_bytes);
         telemetry::record_counter_u64("gui.hit_test.scan_count_per_frame", hit_test_scans);
+        telemetry::record_counter_u64(
+            "gui.wire.bridge_intersection_tests_per_frame",
+            bridge_intersection_tests,
+        );
         telemetry::record_counter_u64("gui.ui.alloc_bytes_per_frame", ui_alloc_bytes);
         let total_secs = total_elapsed.as_secs_f64();
         if total_secs > 0.0 {
@@ -670,6 +676,7 @@ impl GuiApp {
             submit_count,
             upload_bytes,
             hit_test_scans,
+            bridge_intersection_tests,
             ui_alloc_bytes,
         );
         if self.frame_counter == 0 {
