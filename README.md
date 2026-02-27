@@ -97,6 +97,9 @@ GUI session persistence:
 - Current graph autosaves on shutdown to `.covergen_gui_graph.json` in the
   working directory.
 - On next launch, GUI reloads that autosave automatically when present.
+- `Save Project` writes an explicit snapshot to `covergen_gui_project.json`.
+- `Load Project` checks, in order: `covergen_gui_project.json`,
+  `.covergen_gui_project.json` (legacy), then `.covergen_gui_graph.json`.
 
 GUI responsiveness notes:
 

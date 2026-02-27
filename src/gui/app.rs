@@ -36,7 +36,8 @@ const MIN_PREVIEW_WIDTH: usize = 320;
 const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
 const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
-const GUI_PROJECT_SAVE_FILE: &str = ".covergen_gui_project.json";
+const GUI_PROJECT_SAVE_FILE: &str = "covergen_gui_project.json";
+const GUI_PROJECT_SAVE_FILE_LEGACY: &str = ".covergen_gui_project.json";
 const EXPORT_PREVIEW_BG_B: u8 = 8;
 const EXPORT_PREVIEW_BG_G: u8 = 8;
 const EXPORT_PREVIEW_BG_R: u8 = 8;
@@ -752,15 +753,23 @@ impl GuiApp {
                 Ok(true)
             }
             PendingAppAction::LoadProject => {
-                let path = manual_project_path();
-                match load_project_file(path.as_path(), self.panel_width, self.renderer.height()) {
-                    Ok(loaded) => {
+                match load_manual_project(self.panel_width, self.renderer.height()) {
+                    Ok(Some((loaded, path))) => {
                         self.project = loaded;
                         self.state = PreviewState::new(&self.config);
                         self.state.invalidation.invalidate_all();
                         self.start_export_requested = false;
                         let _ = self.stop_export_session("stopped");
+                        self.state
+                            .export_menu
+                            .set_status(format!("Loaded project: {}", path.display()));
                         println!("[gui] loaded project: {}", path.display());
+                    }
+                    Ok(None) => {
+                        self.state.export_menu.set_status(format!(
+                            "Load failed: no project file found (checked: {})",
+                            manual_project_load_candidates_display()
+                        ));
                     }
                     Err(err) => {
                         self.state
@@ -1225,18 +1234,57 @@ fn is_wav_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Return autosave file path in the process working directory.
-fn autosave_project_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(GUI_PROJECT_AUTOSAVE_FILE)
+/// Return the process working directory, or `.` when unavailable.
+fn working_directory() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// Return default explicit save/load project path in working directory.
+/// Return autosave file path in one base directory.
+fn autosave_project_path_in(base_dir: &Path) -> PathBuf {
+    base_dir.join(GUI_PROJECT_AUTOSAVE_FILE)
+}
+
+/// Return autosave file path in the process working directory.
+fn autosave_project_path() -> PathBuf {
+    autosave_project_path_in(working_directory().as_path())
+}
+
+/// Return explicit save/load project path in one base directory.
+fn manual_project_path_in(base_dir: &Path) -> PathBuf {
+    base_dir.join(GUI_PROJECT_SAVE_FILE)
+}
+
+/// Return explicit save/load project path in the process working directory.
 fn manual_project_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(GUI_PROJECT_SAVE_FILE)
+    manual_project_path_in(working_directory().as_path())
+}
+
+/// Return legacy hidden project path used by older GUI builds.
+fn legacy_manual_project_path_in(base_dir: &Path) -> PathBuf {
+    base_dir.join(GUI_PROJECT_SAVE_FILE_LEGACY)
+}
+
+/// Return ordered project-load candidates for one base directory.
+fn manual_project_load_candidates_in(base_dir: &Path) -> [PathBuf; 3] {
+    [
+        manual_project_path_in(base_dir),
+        legacy_manual_project_path_in(base_dir),
+        autosave_project_path_in(base_dir),
+    ]
+}
+
+/// Return ordered project-load candidates in the process working directory.
+fn manual_project_load_candidates() -> [PathBuf; 3] {
+    manual_project_load_candidates_in(working_directory().as_path())
+}
+
+/// Return one comma-separated candidate list for status messages.
+fn manual_project_load_candidates_display() -> String {
+    manual_project_load_candidates()
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Load autosaved GUI graph if present.
@@ -1248,18 +1296,34 @@ fn load_autosaved_project(
     load_project_file_if_exists(path.as_path(), panel_width, panel_height)
 }
 
-fn load_project_file(
-    path: &Path,
+/// Load the best project candidate in the process working directory.
+fn load_manual_project(
     panel_width: usize,
     panel_height: usize,
-) -> Result<GuiProject, Box<dyn Error>> {
-    let bytes = fs::read(path)?;
-    let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
-    Ok(GuiProject::from_persisted(
-        persisted,
-        panel_width,
-        panel_height,
-    )?)
+) -> Result<Option<(GuiProject, PathBuf)>, Box<dyn Error>> {
+    load_manual_project_from_dir(working_directory().as_path(), panel_width, panel_height)
+}
+
+/// Load the first existing project candidate from one directory.
+fn load_manual_project_from_dir(
+    base_dir: &Path,
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<Option<(GuiProject, PathBuf)>, Box<dyn Error>> {
+    for path in manual_project_load_candidates_in(base_dir) {
+        match load_project_file_if_exists(path.as_path(), panel_width, panel_height) {
+            Ok(Some(project)) => return Ok(Some((project, path))),
+            Ok(None) => continue,
+            Err(err) => {
+                return Err(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!("failed to load {}: {err}", path.display()),
+                )
+                .into());
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn load_project_file_if_exists(
@@ -1366,4 +1430,66 @@ fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
         return inst;
     }
     previous * 0.9 + inst * 0.1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(test_name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("covergen_gui_app_{test_name}_{nanos}"));
+        fs::create_dir_all(dir.as_path()).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn manual_project_load_candidates_prioritize_explicit_then_legacy_then_autosave() {
+        let base_dir = Path::new("workspace");
+        let candidates = manual_project_load_candidates_in(base_dir);
+        assert_eq!(candidates[0], base_dir.join(GUI_PROJECT_SAVE_FILE));
+        assert_eq!(candidates[1], base_dir.join(GUI_PROJECT_SAVE_FILE_LEGACY));
+        assert_eq!(candidates[2], base_dir.join(GUI_PROJECT_AUTOSAVE_FILE));
+    }
+
+    #[test]
+    fn load_manual_project_uses_legacy_file_when_explicit_missing() {
+        let dir = temp_dir("legacy_fallback");
+        let path = legacy_manual_project_path_in(dir.as_path());
+        let project = GuiProject::new_empty(512, 288);
+        save_project_file(&project, path.as_path()).expect("save legacy project");
+
+        let (loaded, loaded_path) = load_manual_project_from_dir(dir.as_path(), 640, 480)
+            .expect("load project")
+            .expect("legacy fallback should return project");
+
+        assert_eq!(loaded_path, path);
+        assert_eq!(loaded.to_persisted().preview_width, 512);
+
+        let _ = fs::remove_dir_all(dir.as_path());
+    }
+
+    #[test]
+    fn load_manual_project_prefers_explicit_file_over_legacy() {
+        let dir = temp_dir("explicit_priority");
+        let explicit = manual_project_path_in(dir.as_path());
+        let legacy = legacy_manual_project_path_in(dir.as_path());
+        let explicit_project = GuiProject::new_empty(1024, 576);
+        let legacy_project = GuiProject::new_empty(320, 180);
+        save_project_file(&legacy_project, legacy.as_path()).expect("save legacy project");
+        save_project_file(&explicit_project, explicit.as_path()).expect("save explicit project");
+
+        let (loaded, loaded_path) = load_manual_project_from_dir(dir.as_path(), 640, 480)
+            .expect("load project")
+            .expect("explicit project should return project");
+
+        assert_eq!(loaded_path, explicit);
+        assert_eq!(loaded.to_persisted().preview_width, 1024);
+
+        let _ = fs::remove_dir_all(dir.as_path());
+    }
 }

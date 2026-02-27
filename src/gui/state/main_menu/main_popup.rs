@@ -24,9 +24,9 @@ impl MainMenuItem {
     /// Return the display label for this menu item.
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::New => "New",
-            Self::Save => "Save",
-            Self::Load => "Load",
+            Self::New => "New Project",
+            Self::Save => "Save Project",
+            Self::Load => "Load Project",
             Self::Export => "Export",
             Self::Exit => "Exit",
         }
