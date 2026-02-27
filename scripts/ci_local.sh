@@ -21,7 +21,17 @@ Description:
 
 Environment overrides:
   COVERGEN_RUST_GPU_SPIRV_DIR  default: target/rust-gpu
+  COVERGEN_ALLOW_MISSING_GPU   default: 0
+                               when set to 1, preserves no-arg skip behavior
+                               for missing GPU/display even when CI is set
 EOF
+}
+
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 allow_missing_gpu=0
@@ -36,6 +46,25 @@ elif [[ $# -eq 2 ]]; then
 else
   usage
   exit 1
+fi
+
+ci_mode=0
+if is_truthy "${CI:-0}"; then
+  ci_mode=1
+fi
+allow_missing_gpu_opt_in=0
+if is_truthy "${COVERGEN_ALLOW_MISSING_GPU:-0}"; then
+  allow_missing_gpu_opt_in=1
+fi
+if [[ "${ci_mode}" -eq 1 ]]; then
+  if [[ "${allow_missing_gpu_opt_in}" -eq 1 ]]; then
+    echo "[ci_local] warning: CI mode detected but COVERGEN_ALLOW_MISSING_GPU=1 is set; missing GPU/display skips remain enabled"
+  else
+    if [[ "${allow_missing_gpu}" -eq 1 ]]; then
+      echo "[ci_local] CI mode detected; disabling no-arg missing GPU/display skip behavior"
+    fi
+    allow_missing_gpu=0
+  fi
 fi
 
 case "${mode}" in
