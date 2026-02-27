@@ -7,9 +7,9 @@
     {
       "id": 1,
       "kind": "scene.entity",
-      "x": 9,
-      "y": 421,
-      "texture_input": 8,
+      "x": -568,
+      "y": 692,
+      "texture_input": 12,
       "selected_param": 6,
       "expanded": false,
       "params": [
@@ -66,8 +66,8 @@
     {
       "id": 2,
       "kind": "scene.build",
-      "x": 280,
-      "y": 611,
+      "x": -212,
+      "y": 804,
       "texture_input": 1,
       "selected_param": 0,
       "expanded": false,
@@ -76,8 +76,8 @@
     {
       "id": 3,
       "kind": "buf.circle_nurbs",
-      "x": -482,
-      "y": 492,
+      "x": -492,
+      "y": 548,
       "texture_input": null,
       "selected_param": 0,
       "expanded": false,
@@ -129,9 +129,9 @@
     {
       "id": 4,
       "kind": "io.window_out",
-      "x": 1553,
-      "y": 1048,
-      "texture_input": 10,
+      "x": 936,
+      "y": 1388,
+      "texture_input": 7,
       "selected_param": 0,
       "expanded": false,
       "params": []
@@ -139,8 +139,8 @@
     {
       "id": 5,
       "kind": "render.scene_pass",
-      "x": 377,
-      "y": 818,
+      "x": 436,
+      "y": 876,
       "texture_input": 6,
       "selected_param": 2,
       "expanded": false,
@@ -192,15 +192,15 @@
     {
       "id": 6,
       "kind": "render.camera",
-      "x": 138,
-      "y": 815,
+      "x": 156,
+      "y": 808,
       "texture_input": 2,
       "selected_param": 0,
-      "expanded": true,
+      "expanded": false,
       "params": [
         {
           "key": "zoom",
-          "value": 0.5500001,
+          "value": 0.7000001,
           "signal_source": null,
           "texture_source": null
         }
@@ -209,15 +209,15 @@
     {
       "id": 7,
       "kind": "tex.transform_2d",
-      "x": 973,
-      "y": 1004,
+      "x": 604,
+      "y": 1220,
       "texture_input": 9,
       "selected_param": 4,
-      "expanded": true,
+      "expanded": false,
       "params": [
         {
           "key": "brightness",
-          "value": 1.1,
+          "value": 1.0,
           "signal_source": null,
           "texture_source": null
         },
@@ -241,7 +241,7 @@
         },
         {
           "key": "alpha_mul",
-          "value": 1.0,
+          "value": 0.5,
           "signal_source": null,
           "texture_source": null
         }
@@ -250,10 +250,10 @@
     {
       "id": 8,
       "kind": "buf.noise",
-      "x": -226,
-      "y": 479,
+      "x": -360,
+      "y": 156,
       "texture_input": 3,
-      "selected_param": 1,
+      "selected_param": 7,
       "expanded": true,
       "params": [
         {
@@ -300,7 +300,7 @@
         },
         {
           "key": "loop_cyc",
-          "value": 20.0,
+          "value": 5.0,
           "signal_source": null,
           "texture_source": null
         },
@@ -315,8 +315,8 @@
     {
       "id": 9,
       "kind": "tex.feedback",
-      "x": 767,
-      "y": 843,
+      "x": 260,
+      "y": 1120,
       "texture_input": 5,
       "selected_param": 1,
       "expanded": true,
@@ -325,11 +325,11 @@
           "key": "accumulation_tex",
           "value": 0.0,
           "signal_source": null,
-          "texture_source": 10
+          "texture_source": 7
         },
         {
           "key": "feedback",
-          "value": 0.8,
+          "value": 1.0,
           "signal_source": null,
           "texture_source": null
         }
@@ -338,17 +338,17 @@
     {
       "id": 10,
       "kind": "tex.blend",
-      "x": 1232,
-      "y": 935,
+      "x": 856,
+      "y": 872,
       "texture_input": 7,
-      "selected_param": 4,
+      "selected_param": 6,
       "expanded": true,
       "params": [
         {
           "key": "blend_tex",
           "value": 0.0,
           "signal_source": null,
-          "texture_source": null
+          "texture_source": 5
         },
         {
           "key": "blend_mode",
@@ -358,7 +358,7 @@
         },
         {
           "key": "opacity",
-          "value": 1.0,
+          "value": 0.5,
           "signal_source": null,
           "texture_source": null
         },
@@ -391,21 +391,21 @@
     {
       "id": 11,
       "kind": "ctl.lfo",
-      "x": 806,
-      "y": 1237,
+      "x": -20,
+      "y": 1340,
       "texture_input": null,
-      "selected_param": 0,
-      "expanded": true,
+      "selected_param": 3,
+      "expanded": false,
       "params": [
         {
           "key": "rate_hz",
-          "value": 0.5,
+          "value": 0.1,
           "signal_source": null,
           "texture_source": null
         },
         {
           "key": "amplitude",
-          "value": 0.6,
+          "value": 1.0,
           "signal_source": null,
           "texture_source": null
         },
@@ -417,6 +417,95 @@
         },
         {
           "key": "bias",
+          "value": 0.55999994,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "sync_mode",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "beat_mul",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "lfo_type",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "shape",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "kind": "buf.noise",
+      "x": -100,
+      "y": 156,
+      "texture_input": 8,
+      "selected_param": 7,
+      "expanded": true,
+      "params": [
+        {
+          "key": "amplitude",
+          "value": 0.2,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "frequency",
+          "value": 3.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "speed_hz",
+          "value": 0.35,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "phase",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "seed",
+          "value": 3.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "twist",
+          "value": 1.0499994,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "stretch",
+          "value": 0.55999994,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "loop_cyc",
+          "value": 2.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "loop_mode",
           "value": 1.0,
           "signal_source": null,
           "texture_source": null
