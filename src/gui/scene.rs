@@ -429,7 +429,9 @@ impl SceneBuilder {
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.expanded() {
-                self.push_expanded_lfo_badge(node, state);
+                if node.kind().shows_signal_preview() {
+                    self.push_expanded_lfo_badge(node, state);
+                }
                 self.push_node_params(node, state);
             }
             self.push_pins(node, state);
@@ -437,6 +439,9 @@ impl SceneBuilder {
     }
 
     fn push_expanded_lfo_badge(&mut self, node: &ProjectNode, state: &PreviewState) {
+        if !node.kind().shows_signal_preview() {
+            return;
+        }
         let rect = node_rect(node, state);
         let badge_w = ((46.0 * state.zoom).round() as i32).clamp(30, 64);
         let badge_h = ((14.0 * state.zoom).round() as i32).clamp(8, 20);

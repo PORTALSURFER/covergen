@@ -308,6 +308,14 @@ impl ProjectNodeKind {
         matches!(self, Self::CtlLfo)
     }
 
+    /// Return whether this node should render the inline data-signal preview field.
+    ///
+    /// The preview field is reserved for data-signal producers (for example
+    /// `ctl.lfo`) and should stay hidden on texture/buffer/scene/output nodes.
+    pub(crate) const fn shows_signal_preview(self) -> bool {
+        self.produces_signal_output()
+    }
+
     /// Return true when this node kind has a typed graph input pin.
     pub(crate) const fn has_input_pin(self) -> bool {
         self.input_resource_kind().is_some()

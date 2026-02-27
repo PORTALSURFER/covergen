@@ -594,6 +594,34 @@ fn all_default_parameter_labels_fit_length_budget() {
 }
 
 #[test]
+fn signal_preview_is_limited_to_signal_nodes() {
+    let kinds_without_preview = [
+        ProjectNodeKind::TexSolid,
+        ProjectNodeKind::TexCircle,
+        ProjectNodeKind::BufSphere,
+        ProjectNodeKind::BufCircleNurbs,
+        ProjectNodeKind::BufNoise,
+        ProjectNodeKind::TexTransform2D,
+        ProjectNodeKind::TexLevel,
+        ProjectNodeKind::TexFeedback,
+        ProjectNodeKind::TexBlend,
+        ProjectNodeKind::SceneEntity,
+        ProjectNodeKind::SceneBuild,
+        ProjectNodeKind::RenderCamera,
+        ProjectNodeKind::RenderScenePass,
+        ProjectNodeKind::IoWindowOut,
+    ];
+    for kind in kinds_without_preview {
+        assert!(
+            !kind.shows_signal_preview(),
+            "{} should not render signal preview",
+            kind.stable_id()
+        );
+    }
+    assert!(ProjectNodeKind::CtlLfo.shows_signal_preview());
+}
+
+#[test]
 #[should_panic(expected = "parameter label")]
 fn parameter_constructor_rejects_labels_longer_than_budget() {
     let _ = super::params::param("key", "label_too_long", 0.0, 0.0, 1.0, 0.1);
