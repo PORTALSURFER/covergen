@@ -67,6 +67,7 @@ struct NodesLayerState {
     hover_node: Option<u32>,
     hover_output_pin: Option<u32>,
     hover_input_pin: Option<u32>,
+    hover_param: Option<(u32, usize)>,
     hover_param_target: Option<(u32, usize)>,
     hover_alt_param: Option<(u32, usize)>,
     wire_drag_source: Option<u32>,
@@ -162,6 +163,9 @@ impl SceneInvalidationSnapshot {
                 hover_node: state.hover_node,
                 hover_output_pin: state.hover_output_pin,
                 hover_input_pin: state.hover_input_pin,
+                hover_param: state
+                    .hover_param
+                    .map(|target| (target.node_id, target.param_index)),
                 hover_param_target: state
                     .hover_param_target
                     .map(|target| (target.node_id, target.param_index)),
@@ -509,6 +513,7 @@ impl GuiApp {
             self.state.drag = None;
             self.state.wire_drag = None;
             self.state.hover_param_target = None;
+            self.state.hover_param = None;
             self.state.hover_insert_link = None;
             if !self.state.auto_expanded_binding_nodes.is_empty() {
                 for node_id in self.state.auto_expanded_binding_nodes.drain(..) {
@@ -1102,6 +1107,7 @@ impl GuiApp {
         self.state.drag = None;
         self.state.wire_drag = None;
         self.state.hover_param_target = None;
+        self.state.hover_param = None;
         self.state.hover_insert_link = None;
         true
     }

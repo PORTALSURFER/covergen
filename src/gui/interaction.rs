@@ -117,6 +117,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.hover_insert_link = None;
         state.hover_dropdown_item = None;
@@ -155,6 +156,7 @@ pub(crate) fn apply_preview_actions(
         state.export_menu_drag = None;
         state.right_marquee = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_edit = None;
@@ -169,6 +171,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_scrub = None;
@@ -182,6 +185,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_scrub = None;
@@ -198,6 +202,7 @@ pub(crate) fn apply_preview_actions(
         state.wire_drag = None;
         state.link_cut = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.param_edit = None;
         state.timeline_bpm_edit = None;
         state.param_dropdown = None;
@@ -212,6 +217,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_scrub = None;
@@ -225,6 +231,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_scrub = None;
@@ -244,6 +251,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
@@ -254,6 +262,7 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_scrub = None;
         state.param_dropdown = None;
@@ -327,6 +336,7 @@ fn handle_help_input(
     state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_param_target = None;
+    state.hover_param = None;
     state.hover_alt_param = None;
     state.hover_dropdown_item = None;
     state.invalidation.invalidate_overlays();
@@ -756,6 +766,7 @@ fn handle_pan_zoom_and_focus(
                 state.drag = None;
                 state.wire_drag = None;
                 state.hover_param_target = None;
+                state.hover_param = None;
                 state.hover_alt_param = None;
                 state.param_scrub = None;
             }
@@ -802,6 +813,7 @@ fn handle_add_menu_toggle(
         state.main_menu = super::state::MainMenuState::closed();
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_param = None;
         state.hover_alt_param = None;
         state.param_edit = None;
         state.param_scrub = None;
@@ -818,6 +830,7 @@ fn handle_add_menu_toggle(
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;
+    state.hover_param = None;
     state.hover_alt_param = None;
     state.param_edit = None;
     state.param_scrub = None;
@@ -852,6 +865,7 @@ fn handle_main_menu_toggle(
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;
+    state.hover_param = None;
     state.hover_alt_param = None;
     true
 }
@@ -1195,6 +1209,7 @@ fn handle_delete_selected_nodes(
     state.hover_output_pin = None;
     state.hover_input_pin = None;
     state.hover_param_target = None;
+    state.hover_param = None;
     state.hover_alt_param = None;
     state.drag = None;
     state.wire_drag = None;
@@ -1478,6 +1493,7 @@ fn handle_link_cut(
                 state.drag = None;
                 state.wire_drag = None;
                 state.hover_param_target = None;
+                state.hover_param = None;
                 state.hover_alt_param = None;
                 state.param_edit = None;
                 state.param_scrub = None;

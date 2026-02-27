@@ -1331,6 +1331,38 @@ fn hover_param_target_uses_collapsed_param_pin() {
 }
 
 #[test]
+fn hovering_expanded_param_row_sets_soft_param_hover_state() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 180, 80, 420, 480);
+    assert!(project.toggle_node_expanded(circle, 420, 480));
+    let (hover_x, hover_y) = {
+        let node = project.node(circle).expect("circle node should exist");
+        let row = node_param_row_rect(node, 1).expect("param row should exist");
+        (row.x + 8, row.y + row.h / 2)
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let input = InputSnapshot {
+        mouse_pos: Some((hover_x, hover_y)),
+        ..InputSnapshot::default()
+    };
+    assert!(update_hover_state(
+        &input,
+        &mut project,
+        420,
+        480,
+        &mut state
+    ));
+    assert_eq!(
+        state.hover_param,
+        Some(HoverParamTarget {
+            node_id: circle,
+            param_index: 1,
+        })
+    );
+    assert!(state.hover_param_target.is_none());
+}
+
+#[test]
 fn alt_cut_unbinds_parameter_link_when_cut_crosses_routed_param_wire() {
     let mut project = GuiProject::new_empty(640, 480);
     let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);

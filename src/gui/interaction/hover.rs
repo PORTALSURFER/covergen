@@ -54,6 +54,7 @@ pub(super) fn update_hover_state(
     let prev_hover_node = state.hover_node;
     let prev_hover_output = state.hover_output_pin;
     let prev_hover_input = state.hover_input_pin;
+    let prev_hover_param = state.hover_param;
     let prev_hover_param_target = state.hover_param_target;
     let prev_hover_alt_param = state.hover_alt_param;
     let prev_hover_dropdown_item = state.hover_dropdown_item;
@@ -64,6 +65,7 @@ pub(super) fn update_hover_state(
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
+    state.hover_param = None;
     state.hover_param_target = None;
     state.hover_alt_param = None;
     state.hover_dropdown_item = None;
@@ -80,6 +82,7 @@ pub(super) fn update_hover_state(
         let mut changed = prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -96,6 +99,7 @@ pub(super) fn update_hover_state(
         let mut changed = prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -114,6 +118,7 @@ pub(super) fn update_hover_state(
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -139,6 +144,7 @@ pub(super) fn update_hover_state(
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -155,6 +161,7 @@ pub(super) fn update_hover_state(
             || prev_hover_node.is_some()
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_param_target.is_some()
             || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
@@ -241,6 +248,7 @@ pub(super) fn update_hover_state(
                     || state.hover_node != prev_hover_node
                     || prev_hover_output.is_some()
                     || prev_hover_input.is_some()
+                    || prev_hover_param.is_some()
                     || state.hover_param_target != prev_hover_param_target
                     || prev_hover_alt_param.is_some()
                     || prev_hover_dropdown_item.is_some()
@@ -281,6 +289,7 @@ pub(super) fn update_hover_state(
             || state.hover_output_pin != prev_hover_output
             || state.hover_input_pin != prev_hover_input
             || prev_hover_node.is_some()
+            || prev_hover_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_param_target.is_some()
@@ -293,10 +302,19 @@ pub(super) fn update_hover_state(
     if state.hover_node.is_some() {
         state.active_node = state.hover_node;
     }
+    if let Some(node_id) = state.hover_node {
+        state.hover_param = project
+            .param_row_at(node_id, graph_x, graph_y)
+            .map(|param_index| HoverParamTarget {
+                node_id,
+                param_index,
+            });
+    }
     param_bind_hover_changed
         || state.hover_node != prev_hover_node
         || prev_hover_output.is_some()
         || prev_hover_input.is_some()
+        || state.hover_param != prev_hover_param
         || prev_hover_dropdown_item.is_some()
         || prev_hover_item.is_some()
         || prev_hover_param_target.is_some()

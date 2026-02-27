@@ -56,6 +56,7 @@ const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
 const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
 const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
 const PARAM_BIND_HOVER: Color = Color::argb(0x3342A5F5);
+const PARAM_SOFT_HOVER: Color = Color::argb(0x1A79AEE3);
 const TOGGLE_BG: Color = Color::argb(0xFF121212);
 const TOGGLE_BORDER: Color = Color::argb(AGIO.border);
 const TOGGLE_ACTIVE_BG: Color = Color::argb(0x663B82F6);
@@ -63,6 +64,8 @@ const TOGGLE_ICON: Color = Color::argb(AGIO.menu_text);
 const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
 const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
+const PARAM_VALUE_SOFT_HOVER: Color = Color::argb(0x166AA7D8);
+const PARAM_VALUE_SOFT_BORDER: Color = Color::argb(0xFF4D6175);
 const PARAM_VALUE_ALT_HOVER: Color = Color::argb(0x3342A5F5);
 const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
 const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
@@ -627,10 +630,19 @@ impl SceneBuilder {
                 .hover_param_target
                 .map(|target| target.node_id == node.id() && target.param_index == index)
                 .unwrap_or(false);
+            let soft_hover = state
+                .hover_param
+                .map(|target| target.node_id == node.id() && target.param_index == index)
+                .unwrap_or(false);
             if bind_hover {
                 self.push_rect(
                     Rect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
                     PARAM_BIND_HOVER,
+                );
+            } else if soft_hover {
+                self.push_rect(
+                    Rect::new(row_rect.x, row_rect.y, row_rect.w, row_rect.h),
+                    PARAM_SOFT_HOVER,
                 );
             }
             label_scratch.clear();
@@ -666,6 +678,9 @@ impl SceneBuilder {
                 .as_ref()
                 .map(|edit| edit.node_id == node.id() && edit.param_index == index)
                 .unwrap_or(false);
+            if soft_hover && !alt_hover && !editing {
+                self.push_rect(value_rect, PARAM_VALUE_SOFT_HOVER);
+            }
             let active_edit = state
                 .param_edit
                 .as_ref()
@@ -684,6 +699,8 @@ impl SceneBuilder {
                 value_rect,
                 if editing || alt_hover {
                     PARAM_VALUE_ACTIVE
+                } else if soft_hover {
+                    PARAM_VALUE_SOFT_BORDER
                 } else if row.bound {
                     PARAM_EDGE_COLOR
                 } else {
