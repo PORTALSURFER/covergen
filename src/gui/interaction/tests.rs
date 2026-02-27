@@ -1,10 +1,10 @@
 use super::{
     apply_preview_actions, backspace_param_text, can_append_param_char, handle_add_menu_input,
-    handle_delete_selected_nodes, handle_drag_input, handle_help_input, handle_link_cut,
-    handle_main_export_menu_input, handle_node_open_toggle, handle_param_edit_input,
-    handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
-    marquee_moved, move_param_cursor_left, move_param_cursor_right, rects_overlap,
-    segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+    handle_alt_param_drag, handle_delete_selected_nodes, handle_drag_input, handle_help_input,
+    handle_link_cut, handle_main_export_menu_input, handle_node_open_toggle,
+    handle_param_edit_input, handle_param_wheel_input, handle_right_selection, handle_wire_input,
+    insert_param_char, marquee_moved, move_param_cursor_left, move_param_cursor_right,
+    rects_overlap, segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
 };
 use crate::gui::geometry::Rect;
 use crate::gui::project::{
@@ -258,7 +258,7 @@ fn export_panel_title_drag_moves_popup() {
 }
 
 #[test]
-fn wheel_over_param_value_box_adjusts_value_and_consumes_zoom() {
+fn wheel_over_param_value_box_does_not_adjust_parameter() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
     assert!(project.toggle_node_expanded(solid, 420, 480));
@@ -273,12 +273,97 @@ fn wheel_over_param_value_box_adjusts_value_and_consumes_zoom() {
         ..InputSnapshot::default()
     };
     let (changed, consumed) = handle_param_wheel_input(&input, &mut project, 420, 480, &mut state);
-    assert!(changed);
-    assert!(consumed);
+    assert!(!changed);
+    assert!(!consumed);
     let value = project
         .node_param_raw_value(solid, 0)
         .expect("param value should exist");
-    assert!((value - 0.92).abs() < 1e-5);
+    assert!((value - 0.9).abs() < 1e-5);
+}
+
+#[test]
+fn alt_drag_over_param_value_scrubs_parameter_value() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_value_rect(node, 0).expect("value rect exists")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+
+    let start = InputSnapshot {
+        alt_down: true,
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_start, consumed_start) =
+        handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(changed_start || state.active_node == Some(solid));
+    assert!(state.param_scrub.is_some());
+
+    let drag = InputSnapshot {
+        alt_down: true,
+        left_down: true,
+        mouse_pos: Some((value_rect.x + 40, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_drag, consumed_drag) =
+        handle_alt_param_drag(&drag, &mut project, 420, 480, &mut state);
+    assert!(consumed_drag);
+    assert!(changed_drag);
+    let value = project
+        .node_param_raw_value(solid, 0)
+        .expect("param value should exist");
+    assert!(
+        value > 0.9,
+        "expected scrubbing to increase value, got {value}"
+    );
+
+    let release = InputSnapshot {
+        alt_down: true,
+        left_down: false,
+        mouse_pos: Some((value_rect.x + 40, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (_changed_release, consumed_release) =
+        handle_alt_param_drag(&release, &mut project, 420, 480, &mut state);
+    assert!(consumed_release);
+    assert!(state.param_scrub.is_none());
+}
+
+#[test]
+fn alt_hover_marks_scrubbable_param_target() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_value_rect(node, 0).expect("value rect exists")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let input = InputSnapshot {
+        alt_down: true,
+        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(update_hover_state(
+        &input,
+        &mut project,
+        420,
+        480,
+        &mut state
+    ));
+    assert_eq!(
+        state.hover_alt_param,
+        Some(HoverParamTarget {
+            node_id: solid,
+            param_index: 0
+        })
+    );
 }
 
 #[test]

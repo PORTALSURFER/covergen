@@ -63,6 +63,7 @@ const TOGGLE_ICON: Color = Color::argb(AGIO.menu_text);
 const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
 const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
 const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
+const PARAM_VALUE_ALT_HOVER: Color = Color::argb(0x3342A5F5);
 const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
 const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
@@ -653,6 +654,13 @@ impl SceneBuilder {
             };
             self.push_graph_text_in_rect(label_rect, 0, fitted_label, bound_color, state);
             self.push_rect(value_rect, PARAM_VALUE_BG);
+            let alt_hover = state
+                .hover_alt_param
+                .map(|target| target.node_id == node.id() && target.param_index == index)
+                .unwrap_or(false);
+            if alt_hover {
+                self.push_rect(value_rect, PARAM_VALUE_ALT_HOVER);
+            }
             let editing = state
                 .param_edit
                 .as_ref()
@@ -674,7 +682,7 @@ impl SceneBuilder {
             }
             self.push_border(
                 value_rect,
-                if editing {
+                if editing || alt_hover {
                     PARAM_VALUE_ACTIVE
                 } else if row.bound {
                     PARAM_EDGE_COLOR

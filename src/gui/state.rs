@@ -192,6 +192,15 @@ pub(crate) struct ParamEditState {
     pub(crate) anchor: usize,
 }
 
+/// Active Alt+drag parameter scrub session for one numeric parameter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ParamScrubState {
+    pub(crate) node_id: u32,
+    pub(crate) param_index: usize,
+    pub(crate) last_mouse_x: i32,
+    pub(crate) pixel_remainder: f32,
+}
+
 /// Active dropdown session for one node parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ParamDropdownState {
@@ -224,6 +233,7 @@ pub(crate) struct PreviewState {
     pub(crate) export_menu_drag: Option<PopupDragState>,
     pub(crate) right_marquee: Option<RightMarqueeState>,
     pub(crate) param_edit: Option<ParamEditState>,
+    pub(crate) param_scrub: Option<ParamScrubState>,
     pub(crate) timeline_bpm_edit: Option<TimelineBpmEditState>,
     pub(crate) param_dropdown: Option<ParamDropdownState>,
     pub(crate) selected_nodes: Vec<u32>,
@@ -238,6 +248,7 @@ pub(crate) struct PreviewState {
     pub(crate) hover_output_pin: Option<u32>,
     pub(crate) hover_input_pin: Option<u32>,
     pub(crate) hover_param_target: Option<HoverParamTarget>,
+    pub(crate) hover_alt_param: Option<HoverParamTarget>,
     pub(crate) hover_insert_link: Option<HoverInsertLink>,
     pub(crate) hover_dropdown_item: Option<usize>,
     /// Node ids auto-expanded while dragging signal/texture parameter bind wires.
@@ -270,6 +281,7 @@ impl PreviewState {
             export_menu_drag: None,
             right_marquee: None,
             param_edit: None,
+            param_scrub: None,
             timeline_bpm_edit: None,
             param_dropdown: None,
             selected_nodes: Vec::new(),
@@ -284,6 +296,7 @@ impl PreviewState {
             hover_output_pin: None,
             hover_input_pin: None,
             hover_param_target: None,
+            hover_alt_param: None,
             hover_insert_link: None,
             hover_dropdown_item: None,
             auto_expanded_binding_nodes: Vec::new(),

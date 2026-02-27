@@ -55,6 +55,7 @@ pub(super) fn update_hover_state(
     let prev_hover_output = state.hover_output_pin;
     let prev_hover_input = state.hover_input_pin;
     let prev_hover_param_target = state.hover_param_target;
+    let prev_hover_alt_param = state.hover_alt_param;
     let prev_hover_dropdown_item = state.hover_dropdown_item;
     let prev_hover_item = state.hover_menu_item;
     let prev_hover_main_item = state.hover_main_menu_item;
@@ -64,6 +65,7 @@ pub(super) fn update_hover_state(
     state.hover_output_pin = None;
     state.hover_input_pin = None;
     state.hover_param_target = None;
+    state.hover_alt_param = None;
     state.hover_dropdown_item = None;
     state.hover_menu_item = None;
     state.hover_main_menu_item = None;
@@ -79,6 +81,7 @@ pub(super) fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
@@ -94,6 +97,7 @@ pub(super) fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
@@ -111,6 +115,7 @@ pub(super) fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_main_item.is_some()
             || prev_hover_export_item.is_some()
@@ -135,6 +140,7 @@ pub(super) fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some();
         if param_bind_drag_kind.is_some() {
@@ -150,6 +156,7 @@ pub(super) fn update_hover_state(
             || prev_hover_output.is_some()
             || prev_hover_input.is_some()
             || prev_hover_param_target.is_some()
+            || prev_hover_alt_param.is_some()
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_main_item.is_some()
@@ -235,6 +242,7 @@ pub(super) fn update_hover_state(
                     || prev_hover_output.is_some()
                     || prev_hover_input.is_some()
                     || state.hover_param_target != prev_hover_param_target
+                    || prev_hover_alt_param.is_some()
                     || prev_hover_dropdown_item.is_some()
                     || prev_hover_item.is_some()
                     || prev_hover_main_item.is_some()
@@ -245,6 +253,25 @@ pub(super) fn update_hover_state(
         }
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    if let Some(scrub) = state.param_scrub {
+        state.hover_alt_param = Some(HoverParamTarget {
+            node_id: scrub.node_id,
+            param_index: scrub.param_index,
+        });
+    } else if input.alt_down {
+        if let Some(node_id) = project.node_at(graph_x, graph_y) {
+            if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
+                if project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
+                    && project.param_supports_text_edit(node_id, param_index)
+                {
+                    state.hover_alt_param = Some(HoverParamTarget {
+                        node_id,
+                        param_index,
+                    });
+                }
+            }
+        }
+    }
     let pin_radius = pin_hit_radius_world(state);
     let disallow_source = state.wire_drag.map(|wire| wire.source_node_id);
     state.hover_output_pin = project.output_pin_at(graph_x, graph_y, pin_radius);
@@ -257,6 +284,7 @@ pub(super) fn update_hover_state(
             || prev_hover_dropdown_item.is_some()
             || prev_hover_item.is_some()
             || prev_hover_param_target.is_some()
+            || state.hover_alt_param != prev_hover_alt_param
             || prev_hover_main_item.is_some()
             || prev_hover_export_item.is_some()
             || prev_hover_export_close;
@@ -272,6 +300,7 @@ pub(super) fn update_hover_state(
         || prev_hover_dropdown_item.is_some()
         || prev_hover_item.is_some()
         || prev_hover_param_target.is_some()
+        || state.hover_alt_param != prev_hover_alt_param
         || prev_hover_main_item.is_some()
         || prev_hover_export_item.is_some()
         || prev_hover_export_close

@@ -32,6 +32,7 @@ const MIN_ZOOM: f32 = 0.35;
 const MAX_ZOOM: f32 = 2.75;
 const ZOOM_SENSITIVITY: f32 = 1.12;
 const FOCUS_MARGIN_PX: f32 = 28.0;
+const PARAM_SCRUB_PX_PER_STEP: f32 = 12.0;
 #[cfg(test)]
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
 #[cfg(test)]
@@ -102,6 +103,7 @@ pub(crate) fn apply_preview_actions(
         state.export_menu_drag = None;
         state.right_marquee = None;
         state.param_edit = None;
+        state.param_scrub = None;
         state.timeline_bpm_edit = None;
         state.param_dropdown = None;
         state.selected_nodes.clear();
@@ -115,6 +117,7 @@ pub(crate) fn apply_preview_actions(
         state.hover_output_pin = None;
         state.hover_input_pin = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.hover_insert_link = None;
         state.hover_dropdown_item = None;
         state.auto_expanded_binding_nodes.clear();
@@ -152,8 +155,10 @@ pub(crate) fn apply_preview_actions(
         state.export_menu_drag = None;
         state.right_marquee = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_dropdown = None;
         state.param_edit = None;
+        state.param_scrub = None;
         state.menu = AddNodeMenuState::closed();
         state.main_menu = MainMenuState::closed();
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
@@ -164,26 +169,39 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_dropdown = None;
+        state.param_scrub = None;
         changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
     }
 
-    let (wheel_param_changed, wheel_consumed) =
-        handle_param_wheel_input(&input, project, panel_width, panel_height, state);
-    changed |= wheel_param_changed;
-    let mut pan_zoom_input = input.clone();
-    if wheel_consumed {
-        pan_zoom_input.wheel_lines_y = 0.0;
-    }
-    changed |=
-        handle_pan_zoom_and_focus(&pan_zoom_input, project, panel_width, panel_height, state);
+    changed |= handle_pan_zoom_and_focus(&input, project, panel_width, panel_height, state);
     if state.pan_drag.is_some() {
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_dropdown = None;
+        state.param_scrub = None;
+        let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
+        state.prev_left_down = input.left_down;
+        return true;
+    }
+
+    let (param_scrub_changed, param_scrub_active) =
+        handle_alt_param_drag(&input, project, panel_width, panel_height, state);
+    changed |= param_scrub_changed;
+    if param_scrub_active {
+        state.drag = None;
+        state.wire_drag = None;
+        state.link_cut = None;
+        state.hover_param_target = None;
+        state.param_edit = None;
+        state.timeline_bpm_edit = None;
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -194,7 +212,9 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_dropdown = None;
+        state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -205,7 +225,9 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_dropdown = None;
+        state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -222,6 +244,8 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
+        state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -230,6 +254,8 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
+        state.param_scrub = None;
         state.param_dropdown = None;
         changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
@@ -297,9 +323,11 @@ fn handle_help_input(
     state.export_menu_drag = None;
     state.right_marquee = None;
     state.param_edit = None;
+    state.param_scrub = None;
     state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_param_target = None;
+    state.hover_alt_param = None;
     state.hover_dropdown_item = None;
     state.invalidation.invalidate_overlays();
     (true, true)
@@ -584,6 +612,7 @@ fn scrub_frame_from_timeline(
     true
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn handle_param_wheel_input(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -591,38 +620,111 @@ fn handle_param_wheel_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> (bool, bool) {
-    if input.wheel_lines_y.abs() <= f32::EPSILON {
-        return (false, false);
-    }
-    if state.param_edit.is_some()
-        || state.menu.open
+    let _ = (input, project, panel_width, panel_height, state);
+    (false, false)
+}
+
+fn handle_alt_param_drag(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &mut PreviewState,
+) -> (bool, bool) {
+    if state.menu.open
         || state.main_menu.open
         || state.export_menu.open
+        || state.param_edit.is_some()
+        || state.timeline_bpm_edit.is_some()
         || state.param_dropdown.is_some()
     {
+        let ended = state.param_scrub.take().is_some();
+        return (ended, ended);
+    }
+
+    if let Some(mut scrub) = state.param_scrub {
+        if !input.left_down || !input.alt_down {
+            state.param_scrub = None;
+            return (true, true);
+        }
+        let Some((mx, my)) = input.mouse_pos else {
+            state.param_scrub = Some(scrub);
+            return (false, true);
+        };
+        if !inside_panel(mx, my, panel_width, panel_height) {
+            state.param_scrub = Some(scrub);
+            return (false, true);
+        }
+        let mut changed = false;
+        let dx = mx - scrub.last_mouse_x;
+        scrub.last_mouse_x = mx;
+        scrub.pixel_remainder += dx as f32;
+        let step_delta = (scrub.pixel_remainder / PARAM_SCRUB_PX_PER_STEP).trunc();
+        if step_delta.abs() >= 1.0 {
+            scrub.pixel_remainder -= step_delta * PARAM_SCRUB_PX_PER_STEP;
+            changed |= project.select_param(scrub.node_id, scrub.param_index);
+            changed |= project.adjust_param(scrub.node_id, scrub.param_index, step_delta);
+            state.active_node = Some(scrub.node_id);
+            state.hover_alt_param = Some(HoverParamTarget {
+                node_id: scrub.node_id,
+                param_index: scrub.param_index,
+            });
+        }
+        state.param_scrub = Some(scrub);
+        return (changed, true);
+    }
+
+    if !input.alt_down || !input.left_clicked {
         return (false, false);
     }
-    let Some((mx, my)) = input.mouse_pos else {
+    let Some(target) = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
+    else {
         return (false, false);
     };
-    if !inside_panel(mx, my, panel_width, panel_height) {
+    let Some((mx, _my)) = input.mouse_pos else {
         return (false, false);
+    };
+    state.param_scrub = Some(super::state::ParamScrubState {
+        node_id: target.node_id,
+        param_index: target.param_index,
+        last_mouse_x: mx,
+        pixel_remainder: 0.0,
+    });
+    state.active_node = Some(target.node_id);
+    state.hover_alt_param = Some(target);
+    state.link_cut = None;
+    state.hover_dropdown_item = None;
+    state.param_edit = None;
+    (
+        project.select_param(target.node_id, target.param_index),
+        true,
+    )
+}
+
+fn scrubbable_param_at_cursor(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+) -> Option<HoverParamTarget> {
+    let (mx, my) = input.mouse_pos?;
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return None;
     }
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-    let Some(node_id) = project.node_at(graph_x, graph_y) else {
-        return (false, false);
-    };
-    let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) else {
-        return (false, false);
-    };
+    let node_id = project.node_at(graph_x, graph_y)?;
+    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
     if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
-        return (false, false);
+        return None;
     }
-    let mut changed = project.select_param(node_id, param_index);
-    state.active_node = Some(node_id);
-    changed |= project.adjust_param(node_id, param_index, input.wheel_lines_y);
-    state.hover_dropdown_item = None;
-    (changed, true)
+    if !project.param_supports_text_edit(node_id, param_index) {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id,
+        param_index,
+    })
 }
 
 fn handle_pan_zoom_and_focus(
@@ -654,6 +756,8 @@ fn handle_pan_zoom_and_focus(
                 state.drag = None;
                 state.wire_drag = None;
                 state.hover_param_target = None;
+                state.hover_alt_param = None;
+                state.param_scrub = None;
             }
         }
     }
@@ -698,7 +802,9 @@ fn handle_add_menu_toggle(
         state.main_menu = super::state::MainMenuState::closed();
         state.wire_drag = None;
         state.hover_param_target = None;
+        state.hover_alt_param = None;
         state.param_edit = None;
+        state.param_scrub = None;
         state.timeline_bpm_edit = None;
         state.param_dropdown = None;
         state.hover_dropdown_item = None;
@@ -712,7 +818,9 @@ fn handle_add_menu_toggle(
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;
+    state.hover_alt_param = None;
     state.param_edit = None;
+    state.param_scrub = None;
     state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
@@ -737,12 +845,14 @@ fn handle_main_menu_toggle(
     state.main_menu = MainMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
     state.menu = AddNodeMenuState::closed();
     state.param_edit = None;
+    state.param_scrub = None;
     state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     state.drag = None;
     state.wire_drag = None;
     state.hover_param_target = None;
+    state.hover_alt_param = None;
     true
 }
 
@@ -1085,11 +1195,13 @@ fn handle_delete_selected_nodes(
     state.hover_output_pin = None;
     state.hover_input_pin = None;
     state.hover_param_target = None;
+    state.hover_alt_param = None;
     state.drag = None;
     state.wire_drag = None;
     state.right_marquee = None;
     state.link_cut = None;
     state.param_edit = None;
+    state.param_scrub = None;
     state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
@@ -1350,6 +1462,7 @@ fn handle_link_cut(
     let mut changed = false;
     if input.alt_down
         && input.left_clicked
+        && state.param_scrub.is_none()
         && !state.menu.open
         && !state.main_menu.open
         && !state.export_menu.open
@@ -1365,7 +1478,9 @@ fn handle_link_cut(
                 state.drag = None;
                 state.wire_drag = None;
                 state.hover_param_target = None;
+                state.hover_alt_param = None;
                 state.param_edit = None;
+                state.param_scrub = None;
                 state.timeline_bpm_edit = None;
                 state.param_dropdown = None;
                 state.hover_dropdown_item = None;

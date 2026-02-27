@@ -67,6 +67,7 @@ struct NodesLayerState {
     hover_output_pin: Option<u32>,
     hover_input_pin: Option<u32>,
     hover_param_target: Option<(u32, usize)>,
+    hover_alt_param: Option<(u32, usize)>,
     wire_drag_source: Option<u32>,
     drag_node: Option<u32>,
     selected_nodes: Vec<u32>,
@@ -162,6 +163,9 @@ impl SceneInvalidationSnapshot {
                 hover_input_pin: state.hover_input_pin,
                 hover_param_target: state
                     .hover_param_target
+                    .map(|target| (target.node_id, target.param_index)),
+                hover_alt_param: state
+                    .hover_alt_param
                     .map(|target| (target.node_id, target.param_index)),
                 wire_drag_source: state.wire_drag.map(|wire| wire.source_node_id),
                 drag_node: state.drag.map(|drag| drag.node_id),
