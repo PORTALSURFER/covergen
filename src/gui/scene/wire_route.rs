@@ -165,8 +165,8 @@ pub(crate) fn route_wire_path_with_map(
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
 ) -> Vec<(i32, i32)> {
-    let start_point = (snap_to_grid(start.point.0), snap_to_grid(start.point.1));
-    let end_point = (snap_to_grid(end.point.0), snap_to_grid(end.point.1));
+    let start_point = snap_endpoint_to_grid(start);
+    let end_point = snap_endpoint_to_grid(end);
     if start_point == end_point {
         return vec![start_point];
     }
@@ -179,8 +179,8 @@ pub(crate) fn route_wire_path_with_map(
         return fallback_octilinear(start_point, end_point);
     };
 
-    grid.carve_corridor(start);
-    grid.carve_corridor(end);
+    grid.carve_corridor(start_point, start.corridor_dir);
+    grid.carve_corridor(end_point, end.corridor_dir);
 
     let Some(cells) = grid.find_path(start_point, end_point) else {
         return fallback_octilinear(start_point, end_point);
@@ -332,14 +332,10 @@ impl SearchGrid {
         })
     }
 
-    fn carve_corridor(&mut self, endpoint: RouteEndpoint) {
-        let start = (
-            snap_to_grid(endpoint.point.0),
-            snap_to_grid(endpoint.point.1),
-        );
+    fn carve_corridor(&mut self, start: (i32, i32), direction: RouteDirection) {
         for step in 0..=ENDPOINT_CORRIDOR_CELLS {
-            let px = start.0 + endpoint.corridor_dir.dx() * step * GRID_PITCH_PX;
-            let py = start.1 + endpoint.corridor_dir.dy() * step * GRID_PITCH_PX;
+            let px = start.0 + direction.dx() * step * GRID_PITCH_PX;
+            let py = start.1 + direction.dy() * step * GRID_PITCH_PX;
             let cell = self.point_to_cell((px, py));
             if let Some(index) = self.cell_index(cell) {
                 self.blocked[index] = false;
@@ -536,11 +532,25 @@ fn snap_to_grid(value: i32) -> i32 {
     }
 }
 
+fn snap_endpoint_to_grid(endpoint: RouteEndpoint) -> (i32, i32) {
+    let x = match endpoint.corridor_dir.dx() {
+        1 => ceil_to_step(endpoint.point.0, GRID_PITCH_PX),
+        -1 => floor_to_step(endpoint.point.0, GRID_PITCH_PX),
+        _ => snap_to_grid(endpoint.point.0),
+    };
+    let y = match endpoint.corridor_dir.dy() {
+        1 => ceil_to_step(endpoint.point.1, GRID_PITCH_PX),
+        -1 => floor_to_step(endpoint.point.1, GRID_PITCH_PX),
+        _ => snap_to_grid(endpoint.point.1),
+    };
+    (x, y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        route_param_path, route_wire_path, route_wire_path_with_map, NodeObstacle, RouteDirection,
-        RouteEndpoint, RouteObstacleMap,
+        route_param_path, route_wire_path, route_wire_path_with_map, snap_endpoint_to_grid,
+        NodeObstacle, RouteDirection, RouteEndpoint, RouteObstacleMap,
     };
     use crate::gui::geometry::Rect;
 
@@ -605,5 +615,41 @@ mod tests {
         assert_eq!(from_cache.first().copied(), direct.first().copied());
         assert_eq!(from_cache.last().copied(), direct.last().copied());
         assert_octilinear(from_cache.as_slice());
+    }
+
+    #[test]
+    fn endpoint_snap_projects_outward_for_face_directions() {
+        let point = (322, 141);
+        let east = snap_endpoint_to_grid(RouteEndpoint {
+            point,
+            corridor_dir: RouteDirection::East,
+        });
+        assert!(east.0 >= point.0);
+        assert_eq!(east.0.rem_euclid(4), 0);
+        assert_eq!(east.1.rem_euclid(4), 0);
+
+        let west = snap_endpoint_to_grid(RouteEndpoint {
+            point,
+            corridor_dir: RouteDirection::West,
+        });
+        assert!(west.0 <= point.0);
+        assert_eq!(west.0.rem_euclid(4), 0);
+        assert_eq!(west.1.rem_euclid(4), 0);
+
+        let north = snap_endpoint_to_grid(RouteEndpoint {
+            point,
+            corridor_dir: RouteDirection::North,
+        });
+        assert!(north.1 <= point.1);
+        assert_eq!(north.0.rem_euclid(4), 0);
+        assert_eq!(north.1.rem_euclid(4), 0);
+
+        let south = snap_endpoint_to_grid(RouteEndpoint {
+            point,
+            corridor_dir: RouteDirection::South,
+        });
+        assert!(south.1 >= point.1);
+        assert_eq!(south.0.rem_euclid(4), 0);
+        assert_eq!(south.1.rem_euclid(4), 0);
     }
 }
