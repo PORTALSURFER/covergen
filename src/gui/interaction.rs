@@ -210,7 +210,6 @@ pub(crate) fn apply_preview_actions(
         state.drag = None;
         state.wire_drag = None;
         state.hover_param_target = None;
-        state.param_dropdown = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;

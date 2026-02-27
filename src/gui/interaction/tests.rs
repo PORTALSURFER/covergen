@@ -1,5 +1,5 @@
 use super::{
-    backspace_param_text, can_append_param_char, handle_add_menu_input,
+    apply_preview_actions, backspace_param_text, can_append_param_char, handle_add_menu_input,
     handle_delete_selected_nodes, handle_drag_input, handle_help_input, handle_link_cut,
     handle_main_export_menu_input, handle_node_open_toggle, handle_param_edit_input,
     handle_param_wheel_input, handle_right_selection, handle_wire_input, insert_param_char,
@@ -863,6 +863,39 @@ fn dropdown_click_selects_correct_option_at_low_zoom() {
         handle_param_edit_input(&select_second_option, &mut project, 420, 480, &mut state);
     assert!(consumed_select);
     assert_eq!(project.node_param_raw_text(pass, 2), Some("alpha_clip"));
+}
+
+#[test]
+fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(pass, 420, 480));
+    let mut state = PreviewState::new(&config);
+    let value_rect = {
+        let node = project.node(pass).expect("scene-pass node should exist");
+        node_param_value_rect(node, 2).expect("bg_mode value rect should exist")
+    };
+    let input = InputSnapshot {
+        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        &config,
+        input,
+        &mut project,
+        640,
+        420,
+        480,
+        &mut state,
+    ));
+    assert_eq!(
+        state
+            .param_dropdown
+            .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
+        Some((pass, 2))
+    );
 }
 
 #[test]
