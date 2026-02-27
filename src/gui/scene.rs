@@ -83,6 +83,7 @@ const TIMELINE_TRACK_FILL: Color = Color::argb(AGIO.highlight_selection);
 const TIMELINE_BTN_ACTIVE: Color = Color::argb(0x553B82F6);
 const TIMELINE_BTN_IDLE: Color = Color::argb(0xFF171717);
 const TIMELINE_TEXT: Color = Color::argb(0xFFD5D5D5);
+const TIMELINE_BEAT_ON: Color = Color::argb(0xFF63E06C);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
@@ -1039,6 +1040,17 @@ impl SceneBuilder {
             );
         }
         self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
+        let beat_rect = Rect::new(timeline.x + timeline.w - 20, timeline.y + 4, 12, 8);
+        if timeline_beat_indicator_on(
+            state.frame_index,
+            timeline_fps,
+            state.export_menu.parsed_bpm(),
+        ) {
+            self.push_rect(beat_rect, TIMELINE_BEAT_ON);
+        } else {
+            self.push_rect(beat_rect, TIMELINE_TRACK_BG);
+        }
+        self.push_border(beat_rect, TIMELINE_BORDER);
 
         self.push_rect(controls.wav_drop, TIMELINE_TRACK_BG);
         self.push_border(controls.wav_drop, TIMELINE_BORDER);
@@ -1910,6 +1922,16 @@ fn path_intersects_cut_line(state: &PreviewState, points: &[(i32, i32)]) -> bool
     false
 }
 
+fn timeline_beat_indicator_on(frame_index: u32, timeline_fps: u32, bpm: f32) -> bool {
+    if timeline_fps == 0 || !bpm.is_finite() || bpm <= 0.0 {
+        return false;
+    }
+    let beat_frames = (timeline_fps as f32 * 60.0 / bpm).max(1.0);
+    let pulse_frames = (beat_frames * 0.2).clamp(1.0, 6.0);
+    let phase_frames = frame_index as f32 % beat_frames;
+    phase_frames < pulse_frames
+}
+
 #[allow(clippy::too_many_arguments)]
 fn segments_intersect(
     ax: i32,
@@ -1955,7 +1977,8 @@ fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+        build_smoothed_param_wire, smooth_param_wire_path, timeline_beat_indicator_on,
+        PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
 
     #[test]
@@ -2014,5 +2037,20 @@ mod tests {
             "end tail too short: {}",
             end_tail_max_x - end.0
         );
+    }
+
+    #[test]
+    fn timeline_beat_indicator_blinks_on_each_beat() {
+        assert!(timeline_beat_indicator_on(0, 60, 120.0));
+        assert!(timeline_beat_indicator_on(5, 60, 120.0));
+        assert!(!timeline_beat_indicator_on(6, 60, 120.0));
+        assert!(timeline_beat_indicator_on(30, 60, 120.0));
+    }
+
+    #[test]
+    fn timeline_beat_indicator_disables_on_invalid_timing() {
+        assert!(!timeline_beat_indicator_on(10, 0, 120.0));
+        assert!(!timeline_beat_indicator_on(10, 60, 0.0));
+        assert!(!timeline_beat_indicator_on(10, 60, f32::NAN));
     }
 }
