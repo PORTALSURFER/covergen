@@ -1449,5 +1449,25 @@ mod tests {
                 .any(|node| node.kind().stable_id() == "tex.feedback"),
             "example graph should include tex.feedback"
         );
+        let circle_id = loaded
+            .nodes()
+            .iter()
+            .find(|node| node.kind().stable_id() == "tex.circle")
+            .map(|node| node.id())
+            .expect("example graph should include tex.circle");
+        let blend_id = loaded
+            .nodes()
+            .iter()
+            .find(|node| node.kind().stable_id() == "tex.blend")
+            .map(|node| node.id())
+            .expect("example graph should include tex.blend");
+        let blend_tex_param = loaded
+            .node_param_slot_index(blend_id, "blend_tex")
+            .expect("tex.blend should expose blend_tex");
+        assert_eq!(
+            loaded.texture_source_for_param(blend_id, blend_tex_param),
+            Some(circle_id),
+            "trail example should composite raw circle as the live layer"
+        );
     }
 }

@@ -187,7 +187,7 @@
           "key": "blend_tex",
           "value": 0.0,
           "signal_source": null,
-          "texture_source": 2
+          "texture_source": 1
         },
         {
           "key": "blend_mode",
