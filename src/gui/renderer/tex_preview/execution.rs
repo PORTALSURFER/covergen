@@ -28,12 +28,22 @@ struct PlannedGpuDispatch {
     upload_bytes: u64,
 }
 
+/// Deferred history write request for feedback nodes that bind external
+/// accumulation textures.
+#[derive(Clone, Copy, Debug)]
+struct PendingExternalFeedbackWrite {
+    history_key: FeedbackHistoryKey,
+    texture_node_id: u32,
+    fallback_source_target: RenderTargetRef,
+}
+
 /// Mutable per-frame dispatch state shared across staged execution helpers.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug, Default)]
 struct GpuDispatchState {
     source_target: Option<RenderTargetRef>,
     scratch_flip: bool,
     rendered_count: usize,
+    pending_external_feedback_writes: Vec<PendingExternalFeedbackWrite>,
 }
 
 /// Render-pass inputs resolved during target preparation.
@@ -167,6 +177,12 @@ impl TexPreviewRenderer {
                 &mut state,
             )?;
         }
+        self.flush_pending_external_feedback_writes(
+            dispatch.encoder,
+            &mut state,
+            dispatch.width,
+            dispatch.height,
+        )?;
         self.finalize_gpu_dispatch(
             dispatch.encoder,
             state.source_target,
@@ -219,6 +235,14 @@ impl TexPreviewRenderer {
             PlannedStep::StoreTexture { texture_node_id } => {
                 let src_target = state.source_target?;
                 self.bind_blend_source_alias(texture_node_id, src_target);
+                self.resolve_external_feedback_write_for_texture(
+                    dispatch.encoder,
+                    state,
+                    texture_node_id,
+                    src_target,
+                    dispatch.width,
+                    dispatch.height,
+                )?;
                 return Some(());
             }
         };
@@ -230,15 +254,27 @@ impl TexPreviewRenderer {
         if Self::is_feedback_history_tap_op(prepared.planned_op) {
             let history_key = prepared.feedback_history_key?;
             let source_target = source_target_before?;
-            let history_write_target = self.feedback_history_write_target(history_key)?;
-            self.copy_target_to_target(
-                dispatch.encoder,
-                source_target,
-                history_write_target,
-                dispatch.width,
-                dispatch.height,
-            );
-            self.swap_feedback_history(history_key)?;
+            if let Some(texture_node_id) =
+                Self::external_feedback_accumulation_texture(prepared.planned_op)
+            {
+                state
+                    .pending_external_feedback_writes
+                    .push(PendingExternalFeedbackWrite {
+                        history_key,
+                        texture_node_id,
+                        fallback_source_target: source_target,
+                    });
+            } else {
+                let history_write_target = self.feedback_history_write_target(history_key)?;
+                self.copy_target_to_target(
+                    dispatch.encoder,
+                    source_target,
+                    history_write_target,
+                    dispatch.width,
+                    dispatch.height,
+                );
+                self.swap_feedback_history(history_key)?;
+            }
             state.source_target = Some(prepared.target);
         } else {
             state.source_target = if let Some(history_key) = prepared.feedback_history_key {
@@ -537,6 +573,66 @@ impl TexPreviewRenderer {
 
     fn is_feedback_history_tap_op(op: PlannedRenderOp) -> bool {
         matches!(op, PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }))
+    }
+
+    fn external_feedback_accumulation_texture(op: PlannedRenderOp) -> Option<u32> {
+        let PlannedRenderOp::Runtime(runtime_op) = op else {
+            return None;
+        };
+        let TexViewerOp::Feedback { history, .. } = runtime_op else {
+            return None;
+        };
+        let crate::gui::runtime::TexRuntimeFeedbackHistoryBinding::External { texture_node_id } =
+            history
+        else {
+            return None;
+        };
+        Some(texture_node_id)
+    }
+
+    fn resolve_external_feedback_write_for_texture(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &mut GpuDispatchState,
+        texture_node_id: u32,
+        source_target: RenderTargetRef,
+        width: u32,
+        height: u32,
+    ) -> Option<()> {
+        let mut index = 0usize;
+        while index < state.pending_external_feedback_writes.len() {
+            let pending = state.pending_external_feedback_writes[index];
+            if pending.texture_node_id != texture_node_id {
+                index = index.saturating_add(1);
+                continue;
+            }
+            let pending = state.pending_external_feedback_writes.swap_remove(index);
+            let history_write_target = self.feedback_history_write_target(pending.history_key)?;
+            self.copy_target_to_target(encoder, source_target, history_write_target, width, height);
+            self.swap_feedback_history(pending.history_key)?;
+        }
+        Some(())
+    }
+
+    fn flush_pending_external_feedback_writes(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &mut GpuDispatchState,
+        width: u32,
+        height: u32,
+    ) -> Option<()> {
+        for pending in state.pending_external_feedback_writes.drain(..) {
+            let history_write_target = self.feedback_history_write_target(pending.history_key)?;
+            self.copy_target_to_target(
+                encoder,
+                pending.fallback_source_target,
+                history_write_target,
+                width,
+                height,
+            );
+            self.swap_feedback_history(pending.history_key)?;
+        }
+        Some(())
     }
 
     fn choose_intermediate_target(&self, scratch_flip: &mut bool) -> RenderTargetRef {
@@ -1052,5 +1148,48 @@ mod tests {
         });
         assert!(!TexPreviewRenderer::is_feedback_history_tap_op(reaction));
         assert!(!TexPreviewRenderer::is_feedback_history_tap_op(post));
+    }
+
+    #[test]
+    fn external_feedback_accumulation_texture_detects_external_binding() {
+        let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+            mix: 1.0,
+            history: TexRuntimeFeedbackHistoryBinding::External {
+                texture_node_id: 77,
+            },
+        });
+        assert_eq!(
+            TexPreviewRenderer::external_feedback_accumulation_texture(op),
+            Some(77)
+        );
+    }
+
+    #[test]
+    fn external_feedback_accumulation_texture_ignores_internal_and_non_feedback_ops() {
+        let internal_feedback = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+            mix: 0.8,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 5,
+            },
+        });
+        let reaction = PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion {
+            diffusion_a: 1.0,
+            diffusion_b: 0.5,
+            feed: 0.06,
+            kill: 0.04,
+            dt: 1.0,
+            seed_mix: 0.25,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 22,
+            },
+        });
+        assert_eq!(
+            TexPreviewRenderer::external_feedback_accumulation_texture(internal_feedback),
+            None
+        );
+        assert_eq!(
+            TexPreviewRenderer::external_feedback_accumulation_texture(reaction),
+            None
+        );
     }
 }
