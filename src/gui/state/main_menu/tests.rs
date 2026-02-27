@@ -86,3 +86,16 @@ fn export_menu_audio_length_drives_timeline_even_when_bpm_changes() {
     assert_eq!(second, 90);
     let _ = fs::remove_file(wav_path);
 }
+
+#[test]
+fn export_menu_manual_bar_length_drives_timeline_without_audio() {
+    let mut menu = ExportMenuState::closed();
+    menu.bar_length = "8".to_string();
+    menu.bpm = "120".to_string();
+    menu.beats_per_bar = "4".to_string();
+
+    assert_eq!(menu.timeline_total_frames(60), 960);
+
+    menu.bpm = "60".to_string();
+    assert_eq!(menu.timeline_total_frames(60), 1_920);
+}

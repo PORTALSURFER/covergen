@@ -90,6 +90,8 @@ const TIMELINE_TRACK_FILL: Color = Color::argb(AGIO.highlight_selection);
 const TIMELINE_BTN_ACTIVE: Color = Color::argb(0x553B82F6);
 const TIMELINE_BTN_IDLE: Color = Color::argb(0xFF171717);
 const TIMELINE_TEXT: Color = Color::argb(0xFFD5D5D5);
+const TIMELINE_TEXT_MUTED: Color = Color::argb(0xFF8D8D8D);
+const TIMELINE_TRACK_BG_MUTED: Color = Color::argb(0xFF131313);
 const TIMELINE_BEAT_ON: Color = Color::argb(0xFF63E06C);
 const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
@@ -1198,17 +1200,21 @@ impl SceneBuilder {
 
         let mut label = std::mem::take(&mut self.label_scratch);
         label.clear();
-        if let Some(derived_bars) = state.export_menu.derived_bars_from_audio() {
+        let derived_bars = state.export_menu.derived_bars_from_audio();
+        if let Some(derived_bars) = derived_bars {
             let _ = write!(
                 &mut label,
-                "Frame {}  [{}, {}]  |  bars {:.2} derived",
+                "Frame {}  [{}, {}]  |  bars {:.2} (audio)",
                 state.frame_index, TIMELINE_START_FRAME, end_frame, derived_bars,
             );
         } else {
             let _ = write!(
                 &mut label,
-                "Frame {}  [{}, {}]  |  bars unavailable (drop WAV)",
-                state.frame_index, TIMELINE_START_FRAME, end_frame,
+                "Frame {}  [{}, {}]  |  bars {:.2}",
+                state.frame_index,
+                TIMELINE_START_FRAME,
+                end_frame,
+                state.export_menu.parsed_bar_length(),
             );
         }
         self.push_rect(controls.frame_status, TIMELINE_TRACK_BG);
@@ -1315,6 +1321,46 @@ impl SceneBuilder {
             controls.bpm_up.y + 3,
             "+",
             TIMELINE_TEXT,
+        );
+        let bars_overridden = derived_bars.is_some();
+        let bar_edit = if bars_overridden {
+            None
+        } else {
+            state.timeline_bar_edit.as_ref()
+        };
+        let mut bars_display = String::new();
+        let bar_text = if let Some(edit) = bar_edit {
+            edit.buffer.as_str()
+        } else if let Some(derived) = derived_bars {
+            let _ = write!(&mut bars_display, "{derived:.2}");
+            bars_display.as_str()
+        } else {
+            state.export_menu.bar_length.as_str()
+        };
+        let bar_bg = if bars_overridden {
+            TIMELINE_TRACK_BG_MUTED
+        } else {
+            TIMELINE_TRACK_BG
+        };
+        let bar_text_color = if bars_overridden {
+            TIMELINE_TEXT_MUTED
+        } else {
+            TIMELINE_TEXT
+        };
+        self.push_rect(controls.bar_value, bar_bg);
+        self.push_timeline_value_editor_text(
+            controls.bar_value,
+            bar_text,
+            bar_edit,
+            bar_text_color,
+        );
+        self.push_border(
+            controls.bar_value,
+            if bar_edit.is_some() {
+                PARAM_VALUE_ACTIVE
+            } else {
+                TIMELINE_BORDER
+            },
         );
         self.label_scratch = label;
     }

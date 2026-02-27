@@ -142,6 +142,9 @@ struct TimelineLayerState {
     audio_volume_bits: u32,
     bpm_bits: u32,
     bpm_edit: Option<(usize, usize, String)>,
+    bar_length_bits: u32,
+    bar_edit: Option<(usize, usize, String)>,
+    bar_overridden: bool,
     beats_per_bar: u32,
 }
 
@@ -260,6 +263,12 @@ impl SceneInvalidationSnapshot {
                     .timeline_bpm_edit
                     .as_ref()
                     .map(|edit| (edit.cursor, edit.anchor, edit.buffer.clone())),
+                bar_length_bits: state.export_menu.parsed_bar_length().to_bits(),
+                bar_edit: state
+                    .timeline_bar_edit
+                    .as_ref()
+                    .map(|edit| (edit.cursor, edit.anchor, edit.buffer.clone())),
+                bar_overridden: state.export_menu.bar_length_overridden_by_audio(),
                 beats_per_bar: state.export_menu.parsed_beats_per_bar(),
             },
         }

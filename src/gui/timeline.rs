@@ -20,6 +20,7 @@ const TRACK_HEIGHT: i32 = 8;
 const CONTROL_GAP: i32 = 10;
 const BPM_BTN_W: i32 = 18;
 const BPM_VALUE_W: i32 = 72;
+const BAR_VALUE_W: i32 = 72;
 const BEAT_INDICATOR_W: i32 = 12;
 const BEAT_INDICATOR_H: i32 = 8;
 const FRAME_STATUS_W_MIN: i32 = 120;
@@ -38,6 +39,7 @@ pub(crate) struct TimelineControlLayout {
     pub(crate) bpm_down: Rect,
     pub(crate) bpm_value: Rect,
     pub(crate) bpm_up: Rect,
+    pub(crate) bar_value: Rect,
 }
 
 fn top_row_rect(timeline: Rect) -> Rect {
@@ -122,10 +124,12 @@ pub(crate) fn timeline_control_layout(timeline: Rect) -> TimelineControlLayout {
     let bpm_down_x = beat_indicator.x + beat_indicator.w + 4;
     let bpm_value_x = bpm_down_x + BPM_BTN_W + 4;
     let bpm_up_x = bpm_value_x + BPM_VALUE_W + 4;
+    let bar_value_x = bpm_up_x + BPM_BTN_W + 6;
     let bpm_up = Rect::new(bpm_up_x, row.y, BPM_BTN_W, row.h);
     let bpm_value = Rect::new(bpm_value_x, row.y, BPM_VALUE_W, row.h);
     let bpm_down = Rect::new(bpm_down_x, row.y, BPM_BTN_W, row.h);
-    let left_group_w = bpm_up.x + bpm_up.w - row.x;
+    let bar_value = Rect::new(bar_value_x, row.y, BAR_VALUE_W, row.h);
+    let left_group_w = bar_value.x + bar_value.w - row.x;
 
     let right_group_min_w = WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN;
     let right_group_target_w = WAV_W_TARGET + CONTROL_GAP + VOLUME_W_TARGET;
@@ -159,6 +163,7 @@ pub(crate) fn timeline_control_layout(timeline: Rect) -> TimelineControlLayout {
         bpm_down,
         bpm_value,
         bpm_up,
+        bar_value,
     }
 }
 

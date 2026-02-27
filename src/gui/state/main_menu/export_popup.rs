@@ -21,9 +21,11 @@ const EXPORT_MENU_PREVIEW_HEIGHT: i32 = 101;
 const EXPORT_MENU_PREVIEW_GAP: i32 = 8;
 const EXPORT_DEFAULT_BPM: &str = "120";
 const EXPORT_DEFAULT_BEATS_PER_BAR: &str = "4";
+const EXPORT_DEFAULT_BAR_LENGTH: &str = "15";
 const EXPORT_DEFAULT_AUDIO_VOLUME: &str = "1.0";
 const EXPORT_DEFAULT_BPM_VALUE: f32 = 120.0;
 const EXPORT_DEFAULT_BEATS_PER_BAR_VALUE: u32 = 4;
+const EXPORT_DEFAULT_BAR_LENGTH_VALUE: f32 = 15.0;
 const EXPORT_DEFAULT_AUDIO_VOLUME_VALUE: f32 = 1.0;
 
 /// Selectable rows in the export submenu.
@@ -60,6 +62,7 @@ pub(crate) struct ExportMenuState {
     audio_wav_duration_secs: Option<f32>,
     audio_wav_probe_path: String,
     pub(crate) bpm: String,
+    pub(crate) bar_length: String,
     pub(crate) beats_per_bar: String,
     pub(crate) exporting: bool,
     pub(crate) preview_frame: u32,
@@ -86,6 +89,7 @@ impl ExportMenuState {
             audio_wav_duration_secs: None,
             audio_wav_probe_path: String::new(),
             bpm: EXPORT_DEFAULT_BPM.to_string(),
+            bar_length: EXPORT_DEFAULT_BAR_LENGTH.to_string(),
             beats_per_bar: EXPORT_DEFAULT_BEATS_PER_BAR.to_string(),
             exporting: false,
             preview_frame: 0,
@@ -209,6 +213,11 @@ impl ExportMenuState {
         parse_positive_f32_or_default(self.bpm.as_str(), EXPORT_DEFAULT_BPM_VALUE)
     }
 
+    /// Return parsed manual bar-length setting, with fallback when invalid.
+    pub(crate) fn parsed_bar_length(&self) -> f32 {
+        parse_positive_f32_or_default(self.bar_length.as_str(), EXPORT_DEFAULT_BAR_LENGTH_VALUE)
+    }
+
     /// Return parsed beats-per-bar, with fallback when invalid.
     pub(crate) fn parsed_beats_per_bar(&self) -> u32 {
         parse_positive_u32_or_default(
@@ -253,15 +262,25 @@ impl ExportMenuState {
         Some((duration * bpm / 60.0) / beats_per_bar)
     }
 
+    /// Return true when timeline bar length is currently derived from WAV length.
+    pub(crate) fn bar_length_overridden_by_audio(&self) -> bool {
+        self.derived_bars_from_audio().is_some()
+    }
+
     /// Return derived timeline length in frames.
     ///
-    /// Timeline length is driven by loaded WAV duration. If no valid duration is
-    /// available, this falls back to a fixed default.
+    /// Timeline length is driven by loaded WAV duration when available.
+    /// Otherwise it is derived from bar length, BPM, and beats-per-bar.
     pub(crate) fn timeline_total_frames(&self, fps: u32) -> u32 {
         if let Some(duration_secs) = self.audio_wav_duration_secs {
             return total_frames_from_audio_length(duration_secs, fps);
         }
-        TIMELINE_DEFAULT_TOTAL_FRAMES.max(1)
+        total_frames_from_bar_length(
+            self.parsed_bar_length(),
+            self.parsed_bpm(),
+            self.parsed_beats_per_bar(),
+            fps,
+        )
     }
 
     /// Return configured WAV path when non-empty.
@@ -334,4 +353,19 @@ fn total_frames_from_audio_length(duration_secs: f32, fps: u32) -> u32 {
         return 1;
     }
     (duration_secs as f64 * fps as f64).round().max(1.0) as u32
+}
+
+fn total_frames_from_bar_length(bars: f32, bpm: f32, beats_per_bar: u32, fps: u32) -> u32 {
+    if fps == 0
+        || !bars.is_finite()
+        || bars <= 0.0
+        || !bpm.is_finite()
+        || bpm <= 0.0
+        || beats_per_bar == 0
+    {
+        return TIMELINE_DEFAULT_TOTAL_FRAMES.max(1);
+    }
+    let seconds_per_beat = 60.0_f64 / bpm as f64;
+    let duration_secs = bars as f64 * beats_per_bar as f64 * seconds_per_beat;
+    (duration_secs * fps as f64).round().max(1.0) as u32
 }

@@ -212,7 +212,7 @@ pub(crate) struct ParamDropdownState {
     pub(crate) param_index: usize,
 }
 
-/// Active text-edit session for timeline BPM.
+/// Active text-edit session for timeline value widgets.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TimelineBpmEditState {
     pub(crate) buffer: String,
@@ -239,6 +239,7 @@ pub(crate) struct PreviewState {
     pub(crate) param_edit: Option<ParamEditState>,
     pub(crate) param_scrub: Option<ParamScrubState>,
     pub(crate) timeline_bpm_edit: Option<TimelineBpmEditState>,
+    pub(crate) timeline_bar_edit: Option<TimelineBpmEditState>,
     pub(crate) param_dropdown: Option<ParamDropdownState>,
     pub(crate) selected_nodes: Vec<u32>,
     pub(crate) pan_x: f32,
@@ -288,6 +289,7 @@ impl PreviewState {
             param_edit: None,
             param_scrub: None,
             timeline_bpm_edit: None,
+            timeline_bar_edit: None,
             param_dropdown: None,
             selected_nodes: Vec::new(),
             pan_x: 0.0,

@@ -1261,6 +1261,55 @@ fn timeline_bpm_invalid_commit_keeps_edit_open() {
 }
 
 #[test]
+fn timeline_bar_value_click_starts_text_edit() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let input = InputSnapshot {
+        mouse_pos: Some((
+            controls.bar_value.x + controls.bar_value.w / 2,
+            controls.bar_value.y + controls.bar_value.h / 2,
+        )),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&input, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(consumed);
+    let edit = state
+        .timeline_bar_edit
+        .as_ref()
+        .expect("bar edit should be active");
+    assert_eq!(edit.buffer, state.export_menu.bar_length);
+    assert_eq!(edit.cursor, state.export_menu.bar_length.len());
+    assert_eq!(edit.anchor, 0);
+}
+
+#[test]
+fn timeline_bar_text_commit_updates_bar_length() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let click = InputSnapshot {
+        mouse_pos: Some((controls.bar_value.x + 2, controls.bar_value.y + 2)),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let _ = super::handle_timeline_input(&click, 640, 480, 60, &mut state);
+
+    let commit = InputSnapshot {
+        typed_text: "12".to_string(),
+        param_commit: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&commit, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(!consumed);
+    assert!(state.timeline_bar_edit.is_none());
+    assert!((state.export_menu.parsed_bar_length() - 12.0).abs() < 0.01);
+}
+
+#[test]
 fn alt_cut_unbinds_parameter_link_when_cut_crosses_param_wire() {
     let mut project = GuiProject::new_empty(640, 480);
     let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
