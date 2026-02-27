@@ -715,10 +715,7 @@ impl SceneBuilder {
             }
             let (text, color) = match entry {
                 AddNodeMenuEntry::Category(category) => {
-                    let chip = category_chip_rect(
-                        item,
-                        self.text_renderer.measure_text_width(category.label(), 1.0),
-                    );
+                    let chip = category_chip_rect(item);
                     self.push_rect(chip, category_menu_color(category));
                     if state.menu.selected == entry_index
                         || state.hover_menu_item == Some(entry_index)
@@ -1743,8 +1740,8 @@ fn category_menu_color(category: AddNodeCategory) -> Color {
     }
 }
 
-fn category_chip_rect(item: Rect, text_width: i32) -> Rect {
-    let chip_w = (text_width + 26).clamp(58, item.w);
+fn category_chip_rect(item: Rect) -> Rect {
+    let chip_w = (item.w - 12).max(58);
     let chip_h = (item.h - 2).max(16);
     Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
