@@ -289,13 +289,9 @@ pub(crate) struct GuiApp {
 
 impl GuiApp {
     /// Create one GPU-backed GUI app bound to the provided window.
-    pub(crate) async fn new(
-        config: V2Config,
-        panel_width: usize,
-        window: Arc<Window>,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub(crate) async fn new(config: V2Config, window: Arc<Window>) -> Result<Self, Box<dyn Error>> {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
-        let panel_width = clamp_panel_width(panel_width, renderer.width());
+        let panel_width = clamp_panel_width(launch_panel_width(renderer.width()), renderer.width());
         let project_load_begin = Instant::now();
         let benchmark_mode = is_benchmark_mode(&config);
         let mut project = if benchmark_mode {
@@ -1344,6 +1340,11 @@ fn clamp_panel_width(requested: usize, viewport_width: usize) -> usize {
     let min_width = MIN_PANEL_WIDTH.min(hard_max);
     let max_width = hard_max.saturating_sub(MIN_PREVIEW_WIDTH).max(min_width);
     requested.clamp(min_width, max_width)
+}
+
+/// Return initial editor-panel width so the right preview starts near 1/3.
+fn launch_panel_width(viewport_width: usize) -> usize {
+    viewport_width.saturating_mul(2) / 3
 }
 
 fn on_panel_divider(mx: i32, my: i32, panel_width: usize, panel_height: usize) -> bool {

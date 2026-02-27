@@ -60,7 +60,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
     );
     telemetry::record_timing("gui.startup.window_build", window_begin.elapsed());
     let app_begin = std::time::Instant::now();
-    let mut app = GuiApp::new(config, PANEL_WIDTH, window.clone()).await?;
+    let mut app = GuiApp::new(config, window.clone()).await?;
     telemetry::record_timing("gui.startup.app_init", app_begin.elapsed());
     telemetry::record_timing(
         "gui.startup.total_until_event_loop",
