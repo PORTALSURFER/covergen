@@ -487,16 +487,31 @@ impl SceneBuilder {
             return;
         }
         let rect = node_rect(node, state);
-        let scope_h = if node.expanded() {
+        let mut scope_h = if node.expanded() {
             ((26.0 * state.zoom).round() as i32).clamp(14, 44)
         } else {
             ((18.0 * state.zoom).round() as i32).clamp(10, 30)
         };
         let pad_x = ((6.0 * state.zoom).round() as i32).clamp(4, 12);
         let pad_y = ((5.0 * state.zoom).round() as i32).clamp(3, 8);
+        let mut scope_top_min = rect.y + pad_y;
+        if node.expanded() && node.param_count() > 0 {
+            if let Some(last_row) = node_param_row_rect(node, node.param_count() - 1) {
+                let last_row = graph_rect_to_panel(last_row, state);
+                let row_gap = ((4.0 * state.zoom).round() as i32).clamp(2, 8);
+                scope_top_min = (last_row.y + last_row.h + row_gap).max(scope_top_min);
+            }
+        }
+        let scope_bottom = rect.y + rect.h - pad_y;
+        let max_scope_h = scope_bottom - scope_top_min;
+        if max_scope_h < 8 {
+            return;
+        }
+        scope_h = scope_h.min(max_scope_h);
+        let scope_y = (scope_bottom - scope_h).max(scope_top_min);
         let scope = Rect::new(
             rect.x + pad_x,
-            rect.y + rect.h - scope_h - pad_y,
+            scope_y,
             (rect.w - (pad_x * 2)).max(12),
             scope_h,
         );
