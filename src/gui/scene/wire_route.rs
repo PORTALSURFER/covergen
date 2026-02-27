@@ -247,7 +247,8 @@ fn route_wire_path_internal(
         start_point,
         end_point,
     ) else {
-        return fallback_octilinear(start_point, end_point);
+        return fallback_avoiding_obstacles(start_point, end_point, &obstacle_map.blocked_rects)
+            .unwrap_or_else(|| fallback_octilinear(start_point, end_point));
     };
 
     grid.carve_corridor(start_point, start.corridor_dir);
@@ -265,7 +266,8 @@ fn route_wire_path_internal(
             }
         });
     let Some(cells) = cells else {
-        return fallback_octilinear(start_point, end_point);
+        return fallback_avoiding_obstacles(start_point, end_point, &obstacle_map.blocked_rects)
+            .unwrap_or_else(|| fallback_octilinear(start_point, end_point));
     };
 
     let mut points = Vec::with_capacity(cells.len());
@@ -405,6 +407,79 @@ fn fallback_octilinear(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
     }
     collapse_collinear_octilinear(&mut out);
     out
+}
+
+fn fallback_avoiding_obstacles(
+    start: (i32, i32),
+    end: (i32, i32),
+    blocked_rects: &[Rect],
+) -> Option<Vec<(i32, i32)>> {
+    if blocked_rects.is_empty() {
+        return Some(fallback_octilinear(start, end));
+    }
+    let mut min_x = start.0.min(end.0);
+    let mut min_y = start.1.min(end.1);
+    let mut max_x = start.0.max(end.0);
+    let mut max_y = start.1.max(end.1);
+    for rect in blocked_rects {
+        min_x = min_x.min(rect.x);
+        min_y = min_y.min(rect.y);
+        max_x = max_x.max(rect.x + rect.w);
+        max_y = max_y.max(rect.y + rect.h);
+    }
+    let above = floor_to_step(min_y - GRID_PITCH_PX, GRID_PITCH_PX);
+    let below = ceil_to_step(max_y + GRID_PITCH_PX, GRID_PITCH_PX);
+    let left = floor_to_step(min_x - GRID_PITCH_PX, GRID_PITCH_PX);
+    let right = ceil_to_step(max_x + GRID_PITCH_PX, GRID_PITCH_PX);
+    let candidates = [
+        vec![start, (start.0, above), (end.0, above), end],
+        vec![start, (start.0, below), (end.0, below), end],
+        vec![start, (left, start.1), (left, end.1), end],
+        vec![start, (right, start.1), (right, end.1), end],
+        vec![start, (start.0, above), (left, above), (left, end.1), end],
+        vec![start, (start.0, above), (right, above), (right, end.1), end],
+        vec![start, (start.0, below), (left, below), (left, end.1), end],
+        vec![start, (start.0, below), (right, below), (right, end.1), end],
+    ];
+    for mut candidate in candidates {
+        dedupe_points(&mut candidate);
+        collapse_collinear_octilinear(&mut candidate);
+        if candidate.len() < 2 {
+            continue;
+        }
+        if polyline_avoids_blocked_rects(candidate.as_slice(), blocked_rects, start, end) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn polyline_avoids_blocked_rects(
+    points: &[(i32, i32)],
+    blocked_rects: &[Rect],
+    start: (i32, i32),
+    end: (i32, i32),
+) -> bool {
+    for segment in points.windows(2) {
+        let dx = segment[1].0 - segment[0].0;
+        let dy = segment[1].1 - segment[0].1;
+        let steps = (dx.abs().max(dy.abs()) / GRID_PITCH_PX).max(1);
+        let step_x = dx.signum() * GRID_PITCH_PX;
+        let step_y = dy.signum() * GRID_PITCH_PX;
+        let mut point = segment[0];
+        for _ in 0..=steps {
+            if point != start
+                && point != end
+                && blocked_rects
+                    .iter()
+                    .any(|blocked| blocked.contains(point.0, point.1))
+            {
+                return false;
+            }
+            point = (point.0 + step_x, point.1 + step_y);
+        }
+    }
+    true
 }
 
 fn dedupe_points(points: &mut Vec<(i32, i32)>) {
@@ -935,6 +1010,32 @@ mod tests {
             path.len() > 3,
             "expected A* route, got fallback path: {path:?}"
         );
+        assert_path_avoids_rect_except_endpoints(
+            path.as_slice(),
+            source_rect,
+            snap_endpoint_to_grid(start),
+            snap_endpoint_to_grid(end),
+        );
+    }
+
+    #[test]
+    fn oversized_grid_fallback_still_avoids_source_node() {
+        let source_rect = Rect::new(0, 0, 80, 80);
+        let far_rect = Rect::new(100_000, 100_000, 80, 80);
+        let map = RouteObstacleMap::from_obstacles(&[
+            NodeObstacle { rect: source_rect },
+            NodeObstacle { rect: far_rect },
+        ]);
+        let start = RouteEndpoint {
+            point: (80, 40),
+            corridor_dir: RouteDirection::East,
+        };
+        let end = RouteEndpoint {
+            point: (220, 40),
+            corridor_dir: RouteDirection::West,
+        };
+        let path = route_wire_path_internal(start, end, &map, None);
+        assert_octilinear(path.as_slice());
         assert_path_avoids_rect_except_endpoints(
             path.as_slice(),
             source_rect,
