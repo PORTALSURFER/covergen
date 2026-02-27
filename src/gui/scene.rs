@@ -1421,7 +1421,8 @@ impl SceneBuilder {
         if project.edge_count() == 0 {
             return;
         }
-        let obstacle_epoch = param_route_obstacle_epoch(project, state);
+        let obstacle_epoch =
+            param_route_obstacle_epoch(project, state, self.param_route_cache_epoch);
         if self.param_route_cache_epoch != Some(obstacle_epoch) {
             self.param_route_cache_epoch = Some(obstacle_epoch);
             self.param_route_cache.clear();
@@ -1919,9 +1920,21 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
     }
 }
 
-fn param_route_obstacle_epoch(project: &GuiProject, state: &PreviewState) -> u64 {
-    let _ = project;
-    state.invalidation.wires
+/// Return obstacle epoch used to invalidate cached parameter-wire routes.
+///
+/// The obstacle field is defined by node layout in graph space, not wire hover
+/// or transient overlay states. While a node drag is active we intentionally
+/// freeze this epoch so expensive route recomputation happens once on drop.
+fn param_route_obstacle_epoch(
+    project: &GuiProject,
+    state: &PreviewState,
+    cached_epoch: Option<u64>,
+) -> u64 {
+    let layout_epoch = project.invalidation().nodes;
+    if state.drag.is_some() {
+        return cached_epoch.unwrap_or(layout_epoch);
+    }
+    layout_epoch
 }
 
 fn wire_drag_source_kind(
@@ -2571,5 +2584,65 @@ mod tests {
             frame.dirty.edges,
             "edges should rebuild once drag is released"
         );
+    }
+
+    #[test]
+    fn param_routes_freeze_during_node_drag_and_refresh_on_release() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 640, 480);
+        let target = project.add_node(ProjectNodeKind::TexCircle, 280, 40, 640, 480);
+        assert!(project.connect_signal_link_to_param(source, target, 0));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let mut scene = SceneBuilder::default();
+
+        state.invalidation.invalidate_overlays();
+        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        assert_eq!(scene.param_route_cache.len(), 1);
+        let initial_epoch = scene
+            .param_route_cache_epoch
+            .expect("param route epoch should be initialized");
+        let initial_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should exist")
+            .to_vec();
+
+        assert!(project.move_node(source, 140, 40, 640, 480));
+        state.invalidation.invalidate_overlays();
+        state.invalidation.invalidate_wires();
+        state.drag = Some(DragState {
+            node_id: source,
+            offset_x: 0,
+            offset_y: 0,
+            origin_x: 40,
+            origin_y: 40,
+        });
+
+        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        assert_eq!(scene.param_route_cache_epoch, Some(initial_epoch));
+        let drag_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should stay cached during drag")
+            .to_vec();
+        assert_eq!(drag_route, initial_route);
+
+        state.drag = None;
+        state.invalidation.invalidate_overlays();
+        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let release_epoch = scene
+            .param_route_cache_epoch
+            .expect("param route epoch should remain initialized");
+        assert_ne!(release_epoch, initial_epoch);
+        let release_route = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("route should be recomputed on release")
+            .to_vec();
+        assert_ne!(release_route, initial_route);
     }
 }
