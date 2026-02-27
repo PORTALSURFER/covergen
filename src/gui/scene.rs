@@ -1039,7 +1039,14 @@ impl SceneBuilder {
                 state.frame_index, TIMELINE_START_FRAME, end_frame,
             );
         }
-        self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
+        self.push_rect(controls.frame_status, TIMELINE_TRACK_BG);
+        self.push_border(controls.frame_status, TIMELINE_BORDER);
+        self.push_text(
+            controls.frame_status.x + 4,
+            controls.frame_status.y + 3,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
         let beat_rect = Rect::new(timeline.x + timeline.w - 20, timeline.y + 4, 12, 8);
         if timeline_beat_indicator_on(
             state.frame_index,

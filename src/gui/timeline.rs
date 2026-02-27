@@ -20,6 +20,8 @@ const TRACK_HEIGHT: i32 = 8;
 const CONTROL_GAP: i32 = 10;
 const BPM_BTN_W: i32 = 18;
 const BPM_VALUE_W: i32 = 72;
+const FRAME_STATUS_W_MIN: i32 = 120;
+const FRAME_STATUS_W_TARGET: i32 = 220;
 const VOLUME_W_MIN: i32 = 48;
 const VOLUME_W_TARGET: i32 = 136;
 const WAV_W_MIN: i32 = 64;
@@ -27,6 +29,7 @@ const WAV_W_MIN: i32 = 64;
 /// Timeline control-row layout for audio/BPM widgets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TimelineControlLayout {
+    pub(crate) frame_status: Rect,
     pub(crate) wav_drop: Rect,
     pub(crate) volume_slider: Rect,
     pub(crate) bpm_down: Rect,
@@ -114,12 +117,27 @@ pub(crate) fn timeline_control_layout(timeline: Rect) -> TimelineControlLayout {
     let bpm_value = Rect::new(bpm_value_x, row.y, BPM_VALUE_W, row.h);
     let bpm_down = Rect::new(bpm_down_x, row.y, BPM_BTN_W, row.h);
 
-    let left_available = (bpm_down.x - CONTROL_GAP - row.x).max(WAV_W_MIN + VOLUME_W_MIN);
+    let left_available = (bpm_down.x - CONTROL_GAP - row.x)
+        .max(FRAME_STATUS_W_MIN + CONTROL_GAP + WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN);
+    let frame_status_w = FRAME_STATUS_W_TARGET
+        .min(
+            (left_available - CONTROL_GAP - WAV_W_MIN - CONTROL_GAP - VOLUME_W_MIN)
+                .max(FRAME_STATUS_W_MIN),
+        )
+        .max(FRAME_STATUS_W_MIN);
+    let remaining_left =
+        (left_available - frame_status_w - CONTROL_GAP).max(WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN);
     let volume_w = VOLUME_W_TARGET
-        .min((left_available - CONTROL_GAP - WAV_W_MIN).max(VOLUME_W_MIN))
+        .min((remaining_left - CONTROL_GAP - WAV_W_MIN).max(VOLUME_W_MIN))
         .max(VOLUME_W_MIN);
-    let wav_w = (left_available - volume_w - CONTROL_GAP).max(WAV_W_MIN);
-    let wav_drop = Rect::new(row.x, row.y, wav_w, row.h);
+    let wav_w = (remaining_left - volume_w - CONTROL_GAP).max(WAV_W_MIN);
+    let frame_status = Rect::new(row.x, row.y, frame_status_w, row.h);
+    let wav_drop = Rect::new(
+        frame_status.x + frame_status.w + CONTROL_GAP,
+        row.y,
+        wav_w,
+        row.h,
+    );
     let volume_slider = Rect::new(
         wav_drop.x + wav_drop.w + CONTROL_GAP,
         row.y,
@@ -128,6 +146,7 @@ pub(crate) fn timeline_control_layout(timeline: Rect) -> TimelineControlLayout {
     );
 
     TimelineControlLayout {
+        frame_status,
         wav_drop,
         volume_slider,
         bpm_down,
