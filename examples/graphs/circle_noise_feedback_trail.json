@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "name": "Circle Noise Feedback Trail",
+  "preview_width": 1024,
+  "preview_height": 1024,
+  "nodes": [
+    {
+      "id": 1,
+      "kind": "tex.circle",
+      "x": -520,
+      "y": 240,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        {
+          "key": "center_x",
+          "value": 0.5,
+          "signal_source": 7,
+          "texture_source": null
+        },
+        {
+          "key": "center_y",
+          "value": 0.5,
+          "signal_source": 8,
+          "texture_source": null
+        },
+        {
+          "key": "radius",
+          "value": 0.18,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "feather",
+          "value": 0.035,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_r",
+          "value": 0.98,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_g",
+          "value": 0.96,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "color_b",
+          "value": 0.92,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "alpha",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "tex.post_noise_texture",
+      "x": -260,
+      "y": 240,
+      "texture_input": 1,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        {
+          "key": "effect",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "amount",
+          "value": 0.35,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "scale",
+          "value": 0.55,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "thresh",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "speed",
+          "value": 0.24,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "tex.feedback",
+      "x": 20,
+      "y": 240,
+      "texture_input": 2,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        {
+          "key": "accumulation_tex",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": 4
+        },
+        {
+          "key": "feedback",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "reset",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "tex.transform_2d",
+      "x": 300,
+      "y": 240,
+      "texture_input": 3,
+      "selected_param": 4,
+      "expanded": true,
+      "params": [
+        {
+          "key": "brightness",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_r",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_g",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_b",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "alpha_mul",
+          "value": 0.92,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "kind": "tex.blend",
+      "x": 580,
+      "y": 240,
+      "texture_input": 4,
+      "selected_param": 2,
+      "expanded": true,
+      "params": [
+        {
+          "key": "blend_tex",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": 2
+        },
+        {
+          "key": "blend_mode",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "opacity",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_r",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_g",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_b",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bg_a",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "kind": "io.window_out",
+      "x": 860,
+      "y": 240,
+      "texture_input": 5,
+      "selected_param": 0,
+      "expanded": false,
+      "params": []
+    },
+    {
+      "id": 7,
+      "kind": "ctl.lfo",
+      "x": -780,
+      "y": 120,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": false,
+      "params": [
+        {
+          "key": "rate_hz",
+          "value": 0.12,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "amplitude",
+          "value": 0.24,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "phase",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bias",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "sync_mode",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "beat_mul",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "lfo_type",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "shape",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "kind": "ctl.lfo",
+      "x": -780,
+      "y": 360,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": false,
+      "params": [
+        {
+          "key": "rate_hz",
+          "value": 0.08,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "amplitude",
+          "value": 0.2,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "phase",
+          "value": 0.25,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "bias",
+          "value": 0.5,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "sync_mode",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "beat_mul",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "lfo_type",
+          "value": 2.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "shape",
+          "value": 0.0,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    }
+  ]
+}

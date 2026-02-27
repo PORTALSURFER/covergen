@@ -22,6 +22,10 @@
 ## GUI Help Docs
 - `help/in_app_help.md` (single-source Markdown catalog for readable docs + in-app `F1` help)
 
+## Example Graphs
+- `../examples/graphs/README.md`: loadable GUI graph examples and usage notes.
+- `../examples/graphs/circle_noise_feedback_trail.json`: circle + noise + TD-style feedback trail reference graph.
+
 ## CI and Validation
 - Preflight entrypoint: `../scripts/run_agent_request.sh`
 - Local CI entrypoint: `../scripts/ci_local.sh`

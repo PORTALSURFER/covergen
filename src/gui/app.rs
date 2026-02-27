@@ -1536,4 +1536,18 @@ mod tests {
 
         let _ = fs::remove_dir_all(dir.as_path());
     }
+
+    #[test]
+    fn bundled_circle_noise_feedback_example_loads() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/graphs/circle_noise_feedback_trail.json");
+        let loaded = load_project_file(path.as_path(), 1280, 720).expect("load example project");
+        assert!(
+            loaded
+                .nodes()
+                .iter()
+                .any(|node| node.kind().stable_id() == "tex.feedback"),
+            "example graph should include tex.feedback"
+        );
+    }
 }

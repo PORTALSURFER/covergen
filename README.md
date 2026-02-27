@@ -97,9 +97,14 @@ GUI session persistence:
 - Current graph autosaves on shutdown to `.covergen_gui_graph.json` in the
   working directory.
 - On next launch, GUI reloads that autosave automatically when present.
-- `Save Project` writes an explicit snapshot to `covergen_gui_project.json`.
-- `Load Project` checks, in order: `covergen_gui_project.json`,
-  `.covergen_gui_project.json` (legacy), then `.covergen_gui_graph.json`.
+- `Save Project` opens a native file-save picker for explicit project snapshots.
+- `Load Project` opens a native file-open picker for explicit project loading.
+
+Example GUI graphs:
+
+- `examples/graphs/circle_noise_feedback_trail.json`: circle + animated noise +
+  TD-style delayed feedback trail (with fade loop and live composite).
+- Load one example from the GUI Main menu via `Load Project`.
 
 GUI responsiveness notes:
 
