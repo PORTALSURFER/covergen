@@ -15,7 +15,7 @@ use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::runtime_config::GuiVsync;
 use crate::telemetry;
 
-use super::scene::{Color, SceneFrame, SceneLayer};
+use super::scene::{Color, ColoredLine, CoordSpace, SceneFrame, SceneLayer};
 use super::tex_view::TexViewerFrame;
 use super::text::GuiTextRenderer;
 use super::timeline::editor_panel_height;
@@ -48,6 +48,13 @@ pub(crate) struct GuiRenderPerfCounters {
 struct LayerRebuildStats {
     upload_bytes: u64,
     alloc_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SceneCamera {
+    pan_x: f32,
+    pan_y: f32,
+    zoom: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +122,7 @@ impl LayerGpuGeometry {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layer: &SceneLayer,
+        source_camera: SceneCamera,
         label_prefix: &str,
     ) -> LayerRebuildStats {
         let tri_capacity_before = self.triangle_vertices.capacity();
@@ -134,13 +142,61 @@ impl LayerGpuGeometry {
         }
 
         for rect in &layer.rects {
-            push_rect_triangles(&mut self.triangle_vertices, rect.rect, rect.color);
+            match rect.space {
+                CoordSpace::Screen => push_rect_triangles(
+                    &mut self.triangle_vertices,
+                    rect.rect,
+                    rect.color,
+                    CoordSpace::Screen,
+                ),
+                CoordSpace::Graph => {
+                    let x0 = panel_to_graph_x(rect.rect.x as f32, source_camera);
+                    let y0 = panel_to_graph_y(rect.rect.y as f32, source_camera);
+                    let x1 = panel_to_graph_x((rect.rect.x + rect.rect.w) as f32, source_camera);
+                    let y1 = panel_to_graph_y((rect.rect.y + rect.rect.h) as f32, source_camera);
+                    push_rect_triangles_f32(
+                        &mut self.triangle_vertices,
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        rect.color,
+                        CoordSpace::Graph,
+                    );
+                }
+            }
         }
         for line in &layer.lines {
-            self.line_vertices
-                .push(Vertex::new(line.x0, line.y0, line.color));
-            self.line_vertices
-                .push(Vertex::new(line.x1, line.y1, line.color));
+            match line.space {
+                CoordSpace::Screen => {
+                    self.line_vertices.push(Vertex::new(
+                        line.x0 as f32,
+                        line.y0 as f32,
+                        line.color,
+                        CoordSpace::Screen,
+                    ));
+                    self.line_vertices.push(Vertex::new(
+                        line.x1 as f32,
+                        line.y1 as f32,
+                        line.color,
+                        CoordSpace::Screen,
+                    ));
+                }
+                CoordSpace::Graph => {
+                    self.line_vertices.push(Vertex::new(
+                        panel_to_graph_x(line.x0 as f32, source_camera),
+                        panel_to_graph_y(line.y0 as f32, source_camera),
+                        line.color,
+                        CoordSpace::Graph,
+                    ));
+                    self.line_vertices.push(Vertex::new(
+                        panel_to_graph_x(line.x1 as f32, source_camera),
+                        panel_to_graph_y(line.y1 as f32, source_camera),
+                        line.color,
+                        CoordSpace::Graph,
+                    ));
+                }
+            }
         }
 
         self.ensure_capacity(
@@ -243,6 +299,9 @@ pub(crate) struct GuiRenderer {
     cached_hud_key: Option<HudLayerKey>,
     main_pass_timestamps: OptionalGpuTimestampQueries,
     uniform_dirty: bool,
+    camera_pan_x_bits: u32,
+    camera_pan_y_bits: u32,
+    camera_zoom_bits: u32,
     frame_perf: GuiRenderPerfCounters,
 }
 
@@ -353,6 +412,9 @@ impl GuiRenderer {
             cached_hud_key: None,
             main_pass_timestamps,
             uniform_dirty: false,
+            camera_pan_x_bits: 0f32.to_bits(),
+            camera_pan_y_bits: 0f32.to_bits(),
+            camera_zoom_bits: 1f32.to_bits(),
             frame_perf: GuiRenderPerfCounters::default(),
         })
     }
@@ -391,7 +453,21 @@ impl GuiRenderer {
         avg_fps: f32,
     ) -> Result<(), Box<dyn Error>> {
         self.frame_perf = GuiRenderPerfCounters::default();
-        let rebuild = self.rebuild_dirty_layers(frame);
+        let camera = SceneCamera {
+            pan_x: frame.camera_pan_x,
+            pan_y: frame.camera_pan_y,
+            zoom: frame.camera_zoom.max(0.001),
+        };
+        let camera_changed = self.camera_pan_x_bits != camera.pan_x.to_bits()
+            || self.camera_pan_y_bits != camera.pan_y.to_bits()
+            || self.camera_zoom_bits != camera.zoom.to_bits();
+        if camera_changed {
+            self.camera_pan_x_bits = camera.pan_x.to_bits();
+            self.camera_pan_y_bits = camera.pan_y.to_bits();
+            self.camera_zoom_bits = camera.zoom.to_bits();
+            self.uniform_dirty = true;
+        }
+        let rebuild = self.rebuild_dirty_layers(frame, camera);
         self.frame_perf.upload_bytes = self
             .frame_perf
             .upload_bytes
@@ -417,7 +493,13 @@ impl GuiRenderer {
             self.queue.write_buffer(
                 &self.uniform_buffer,
                 0,
-                bytemuck::bytes_of(&ViewportUniform::new(self.config.width, self.config.height)),
+                bytemuck::bytes_of(&ViewportUniform::new(
+                    self.config.width,
+                    self.config.height,
+                    camera.pan_x,
+                    camera.pan_y,
+                    camera.zoom,
+                )),
             );
             self.uniform_dirty = false;
         }
@@ -535,7 +617,11 @@ impl GuiRenderer {
         Ok(Some((width, height)))
     }
 
-    fn rebuild_dirty_layers(&mut self, frame: &SceneFrame) -> LayerRebuildStats {
+    fn rebuild_dirty_layers(
+        &mut self,
+        frame: &SceneFrame,
+        source_camera: SceneCamera,
+    ) -> LayerRebuildStats {
         let mut stats = LayerRebuildStats::default();
         if !frame.dirty.any() {
             return stats;
@@ -545,22 +631,31 @@ impl GuiRenderer {
                 &self.device,
                 &self.queue,
                 &frame.static_panel,
+                source_camera,
                 "static-panel",
             );
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
             stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
         if frame.dirty.edges {
-            let layer =
-                self.edges_geometry
-                    .rebuild(&self.device, &self.queue, &frame.edges, "edges");
+            let layer = self.edges_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.edges,
+                source_camera,
+                "edges",
+            );
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
             stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
         if frame.dirty.nodes {
-            let layer =
-                self.nodes_geometry
-                    .rebuild(&self.device, &self.queue, &frame.nodes, "nodes");
+            let layer = self.nodes_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.nodes,
+                source_camera,
+                "nodes",
+            );
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
             stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
@@ -569,6 +664,7 @@ impl GuiRenderer {
                 &self.device,
                 &self.queue,
                 &frame.overlays,
+                source_camera,
                 "overlays",
             );
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
@@ -579,6 +675,7 @@ impl GuiRenderer {
                 &self.device,
                 &self.queue,
                 &frame.timeline,
+                source_camera,
                 "timeline",
             );
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
@@ -726,6 +823,7 @@ impl GuiRenderer {
         self.hud_layer.rects.push(super::scene::ColoredRect {
             rect,
             color: HUD_BG,
+            space: CoordSpace::Screen,
         });
         push_border_lines(&mut self.hud_layer, rect, HUD_BORDER);
         self.hud_text.push_text(
@@ -736,8 +834,17 @@ impl GuiRenderer {
             hud_color,
         );
 
-        self.hud_geometry
-            .rebuild(&self.device, &self.queue, &self.hud_layer, "hud")
+        self.hud_geometry.rebuild(
+            &self.device,
+            &self.queue,
+            &self.hud_layer,
+            SceneCamera {
+                pan_x: 0.0,
+                pan_y: 0.0,
+                zoom: 1.0,
+            },
+            "hud",
+        )
     }
 }
 
@@ -746,32 +853,64 @@ fn push_border_lines(layer: &mut SceneLayer, rect: super::geometry::Rect, color:
     let y0 = rect.y;
     let x1 = rect.x + rect.w - 1;
     let y1 = rect.y + rect.h - 1;
-    layer.lines.push(super::scene::ColoredLine {
+    layer.lines.push(ColoredLine {
         x0,
         y0,
         x1,
         y1: y0,
         color,
+        space: CoordSpace::Screen,
     });
-    layer.lines.push(super::scene::ColoredLine {
+    layer.lines.push(ColoredLine {
         x0: x1,
         y0,
         x1,
         y1,
         color,
+        space: CoordSpace::Screen,
     });
-    layer.lines.push(super::scene::ColoredLine {
+    layer.lines.push(ColoredLine {
         x0: x1,
         y0: y1,
         x1: x0,
         y1,
         color,
+        space: CoordSpace::Screen,
     });
-    layer.lines.push(super::scene::ColoredLine {
+    layer.lines.push(ColoredLine {
         x0,
         y0: y1,
         x1: x0,
         y1: y0,
         color,
+        space: CoordSpace::Screen,
     });
+}
+
+fn push_rect_triangles_f32(
+    out: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    color: Color,
+    space: CoordSpace,
+) {
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    out.push(Vertex::new(x0, y0, color, space));
+    out.push(Vertex::new(x1, y0, color, space));
+    out.push(Vertex::new(x1, y1, color, space));
+    out.push(Vertex::new(x0, y0, color, space));
+    out.push(Vertex::new(x1, y1, color, space));
+    out.push(Vertex::new(x0, y1, color, space));
+}
+
+fn panel_to_graph_x(panel_x: f32, camera: SceneCamera) -> f32 {
+    (panel_x - camera.pan_x) / camera.zoom.max(0.001)
+}
+
+fn panel_to_graph_y(panel_y: f32, camera: SceneCamera) -> f32 {
+    (panel_y - camera.pan_y) / camera.zoom.max(0.001)
 }

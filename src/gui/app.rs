@@ -63,8 +63,6 @@ struct PanelResizeDrag {
 /// State subset that drives `scene` nodes-layer invalidation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NodesLayerState {
-    pan_x_bits: u32,
-    pan_y_bits: u32,
     zoom_bits: u32,
     hover_node: Option<u32>,
     hover_output_pin: Option<u32>,
@@ -81,8 +79,6 @@ struct NodesLayerState {
 /// State subset that drives `scene` edges-layer invalidation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WiresLayerState {
-    pan_x_bits: u32,
-    pan_y_bits: u32,
     zoom_bits: u32,
     hover_insert_link: Option<(u32, u32)>,
     link_cut: Option<(i32, i32, i32, i32)>,
@@ -91,8 +87,6 @@ struct WiresLayerState {
 /// State subset that drives `scene` overlays-layer invalidation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct OverlaysLayerState {
-    pan_x_bits: u32,
-    pan_y_bits: u32,
     zoom_bits: u32,
     hover_input_pin: Option<u32>,
     hover_param_target: Option<(u32, usize)>,
@@ -162,8 +156,6 @@ impl SceneInvalidationSnapshot {
     fn capture(state: &PreviewState, timeline_fps: u32) -> Self {
         Self {
             nodes: NodesLayerState {
-                pan_x_bits: state.pan_x.to_bits(),
-                pan_y_bits: state.pan_y.to_bits(),
                 zoom_bits: state.zoom.to_bits(),
                 hover_node: state.hover_node,
                 hover_output_pin: state.hover_output_pin,
@@ -191,8 +183,6 @@ impl SceneInvalidationSnapshot {
                 }),
             },
             wires: WiresLayerState {
-                pan_x_bits: state.pan_x.to_bits(),
-                pan_y_bits: state.pan_y.to_bits(),
                 zoom_bits: state.zoom.to_bits(),
                 hover_insert_link: state
                     .hover_insert_link
@@ -202,8 +192,6 @@ impl SceneInvalidationSnapshot {
                     .map(|cut| (cut.start_x, cut.start_y, cut.cursor_x, cut.cursor_y)),
             },
             overlays: OverlaysLayerState {
-                pan_x_bits: state.pan_x.to_bits(),
-                pan_y_bits: state.pan_y.to_bits(),
                 zoom_bits: state.zoom.to_bits(),
                 hover_input_pin: state.hover_input_pin,
                 hover_param_target: state

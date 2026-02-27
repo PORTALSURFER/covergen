@@ -183,7 +183,9 @@ pub(super) fn quad_vertices(rect: Rect) -> [ViewerVertex; 6] {
 const SHADER_SOURCE: &str = r#"
 struct ViewportUniform {
     viewport_size: vec2<f32>,
-    _pad: vec2<f32>,
+    camera_pan: vec2<f32>,
+    camera_zoom: f32,
+    _pad: vec3<f32>,
 };
 
 @group(0) @binding(0)

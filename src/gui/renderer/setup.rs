@@ -8,7 +8,7 @@ use wgpu::util::DeviceExt;
 use crate::runtime_config::GuiVsync;
 
 use super::super::geometry::Rect;
-use super::super::scene::Color;
+use super::super::scene::{Color, CoordSpace};
 
 /// Vertex payload consumed by the GUI WGSL shader.
 #[repr(C)]
@@ -16,14 +16,21 @@ use super::super::scene::Color;
 pub(super) struct Vertex {
     position: [f32; 2],
     color: [f32; 4],
+    space: f32,
+    _pad: [f32; 3],
 }
 
 impl Vertex {
     /// Build one vertex from pixel-space position and RGBA color.
-    pub(super) fn new(x: i32, y: i32, color: Color) -> Self {
+    pub(super) fn new(x: f32, y: f32, color: Color, space: CoordSpace) -> Self {
         Self {
-            position: [x as f32, y as f32],
+            position: [x, y],
             color: [color.r, color.g, color.b, color.a],
+            space: match space {
+                CoordSpace::Screen => 0.0,
+                CoordSpace::Graph => 1.0,
+            },
+            _pad: [0.0, 0.0, 0.0],
         }
     }
 
@@ -43,6 +50,11 @@ impl Vertex {
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as u64,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ],
         }
     }
@@ -53,15 +65,19 @@ impl Vertex {
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct ViewportUniform {
     viewport_size: [f32; 2],
-    _pad: [f32; 2],
+    camera_pan: [f32; 2],
+    camera_zoom: f32,
+    _pad: [f32; 3],
 }
 
 impl ViewportUniform {
     /// Build viewport uniform from current surface dimensions.
-    pub(super) fn new(width: u32, height: u32) -> Self {
+    pub(super) fn new(width: u32, height: u32, pan_x: f32, pan_y: f32, zoom: f32) -> Self {
         Self {
             viewport_size: [width.max(1) as f32, height.max(1) as f32],
-            _pad: [0.0, 0.0],
+            camera_pan: [pan_x, pan_y],
+            camera_zoom: zoom.max(0.001),
+            _pad: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -82,7 +98,7 @@ pub(super) fn create_uniform_buffer(
 ) -> wgpu::Buffer {
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("gui-uniform-buffer"),
-        contents: bytemuck::bytes_of(&ViewportUniform::new(width, height)),
+        contents: bytemuck::bytes_of(&ViewportUniform::new(width, height, 0.0, 0.0, 1.0)),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     })
 }
@@ -179,20 +195,25 @@ pub(super) fn create_vertex_buffer(
 }
 
 /// Append two triangles for one filled rectangle.
-pub(super) fn push_rect_triangles(out: &mut Vec<Vertex>, rect: Rect, color: Color) {
+pub(super) fn push_rect_triangles(
+    out: &mut Vec<Vertex>,
+    rect: Rect,
+    color: Color,
+    space: CoordSpace,
+) {
     if rect.w <= 0 || rect.h <= 0 {
         return;
     }
-    let x0 = rect.x;
-    let y0 = rect.y;
-    let x1 = rect.x + rect.w;
-    let y1 = rect.y + rect.h;
-    out.push(Vertex::new(x0, y0, color));
-    out.push(Vertex::new(x1, y0, color));
-    out.push(Vertex::new(x1, y1, color));
-    out.push(Vertex::new(x0, y0, color));
-    out.push(Vertex::new(x1, y1, color));
-    out.push(Vertex::new(x0, y1, color));
+    let x0 = rect.x as f32;
+    let y0 = rect.y as f32;
+    let x1 = (rect.x + rect.w) as f32;
+    let y1 = (rect.y + rect.h) as f32;
+    out.push(Vertex::new(x0, y0, color, space));
+    out.push(Vertex::new(x1, y0, color, space));
+    out.push(Vertex::new(x1, y1, color, space));
+    out.push(Vertex::new(x0, y0, color, space));
+    out.push(Vertex::new(x1, y1, color, space));
+    out.push(Vertex::new(x0, y1, color, space));
 }
 
 /// Pick preferred srgb surface format.
@@ -269,7 +290,9 @@ fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> boo
 const SHADER_SOURCE: &str = r#"
 struct ViewportUniform {
     viewport_size: vec2<f32>,
-    _pad: vec2<f32>,
+    camera_pan: vec2<f32>,
+    camera_zoom: f32,
+    _pad: vec3<f32>,
 };
 
 @group(0) @binding(0)
@@ -278,6 +301,7 @@ var<uniform> u_view: ViewportUniform;
 struct VertexIn {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) space: f32,
 };
 
 struct VertexOut {
@@ -288,8 +312,12 @@ struct VertexOut {
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
     var out: VertexOut;
-    let ndc_x = (v.position.x / u_view.viewport_size.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (v.position.y / u_view.viewport_size.y) * 2.0;
+    var screen_pos = v.position;
+    if (v.space > 0.5) {
+        screen_pos = v.position * u_view.camera_zoom + u_view.camera_pan;
+    }
+    let ndc_x = (screen_pos.x / u_view.viewport_size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (screen_pos.y / u_view.viewport_size.y) * 2.0;
     out.clip_pos = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.color = v.color;
     return out;

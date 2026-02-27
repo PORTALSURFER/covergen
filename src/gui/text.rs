@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use rusttype::{point, Font, Scale};
 
 use super::geometry::Rect;
-use super::scene::{Color, ColoredRect};
+use super::scene::{Color, ColoredRect, CoordSpace};
 
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/JetBrainsMono.ttf");
 const FONT_SIZE_PX: f32 = 12.0;
@@ -313,6 +313,7 @@ fn flush_run(out: &mut Vec<ColoredRect>, x: i32, y: i32, start: i32, end: i32, c
     out.push(ColoredRect {
         rect: Rect::new(x + start, y, width, 1),
         color,
+        space: CoordSpace::Screen,
     });
 }
 

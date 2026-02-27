@@ -141,6 +141,7 @@ impl Color {
 pub(crate) struct ColoredRect {
     pub(crate) rect: Rect,
     pub(crate) color: Color,
+    pub(crate) space: CoordSpace,
 }
 
 /// Line segment primitive.
@@ -151,6 +152,15 @@ pub(crate) struct ColoredLine {
     pub(crate) x1: i32,
     pub(crate) y1: i32,
     pub(crate) color: Color,
+    pub(crate) space: CoordSpace,
+}
+
+/// Coordinate space used by one GUI primitive.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CoordSpace {
+    #[default]
+    Screen,
+    Graph,
 }
 
 /// One frame of GPU scene primitives.
@@ -166,6 +176,9 @@ pub(crate) struct SceneFrame {
     pub(crate) dirty: SceneLayerDirty,
     pub(crate) ui_alloc_bytes: u64,
     pub(crate) bridge_intersection_tests: u64,
+    pub(crate) camera_pan_x: f32,
+    pub(crate) camera_pan_y: f32,
+    pub(crate) camera_zoom: f32,
 }
 
 /// One retained GUI geometry layer.
@@ -297,6 +310,7 @@ struct FittedLabelCacheBucketKey {
 pub(crate) struct SceneBuilder {
     frame: SceneFrame,
     active_layer: ActiveLayer,
+    active_space: CoordSpace,
     cached_static_key: Option<(usize, usize, usize)>,
     cached_nodes_epoch: Option<u64>,
     cached_edges_epoch: Option<u64>,
@@ -336,6 +350,9 @@ impl SceneBuilder {
         self.frame.dirty = SceneLayerDirty::default();
         self.frame_alloc_bytes = 0;
         self.frame.bridge_intersection_tests = 0;
+        self.frame.camera_pan_x = state.pan_x;
+        self.frame.camera_pan_y = state.pan_y;
+        self.frame.camera_zoom = state.zoom.max(0.001);
 
         self.rebuild_static_if_needed(width, height, panel_width);
 
@@ -380,6 +397,7 @@ impl SceneBuilder {
         self.frame.dirty.static_panel = true;
         let before = self.layer_capacity(ActiveLayer::StaticPanel);
         self.set_active_layer(ActiveLayer::StaticPanel);
+        self.set_active_space(CoordSpace::Screen);
         self.clear_active_layer();
         let editor_h = editor_panel_height(height) as i32;
         if editor_h > 0 {
@@ -398,8 +416,10 @@ impl SceneBuilder {
     ) {
         let before = self.layer_capacity(ActiveLayer::Nodes);
         self.set_active_layer(ActiveLayer::Nodes);
+        self.set_active_space(CoordSpace::Screen);
         self.clear_active_layer();
         self.push_header(project);
+        self.set_active_space(CoordSpace::Graph);
         self.push_nodes(project, state, timeline_fps);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
     }
@@ -407,6 +427,7 @@ impl SceneBuilder {
     fn rebuild_edges_layer(&mut self, project: &GuiProject, state: &PreviewState) {
         let before = self.layer_capacity(ActiveLayer::Edges);
         self.set_active_layer(ActiveLayer::Edges);
+        self.set_active_space(CoordSpace::Graph);
         self.clear_active_layer();
         self.push_edges(project, state);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
@@ -421,10 +442,12 @@ impl SceneBuilder {
     ) {
         let before = self.layer_capacity(ActiveLayer::Overlays);
         self.set_active_layer(ActiveLayer::Overlays);
+        self.set_active_space(CoordSpace::Graph);
         self.clear_active_layer();
         self.push_param_links(project, state);
-        self.push_wire_drag(project, state);
         self.push_param_dropdown(project, state);
+        self.set_active_space(CoordSpace::Screen);
+        self.push_wire_drag(project, state);
         self.push_right_marquee(state);
         self.push_link_cut(state);
         self.push_menu(state);
@@ -443,6 +466,7 @@ impl SceneBuilder {
     ) {
         let before = self.layer_capacity(ActiveLayer::Timeline);
         self.set_active_layer(ActiveLayer::Timeline);
+        self.set_active_space(CoordSpace::Screen);
         self.clear_active_layer();
         self.push_timeline(state, viewport_width, height, timeline_fps);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Timeline));
@@ -450,6 +474,10 @@ impl SceneBuilder {
 
     fn set_active_layer(&mut self, layer: ActiveLayer) {
         self.active_layer = layer;
+    }
+
+    fn set_active_space(&mut self, space: CoordSpace) {
+        self.active_space = space;
     }
 
     fn clear_active_layer(&mut self) {
@@ -1451,7 +1479,11 @@ impl SceneBuilder {
     fn push_rect(&mut self, rect: Rect, color: Color) {
         active_scene_layer_mut(&mut self.frame, self.active_layer)
             .rects
-            .push(ColoredRect { rect, color });
+            .push(ColoredRect {
+                rect,
+                color,
+                space: self.active_space,
+            });
     }
 
     fn push_border(&mut self, rect: Rect, color: Color) {
@@ -1474,6 +1506,7 @@ impl SceneBuilder {
                 x1,
                 y1,
                 color,
+                space: self.active_space,
             });
     }
 
@@ -1799,7 +1832,11 @@ impl SceneBuilder {
 
     fn push_text(&mut self, x: i32, y: i32, text: &str, color: Color) {
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
+        let start = out.len();
         self.text_renderer.push_text(out, x, y, text, color);
+        for rect in &mut out[start..] {
+            rect.space = self.active_space;
+        }
     }
 
     fn push_graph_text(&mut self, x: i32, y: i32, text: &str, color: Color, state: &PreviewState) {
@@ -1807,8 +1844,12 @@ impl SceneBuilder {
             return;
         }
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
+        let start = out.len();
         self.text_renderer
             .push_text_scaled(out, x, y, text, color, state.zoom);
+        for rect in &mut out[start..] {
+            rect.space = self.active_space;
+        }
     }
 
     fn push_graph_text_in_rect(
@@ -1826,8 +1867,12 @@ impl SceneBuilder {
         let x = rect.x + left_pad;
         let y = rect.y + ((rect.h - metrics.line_height_px).max(0) / 2);
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
+        let start = out.len();
         self.text_renderer
             .push_text_scaled(out, x, y, text, color, state.zoom);
+        for rect in &mut out[start..] {
+            rect.space = self.active_space;
+        }
     }
 
     fn push_value_editor_text(
@@ -1864,8 +1909,12 @@ impl SceneBuilder {
             }
         }
         let out = &mut active_scene_layer_mut(&mut self.frame, self.active_layer).rects;
+        let start = out.len();
         self.text_renderer
             .push_text_scaled(out, text_x, text_y, text, color, state.zoom);
+        for rect in &mut out[start..] {
+            rect.space = self.active_space;
+        }
         if let Some(edit_state) = edit {
             let caret_index = edit_state.cursor.min(text.len());
             let caret_x = text_x
