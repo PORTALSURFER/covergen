@@ -12,9 +12,9 @@ use std::time::Duration;
 use super::geometry::Rect;
 use super::help::{build_global_help_modal, build_node_help_modal, build_param_help_modal};
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    output_pin_center, GraphBounds, GuiProject, ProjectNode, ResourceKind,
-    NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
+    collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
+    node_param_dropdown_rect, node_param_row_rect, output_pin_center, GraphBounds, GuiProject,
+    ProjectNode, ResourceKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, ExportMenuItem, HoverInsertLink, HoverParamTarget,
@@ -1481,11 +1481,13 @@ fn collect_cut_links_for_target(
         let Some((from_x, from_y)) = output_pin_center(source) else {
             continue;
         };
-        let Some(row) = node_param_row_rect(target, param_index) else {
+        let (to_x, to_y) = if let Some(row) = node_param_row_rect(target, param_index) {
+            (row.x + row.w - 4, row.y + row.h / 2)
+        } else if let Some((pin_x, pin_y)) = collapsed_param_entry_pin_center(target) {
+            (pin_x, pin_y)
+        } else {
             continue;
         };
-        let to_x = row.x + row.w - 4;
-        let to_y = row.y + row.h / 2;
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
         let route = super::scene::wire_route::route_wire_path_with_tails_with_map(

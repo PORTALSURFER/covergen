@@ -654,6 +654,11 @@ impl ProjectNode {
         self.params.len()
     }
 
+    /// Return currently selected parameter row index, clamped to valid bounds.
+    pub(crate) fn selected_param_index(&self) -> usize {
+        self.selected_param.min(self.params.len().saturating_sub(1))
+    }
+
     /// Return allocation-free iterator of parameter rows for rendering.
     pub(crate) fn param_views(&self) -> NodeParamIter<'_> {
         NodeParamIter {
@@ -735,6 +740,7 @@ mod state;
 mod tests;
 
 pub(crate) use geometry::{
-    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    node_param_value_rect, output_pin_center, pin_rect,
+    collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
+    node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
+    pin_rect,
 };

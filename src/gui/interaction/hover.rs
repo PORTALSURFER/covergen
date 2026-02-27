@@ -183,6 +183,44 @@ pub(super) fn update_hover_state(
                             param_index,
                         });
                     }
+                } else if let Some(node) = project.node(node_id) {
+                    if let Some((pin_x, pin_y)) = super::collapsed_param_entry_pin_center(node) {
+                        let pin_radius = pin_hit_radius_world(state);
+                        if distance_sq(graph_x, graph_y, pin_x, pin_y)
+                            <= pin_radius.saturating_mul(pin_radius)
+                        {
+                            if let Some(param_index) =
+                                collapsed_param_target_index(project, node_id, bind_kind)
+                            {
+                                state.hover_param_target = Some(HoverParamTarget {
+                                    node_id,
+                                    param_index,
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                let pin_radius = pin_hit_radius_world(state);
+                let radius_sq = pin_radius.saturating_mul(pin_radius);
+                for node in project.nodes().iter().rev() {
+                    let Some((pin_x, pin_y)) = super::collapsed_param_entry_pin_center(node) else {
+                        continue;
+                    };
+                    if distance_sq(graph_x, graph_y, pin_x, pin_y) > radius_sq {
+                        continue;
+                    }
+                    let node_id = node.id();
+                    state.hover_node = Some(node_id);
+                    if let Some(param_index) =
+                        collapsed_param_target_index(project, node_id, bind_kind)
+                    {
+                        state.hover_param_target = Some(HoverParamTarget {
+                            node_id,
+                            param_index,
+                        });
+                    }
+                    break;
                 }
             }
             changed |= collapse_auto_expanded_binding_nodes_except(
@@ -237,4 +275,44 @@ pub(super) fn update_hover_state(
         || prev_hover_main_item.is_some()
         || prev_hover_export_item.is_some()
         || prev_hover_export_close
+}
+
+fn collapsed_param_target_index(
+    project: &GuiProject,
+    node_id: u32,
+    bind_kind: ResourceKind,
+) -> Option<usize> {
+    let node = project.node(node_id)?;
+    if node.expanded() || node.param_count() == 0 {
+        return None;
+    }
+    let preferred = node.selected_param_index();
+    if param_accepts_bind_kind(project, node_id, preferred, bind_kind) {
+        return Some(preferred);
+    }
+    for param_index in 0..node.param_count() {
+        if param_accepts_bind_kind(project, node_id, param_index, bind_kind) {
+            return Some(param_index);
+        }
+    }
+    None
+}
+
+fn param_accepts_bind_kind(
+    project: &GuiProject,
+    node_id: u32,
+    param_index: usize,
+    bind_kind: ResourceKind,
+) -> bool {
+    match bind_kind {
+        ResourceKind::Signal => project.param_accepts_signal_link(node_id, param_index),
+        ResourceKind::Texture2D => project.param_accepts_texture_link(node_id, param_index),
+        _ => false,
+    }
+}
+
+fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }

@@ -11,9 +11,9 @@ use std::{collections::HashMap, collections::HashSet, path::Path, sync::Arc};
 
 use super::geometry::Rect;
 use super::project::{
-    input_pin_center, node_expand_toggle_rect, node_param_dropdown_rect, node_param_row_rect,
-    node_param_value_rect, output_pin_center, pin_rect, GuiProject, ProjectNode, ProjectNodeKind,
-    ResourceKind, NODE_WIDTH,
+    collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
+    node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
+    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, NODE_WIDTH,
 };
 use super::state::{
     AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
@@ -1256,6 +1256,19 @@ impl SceneBuilder {
             };
             self.push_rect(pin_rect(cx, cy), color);
         }
+        if let Some((cx, cy)) = collapsed_param_entry_pin_center(node) {
+            let (cx, cy) = graph_point_to_panel(cx, cy, state);
+            let color = if state
+                .hover_param_target
+                .map(|target| target.node_id == node.id())
+                .unwrap_or(false)
+            {
+                PIN_HOVER
+            } else {
+                PARAM_EDGE_COLOR
+            };
+            self.push_rect(pin_rect(cx, cy), color);
+        }
         if let Some((cx, cy)) = input_pin_center(node) {
             let (cx, cy) = graph_point_to_panel(cx, cy, state);
             let color = if state.hover_input_pin == Some(node.id()) {
@@ -1283,6 +1296,10 @@ impl SceneBuilder {
                 if let Some(target_node) = project.node(target.node_id) {
                     if let Some(row) = node_param_row_rect(target_node, target.param_index) {
                         graph_point_to_panel(row.x + row.w - 4, row.y + row.h / 2, state)
+                    } else if let Some((pin_x, pin_y)) =
+                        collapsed_param_entry_pin_center(target_node)
+                    {
+                        graph_point_to_panel(pin_x, pin_y, state)
                     } else {
                         (wire.cursor_x, wire.cursor_y)
                     }
@@ -1344,10 +1361,13 @@ impl SceneBuilder {
                 let Some((from_x, from_y)) = output_pin_center(source) else {
                     continue;
                 };
-                let Some(row) = node_param_row_rect(target, param_index) else {
+                let (gx, gy) = if let Some(row) = node_param_row_rect(target, param_index) {
+                    (row.x + row.w - 4, row.y + row.h / 2)
+                } else if let Some((pin_x, pin_y)) = collapsed_param_entry_pin_center(target) {
+                    (pin_x, pin_y)
+                } else {
                     continue;
                 };
-                let (gx, gy) = (row.x + row.w - 4, row.y + row.h / 2);
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
                 let route_key = ParamRouteCacheKey {

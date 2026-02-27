@@ -1,9 +1,9 @@
 //! Wire dragging, linking, and drop-target resolution.
 
 use super::{
-    inside_panel, node_param_row_rect, pin_hit_radius_world, screen_to_graph, GuiProject,
-    HoverParamTarget, InputSnapshot, InteractionPanelContext, PreviewState, ResourceKind,
-    WireDragState,
+    collapsed_param_entry_pin_center, inside_panel, node_param_row_rect, pin_hit_radius_world,
+    screen_to_graph, GuiProject, HoverParamTarget, InputSnapshot, InteractionPanelContext,
+    PreviewState, ResourceKind, WireDragState,
 };
 
 /// Handle wire drag updates and release linking.
@@ -88,6 +88,13 @@ pub(super) fn resolve_texture_param_target_on_release(
             {
                 return Some(target);
             }
+        } else if let Some((pin_x, pin_y)) = collapsed_param_entry_pin_center(node) {
+            let pin_radius = pin_hit_radius_world(state);
+            if distance_sq(graph_x, graph_y, pin_x, pin_y) <= pin_radius.saturating_mul(pin_radius)
+                && project.param_accepts_texture_link(target.node_id, target.param_index)
+            {
+                return Some(target);
+            }
         }
     }
     let node_id = project.node_at(graph_x, graph_y)?;
@@ -105,6 +112,12 @@ pub(super) fn resolve_texture_param_target_on_release(
         node_id,
         param_index,
     })
+}
+
+fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }
 
 /// Begin wire drag when the pointer pressed an output pin.

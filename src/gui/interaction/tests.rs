@@ -8,8 +8,9 @@ use super::{
 };
 use crate::gui::geometry::Rect;
 use crate::gui::project::{
-    input_pin_center, node_param_dropdown_rect, node_param_row_rect, node_param_value_rect,
-    output_pin_center, GuiProject, ProjectNodeKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
+    collapsed_param_entry_pin_center, input_pin_center, node_param_dropdown_rect,
+    node_param_row_rect, node_param_value_rect, output_pin_center, GuiProject, ProjectNodeKind,
+    NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use crate::gui::state::{
     AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink, HoverParamTarget, InputSnapshot,
@@ -1046,6 +1047,74 @@ fn alt_cut_unbinds_parameter_link_when_cut_crosses_param_wire() {
     };
     assert!(handle_link_cut(&input, &mut project, 420, 480, &mut state));
     assert_eq!(project.signal_source_for_param(circle, 2), None);
+}
+
+#[test]
+fn alt_cut_unbinds_parameter_link_when_target_node_is_collapsed() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 220, 80, 420, 480);
+    assert!(project.connect_signal_link_to_param(lfo, circle, 2));
+
+    let (from_x, from_y) = {
+        let source = project.node(lfo).expect("lfo node should exist");
+        output_pin_center(source).expect("source output pin should exist")
+    };
+    let (to_x, to_y) = {
+        let target = project.node(circle).expect("circle node should exist");
+        collapsed_param_entry_pin_center(target).expect("collapsed param pin should exist")
+    };
+    let cut_x = (from_x + to_x) / 2;
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.link_cut = Some(LinkCutState {
+        start_x: cut_x,
+        start_y: from_y.min(to_y) - 24,
+        cursor_x: cut_x,
+        cursor_y: from_y.max(to_y) + 24,
+    });
+    let input = InputSnapshot {
+        left_down: false,
+        ..InputSnapshot::default()
+    };
+    assert!(handle_link_cut(&input, &mut project, 420, 480, &mut state));
+    assert_eq!(project.signal_source_for_param(circle, 2), None);
+}
+
+#[test]
+fn hover_param_target_uses_collapsed_param_pin() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 180, 80, 420, 480);
+    assert!(project.select_param(circle, 3));
+    let (pin_x, pin_y) = {
+        let target = project.node(circle).expect("circle node should exist");
+        collapsed_param_entry_pin_center(target).expect("collapsed param pin should exist")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.wire_drag = Some(WireDragState {
+        source_node_id: lfo,
+        cursor_x: pin_x,
+        cursor_y: pin_y,
+    });
+    let input = InputSnapshot {
+        mouse_pos: Some((pin_x, pin_y)),
+        left_down: true,
+        ..InputSnapshot::default()
+    };
+    assert!(update_hover_state(
+        &input,
+        &mut project,
+        420,
+        480,
+        &mut state
+    ));
+    assert_eq!(
+        state.hover_param_target,
+        Some(HoverParamTarget {
+            node_id: circle,
+            param_index: 3,
+        })
+    );
 }
 
 #[test]

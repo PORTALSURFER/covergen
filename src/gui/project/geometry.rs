@@ -210,6 +210,22 @@ pub(crate) fn input_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
     Some((x, y))
 }
 
+/// Return graph-space center of collapsed parameter-entry pin.
+///
+/// This pin is shown when parameter rows are hidden so parameter bindings stay
+/// visually anchored to the node.
+pub(crate) fn collapsed_param_entry_pin_center(node: &ProjectNode) -> Option<(i32, i32)> {
+    if node.expanded() || !node.kind().accepts_signal_bindings() || node.params.is_empty() {
+        return None;
+    }
+    let x = snap_to_node_grid(node.x() + NODE_WIDTH);
+    let y = snap_to_node_grid(
+        (node.y() + NODE_HEIGHT / 2 + NODE_PIN_SIZE + 2)
+            .min(node.y() + NODE_HEIGHT - NODE_PIN_SIZE),
+    );
+    Some((x, y))
+}
+
 /// Return one pin rectangle centered around a pin position.
 pub(crate) fn pin_rect(cx: i32, cy: i32) -> Rect {
     Rect::new(
