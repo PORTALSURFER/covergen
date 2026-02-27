@@ -99,6 +99,8 @@ const WIRE_BRIDGE_HEIGHT_PX: f32 = 6.0;
 const WIRE_BRIDGE_LINK_THRESHOLD_PX: f32 = 14.0;
 const WIRE_BRIDGE_CORNER_GUARD_PX: f32 = 10.0;
 const WIRE_BRIDGE_STEPS: usize = 6;
+const WIRE_TAIL_STAGGER_STEP_CELLS: i32 = 1;
+const WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS: i32 = 8;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
 const FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
 
@@ -193,6 +195,8 @@ struct ParamRouteCacheKey {
     target_id: u32,
     param_index: usize,
     obstacle_epoch: u64,
+    start_tail_cells: i32,
+    end_tail_cells: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -391,6 +395,7 @@ impl SceneBuilder {
         let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
         let mut drawn_segments = Vec::new();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
+        let mut tail_slots = HashMap::new();
         for target in project.nodes() {
             let Some((default_to_x, default_to_y)) = input_pin_center(target) else {
                 continue;
@@ -415,17 +420,23 @@ impl SceneBuilder {
                         .hover_insert_link
                         .map(|link| link.source_id == *source_id && link.target_id == target.id())
                         .unwrap_or(false);
-                let route = wire_route::route_wire_path_with_tails_avoiding_overlaps_with_map(
-                    wire_route::RouteEndpoint {
-                        point: (from_x, from_y),
-                        corridor_dir: wire_route::RouteDirection::East,
-                    },
-                    wire_route::RouteEndpoint {
-                        point: (to_x, to_y),
-                        corridor_dir: wire_route::RouteDirection::West,
-                    },
+                let start_endpoint = wire_route::RouteEndpoint {
+                    point: (from_x, from_y),
+                    corridor_dir: wire_route::RouteDirection::East,
+                };
+                let end_endpoint = wire_route::RouteEndpoint {
+                    point: (to_x, to_y),
+                    corridor_dir: wire_route::RouteDirection::West,
+                };
+                let start_tail_cells = next_staggered_tail_cells(&mut tail_slots, start_endpoint);
+                let end_tail_cells = next_staggered_tail_cells(&mut tail_slots, end_endpoint);
+                let route = wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+                    start_endpoint,
+                    end_endpoint,
                     &route_map,
                     &occupied_edges,
+                    start_tail_cells,
+                    end_tail_cells,
                 );
                 let color = if insert_hover {
                     EDGE_INSERT_HOVER
@@ -1348,6 +1359,7 @@ impl SceneBuilder {
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
+        let mut tail_slots = HashMap::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1370,26 +1382,35 @@ impl SceneBuilder {
                 };
                 let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
                 let (to_x, to_y) = graph_point_to_panel(gx, gy, state);
+                let start_endpoint = wire_route::RouteEndpoint {
+                    point: (from_x, from_y),
+                    corridor_dir: wire_route::RouteDirection::East,
+                };
+                let end_endpoint = wire_route::RouteEndpoint {
+                    point: (to_x, to_y),
+                    corridor_dir: wire_route::RouteDirection::East,
+                };
+                let start_tail_cells = next_staggered_tail_cells(&mut tail_slots, start_endpoint);
+                let end_tail_cells = next_staggered_tail_cells(&mut tail_slots, end_endpoint);
                 let route_key = ParamRouteCacheKey {
                     source_id,
                     target_id: target.id(),
                     param_index,
                     obstacle_epoch: active_epoch,
+                    start_tail_cells,
+                    end_tail_cells,
                 };
                 live_route_keys.insert(route_key);
                 if !self.param_route_cache.contains_key(&route_key) {
-                    let route = wire_route::route_wire_path_with_tails_avoiding_overlaps_with_map(
-                        wire_route::RouteEndpoint {
-                            point: (from_x, from_y),
-                            corridor_dir: wire_route::RouteDirection::East,
-                        },
-                        wire_route::RouteEndpoint {
-                            point: (to_x, to_y),
-                            corridor_dir: wire_route::RouteDirection::East,
-                        },
-                        &self.param_route_obstacle_map,
-                        &occupied_edges,
-                    );
+                    let route =
+                        wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+                            start_endpoint,
+                            end_endpoint,
+                            &self.param_route_obstacle_map,
+                            &occupied_edges,
+                            start_tail_cells,
+                            end_tail_cells,
+                        );
                     self.param_route_cache.insert(route_key, Arc::from(route));
                 }
                 let Some(route) = self.param_route_cache.get(&route_key).cloned() else {
@@ -1759,6 +1780,20 @@ fn collect_panel_node_obstacles(
         });
     }
     out
+}
+
+fn next_staggered_tail_cells(
+    slots: &mut HashMap<((i32, i32), wire_route::RouteDirection), i32>,
+    endpoint: wire_route::RouteEndpoint,
+) -> i32 {
+    let slot = slots
+        .entry((endpoint.point, endpoint.corridor_dir))
+        .or_insert(0);
+    let extra_cells = slot
+        .saturating_mul(WIRE_TAIL_STAGGER_STEP_CELLS)
+        .min(WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS);
+    *slot = slot.saturating_add(1);
+    wire_route::DEFAULT_ENDPOINT_TAIL_CELLS + extra_cells
 }
 
 fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {

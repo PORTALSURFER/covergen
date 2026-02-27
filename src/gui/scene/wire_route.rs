@@ -15,6 +15,7 @@ const ROUTE_PADDING_CELLS: i32 = 6;
 const OBSTACLE_CLEARANCE_CELLS: i32 = 2;
 const ENDPOINT_CORRIDOR_CELLS: i32 = 3;
 const ENDPOINT_TAIL_CELLS: i32 = 2;
+pub(crate) const DEFAULT_ENDPOINT_TAIL_CELLS: i32 = ENDPOINT_TAIL_CELLS;
 const MAX_GRID_CELLS: usize = 48_000;
 
 const STEP_CARDINAL_COST: i32 = 10;
@@ -34,7 +35,7 @@ pub(crate) struct NodeObstacle {
 }
 
 /// One endpoint routing direction used for pin corridor carving.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum RouteDirection {
     East,
     NorthEast,
@@ -280,18 +281,34 @@ pub(crate) fn route_wire_path_with_tails_with_map(
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
 ) -> Vec<(i32, i32)> {
-    route_wire_path_with_tails_internal(start, end, obstacle_map, None)
+    route_wire_path_with_tails_internal(
+        start,
+        end,
+        obstacle_map,
+        None,
+        ENDPOINT_TAIL_CELLS,
+        ENDPOINT_TAIL_CELLS,
+    )
 }
 
-/// Build one obstacle-avoiding path with endpoint tails while avoiding already
-/// occupied wire edges.
-pub(crate) fn route_wire_path_with_tails_avoiding_overlaps_with_map(
+/// Build one obstacle-avoiding path with per-endpoint horizontal-tail lengths
+/// while avoiding already occupied wire edges.
+pub(crate) fn route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
     start: RouteEndpoint,
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
     occupied_edges: &RouteOccupiedEdges,
+    start_tail_cells: i32,
+    end_tail_cells: i32,
 ) -> Vec<(i32, i32)> {
-    route_wire_path_with_tails_internal(start, end, obstacle_map, Some(&occupied_edges.blocked))
+    route_wire_path_with_tails_internal(
+        start,
+        end,
+        obstacle_map,
+        Some(&occupied_edges.blocked),
+        start_tail_cells,
+        end_tail_cells,
+    )
 }
 
 fn route_wire_path_with_tails_internal(
@@ -299,11 +316,13 @@ fn route_wire_path_with_tails_internal(
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
     blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+    start_tail_cells: i32,
+    end_tail_cells: i32,
 ) -> Vec<(i32, i32)> {
     let start_pin = snap_endpoint_to_grid(start);
     let end_pin = snap_endpoint_to_grid(end);
-    let start_tail = step_point(start_pin, start.corridor_dir, ENDPOINT_TAIL_CELLS);
-    let end_tail = step_point(end_pin, end.corridor_dir, ENDPOINT_TAIL_CELLS);
+    let start_tail = step_point(start_pin, start.corridor_dir, start_tail_cells.max(0));
+    let end_tail = step_point(end_pin, end.corridor_dir, end_tail_cells.max(0));
 
     let core = route_wire_path_internal(
         RouteEndpoint {
