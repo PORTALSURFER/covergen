@@ -177,6 +177,7 @@ fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32
 mod tests {
     use super::{TexViewerGenerator, TexViewerOp, TexViewerPayload, TexViewerUpdate};
     use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::timeline::editor_panel_height;
 
     #[test]
     fn supported_graph_emits_gpu_ops_payload() {
@@ -670,6 +671,7 @@ mod tests {
         assert_eq!(frame.width, 780);
         assert_eq!(frame.height, 438);
         assert_eq!(frame.x, 420);
-        assert_eq!(frame.y, 216);
+        let expected_y = ((editor_panel_height(900) as u32 - frame.height) / 2) as i32;
+        assert_eq!(frame.y, expected_y);
     }
 }
