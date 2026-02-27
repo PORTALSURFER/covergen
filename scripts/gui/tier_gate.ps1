@@ -73,6 +73,7 @@ $size = Get-EnvOrDefault -Name "GUI_SIZE" -DefaultValue "1024"
 $seed = Get-EnvOrDefault -Name "GUI_SEED" -DefaultValue "1337"
 $msMargin = [double](Get-EnvOrDefault -Name "GUI_MS_THRESHOLD_MARGIN" -DefaultValue "1.20")
 $hitMargin = [double](Get-EnvOrDefault -Name "GUI_HIT_THRESHOLD_MARGIN" -DefaultValue "1.20")
+$bridgeMargin = [double](Get-EnvOrDefault -Name "GUI_BRIDGE_THRESHOLD_MARGIN" -DefaultValue "$hitMargin")
 $outputRoot = Get-EnvOrDefault -Name "OUTPUT_ROOT" -DefaultValue "target/bench"
 $shaderRoot = Get-EnvOrDefault -Name "COVERGEN_RUST_GPU_SPIRV_DIR" -DefaultValue "target/rust-gpu"
 
@@ -118,11 +119,15 @@ $rows = Import-Csv -Path $traceFile | Where-Object { [int64]$_.frame -ge $warmup
 if ($rows.Count -eq 0) {
     throw "no samples remained after warmup=$warmupFrames"
 }
+if (!($rows[0].PSObject.Properties.Name -contains "bridge_intersection_tests")) {
+    throw "trace missing required column bridge_intersection_tests: $traceFile"
+}
 
 $updateP95 = Get-P95 -Values ($rows | ForEach-Object { [double]$_.update_ms })
 $sceneP95 = Get-P95 -Values ($rows | ForEach-Object { [double]$_.scene_ms })
 $renderP95 = Get-P95 -Values ($rows | ForEach-Object { [double]$_.render_ms })
 $hitP95 = [Math]::Round((Get-P95 -Values ($rows | ForEach-Object { [double]$_.hit_test_scans })), 0)
+$bridgeP95 = [Math]::Round((Get-P95 -Values ($rows | ForEach-Object { [double]$_.bridge_intersection_tests })), 0)
 
 $metricLines = @(
     "# covergen gui interaction metrics",
@@ -135,7 +140,8 @@ $metricLines = @(
     ("update_ms_p95={0:F4}" -f $updateP95),
     ("scene_ms_p95={0:F4}" -f $sceneP95),
     ("render_ms_p95={0:F4}" -f $renderP95),
-    "hit_test_scans_p95=$hitP95"
+    "hit_test_scans_p95=$hitP95",
+    "bridge_intersection_tests_p95=$bridgeP95"
 )
 Set-Content -Path $metricsFile -Value $metricLines
 Write-Host "[gui-bench] wrote metrics: $metricsFile"
@@ -150,7 +156,8 @@ if ($Mode -eq "lock") {
         ("update_ms_p95_max={0:F4}" -f ($updateP95 * $msMargin)),
         ("scene_ms_p95_max={0:F4}" -f ($sceneP95 * $msMargin)),
         ("render_ms_p95_max={0:F4}" -f ($renderP95 * $msMargin)),
-        ("hit_test_scans_p95_max={0:F0}" -f ($hitP95 * $hitMargin))
+        ("hit_test_scans_p95_max={0:F0}" -f ($hitP95 * $hitMargin)),
+        ("bridge_intersection_tests_p95_max={0:F0}" -f ($bridgeP95 * $bridgeMargin))
     )
     Set-Content -Path $thresholdFile -Value $thresholdLines
     Write-Host "[gui-bench] locked thresholds: $thresholdFile"
@@ -169,7 +176,7 @@ if ($threshold["tier"] -ne $Tier) {
     throw "threshold tier mismatch: expected=$Tier found=$($threshold["tier"])"
 }
 
-foreach ($required in @("update_ms_p95_max", "scene_ms_p95_max", "render_ms_p95_max", "hit_test_scans_p95_max")) {
+foreach ($required in @("update_ms_p95_max", "scene_ms_p95_max", "render_ms_p95_max", "hit_test_scans_p95_max", "bridge_intersection_tests_p95_max")) {
     if (!$threshold.ContainsKey($required)) {
         throw "threshold file missing required key: $required"
     }
@@ -187,6 +194,9 @@ if ($renderP95 -gt [double]$threshold["render_ms_p95_max"]) {
 }
 if ($hitP95 -gt [double]$threshold["hit_test_scans_p95_max"]) {
     $violations += ("hit_test_scans_p95={0:F0} exceeds {1}" -f $hitP95, $threshold["hit_test_scans_p95_max"])
+}
+if ($bridgeP95 -gt [double]$threshold["bridge_intersection_tests_p95_max"]) {
+    $violations += ("bridge_intersection_tests_p95={0:F0} exceeds {1}" -f $bridgeP95, $threshold["bridge_intersection_tests_p95_max"])
 }
 
 if ($violations.Count -gt 0) {

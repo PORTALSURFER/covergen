@@ -56,7 +56,8 @@ pwsh -File scripts/gui/tier_gate.ps1 validate desktop_mid
 - Run `scripts/ci_local.sh validate laptop_integrated`.
 - Require both to pass before promoting runtime/preset changes.
 - The CI flow now also runs deterministic GUI interaction traces and validates
-  `update_ms`, `scene_ms`, `render_ms`, and `hit_test_scans` p95 thresholds.
+  `update_ms`, `scene_ms`, `render_ms`, `hit_test_scans`, and
+  `bridge_intersection_tests` p95 thresholds.
 
 PowerShell full local CI equivalents:
 

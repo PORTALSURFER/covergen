@@ -20,6 +20,7 @@ Environment overrides:
   GUI_SEED                        default: 1337
   GUI_MS_THRESHOLD_MARGIN         default: 1.20
   GUI_HIT_THRESHOLD_MARGIN        default: 1.20
+  GUI_BRIDGE_THRESHOLD_MARGIN     default: GUI_HIT_THRESHOLD_MARGIN
   OUTPUT_ROOT                     default: target/bench
   COVERGEN_RUST_GPU_SPIRV_DIR     default: target/rust-gpu
 EOF
@@ -58,6 +59,7 @@ size="${GUI_SIZE:-1024}"
 seed="${GUI_SEED:-1337}"
 ms_margin="${GUI_MS_THRESHOLD_MARGIN:-1.20}"
 hit_margin="${GUI_HIT_THRESHOLD_MARGIN:-1.20}"
+bridge_margin="${GUI_BRIDGE_THRESHOLD_MARGIN:-${hit_margin}}"
 output_root="${OUTPUT_ROOT:-target/bench}"
 shader_root="${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
 
@@ -84,6 +86,10 @@ if [[ ! -s "${trace_file}" ]]; then
   echo "[gui-bench] missing trace file: ${trace_file}" >&2
   exit 1
 fi
+if ! head -n 1 "${trace_file}" | tr ',' '\n' | grep -Fxq "bridge_intersection_tests"; then
+  echo "[gui-bench] trace missing required column bridge_intersection_tests: ${trace_file}" >&2
+  exit 1
+fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -92,11 +98,13 @@ update_file="${tmp_dir}/update_ms.txt"
 scene_file="${tmp_dir}/scene_ms.txt"
 render_file="${tmp_dir}/render_ms.txt"
 hit_file="${tmp_dir}/hit_test_scans.txt"
+bridge_file="${tmp_dir}/bridge_intersection_tests.txt"
 
 awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $3 }' "${trace_file}" > "${update_file}"
 awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $4 }' "${trace_file}" > "${scene_file}"
 awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $5 }' "${trace_file}" > "${render_file}"
 awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $9 }' "${trace_file}" > "${hit_file}"
+awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $10 }' "${trace_file}" > "${bridge_file}"
 
 sample_count="$(wc -l < "${update_file}")"
 if [[ "${sample_count}" -eq 0 ]]; then
@@ -121,6 +129,7 @@ update_p95="$(percentile95 "${update_file}")"
 scene_p95="$(percentile95 "${scene_file}")"
 render_p95="$(percentile95 "${render_file}")"
 hit_p95="$(percentile95 "${hit_file}")"
+bridge_p95="$(percentile95 "${bridge_file}")"
 
 cat > "${metrics_file}" <<EOF
 # covergen gui interaction metrics
@@ -134,6 +143,7 @@ update_ms_p95=$(format_float "${update_p95}")
 scene_ms_p95=$(format_float "${scene_p95}")
 render_ms_p95=$(format_float "${render_p95}")
 hit_test_scans_p95=${hit_p95}
+bridge_intersection_tests_p95=${bridge_p95}
 EOF
 
 echo "[gui-bench] wrote metrics: ${metrics_file}"
@@ -143,6 +153,7 @@ if [[ "${mode}" == "lock" ]]; then
   scene_limit="$(awk -v value="${scene_p95}" -v margin="${ms_margin}" 'BEGIN { printf "%.4f", value * margin }')"
   render_limit="$(awk -v value="${render_p95}" -v margin="${ms_margin}" 'BEGIN { printf "%.4f", value * margin }')"
   hit_limit="$(awk -v value="${hit_p95}" -v margin="${hit_margin}" 'BEGIN { printf "%.0f", value * margin }')"
+  bridge_limit="$(awk -v value="${bridge_p95}" -v margin="${bridge_margin}" 'BEGIN { printf "%.0f", value * margin }')"
   cat > "${threshold_file}" <<EOF
 # covergen gui interaction thresholds
 version=1
@@ -153,6 +164,7 @@ update_ms_p95_max=${update_limit}
 scene_ms_p95_max=${scene_limit}
 render_ms_p95_max=${render_limit}
 hit_test_scans_p95_max=${hit_limit}
+bridge_intersection_tests_p95_max=${bridge_limit}
 EOF
   echo "[gui-bench] locked thresholds: ${threshold_file}"
   exit 0
@@ -183,9 +195,10 @@ update_limit="$(read_threshold "update_ms_p95_max")"
 scene_limit="$(read_threshold "scene_ms_p95_max")"
 render_limit="$(read_threshold "render_ms_p95_max")"
 hit_limit="$(read_threshold "hit_test_scans_p95_max")"
+bridge_limit="$(read_threshold "bridge_intersection_tests_p95_max")"
 
 missing_key=0
-for key in update_limit scene_limit render_limit hit_limit; do
+for key in update_limit scene_limit render_limit hit_limit bridge_limit; do
   if [[ -z "${!key}" ]]; then
     echo "[gui-bench] threshold file missing required key: ${key}" >&2
     missing_key=1
@@ -214,6 +227,9 @@ if ! check_le "render_ms_p95" "${render_p95}" "${render_limit}"; then
 fi
 if ! check_le "hit_test_scans_p95" "${hit_p95}" "${hit_limit}"; then
   violations+=("hit_test_scans_p95=${hit_p95} exceeds ${hit_limit}")
+fi
+if ! check_le "bridge_intersection_tests_p95" "${bridge_p95}" "${bridge_limit}"; then
+  violations+=("bridge_intersection_tests_p95=${bridge_p95} exceeds ${bridge_limit}")
 fi
 
 if [[ "${#violations[@]}" -ne 0 ]]; then
