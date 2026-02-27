@@ -17,6 +17,7 @@ const ENDPOINT_CORRIDOR_CELLS: i32 = 3;
 const ENDPOINT_TAIL_CELLS: i32 = 2;
 pub(crate) const DEFAULT_ENDPOINT_TAIL_CELLS: i32 = ENDPOINT_TAIL_CELLS;
 const MAX_GRID_CELLS: usize = 48_000;
+const SEARCH_OBSTACLE_WINDOW_CELLS: [i32; 3] = [24, 48, 96];
 
 const STEP_CARDINAL_COST: i32 = 10;
 const STEP_DIAGONAL_COST: i32 = 14;
@@ -242,32 +243,38 @@ fn route_wire_path_internal(
         return vec![start_point];
     }
 
-    let Some(mut grid) = SearchGrid::build(
-        obstacle_map.blocked_rects.as_slice(),
-        start_point,
-        end_point,
-    ) else {
-        return fallback_avoiding_obstacles(start_point, end_point, &obstacle_map.blocked_rects)
-            .unwrap_or_else(|| fallback_octilinear(start_point, end_point));
-    };
-
-    grid.carve_corridor(start_point, start.corridor_dir);
-    grid.carve_corridor(end_point, end.corridor_dir);
-
-    let cells = grid
-        .find_path_with_blocked_edges(start_point, end_point, blocked_edges)
-        .or_else(|| {
-            if blocked_edges.is_some() {
-                // When overlap-avoidance edge blocking over-constrains the search,
-                // retry without edge blocks so we still honor node obstacles.
-                grid.find_path_with_blocked_edges(start_point, end_point, None)
-            } else {
-                None
-            }
-        });
-    let Some(cells) = cells else {
-        return fallback_avoiding_obstacles(start_point, end_point, &obstacle_map.blocked_rects)
-            .unwrap_or_else(|| fallback_octilinear(start_point, end_point));
+    let mut cells = None;
+    for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
+        let blocked_rects = collect_search_blocked_rects(
+            obstacle_map.blocked_rects.as_slice(),
+            start_point,
+            end_point,
+            window_cells,
+        );
+        let Some(mut grid) = SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
+        else {
+            continue;
+        };
+        grid.carve_corridor(start_point, start.corridor_dir);
+        grid.carve_corridor(end_point, end.corridor_dir);
+        let attempt = grid
+            .find_path_with_blocked_edges(start_point, end_point, blocked_edges)
+            .or_else(|| {
+                if blocked_edges.is_some() {
+                    // When overlap-avoidance edge blocking over-constrains the search,
+                    // retry without edge blocks so we still honor node obstacles.
+                    grid.find_path_with_blocked_edges(start_point, end_point, None)
+                } else {
+                    None
+                }
+            });
+        if let Some(found) = attempt {
+            cells = Some((found, grid));
+            break;
+        }
+    }
+    let Some((cells, grid)) = cells else {
+        return fallback_octilinear(start_point, end_point);
     };
 
     let mut points = Vec::with_capacity(cells.len());
@@ -409,77 +416,33 @@ fn fallback_octilinear(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
     out
 }
 
-fn fallback_avoiding_obstacles(
+fn collect_search_blocked_rects(
+    blocked_rects: &[Rect],
     start: (i32, i32),
     end: (i32, i32),
-    blocked_rects: &[Rect],
-) -> Option<Vec<(i32, i32)>> {
-    if blocked_rects.is_empty() {
-        return Some(fallback_octilinear(start, end));
-    }
-    let mut min_x = start.0.min(end.0);
-    let mut min_y = start.1.min(end.1);
-    let mut max_x = start.0.max(end.0);
-    let mut max_y = start.1.max(end.1);
+    window_cells: i32,
+) -> Vec<Rect> {
+    let pad = window_cells.max(ROUTE_PADDING_CELLS) * GRID_PITCH_PX;
+    let min_x = start.0.min(end.0) - pad;
+    let min_y = start.1.min(end.1) - pad;
+    let max_x = start.0.max(end.0) + pad;
+    let max_y = start.1.max(end.1) + pad;
+    let search_bounds = Rect::new(min_x, min_y, (max_x - min_x).max(1), (max_y - min_y).max(1));
+    let mut out = Vec::new();
     for rect in blocked_rects {
-        min_x = min_x.min(rect.x);
-        min_y = min_y.min(rect.y);
-        max_x = max_x.max(rect.x + rect.w);
-        max_y = max_y.max(rect.y + rect.h);
-    }
-    let above = floor_to_step(min_y - GRID_PITCH_PX, GRID_PITCH_PX);
-    let below = ceil_to_step(max_y + GRID_PITCH_PX, GRID_PITCH_PX);
-    let left = floor_to_step(min_x - GRID_PITCH_PX, GRID_PITCH_PX);
-    let right = ceil_to_step(max_x + GRID_PITCH_PX, GRID_PITCH_PX);
-    let candidates = [
-        vec![start, (start.0, above), (end.0, above), end],
-        vec![start, (start.0, below), (end.0, below), end],
-        vec![start, (left, start.1), (left, end.1), end],
-        vec![start, (right, start.1), (right, end.1), end],
-        vec![start, (start.0, above), (left, above), (left, end.1), end],
-        vec![start, (start.0, above), (right, above), (right, end.1), end],
-        vec![start, (start.0, below), (left, below), (left, end.1), end],
-        vec![start, (start.0, below), (right, below), (right, end.1), end],
-    ];
-    for mut candidate in candidates {
-        dedupe_points(&mut candidate);
-        collapse_collinear_octilinear(&mut candidate);
-        if candidate.len() < 2 {
-            continue;
-        }
-        if polyline_avoids_blocked_rects(candidate.as_slice(), blocked_rects, start, end) {
-            return Some(candidate);
+        if rects_overlap(*rect, search_bounds) {
+            out.push(*rect);
         }
     }
-    None
+    out
 }
 
-fn polyline_avoids_blocked_rects(
-    points: &[(i32, i32)],
-    blocked_rects: &[Rect],
-    start: (i32, i32),
-    end: (i32, i32),
-) -> bool {
-    for segment in points.windows(2) {
-        let dx = segment[1].0 - segment[0].0;
-        let dy = segment[1].1 - segment[0].1;
-        let steps = (dx.abs().max(dy.abs()) / GRID_PITCH_PX).max(1);
-        let step_x = dx.signum() * GRID_PITCH_PX;
-        let step_y = dy.signum() * GRID_PITCH_PX;
-        let mut point = segment[0];
-        for _ in 0..=steps {
-            if point != start
-                && point != end
-                && blocked_rects
-                    .iter()
-                    .any(|blocked| blocked.contains(point.0, point.1))
-            {
-                return false;
-            }
-            point = (point.0 + step_x, point.1 + step_y);
-        }
-    }
-    true
+fn rects_overlap(a: Rect, b: Rect) -> bool {
+    let ax1 = a.x + a.w;
+    let ay1 = a.y + a.h;
+    let bx1 = b.x + b.w;
+    let by1 = b.y + b.h;
+    a.x < bx1 && ax1 > b.x && a.y < by1 && ay1 > b.y
 }
 
 fn dedupe_points(points: &mut Vec<(i32, i32)>) {
@@ -1019,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn oversized_grid_fallback_still_avoids_source_node() {
+    fn far_obstacle_pruning_preserves_local_node_avoidance() {
         let source_rect = Rect::new(0, 0, 80, 80);
         let far_rect = Rect::new(100_000, 100_000, 80, 80);
         let map = RouteObstacleMap::from_obstacles(&[
@@ -1031,11 +994,15 @@ mod tests {
             corridor_dir: RouteDirection::East,
         };
         let end = RouteEndpoint {
-            point: (220, 40),
+            point: (20, 140),
             corridor_dir: RouteDirection::West,
         };
         let path = route_wire_path_internal(start, end, &map, None);
         assert_octilinear(path.as_slice());
+        assert!(
+            path.len() > 3,
+            "expected obstacle-avoiding local route, got fallback-like path: {path:?}"
+        );
         assert_path_avoids_rect_except_endpoints(
             path.as_slice(),
             source_rect,
