@@ -134,6 +134,8 @@ struct TimelineLayerState {
     total_frames: u32,
     paused: bool,
     timeline_scrub_active: bool,
+    timeline_volume_drag_active: bool,
+    audio_volume_bits: u32,
     bpm_bits: u32,
     bars: u32,
     beats_per_bar: u32,
@@ -242,6 +244,8 @@ impl SceneInvalidationSnapshot {
                 total_frames: state.export_menu.timeline_total_frames(timeline_fps),
                 paused: state.paused,
                 timeline_scrub_active: state.timeline_scrub_active,
+                timeline_volume_drag_active: state.timeline_volume_drag_active,
+                audio_volume_bits: state.export_menu.parsed_audio_volume().to_bits(),
                 bpm_bits: state.export_menu.parsed_bpm().to_bits(),
                 bars: state.export_menu.parsed_bars(),
                 beats_per_bar: state.export_menu.parsed_beats_per_bar(),
@@ -411,7 +415,7 @@ impl GuiApp {
         }
     }
 
-    /// Assign a dropped `.wav` file path into the export audio field.
+    /// Assign a dropped `.wav` file path into the timeline audio slot.
     fn handle_dropped_file(&mut self, path: &Path) {
         if !is_wav_path(path) {
             self.state.export_menu.set_status(format!(
@@ -430,12 +434,12 @@ impl GuiApp {
         self.state.export_menu.preview_total = timeline_frames;
         if let Some(duration_secs) = self.state.export_menu.audio_duration_secs() {
             self.state.export_menu.set_status(format!(
-                "Audio WAV assigned: {} ({duration_secs:.2}s)",
+                "Timeline WAV assigned: {} ({duration_secs:.2}s)",
                 path.display()
             ));
         } else {
             self.state.export_menu.set_status(format!(
-                "Audio WAV assigned: {} (duration unavailable)",
+                "Timeline WAV assigned: {} (duration unavailable)",
                 path.display()
             ));
         }
@@ -1138,6 +1142,7 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.pan_drag.is_some()
         || state.right_marquee.is_some()
         || state.timeline_scrub_active
+        || state.timeline_volume_drag_active
         || state.param_edit.is_some()
         || state.param_dropdown.is_some()
         || state.menu.open

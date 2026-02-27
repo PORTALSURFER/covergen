@@ -15,7 +15,7 @@ use crate::gui::state::{
     AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink, HoverParamTarget, InputSnapshot,
     LinkCutState, ParamEditState, PreviewState, WireDragState,
 };
-use crate::gui::timeline::editor_panel_height;
+use crate::gui::timeline::{editor_panel_height, timeline_control_layout, timeline_rect};
 use crate::runtime_config::V2Config;
 
 #[test]
@@ -896,6 +896,46 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
             .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
         Some((pass, 2))
     );
+}
+
+#[test]
+fn timeline_volume_slider_updates_audio_volume() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let input = InputSnapshot {
+        mouse_pos: Some((
+            controls.volume_slider.x + controls.volume_slider.w - 1,
+            controls.volume_slider.y + controls.volume_slider.h / 2,
+        )),
+        left_clicked: true,
+        left_down: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&input, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(consumed);
+    assert!((state.export_menu.parsed_audio_volume() - 2.0).abs() < 0.01);
+}
+
+#[test]
+fn timeline_bpm_buttons_update_bpm() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let initial = state.export_menu.parsed_bpm();
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let input = InputSnapshot {
+        mouse_pos: Some((
+            controls.bpm_up.x + controls.bpm_up.w / 2,
+            controls.bpm_up.y + controls.bpm_up.h / 2,
+        )),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&input, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(consumed);
+    assert!((state.export_menu.parsed_bpm() - (initial + 1.0)).abs() < 0.01);
 }
 
 #[test]

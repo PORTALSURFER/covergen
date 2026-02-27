@@ -33,9 +33,6 @@ const EXPORT_DEFAULT_AUDIO_VOLUME_VALUE: f32 = 1.0;
 pub(crate) enum ExportMenuItem {
     Directory,
     FileName,
-    AudioWav,
-    AudioVolume,
-    Bpm,
     Bars,
     BeatsPerBar,
     Codec,
@@ -43,12 +40,9 @@ pub(crate) enum ExportMenuItem {
     Preview,
 }
 
-const EXPORT_MENU_ITEMS: [ExportMenuItem; 10] = [
+const EXPORT_MENU_ITEMS: [ExportMenuItem; 7] = [
     ExportMenuItem::Directory,
     ExportMenuItem::FileName,
-    ExportMenuItem::AudioWav,
-    ExportMenuItem::AudioVolume,
-    ExportMenuItem::Bpm,
     ExportMenuItem::Bars,
     ExportMenuItem::BeatsPerBar,
     ExportMenuItem::Codec,

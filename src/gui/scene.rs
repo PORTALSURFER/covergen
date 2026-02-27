@@ -7,7 +7,7 @@
 pub(super) mod wire_route;
 
 use std::fmt::Write as _;
-use std::{collections::HashMap, collections::HashSet, sync::Arc};
+use std::{collections::HashMap, collections::HashSet, path::Path, sync::Arc};
 
 use super::geometry::Rect;
 use super::project::{
@@ -22,8 +22,8 @@ use super::state::{
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
 use super::timeline::{
-    editor_panel_height, end_frame, pause_button_rect, play_button_rect, timeline_rect, track_rect,
-    track_x_for_frame, TIMELINE_START_FRAME,
+    editor_panel_height, end_frame, pause_button_rect, play_button_rect, timeline_control_layout,
+    timeline_rect, track_rect, track_x_for_frame, TIMELINE_START_FRAME,
 };
 
 const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
@@ -840,25 +840,6 @@ impl SceneBuilder {
                     menu_label_scratch.push_str("File Name: ");
                     menu_label_scratch.push_str(state.export_menu.file_name.as_str());
                 }
-                ExportMenuItem::AudioWav => {
-                    menu_label_scratch.push_str("Audio WAV: ");
-                    if state.export_menu.audio_wav.trim().is_empty() {
-                        menu_label_scratch.push_str("(none)");
-                    } else {
-                        menu_label_scratch.push_str(state.export_menu.audio_wav.as_str());
-                    }
-                }
-                ExportMenuItem::AudioVolume => {
-                    let _ = write!(
-                        &mut menu_label_scratch,
-                        "Audio Volume: {:.2}",
-                        state.export_menu.parsed_audio_volume()
-                    );
-                }
-                ExportMenuItem::Bpm => {
-                    menu_label_scratch.push_str("Timeline BPM: ");
-                    menu_label_scratch.push_str(state.export_menu.bpm.as_str());
-                }
                 ExportMenuItem::Bars => {
                     menu_label_scratch.push_str("Timeline Bars: ");
                     menu_label_scratch.push_str(state.export_menu.bars.as_str());
@@ -981,6 +962,7 @@ impl SceneBuilder {
         let play_btn = play_button_rect(timeline);
         let pause_btn = pause_button_rect(timeline);
         let track = track_rect(timeline);
+        let controls = timeline_control_layout(timeline);
         let total_frames = state.export_menu.timeline_total_frames(timeline_fps);
         let end_frame = end_frame(total_frames);
         self.push_rect(timeline, TIMELINE_BG);
@@ -1047,23 +1029,98 @@ impl SceneBuilder {
 
         let mut label = std::mem::take(&mut self.label_scratch);
         label.clear();
-        let bars_label = if let Some(audio_bars) = state.export_menu.derived_bars_from_audio() {
-            format!("{audio_bars:.2} bars (wav)")
-        } else {
-            format!("{} bars", state.export_menu.parsed_bars())
-        };
         let _ = write!(
             &mut label,
-            "Frame {}  [{}, {}]  |  {:.2} BPM x {} ({} / bar)  |  vol {:.2}",
+            "Frame {}  [{}, {}]  |  bars {} ({} / bar)",
             state.frame_index,
             TIMELINE_START_FRAME,
             end_frame,
-            state.export_menu.parsed_bpm(),
-            bars_label,
+            state.export_menu.parsed_bars(),
             state.export_menu.parsed_beats_per_bar(),
-            state.export_menu.parsed_audio_volume()
         );
         self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
+
+        self.push_rect(controls.wav_drop, TIMELINE_TRACK_BG);
+        self.push_border(controls.wav_drop, TIMELINE_BORDER);
+        label.clear();
+        if state.export_menu.audio_wav.trim().is_empty() {
+            label.push_str("Drop WAV file here");
+        } else {
+            let display = Path::new(state.export_menu.audio_wav.trim())
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_else(|| state.export_menu.audio_wav.trim());
+            label.push_str(display);
+        }
+        self.push_text(
+            controls.wav_drop.x + 4,
+            controls.wav_drop.y + 3,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
+
+        self.push_rect(controls.volume_slider, TIMELINE_TRACK_BG);
+        self.push_border(controls.volume_slider, TIMELINE_BORDER);
+        let slider_track = Rect::new(
+            controls.volume_slider.x + 6,
+            controls.volume_slider.y + controls.volume_slider.h - 8,
+            (controls.volume_slider.w - 12).max(8),
+            4,
+        );
+        self.push_rect(slider_track, TIMELINE_TRACK_BG);
+        self.push_border(slider_track, TIMELINE_BORDER);
+        let volume = state.export_menu.parsed_audio_volume();
+        let volume_t = (volume / 2.0).clamp(0.0, 1.0);
+        let fill_w = ((slider_track.w - 1) as f32 * volume_t).round() as i32 + 1;
+        self.push_rect(
+            Rect::new(
+                slider_track.x,
+                slider_track.y,
+                fill_w.clamp(1, slider_track.w),
+                slider_track.h,
+            ),
+            TIMELINE_TRACK_FILL,
+        );
+        let thumb_x = slider_track.x + ((slider_track.w - 1) as f32 * volume_t).round() as i32;
+        self.push_rect(
+            Rect::new(thumb_x - 1, slider_track.y - 3, 3, slider_track.h + 6),
+            TIMELINE_TEXT,
+        );
+        label.clear();
+        let _ = write!(&mut label, "VOL {:.2}", volume);
+        self.push_text(
+            controls.volume_slider.x + 4,
+            controls.volume_slider.y + 2,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
+
+        self.push_rect(controls.bpm_down, TIMELINE_BTN_IDLE);
+        self.push_border(controls.bpm_down, TIMELINE_BORDER);
+        self.push_text(
+            controls.bpm_down.x + 6,
+            controls.bpm_down.y + 3,
+            "-",
+            TIMELINE_TEXT,
+        );
+        self.push_rect(controls.bpm_value, TIMELINE_TRACK_BG);
+        self.push_border(controls.bpm_value, TIMELINE_BORDER);
+        label.clear();
+        let _ = write!(&mut label, "BPM {:.2}", state.export_menu.parsed_bpm());
+        self.push_text(
+            controls.bpm_value.x + 4,
+            controls.bpm_value.y + 3,
+            label.as_str(),
+            TIMELINE_TEXT,
+        );
+        self.push_rect(controls.bpm_up, TIMELINE_BTN_IDLE);
+        self.push_border(controls.bpm_up, TIMELINE_BORDER);
+        self.push_text(
+            controls.bpm_up.x + 6,
+            controls.bpm_up.y + 3,
+            "+",
+            TIMELINE_TEXT,
+        );
         self.label_scratch = label;
     }
 
