@@ -678,10 +678,12 @@ impl SceneBuilder {
             MENU_TEXT,
         );
         let search_rect = state.menu.search_rect();
-        let search_text = if state.menu.is_category_picker() {
-            "Choose a category"
-        } else if state.menu.query.is_empty() {
-            "Search in category..."
+        let search_text = if state.menu.query.is_empty() {
+            if state.menu.is_category_picker() {
+                "Search categories..."
+            } else {
+                "Search nodes..."
+            }
         } else {
             state.menu.query.as_str()
         };

@@ -1607,9 +1607,14 @@ fn handle_add_menu_input(
     if let Some(hovered) = state.hover_menu_item {
         changed |= state.menu.select_index(hovered);
     }
+    let query_typed = if input.toggle_add_menu {
+        ""
+    } else {
+        input.typed_text.as_str()
+    };
     changed |= state
         .menu
-        .apply_query_input(input.typed_text.as_str(), input.param_backspace);
+        .apply_query_input(query_typed, input.param_backspace);
     if input.param_cancel {
         if state.menu.close_category() {
             return true;

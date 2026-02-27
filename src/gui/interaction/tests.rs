@@ -1177,3 +1177,27 @@ fn add_menu_category_then_secondary_picker_spawns_node() {
     assert_eq!(spawned_lfo, Some((36, 35)));
     assert!(!state.menu.open);
 }
+
+#[test]
+fn add_menu_toggle_shortcut_does_not_seed_query_text() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let mut state = PreviewState::new(&config);
+    let input = InputSnapshot {
+        toggle_add_menu: true,
+        typed_text: "A".to_string(),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        &config,
+        input,
+        &mut project,
+        640,
+        420,
+        480,
+        &mut state
+    ));
+    assert!(state.menu.open);
+    assert!(state.menu.query.is_empty());
+    assert!(state.menu.visible_entry_count() > 1);
+}

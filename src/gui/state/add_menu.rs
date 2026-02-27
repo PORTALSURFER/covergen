@@ -314,9 +314,6 @@ impl AddNodeMenuState {
 
     /// Append search text in secondary picker and optionally remove one char.
     pub(crate) fn apply_query_input(&mut self, typed: &str, backspace: bool) -> bool {
-        if self.active_category.is_none() {
-            return false;
-        }
         let mut changed = false;
         if backspace && !self.query.is_empty() {
             self.query.pop();
@@ -348,11 +345,7 @@ impl AddNodeMenuState {
     /// Ensure cached visible entries match current category/query state.
     fn ensure_visible_cache(&self) {
         let key_category = self.active_category;
-        let key_query = if key_category.is_some() {
-            self.query_norm.as_str()
-        } else {
-            ""
-        };
+        let key_query = self.query_norm.as_str();
         let mut cache = self.visible_cache.borrow_mut();
         if cache.valid && cache.active_category == key_category && cache.query_key == key_query {
             return;
@@ -364,11 +357,15 @@ impl AddNodeMenuState {
         cache.option_indices.clear();
         cache.entries.clear();
         let Some(category) = key_category else {
-            cache.entries.extend(
-                ADD_NODE_CATEGORIES
-                    .into_iter()
-                    .map(AddNodeMenuEntry::Category),
-            );
+            cache
+                .entries
+                .extend(ADD_NODE_CATEGORIES.into_iter().filter_map(|candidate| {
+                    if key_query.is_empty() || category_matches_query(candidate, key_query) {
+                        Some(AddNodeMenuEntry::Category(candidate))
+                    } else {
+                        None
+                    }
+                }));
             return;
         };
         cache.entries.push(AddNodeMenuEntry::Back);
@@ -401,10 +398,37 @@ fn category_count() -> usize {
 
 fn option_matches_query(option: AddNodeOption, query: &str) -> bool {
     let label = option.label().to_lowercase();
-    if label.contains(query) {
+    if fuzzy_query_match(label.as_str(), query) {
         return true;
     }
-    option.category.label().to_lowercase().contains(query)
+    fuzzy_query_match(option.category.label().to_lowercase().as_str(), query)
+}
+
+fn category_matches_query(category: AddNodeCategory, query: &str) -> bool {
+    fuzzy_query_match(category.label().to_lowercase().as_str(), query)
+}
+
+fn fuzzy_query_match(text: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    if text.contains(query) {
+        return true;
+    }
+    let mut query_chars = query.chars().filter(|ch| !ch.is_whitespace());
+    let Some(mut needle) = query_chars.next() else {
+        return true;
+    };
+    for hay in text.chars() {
+        if hay == needle {
+            if let Some(next) = query_chars.next() {
+                needle = next;
+            } else {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -460,6 +484,34 @@ mod tests {
         assert_eq!(
             super::ADD_NODE_OPTIONS[option_index].kind,
             ProjectNodeKind::BufNoise
+        );
+    }
+
+    #[test]
+    fn category_stage_query_filters_categories() {
+        let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
+        assert!(menu.is_category_picker());
+        assert!(menu.apply_query_input("tex", false));
+        assert_eq!(menu.visible_entry_count(), 1);
+        assert!(matches!(
+            menu.visible_entry(0),
+            Some(AddNodeMenuEntry::Category(AddNodeCategory::Texture))
+        ));
+    }
+
+    #[test]
+    fn option_stage_query_uses_fuzzy_matching() {
+        let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
+        assert!(menu.open_category(AddNodeCategory::Texture));
+        assert!(menu.apply_query_input("txfb", false));
+        let entries: Vec<_> = (0..menu.visible_entry_count())
+            .filter_map(|index| menu.visible_entry(index))
+            .collect();
+        assert!(entries.contains(&AddNodeMenuEntry::Back));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| matches!(entry, AddNodeMenuEntry::Option(option_index) if super::ADD_NODE_OPTIONS[*option_index].kind == ProjectNodeKind::TexFeedback))
         );
     }
 }
