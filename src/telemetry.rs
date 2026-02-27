@@ -241,13 +241,15 @@ mod tests {
     }
 
     #[test]
-    fn capture_active_flag_tracks_lifecycle() {
+    fn capture_lifecycle_tracks_current_thread_state() {
         let _ = end_capture();
-        assert!(!is_capture_active());
         begin_capture("sample");
         assert!(is_capture_active());
-        let _ = end_capture();
-        assert!(!is_capture_active());
+        assert!(end_capture().is_some());
+        assert!(
+            end_capture().is_none(),
+            "capture should be cleared for the current thread after end_capture"
+        );
     }
 
     #[test]

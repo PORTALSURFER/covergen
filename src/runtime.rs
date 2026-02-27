@@ -7,9 +7,9 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::Path;
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::gpu_render::GpuLayerRenderer;
 use crate::image_ops::{encode_png_bytes, resolve_output_path, save_png_under_10mb};
@@ -90,9 +90,28 @@ struct FrameDirEncodeWorker {
     join_handle: JoinHandle<Result<(), String>>,
 }
 
+const FRAME_DIR_QUEUE_CAPACITY: usize = 8;
+const FRAME_DIR_SEND_RETRY_SLEEP_MS: u64 = 2;
+const FRAME_DIR_SEND_MAX_WAIT_MS: u64 = 1_500;
+
+#[derive(Clone, Copy, Debug)]
+struct FrameDirSendPolicy {
+    retry_sleep: Duration,
+    max_wait: Duration,
+}
+
+impl FrameDirSendPolicy {
+    fn default_policy() -> Self {
+        Self {
+            retry_sleep: Duration::from_millis(FRAME_DIR_SEND_RETRY_SLEEP_MS),
+            max_wait: Duration::from_millis(FRAME_DIR_SEND_MAX_WAIT_MS),
+        }
+    }
+}
+
 impl FrameDirEncodeWorker {
     fn spawn(dir: std::path::PathBuf, width: u32, height: u32) -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(8);
+        let (sender, receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(FRAME_DIR_QUEUE_CAPACITY);
         let join_handle = thread::spawn(move || -> Result<(), String> {
             while let Ok((frame_index, gray)) = receiver.recv() {
                 let encoded = encode_png_bytes(width, height, &gray, CompressionType::Fast)
@@ -109,9 +128,11 @@ impl FrameDirEncodeWorker {
     }
 
     fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
-        self.sender
-            .send((frame_index, frame))
-            .map_err(|_| "frame-dir worker channel closed unexpectedly".into())
+        submit_frame_dir_with_backpressure(
+            &self.sender,
+            (frame_index, frame),
+            FrameDirSendPolicy::default_policy(),
+        )
     }
 
     fn finish(self) -> Result<(), Box<dyn Error>> {
@@ -124,6 +145,61 @@ impl FrameDirEncodeWorker {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(err.into()),
             Err(_) => Err("frame-dir encode worker panicked".into()),
+        }
+    }
+}
+
+/// Submit one frame-dir worker payload with bounded backpressure retries.
+///
+/// This keeps the producer thread responsive under encoder stalls while
+/// preserving deterministic failure behavior after a configured timeout.
+fn submit_frame_dir_with_backpressure(
+    sender: &SyncSender<(u32, Vec<u8>)>,
+    payload: (u32, Vec<u8>),
+    policy: FrameDirSendPolicy,
+) -> Result<(), Box<dyn Error>> {
+    let submit_start = Instant::now();
+    let mut retries = 0u32;
+    let mut payload = payload;
+    loop {
+        match sender.try_send(payload) {
+            Ok(()) => {
+                if retries > 0 {
+                    let waited = submit_start.elapsed();
+                    telemetry::record_counter_u64("v2.export.frame_dir.submit_stall_events", 1);
+                    telemetry::record_counter_u64(
+                        "v2.export.frame_dir.submit_stall_retries",
+                        retries as u64,
+                    );
+                    telemetry::record_timing("v2.export.frame_dir.submit_stall_wait", waited);
+                }
+                return Ok(());
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                telemetry::record_counter_u64("v2.export.frame_dir.submit_disconnected", 1);
+                return Err("frame-dir worker channel closed unexpectedly".into());
+            }
+            Err(TrySendError::Full(returned)) => {
+                payload = returned;
+                retries = retries.saturating_add(1);
+                let waited = submit_start.elapsed();
+                if waited >= policy.max_wait {
+                    telemetry::record_counter_u64("v2.export.frame_dir.submit_timeouts", 1);
+                    telemetry::record_counter_u64(
+                        "v2.export.frame_dir.submit_timeout_retries",
+                        retries as u64,
+                    );
+                    telemetry::record_timing("v2.export.frame_dir.submit_timeout_wait", waited);
+                    return Err(format!(
+                        "frame-dir worker backpressure timeout after {} ms (retries={}, queue_capacity={})",
+                        waited.as_millis(),
+                        retries,
+                        FRAME_DIR_QUEUE_CAPACITY
+                    )
+                    .into());
+                }
+                thread::sleep(policy.retry_sleep);
+            }
         }
     }
 }
@@ -599,10 +675,14 @@ pub(crate) fn apply_motion_temporal_constraints(
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_encode_worker, ClipEncodeWorker, FrameDirEncodeWorker, StreamFrameFormat,
+        complete_encode_worker, submit_frame_dir_with_backpressure, ClipEncodeWorker,
+        FrameDirEncodeWorker, FrameDirSendPolicy, StreamFrameFormat, FRAME_DIR_QUEUE_CAPACITY,
     };
     use crate::animation::frame_filename;
     use std::io::Error as IoError;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -673,5 +753,58 @@ mod tests {
             message.contains("encoder finalization failed"),
             "finalization failure context should be included"
         );
+    }
+
+    #[test]
+    fn frame_dir_backpressure_timeout_is_bounded_with_deterministic_error() {
+        let (sender, _receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(FRAME_DIR_QUEUE_CAPACITY);
+        for index in 0..FRAME_DIR_QUEUE_CAPACITY {
+            sender
+                .try_send((index as u32, vec![0u8]))
+                .expect("queue should fill without blocking");
+        }
+        let policy = FrameDirSendPolicy {
+            retry_sleep: Duration::from_millis(1),
+            max_wait: Duration::from_millis(8),
+        };
+        let begin = Instant::now();
+        let err = submit_frame_dir_with_backpressure(&sender, (99, vec![0u8]), policy)
+            .expect_err("full queue should hit bounded timeout");
+        let elapsed = begin.elapsed();
+        let message = err.to_string();
+        assert!(
+            message.contains("backpressure timeout"),
+            "timeout message should be deterministic"
+        );
+        assert!(
+            message.contains("queue_capacity=8"),
+            "timeout message should include capacity context"
+        );
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "backpressure timeout should stay bounded; elapsed={elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn frame_dir_backpressure_retries_then_succeeds_when_consumer_unblocks() {
+        let (sender, receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(FRAME_DIR_QUEUE_CAPACITY);
+        for index in 0..FRAME_DIR_QUEUE_CAPACITY {
+            sender
+                .try_send((index as u32, vec![0u8]))
+                .expect("queue should fill without blocking");
+        }
+        let drain_thread = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(10));
+            let _ = receiver.recv();
+            thread::sleep(Duration::from_millis(50));
+        });
+        let policy = FrameDirSendPolicy {
+            retry_sleep: Duration::from_millis(1),
+            max_wait: Duration::from_millis(200),
+        };
+        submit_frame_dir_with_backpressure(&sender, (123, vec![0u8]), policy)
+            .expect("submit should succeed after consumer drains one slot");
+        let _ = drain_thread.join();
     }
 }
