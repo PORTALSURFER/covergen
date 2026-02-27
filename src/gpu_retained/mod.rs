@@ -36,6 +36,19 @@ pub(super) struct RetainedFinalizeParams {
     pub(super) fast_mode: u32,
 }
 
+/// User-controlled settings for final retained-output readback.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FinalReadbackSettings {
+    /// Output contrast scaling after histogram stretch.
+    pub(crate) contrast: f32,
+    /// Lower percentile clamp for histogram stretch.
+    pub(crate) low_pct: f32,
+    /// Upper percentile clamp for histogram stretch.
+    pub(crate) high_pct: f32,
+    /// Enable fast finalize path.
+    pub(crate) fast_mode: bool,
+}
+
 /// GPU resources used to retain and finalize layer output without intermediate readbacks.
 #[derive(Debug)]
 pub(crate) struct RetainedGpuPost {
@@ -53,7 +66,6 @@ pub(crate) struct RetainedGpuPost {
     final_output_buffer: wgpu::Buffer,
     #[allow(dead_code)]
     staging_buffer: wgpu::Buffer,
-    final_staging_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
     output_width: u32,
@@ -116,7 +128,6 @@ impl RetainedGpuPost {
             finalize_uniform: setup.finalize_uniform,
             final_output_buffer: setup.final_output_buffer,
             staging_buffer: setup.staging_buffer,
-            final_staging_buffer: setup.final_staging_buffer,
             width,
             height,
             output_width,
@@ -246,25 +257,23 @@ impl RetainedGpuPost {
         Ok(())
     }
 
-    /// Run final contrast/stretch/downsample on GPU and map final grayscale output.
-    pub(crate) fn begin_final_readback(
+    /// Run final GPU passes and map readback data into one caller-provided staging buffer.
+    pub(crate) fn begin_final_readback_into(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        contrast: f32,
-        low_pct: f32,
-        high_pct: f32,
-        fast_mode: bool,
+        staging_buffer: &wgpu::Buffer,
+        settings: FinalReadbackSettings,
     ) -> Receiver<Result<(), wgpu::BufferAsyncError>> {
         let finalize = RetainedFinalizeParams {
             src_width: self.width,
             src_height: self.height,
             dst_width: self.output_width,
             dst_height: self.output_height,
-            contrast: contrast.clamp(1.0, 3.0),
-            low_pct: low_pct.clamp(0.0, 1.0),
-            high_pct: high_pct.clamp(0.0, 1.0),
-            fast_mode: u32::from(fast_mode),
+            contrast: settings.contrast.clamp(1.0, 3.0),
+            low_pct: settings.low_pct.clamp(0.0, 1.0),
+            high_pct: settings.high_pct.clamp(0.0, 1.0),
+            fast_mode: u32::from(settings.fast_mode),
         };
         queue.write_buffer(&self.finalize_uniform, 0, bytemuck::bytes_of(&finalize));
 
@@ -354,18 +363,19 @@ impl RetainedGpuPost {
         encoder.copy_buffer_to_buffer(
             &self.final_output_buffer,
             0,
-            &self.final_staging_buffer,
+            staging_buffer,
             0,
             (self.expected_output_pixels() * std::mem::size_of::<u32>()) as u64,
         );
         queue.submit(Some(encoder.finish()));
 
-        map_buffer_async(&self.final_staging_buffer)
+        map_buffer_async(staging_buffer)
     }
 
-    /// Copy mapped GPU-finalized grayscale output bytes into `out_gray`.
-    pub(crate) fn finish_final_readback_gray(
+    /// Copy mapped grayscale output bytes from one caller-provided final staging buffer.
+    pub(crate) fn finish_final_readback_gray_from(
         &self,
+        staging_buffer: &wgpu::Buffer,
         out_gray: &mut [u8],
     ) -> Result<(), Box<dyn Error>> {
         if out_gray.len() != self.expected_output_pixels() {
@@ -373,7 +383,7 @@ impl RetainedGpuPost {
                 "output gray buffer length does not match configured output dimensions".into(),
             );
         }
-        let slice = self.final_staging_buffer.slice(..);
+        let slice = staging_buffer.slice(..);
         {
             let raw = slice.get_mapped_range();
             let mapped: &[u32] = bytemuck::cast_slice(&raw);
@@ -381,13 +391,14 @@ impl RetainedGpuPost {
                 *dst = (*src & 255u32) as u8;
             }
         }
-        self.final_staging_buffer.unmap();
+        staging_buffer.unmap();
         Ok(())
     }
 
-    /// Copy mapped GPU-finalized output into BGRA bytes.
-    pub(crate) fn finish_final_readback_bgra(
+    /// Copy mapped BGRA output bytes from one caller-provided final staging buffer.
+    pub(crate) fn finish_final_readback_bgra_from(
         &self,
+        staging_buffer: &wgpu::Buffer,
         out_bgra: &mut [u8],
     ) -> Result<(), Box<dyn Error>> {
         let expected_bytes = self.expected_output_pixels().saturating_mul(4);
@@ -396,7 +407,7 @@ impl RetainedGpuPost {
                 "output BGRA buffer length does not match configured output dimensions".into(),
             );
         }
-        let slice = self.final_staging_buffer.slice(..);
+        let slice = staging_buffer.slice(..);
         {
             let raw = slice.get_mapped_range();
             let mapped: &[u32] = bytemuck::cast_slice(&raw);
@@ -408,7 +419,7 @@ impl RetainedGpuPost {
                 dst[3] = 255;
             }
         }
-        self.final_staging_buffer.unmap();
+        staging_buffer.unmap();
         Ok(())
     }
 

@@ -20,7 +20,6 @@ pub(super) struct RetainedSetup {
     pub(super) finalize_uniform: wgpu::Buffer,
     pub(super) final_output_buffer: wgpu::Buffer,
     pub(super) staging_buffer: wgpu::Buffer,
-    pub(super) final_staging_buffer: wgpu::Buffer,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,12 +58,6 @@ pub(super) fn build_setup(
         label: Some("retained final output"),
         size: output_bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let final_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("retained final staging"),
-        size: output_bytes,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
     let histogram_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -183,7 +176,6 @@ pub(super) fn build_setup(
         finalize_uniform,
         final_output_buffer,
         staging_buffer,
-        final_staging_buffer,
     })
 }
 

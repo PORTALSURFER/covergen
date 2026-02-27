@@ -4,8 +4,11 @@
 //! animation frame encoding. Node evaluation logic lives in `runtime_eval`
 //! (test-only CPU validation path) and `runtime_gpu` (retained GPU path).
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::path::Path;
+use std::sync::mpsc::{self, SyncSender};
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use crate::gpu_render::GpuLayerRenderer;
@@ -38,6 +41,165 @@ pub(crate) struct RuntimeBuffers {
     pub downsample_scratch: Vec<u8>,
     pub output_gray: Vec<u8>,
     pub output_bgra: Vec<u8>,
+}
+
+/// Final retained-output settings derived from profile.
+#[derive(Clone, Copy, Debug)]
+struct FinalizeOutputSettings {
+    contrast: f32,
+    low_pct: f32,
+    high_pct: f32,
+    fast_mode: bool,
+}
+
+#[derive(Debug)]
+enum StreamFrameJob {
+    Gray(Vec<u8>),
+    Bgra(Vec<u8>),
+}
+
+#[derive(Debug)]
+struct StreamEncodeWorker {
+    frame_format: StreamFrameFormat,
+    sender: SyncSender<StreamFrameJob>,
+    join_handle: JoinHandle<Result<(), String>>,
+}
+
+impl StreamEncodeWorker {
+    fn spawn(mut encoder: RawVideoEncoder) -> Self {
+        let frame_format = encoder.frame_format();
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let join_handle = thread::spawn(move || -> Result<(), String> {
+            while let Ok(job) = receiver.recv() {
+                match job {
+                    StreamFrameJob::Gray(frame) => encoder
+                        .write_gray_frame(&frame)
+                        .map_err(|err| err.to_string())?,
+                    StreamFrameJob::Bgra(frame) => encoder
+                        .write_bgra_frame(&frame)
+                        .map_err(|err| err.to_string())?,
+                }
+            }
+            encoder.finish().map_err(|err| err.to_string())
+        });
+        Self {
+            frame_format,
+            sender,
+            join_handle,
+        }
+    }
+
+    fn submit_gray(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        if self.frame_format != StreamFrameFormat::Gray8 {
+            return Err("stream worker expects BGRA frames, not grayscale".into());
+        }
+        self.sender
+            .send(StreamFrameJob::Gray(frame))
+            .map_err(|_| "stream worker channel closed unexpectedly".into())
+    }
+
+    fn submit_bgra(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        if self.frame_format != StreamFrameFormat::Bgra8 {
+            return Err("stream worker expects grayscale frames, not BGRA".into());
+        }
+        self.sender
+            .send(StreamFrameJob::Bgra(frame))
+            .map_err(|_| "stream worker channel closed unexpectedly".into())
+    }
+
+    fn finish(self) -> Result<(), Box<dyn Error>> {
+        let StreamEncodeWorker {
+            sender,
+            join_handle,
+            ..
+        } = self;
+        drop(sender);
+        match join_handle.join() {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(_) => Err("stream encode worker panicked".into()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FrameDirEncodeWorker {
+    sender: SyncSender<(u32, Vec<u8>)>,
+    join_handle: JoinHandle<Result<(), String>>,
+}
+
+impl FrameDirEncodeWorker {
+    fn spawn(dir: std::path::PathBuf, width: u32, height: u32) -> Self {
+        let (sender, receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(8);
+        let join_handle = thread::spawn(move || -> Result<(), String> {
+            while let Ok((frame_index, gray)) = receiver.recv() {
+                let encoded = encode_png_bytes(width, height, &gray, CompressionType::Fast)
+                    .map_err(|err| err.to_string())?;
+                let frame_path = dir.join(frame_filename(frame_index));
+                std::fs::write(frame_path, encoded).map_err(|err| err.to_string())?;
+            }
+            Ok(())
+        });
+        Self {
+            sender,
+            join_handle,
+        }
+    }
+
+    fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        self.sender
+            .send((frame_index, frame))
+            .map_err(|_| "frame-dir worker channel closed unexpectedly".into())
+    }
+
+    fn finish(self) -> Result<(), Box<dyn Error>> {
+        let FrameDirEncodeWorker {
+            sender,
+            join_handle,
+        } = self;
+        drop(sender);
+        match join_handle.join() {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err.into()),
+            Err(_) => Err("frame-dir encode worker panicked".into()),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ClipEncodeWorker {
+    Stream(StreamEncodeWorker),
+    FrameDir(FrameDirEncodeWorker),
+}
+
+impl ClipEncodeWorker {
+    fn frame_format(&self) -> StreamFrameFormat {
+        match self {
+            Self::Stream(worker) => worker.frame_format,
+            Self::FrameDir(_) => StreamFrameFormat::Gray8,
+        }
+    }
+
+    fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Stream(worker) => worker.submit_gray(frame),
+            Self::FrameDir(worker) => worker.submit_gray(frame_index, frame),
+        }
+    }
+
+    fn submit_bgra(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Stream(worker) => worker.submit_bgra(frame),
+            Self::FrameDir(_) => Err("frame-dir worker accepts grayscale frames only".into()),
+        }
+    }
+
+    fn finish(self) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Stream(worker) => worker.finish(),
+            Self::FrameDir(worker) => worker.finish(),
+        }
+    }
 }
 
 /// Execute a compiled graph for all requested output images.
@@ -153,6 +315,8 @@ fn execute_animation(
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
     let frames = total_frames(&config.animation);
+    let finalize_settings = finalize_output_settings(config);
+    let readback_capacity = renderer.retained_output_readback_capacity().max(1);
     print_animation_progress(0, frames, 0.0, config.count, 0);
     for clip_index in 0..config.count {
         let clip_start = Instant::now();
@@ -163,23 +327,27 @@ fn execute_animation(
             None
         };
         let clip_path = clip_output_path(&config.output, clip_index, config.count);
-        let mut stream_encoder = if frame_dir.is_none() {
-            Some(RawVideoEncoder::spawn(
+        let encode_worker = if let Some(dir) = frame_dir.as_ref() {
+            ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(
+                dir.clone(),
+                config.width,
+                config.height,
+            ))
+        } else {
+            let encoder = RawVideoEncoder::spawn(
                 config.width,
                 config.height,
                 config.animation.fps,
                 &clip_path,
-            )?)
-        } else {
-            None
-        };
-        if let Some(encoder) = stream_encoder.as_ref() {
+            )?;
             println!(
                 "[v2] stream export frame format {:?} | data path {:?} | zero-readback active: false (planned target architecture)",
                 encoder.frame_format(),
                 encoder.data_path()
             );
-        }
+            ClipEncodeWorker::Stream(StreamEncodeWorker::spawn(encoder))
+        };
+        let mut pending_frame_indices = VecDeque::with_capacity(readback_capacity + 1);
         let clip_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
@@ -201,23 +369,22 @@ fn execute_animation(
                     .with_intensity(modulation_intensity),
                 motion,
             );
-
-            if let Some(encoder) = stream_encoder.as_mut() {
-                render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
-                write_stream_frame(config, renderer, buffers, encoder)?;
-            } else if let Some(dir) = frame_dir.as_ref() {
-                render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
-                finalize_luma_for_output(config, renderer, buffers)?;
-                let encoded = encode_png_bytes(
-                    config.width,
-                    config.height,
-                    &buffers.output_gray,
-                    CompressionType::Fast,
+            render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
+            renderer.submit_retained_output_readback(
+                finalize_settings.contrast,
+                finalize_settings.low_pct,
+                finalize_settings.high_pct,
+                finalize_settings.fast_mode,
+            )?;
+            pending_frame_indices.push_back(frame_index);
+            while renderer.pending_retained_output_readbacks() >= readback_capacity {
+                drain_one_queued_export_frame(
+                    renderer,
+                    &encode_worker,
+                    &mut pending_frame_indices,
+                    buffers.output_gray.len(),
+                    buffers.output_bgra.len(),
                 )?;
-                let frame_path = dir.join(frame_filename(frame_index));
-                std::fs::write(frame_path, encoded)?;
-            } else {
-                return Err("animation encoder path is not configured".into());
             }
             let frame_elapsed = frame_start.elapsed();
             telemetry::record_timing("v2.animation.frame.total", frame_elapsed);
@@ -230,17 +397,26 @@ fn execute_animation(
                 clip_index,
             );
         }
+        while renderer.pending_retained_output_readbacks() > 0 {
+            drain_one_queued_export_frame(
+                renderer,
+                &encode_worker,
+                &mut pending_frame_indices,
+                buffers.output_gray.len(),
+                buffers.output_bgra.len(),
+            )?;
+        }
+        if !pending_frame_indices.is_empty() {
+            return Err("internal export pipeline mismatch: frame index queue not drained".into());
+        }
         finish_animation_progress_line();
+        encode_worker.finish()?;
 
-        if let Some(encoder) = stream_encoder {
-            encoder.finish()?;
-        } else if let Some(dir) = frame_dir.as_ref() {
+        if let Some(dir) = frame_dir.as_ref() {
             encode_frames_to_mp4(dir, config.animation.fps, &clip_path)?;
             if !config.animation.keep_frames {
                 std::fs::remove_dir_all(dir)?;
             }
-        } else {
-            return Err("animation finalize path is not configured".into());
         }
 
         println!(
@@ -257,23 +433,57 @@ fn execute_animation(
     Ok(())
 }
 
-fn write_stream_frame(
-    config: &V2Config,
+fn drain_one_queued_export_frame(
     renderer: &mut GpuLayerRenderer,
-    buffers: &mut RuntimeBuffers,
-    encoder: &mut RawVideoEncoder,
+    worker: &ClipEncodeWorker,
+    pending_frame_indices: &mut VecDeque<u32>,
+    gray_bytes: usize,
+    bgra_bytes: usize,
 ) -> Result<(), Box<dyn Error>> {
-    match encoder.frame_format() {
+    let frame_index = pending_frame_indices
+        .pop_front()
+        .ok_or("queued readback had no matching frame index")?;
+    let finalize_start = Instant::now();
+    match worker.frame_format() {
         StreamFrameFormat::Gray8 => {
-            finalize_luma_for_output(config, renderer, buffers)?;
-            encoder.write_gray_frame(&buffers.output_gray)?;
+            let mut frame = vec![0u8; gray_bytes];
+            renderer.collect_retained_output_gray_queued(&mut frame)?;
+            telemetry::record_timing(
+                "v2.gpu.node.finalize_retained_output",
+                finalize_start.elapsed(),
+            );
+            worker.submit_gray(frame_index, frame)?;
         }
         StreamFrameFormat::Bgra8 => {
-            finalize_bgra_for_output(config, renderer, buffers)?;
-            encoder.write_bgra_frame(&buffers.output_bgra)?;
+            let mut frame = vec![0u8; bgra_bytes];
+            renderer.collect_retained_output_bgra_queued(&mut frame)?;
+            telemetry::record_timing(
+                "v2.gpu.node.finalize_retained_output",
+                finalize_start.elapsed(),
+            );
+            worker.submit_bgra(frame)?;
         }
     }
     Ok(())
+}
+
+fn finalize_output_settings(config: &V2Config) -> FinalizeOutputSettings {
+    let contrast = match config.profile {
+        V2Profile::Quality => 1.45,
+        V2Profile::Performance => 1.25,
+    };
+    let low_pct = if matches!(config.profile, V2Profile::Performance) {
+        0.02
+    } else {
+        0.01
+    };
+    let fast_mode = matches!(config.profile, V2Profile::Performance);
+    FinalizeOutputSettings {
+        contrast,
+        low_pct,
+        high_pct: 0.99,
+        fast_mode,
+    }
 }
 
 /// Run final retained-output post-processing and copy grayscale output bytes.
@@ -282,56 +492,14 @@ pub(crate) fn finalize_luma_for_output(
     renderer: &mut GpuLayerRenderer,
     buffers: &mut RuntimeBuffers,
 ) -> Result<(), Box<dyn Error>> {
-    let final_contrast = match config.profile {
-        V2Profile::Quality => 1.45,
-        V2Profile::Performance => 1.25,
-    };
-    let low_pct = if matches!(config.profile, V2Profile::Performance) {
-        0.02
-    } else {
-        0.01
-    };
-    let fast_mode = matches!(config.profile, V2Profile::Performance);
-
+    let settings = finalize_output_settings(config);
     let retained_finalize_start = Instant::now();
     renderer.collect_retained_output_gray(
         &mut buffers.output_gray,
-        final_contrast,
-        low_pct,
-        0.99,
-        fast_mode,
-    )?;
-    telemetry::record_timing(
-        "v2.gpu.node.finalize_retained_output",
-        retained_finalize_start.elapsed(),
-    );
-    Ok(())
-}
-
-/// Run final retained-output post-processing and copy BGRA output bytes.
-pub(crate) fn finalize_bgra_for_output(
-    config: &V2Config,
-    renderer: &mut GpuLayerRenderer,
-    buffers: &mut RuntimeBuffers,
-) -> Result<(), Box<dyn Error>> {
-    let final_contrast = match config.profile {
-        V2Profile::Quality => 1.45,
-        V2Profile::Performance => 1.25,
-    };
-    let low_pct = if matches!(config.profile, V2Profile::Performance) {
-        0.02
-    } else {
-        0.01
-    };
-    let fast_mode = matches!(config.profile, V2Profile::Performance);
-
-    let retained_finalize_start = Instant::now();
-    renderer.collect_retained_output_bgra(
-        &mut buffers.output_bgra,
-        final_contrast,
-        low_pct,
-        0.99,
-        fast_mode,
+        settings.contrast,
+        settings.low_pct,
+        settings.high_pct,
+        settings.fast_mode,
     )?;
     telemetry::record_timing(
         "v2.gpu.node.finalize_retained_output",

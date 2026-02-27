@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use crate::gpu_retained::RetainedGpuPost;
+use crate::gpu_retained::{FinalReadbackSettings, RetainedGpuPost};
 use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 use crate::image_ops::decode_luma;
 use crate::model::Params;
@@ -17,6 +17,8 @@ use graph_ops::GpuGraphOps;
 
 /// Default timeout used while waiting for mapped GPU buffers.
 const MAP_TIMEOUT: Duration = Duration::from_secs(8);
+/// Number of in-flight retained final-output readbacks allowed during export.
+const FINAL_OUTPUT_READBACK_SLOTS: usize = 3;
 
 /// GPU-backed compute renderer for one fixed output resolution.
 #[derive(Debug)]
@@ -29,12 +31,15 @@ pub(crate) struct GpuLayerRenderer {
     uniform_buffer: wgpu::Buffer,
     #[allow(dead_code)]
     readback_slots: Vec<ReadbackSlot>,
+    final_output_readback_slots: Vec<FinalOutputReadbackSlot>,
     width: u32,
     height: u32,
     output_size: u64,
     pending_readbacks: VecDeque<usize>,
+    pending_final_output_readbacks: VecDeque<usize>,
     #[allow(dead_code)]
     next_readback_slot: usize,
+    next_final_output_readback_slot: usize,
     retained: RetainedGpuPost,
     graph_ops: GpuGraphOps,
     node_layer_temp_buffer: wgpu::Buffer,
@@ -49,6 +54,13 @@ pub(crate) struct GpuLayerRenderer {
 #[derive(Debug)]
 #[allow(dead_code)]
 struct ReadbackSlot {
+    staging_buffer: wgpu::Buffer,
+    pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
+}
+
+/// One slot in the retained final-output readback ring.
+#[derive(Debug)]
+struct FinalOutputReadbackSlot {
     staging_buffer: wgpu::Buffer,
     pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
 }
@@ -114,6 +126,9 @@ impl GpuLayerRenderer {
         let output_size = (width as u64)
             .saturating_mul(height as u64)
             .saturating_mul(std::mem::size_of::<u32>() as u64);
+        let final_output_size = (output_width as u64)
+            .saturating_mul(output_height as u64)
+            .saturating_mul(std::mem::size_of::<u32>() as u64);
         let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output storage"),
             size: output_size,
@@ -136,6 +151,19 @@ impl GpuLayerRenderer {
                 mapped_at_creation: false,
             });
             readback_slots.push(ReadbackSlot {
+                staging_buffer,
+                pending: None,
+            });
+        }
+        let mut final_output_readback_slots = Vec::with_capacity(FINAL_OUTPUT_READBACK_SLOTS);
+        for slot in 0..FINAL_OUTPUT_READBACK_SLOTS {
+            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("retained-final-staging-{slot}")),
+                size: final_output_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            final_output_readback_slots.push(FinalOutputReadbackSlot {
                 staging_buffer,
                 pending: None,
             });
@@ -233,11 +261,14 @@ impl GpuLayerRenderer {
             out_buffer,
             uniform_buffer,
             readback_slots,
+            final_output_readback_slots,
             width,
             height,
             output_size,
             pending_readbacks: VecDeque::with_capacity(2),
+            pending_final_output_readbacks: VecDeque::with_capacity(FINAL_OUTPUT_READBACK_SLOTS),
             next_readback_slot: 0,
+            next_final_output_readback_slot: 0,
             retained,
             graph_ops,
             node_layer_temp_buffer,
@@ -271,40 +302,104 @@ impl GpuLayerRenderer {
         if self.has_pending_layer_readbacks() {
             return Err("cannot collect retained output while layer readback is pending".into());
         }
-        let receiver = self.retained.begin_final_readback(
-            &self.device,
-            &self.queue,
-            contrast,
-            low_pct,
-            high_pct,
-            fast_mode,
-        );
-        self.wait_for_map(receiver)?;
-        self.retained.finish_final_readback_gray(out_gray)
+        self.submit_retained_output_readback(contrast, low_pct, high_pct, fast_mode)?;
+        self.collect_retained_output_gray_queued(out_gray)
     }
 
-    /// Read retained output after on-GPU finalization into BGRA output bytes.
-    pub(crate) fn collect_retained_output_bgra(
+    /// Queue one retained final-output readback into the next available staging slot.
+    pub(crate) fn submit_retained_output_readback(
         &mut self,
-        out_bgra: &mut [u8],
         contrast: f32,
         low_pct: f32,
         high_pct: f32,
         fast_mode: bool,
     ) -> Result<(), Box<dyn Error>> {
-        if self.has_pending_layer_readbacks() {
-            return Err("cannot collect retained output while layer readback is pending".into());
+        if self.pending_final_output_readbacks.len() >= self.final_output_readback_slots.len() {
+            return Err("retained final-output readback queue is full".into());
         }
-        let receiver = self.retained.begin_final_readback(
+        let slot_index =
+            self.next_final_output_readback_slot % self.final_output_readback_slots.len();
+        let slot = self
+            .final_output_readback_slots
+            .get_mut(slot_index)
+            .ok_or("retained final-output slot index out of range")?;
+        if slot.pending.is_some() {
+            return Err("retained final-output slot is unexpectedly busy".into());
+        }
+        let receiver = self.retained.begin_final_readback_into(
             &self.device,
             &self.queue,
-            contrast,
-            low_pct,
-            high_pct,
-            fast_mode,
+            &slot.staging_buffer,
+            FinalReadbackSettings {
+                contrast,
+                low_pct,
+                high_pct,
+                fast_mode,
+            },
         );
+        slot.pending = Some(receiver);
+        self.pending_final_output_readbacks.push_back(slot_index);
+        self.next_final_output_readback_slot =
+            (slot_index + 1) % self.final_output_readback_slots.len();
+        Ok(())
+    }
+
+    /// Collect the oldest queued retained final-output readback as grayscale bytes.
+    pub(crate) fn collect_retained_output_gray_queued(
+        &mut self,
+        out_gray: &mut [u8],
+    ) -> Result<(), Box<dyn Error>> {
+        let slot_index = self.pop_pending_final_output_slot()?;
+        let receiver = {
+            let slot = self
+                .final_output_readback_slots
+                .get_mut(slot_index)
+                .ok_or("retained final-output slot index out of range")?;
+            slot.pending
+                .take()
+                .ok_or("retained final-output slot had no pending map")?
+        };
         self.wait_for_map(receiver)?;
-        self.retained.finish_final_readback_bgra(out_bgra)
+        let slot = self
+            .final_output_readback_slots
+            .get(slot_index)
+            .ok_or("retained final-output slot index out of range")?;
+        self.retained
+            .finish_final_readback_gray_from(&slot.staging_buffer, out_gray)
+    }
+
+    /// Collect the oldest queued retained final-output readback as BGRA bytes.
+    pub(crate) fn collect_retained_output_bgra_queued(
+        &mut self,
+        out_bgra: &mut [u8],
+    ) -> Result<(), Box<dyn Error>> {
+        let slot_index = self.pop_pending_final_output_slot()?;
+        let receiver = {
+            let slot = self
+                .final_output_readback_slots
+                .get_mut(slot_index)
+                .ok_or("retained final-output slot index out of range")?;
+            slot.pending
+                .take()
+                .ok_or("retained final-output slot had no pending map")?
+        };
+        self.wait_for_map(receiver)?;
+        let slot = self
+            .final_output_readback_slots
+            .get(slot_index)
+            .ok_or("retained final-output slot index out of range")?;
+        self.retained
+            .finish_final_readback_bgra_from(&slot.staging_buffer, out_bgra)
+    }
+
+    /// Return queued retained final-output readback count.
+    pub(crate) fn pending_retained_output_readbacks(&self) -> usize {
+        self.pending_final_output_readbacks.len()
+    }
+
+    /// Return retained final-output readback queue capacity.
+    pub(crate) fn retained_output_readback_capacity(&self) -> usize {
+        self.final_output_readback_slots.len()
     }
 
     /// Submit one layer into retained GPU post-processing accumulation.
@@ -472,6 +567,12 @@ impl GpuLayerRenderer {
 
     fn has_pending_layer_readbacks(&self) -> bool {
         !self.pending_readbacks.is_empty()
+    }
+
+    fn pop_pending_final_output_slot(&mut self) -> Result<usize, Box<dyn Error>> {
+        self.pending_final_output_readbacks
+            .pop_front()
+            .ok_or("no retained final-output readback pending".into())
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
