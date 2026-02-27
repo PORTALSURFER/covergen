@@ -879,6 +879,51 @@ impl fmt::Display for PersistedProjectLoadError {
 
 impl std::error::Error for PersistedProjectLoadError {}
 
+/// One non-fatal warning emitted while loading a persisted GUI project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PersistedProjectLoadWarning {
+    /// Persisted source node identifier where the warning originated.
+    pub(crate) persisted_node_id: u32,
+    /// Stable node kind identifier of the warning source node.
+    pub(crate) node_kind: String,
+    /// Persisted parameter key that could not be mapped during load.
+    pub(crate) param_key: String,
+}
+
+impl PersistedProjectLoadWarning {
+    /// Build one warning for a dropped persisted parameter key.
+    pub(crate) fn dropped_param(
+        persisted_node_id: u32,
+        node_kind: impl Into<String>,
+        param_key: impl Into<String>,
+    ) -> Self {
+        Self {
+            persisted_node_id,
+            node_kind: node_kind.into(),
+            param_key: param_key.into(),
+        }
+    }
+}
+
+impl fmt::Display for PersistedProjectLoadWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "dropped unknown persisted param '{}' on node {}#{}",
+            self.param_key, self.node_kind, self.persisted_node_id
+        )
+    }
+}
+
+/// Structured persisted-project load result with non-fatal warnings.
+#[derive(Debug)]
+pub(crate) struct PersistedProjectLoadOutcome {
+    /// Loaded in-memory GUI project.
+    pub(crate) project: GuiProject,
+    /// Non-fatal load warnings collected during migration/mapping.
+    pub(crate) warnings: Vec<PersistedProjectLoadWarning>,
+}
+
 /// One selectable dropdown option for a node parameter.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeParamOption {

@@ -91,12 +91,12 @@ impl GuiProject {
         }
     }
 
-    /// Reconstruct one GUI project from a persisted autosave payload.
-    pub(crate) fn from_persisted(
+    /// Reconstruct one GUI project and collect non-fatal load warnings.
+    pub(crate) fn from_persisted_with_warnings(
         persisted: PersistedGuiProject,
         panel_width: usize,
         panel_height: usize,
-    ) -> Result<Self, PersistedProjectLoadError> {
+    ) -> Result<PersistedProjectLoadOutcome, PersistedProjectLoadError> {
         if persisted.version != PERSISTED_GUI_PROJECT_VERSION {
             return Err(PersistedProjectLoadError::new(format!(
                 "unsupported gui autosave version {}; expected {}",
@@ -111,6 +111,8 @@ impl GuiProject {
         let mut nodes = persisted.nodes;
         nodes.sort_by_key(|node| node.id);
         let mut id_map = HashMap::new();
+        let mut dropped_param_keys = HashSet::new();
+        let mut warnings = Vec::new();
 
         for persisted_node in &nodes {
             let kind =
@@ -141,6 +143,13 @@ impl GuiProject {
                 let Some(slot) = node.params.iter_mut().find(|slot| {
                     persisted_param_key_matches(slot.key, persisted_param.key.as_str(), node.kind)
                 }) else {
+                    push_dropped_param_warning(
+                        &mut dropped_param_keys,
+                        &mut warnings,
+                        persisted_node.id,
+                        node.kind.stable_id(),
+                        persisted_param.key.as_str(),
+                    );
                     continue;
                 };
                 let _ = set_slot_value(slot, persisted_param.value);
@@ -176,6 +185,17 @@ impl GuiProject {
                         )
                     })
                 }) else {
+                    let node_kind = project
+                        .node(target_id)
+                        .map(|node| node.kind.stable_id())
+                        .unwrap_or(persisted_node.kind.as_str());
+                    push_dropped_param_warning(
+                        &mut dropped_param_keys,
+                        &mut warnings,
+                        persisted_node.id,
+                        node_kind,
+                        persisted_param.key.as_str(),
+                    );
                     continue;
                 };
                 let _ = project.connect_signal_link_to_param(source_id, target_id, param_index);
@@ -196,6 +216,17 @@ impl GuiProject {
                         )
                     })
                 }) else {
+                    let node_kind = project
+                        .node(target_id)
+                        .map(|node| node.kind.stable_id())
+                        .unwrap_or(persisted_node.kind.as_str());
+                    push_dropped_param_warning(
+                        &mut dropped_param_keys,
+                        &mut warnings,
+                        persisted_node.id,
+                        node_kind,
+                        persisted_param.key.as_str(),
+                    );
                     continue;
                 };
                 let _ = project.connect_texture_link_to_param(source_id, target_id, param_index);
@@ -204,7 +235,7 @@ impl GuiProject {
 
         project.recount_edges();
         project.invalidate_hit_test_cache();
-        Ok(project)
+        Ok(PersistedProjectLoadOutcome { project, warnings })
     }
 
     /// Return immutable node slice for rendering.
@@ -609,6 +640,24 @@ impl GuiProject {
     pub(super) fn bump_hit_test_scan_count(&self, delta: u64) {
         let next = self.hit_test_scan_count.get().saturating_add(delta);
         self.hit_test_scan_count.set(next);
+    }
+}
+
+/// Push one deduplicated dropped-parameter warning.
+fn push_dropped_param_warning(
+    dropped_param_keys: &mut HashSet<(u32, String)>,
+    warnings: &mut Vec<PersistedProjectLoadWarning>,
+    persisted_node_id: u32,
+    node_kind: &str,
+    param_key: &str,
+) {
+    let key = (persisted_node_id, param_key.to_string());
+    if dropped_param_keys.insert(key) {
+        warnings.push(PersistedProjectLoadWarning::dropped_param(
+            persisted_node_id,
+            node_kind,
+            param_key,
+        ));
     }
 }
 

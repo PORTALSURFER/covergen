@@ -23,7 +23,8 @@ use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
 use super::project::{
-    GuiProject, GuiProjectInvalidation, PersistedGuiProject, ProjectNodeKind, NODE_WIDTH,
+    GuiProject, GuiProjectInvalidation, PersistedGuiProject, PersistedProjectLoadOutcome,
+    PersistedProjectLoadWarning, ProjectNodeKind, NODE_WIDTH,
 };
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
@@ -118,12 +119,13 @@ impl GuiApp {
             GuiProject::new_empty(config.width, config.height)
         } else {
             match load_autosaved_project(panel_width, renderer.height()) {
-                Ok(Some(project)) => {
+                Ok(Some(loaded)) => {
                     println!(
                         "[gui] loaded autosave from {}",
                         autosave_project_path().display()
                     );
-                    project
+                    log_project_load_warnings(autosave_project_path().as_path(), &loaded.warnings);
+                    loaded.project
                 }
                 Ok(None) => GuiProject::new_empty(config.width, config.height),
                 Err(err) => {
@@ -639,15 +641,17 @@ impl GuiApp {
                 };
                 match load_project_file(path.as_path(), self.panel_width, self.renderer.height()) {
                     Ok(loaded) => {
-                        self.project = loaded;
+                        let warning_count = loaded.warnings.len();
+                        self.project = loaded.project;
                         self.state = PreviewState::new(&self.config);
                         self.state.invalidation.invalidate_all();
                         self.start_export_requested = false;
                         let _ = self.stop_export_session("stopped");
                         self.state
                             .export_menu
-                            .set_status(format!("Loaded project: {}", path.display()));
+                            .set_status(load_status_message(path.as_path(), warning_count));
                         println!("[gui] loaded project: {}", path.display());
+                        log_project_load_warnings(path.as_path(), &loaded.warnings);
                     }
                     Err(err) => {
                         self.state
@@ -1197,7 +1201,7 @@ fn manual_project_load_candidates_in(base_dir: &Path) -> [PathBuf; 3] {
 fn load_autosaved_project(
     panel_width: usize,
     panel_height: usize,
-) -> Result<Option<GuiProject>, Box<dyn Error>> {
+) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
     let path = autosave_project_path();
     load_project_file_if_exists(path.as_path(), panel_width, panel_height)
 }
@@ -1208,7 +1212,7 @@ fn load_manual_project_from_dir(
     base_dir: &Path,
     panel_width: usize,
     panel_height: usize,
-) -> Result<Option<(GuiProject, PathBuf)>, Box<dyn Error>> {
+) -> Result<Option<(PersistedProjectLoadOutcome, PathBuf)>, Box<dyn Error>> {
     for path in manual_project_load_candidates_in(base_dir) {
         match load_project_file_if_exists(path.as_path(), panel_width, panel_height) {
             Ok(Some(project)) => return Ok(Some((project, path))),
@@ -1229,14 +1233,14 @@ fn load_project_file_if_exists(
     path: &Path,
     panel_width: usize,
     panel_height: usize,
-) -> Result<Option<GuiProject>, Box<dyn Error>> {
+) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(Box::new(err)),
     };
     let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
-    let project = GuiProject::from_persisted(persisted, panel_width, panel_height)?;
+    let project = GuiProject::from_persisted_with_warnings(persisted, panel_width, panel_height)?;
     Ok(Some(project))
 }
 
@@ -1245,14 +1249,41 @@ fn load_project_file(
     path: &Path,
     panel_width: usize,
     panel_height: usize,
-) -> Result<GuiProject, Box<dyn Error>> {
+) -> Result<PersistedProjectLoadOutcome, Box<dyn Error>> {
     let bytes = fs::read(path)?;
     let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
-    Ok(GuiProject::from_persisted(
+    Ok(GuiProject::from_persisted_with_warnings(
         persisted,
         panel_width,
         panel_height,
     )?)
+}
+
+/// Format one status line after loading a project from disk.
+fn load_status_message(path: &Path, warning_count: usize) -> String {
+    if warning_count == 0 {
+        return format!("Loaded project: {}", path.display());
+    }
+    format!(
+        "Loaded project: {} ({} dropped unknown params; see log)",
+        path.display(),
+        warning_count
+    )
+}
+
+/// Emit non-fatal persisted-load warnings with actionable context.
+fn log_project_load_warnings(path: &Path, warnings: &[PersistedProjectLoadWarning]) {
+    if warnings.is_empty() {
+        return;
+    }
+    eprintln!(
+        "[gui] load warnings for {}: {} dropped unknown persisted params",
+        path.display(),
+        warnings.len()
+    );
+    for warning in warnings {
+        eprintln!("[gui]   - {warning}");
+    }
 }
 
 /// Save current GUI graph to autosave file atomically.
@@ -1412,7 +1443,8 @@ mod tests {
             .expect("legacy fallback should return project");
 
         assert_eq!(loaded_path, path);
-        assert_eq!(loaded.to_persisted().preview_width, 512);
+        assert_eq!(loaded.project.to_persisted().preview_width, 512);
+        assert!(loaded.warnings.is_empty());
 
         let _ = fs::remove_dir_all(dir.as_path());
     }
@@ -1432,7 +1464,8 @@ mod tests {
             .expect("explicit project should return project");
 
         assert_eq!(loaded_path, explicit);
-        assert_eq!(loaded.to_persisted().preview_width, 1024);
+        assert_eq!(loaded.project.to_persisted().preview_width, 1024);
+        assert!(loaded.warnings.is_empty());
 
         let _ = fs::remove_dir_all(dir.as_path());
     }
@@ -1442,30 +1475,37 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples/graphs/circle_noise_feedback_trail.json");
         let loaded = load_project_file(path.as_path(), 1280, 720).expect("load example project");
+        assert!(loaded.warnings.is_empty());
         assert!(
             loaded
+                .project
                 .nodes()
                 .iter()
                 .any(|node| node.kind().stable_id() == "tex.feedback"),
             "example graph should include tex.feedback"
         );
         let circle_id = loaded
+            .project
             .nodes()
             .iter()
             .find(|node| node.kind().stable_id() == "tex.circle")
             .map(|node| node.id())
             .expect("example graph should include tex.circle");
         let blend_id = loaded
+            .project
             .nodes()
             .iter()
             .find(|node| node.kind().stable_id() == "tex.blend")
             .map(|node| node.id())
             .expect("example graph should include tex.blend");
         let blend_tex_param = loaded
+            .project
             .node_param_slot_index(blend_id, "blend_tex")
             .expect("tex.blend should expose blend_tex");
         assert_eq!(
-            loaded.texture_source_for_param(blend_id, blend_tex_param),
+            loaded
+                .project
+                .texture_source_for_param(blend_id, blend_tex_param),
             Some(circle_id),
             "trail example should composite raw circle as the live layer"
         );

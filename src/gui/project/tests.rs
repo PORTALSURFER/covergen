@@ -1,7 +1,7 @@
 use super::{
     input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
-    GraphBounds, GuiProject, PersistedGuiProject, ProjectNodeKind, ResourceKind, SignalSampleMemo,
-    NODE_HEIGHT, PARAM_LABEL_MAX_LEN,
+    GraphBounds, GuiProject, PersistedGuiParam, PersistedGuiProject, ProjectNodeKind, ResourceKind,
+    SignalSampleMemo, NODE_HEIGHT, PARAM_LABEL_MAX_LEN,
 };
 
 #[test]
@@ -1008,7 +1008,9 @@ fn persisted_roundtrip_restores_nodes_links_and_bindings() {
     assert!(project.set_param_value(noise, 1, 4.5));
 
     let persisted = project.to_persisted();
-    let restored = GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
+    let restored = GuiProject::from_persisted_with_warnings(persisted, 420, 480)
+        .expect("restore should work")
+        .project;
     assert_eq!(restored.node_count(), project.node_count());
     assert_eq!(restored.edge_count(), project.edge_count());
     assert_eq!(restored.render_signature(), project.render_signature());
@@ -1034,7 +1036,9 @@ fn from_persisted_maps_legacy_feedback_target_tex_key() {
         }
     }
 
-    let restored = GuiProject::from_persisted(persisted, 420, 480).expect("restore should work");
+    let restored = GuiProject::from_persisted_with_warnings(persisted, 420, 480)
+        .expect("restore should work")
+        .project;
     let restored_solid = restored
         .nodes()
         .iter()
@@ -1067,5 +1071,41 @@ fn from_persisted_rejects_unsupported_version() {
         preview_height: 480,
         nodes: Vec::new(),
     };
-    assert!(GuiProject::from_persisted(persisted, 420, 480).is_err());
+    assert!(GuiProject::from_persisted_with_warnings(persisted, 420, 480).is_err());
+}
+
+#[test]
+fn from_persisted_reports_dropped_unknown_params() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid_id = project.add_node(ProjectNodeKind::TexSolid, 40, 40, 420, 480);
+    let mut persisted = project.to_persisted();
+    let persisted_node = persisted
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == solid_id)
+        .expect("persisted tex.solid node should exist");
+    persisted_node.params.push(PersistedGuiParam {
+        key: "unknown_param".to_string(),
+        value: 0.5,
+        signal_source: None,
+        texture_source: None,
+    });
+
+    let loaded = GuiProject::from_persisted_with_warnings(persisted, 420, 480)
+        .expect("restore should tolerate unknown params");
+    assert_eq!(loaded.project.node_count(), 1);
+    assert_eq!(loaded.warnings.len(), 1);
+
+    let warning = &loaded.warnings[0];
+    assert_eq!(warning.persisted_node_id, solid_id);
+    assert_eq!(warning.node_kind, ProjectNodeKind::TexSolid.stable_id());
+    assert_eq!(warning.param_key, "unknown_param");
+    assert_eq!(
+        warning.to_string(),
+        format!(
+            "dropped unknown persisted param 'unknown_param' on node {}#{}",
+            ProjectNodeKind::TexSolid.stable_id(),
+            solid_id
+        )
+    );
 }
