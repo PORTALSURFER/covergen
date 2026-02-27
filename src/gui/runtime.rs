@@ -420,11 +420,14 @@ impl GuiCompiledRuntime {
     ) {
         out_ops.clear();
         eval_stack.clear_nodes();
+        let external_feedback_history_sources =
+            collect_external_feedback_history_sources(project, &self.steps);
         let mut mesh = None;
         let mut entity = None;
         let mut scene_ready = false;
         let mut camera_zoom = 1.0_f32;
         for step in &self.steps {
+            let out_len_before = out_ops.len();
             match step.kind {
                 CompiledStepKind::Solid => {
                     out_ops.push(TexRuntimeOp::Solid {
@@ -1190,9 +1193,7 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::StoreTexture => {
-                    out_ops.push(TexRuntimeOp::StoreTexture {
-                        texture_node_id: step.node_id,
-                    });
+                    push_store_texture_op(out_ops, step.node_id);
                 }
                 CompiledStepKind::Blend {
                     base_source_id,
@@ -1258,6 +1259,12 @@ impl GuiCompiledRuntime {
                         layer_texture_node_id: layer_source_id,
                     });
                 }
+            }
+            if step.kind != CompiledStepKind::StoreTexture
+                && external_feedback_history_sources.contains(&step.node_id)
+                && out_ops.len() > out_len_before
+            {
+                push_store_texture_op(out_ops, step.node_id);
             }
         }
     }
@@ -1357,6 +1364,38 @@ fn compiled_texture_source_for_param(
 ) -> Option<u32> {
     let index = step.param_slots.get(param_slot).copied().flatten()?.0;
     project.texture_source_for_param(step.node_id, index)
+}
+
+fn collect_external_feedback_history_sources(
+    project: &GuiProject,
+    steps: &[CompiledStep],
+) -> HashSet<u32> {
+    let mut sources = HashSet::new();
+    for step in steps {
+        if step.kind != CompiledStepKind::Feedback {
+            continue;
+        }
+        if let Some(texture_node_id) =
+            compiled_texture_source_for_param(project, step, FEEDBACK_HISTORY_SLOT).or_else(|| {
+                compiled_texture_source_for_param(project, step, FEEDBACK_LEGACY_HISTORY_SLOT)
+            })
+        {
+            sources.insert(texture_node_id);
+        }
+    }
+    sources
+}
+
+fn push_store_texture_op(out_ops: &mut Vec<TexRuntimeOp>, texture_node_id: u32) {
+    if matches!(
+        out_ops.last(),
+        Some(TexRuntimeOp::StoreTexture {
+            texture_node_id: last_id
+        }) if *last_id == texture_node_id
+    ) {
+        return;
+    }
+    out_ops.push(TexRuntimeOp::StoreTexture { texture_node_id });
 }
 
 fn post_process_uses_history(category: PostProcessCategory) -> bool {
@@ -2150,7 +2189,7 @@ mod tests {
         let mut eval_stack = SignalEvalStack::default();
         let mut ops = Vec::new();
         runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
-        assert_eq!(ops.len(), 3);
+        assert_eq!(ops.len(), 4);
         assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
         assert!(matches!(
             ops[1],
@@ -2160,6 +2199,10 @@ mod tests {
             } if texture_node_id == xform
         ));
         assert!(matches!(ops[2], TexRuntimeOp::Transform { .. }));
+        assert!(matches!(
+            ops[3],
+            TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform
+        ));
     }
 
     #[test]
