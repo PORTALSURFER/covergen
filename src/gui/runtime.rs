@@ -112,6 +112,14 @@ const FEEDBACK_PARAM_KEYS: [&str; 3] = [
 const FEEDBACK_MIX_SLOT: usize = 0;
 const FEEDBACK_HISTORY_SLOT: usize = 1;
 const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
+const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] =
+    ["diff_a", "diff_b", "feed", "kill", "dt", "seed_mix"];
+const REACTION_DIFFUSION_DIFF_A_SLOT: usize = 0;
+const REACTION_DIFFUSION_DIFF_B_SLOT: usize = 1;
+const REACTION_DIFFUSION_FEED_SLOT: usize = 2;
+const REACTION_DIFFUSION_KILL_SLOT: usize = 3;
+const REACTION_DIFFUSION_DT_SLOT: usize = 4;
+const REACTION_DIFFUSION_SEED_MIX_SLOT: usize = 5;
 const BLEND_PARAM_KEYS: [&str; 6] = ["blend_mode", "opacity", "bg_r", "bg_g", "bg_b", "bg_a"];
 const BLEND_MODE_SLOT: usize = 0;
 const BLEND_OPACITY_SLOT: usize = 1;
@@ -198,6 +206,16 @@ pub(crate) enum TexRuntimeOp {
         mix: f32,
         history: TexRuntimeFeedbackHistoryBinding,
     },
+    /// `tex.reaction_diffusion` temporal Gray-Scott simulation operation.
+    ReactionDiffusion {
+        diffusion_a: f32,
+        diffusion_b: f32,
+        feed: f32,
+        kill: f32,
+        dt: f32,
+        seed_mix: f32,
+        history: TexRuntimeFeedbackHistoryBinding,
+    },
     /// Cache the current operation output under one texture-node id.
     StoreTexture { texture_node_id: u32 },
     /// `tex.blend` two-texture compositing operation.
@@ -254,6 +272,7 @@ enum CompiledStepKind {
     Transform,
     Level,
     Feedback,
+    ReactionDiffusion,
     StoreTexture,
     Blend {
         base_source_id: u32,
@@ -1002,6 +1021,67 @@ impl GuiCompiledRuntime {
                         history,
                     });
                 }
+                CompiledStepKind::ReactionDiffusion => {
+                    out_ops.push(TexRuntimeOp::ReactionDiffusion {
+                        diffusion_a: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_DIFF_A_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 2.0),
+                        diffusion_b: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_DIFF_B_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5)
+                        .clamp(0.0, 2.0),
+                        feed: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_FEED_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.055)
+                        .clamp(0.0, 0.12),
+                        kill: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_KILL_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.062)
+                        .clamp(0.0, 0.12),
+                        dt: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_DT_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 2.0),
+                        seed_mix: compiled_param_value_opt(
+                            project,
+                            step,
+                            REACTION_DIFFUSION_SEED_MIX_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.04)
+                        .clamp(0.0, 1.0),
+                        history: TexRuntimeFeedbackHistoryBinding::Internal {
+                            feedback_node_id: step.node_id,
+                        },
+                    });
+                }
                 CompiledStepKind::StoreTexture => {
                     out_ops.push(TexRuntimeOp::StoreTexture {
                         texture_node_id: step.node_id,
@@ -1290,6 +1370,23 @@ fn compile_node(
                     node_id,
                     CompiledStepKind::Feedback,
                     &FEEDBACK_PARAM_KEYS,
+                ));
+                true
+            }
+        }
+        ProjectNodeKind::TexReactionDiffusion => {
+            let source_id = project.input_source_node_id(node_id);
+            let Some(source_id) = source_id else {
+                return false;
+            };
+            if !compile_node(project, source_id, visiting, visited, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::ReactionDiffusion,
+                    &REACTION_DIFFUSION_PARAM_KEYS,
                 ));
                 true
             }
@@ -1618,6 +1715,40 @@ mod tests {
                 && gamma == 1.0
                 && out_low == 0.0
                 && out_high == 1.0
+        ));
+    }
+
+    #[test]
+    fn reaction_diffusion_emits_temporal_op_with_defaults() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let reaction = project.add_node(ProjectNodeKind::TexReactionDiffusion, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, reaction));
+        assert!(project.connect_image_link(reaction, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(
+            ops[1],
+            TexRuntimeOp::ReactionDiffusion {
+                diffusion_a,
+                diffusion_b,
+                feed,
+                kill,
+                dt,
+                seed_mix,
+                history: TexRuntimeFeedbackHistoryBinding::Internal { feedback_node_id },
+            } if diffusion_a == 1.0
+                && diffusion_b == 0.5
+                && (feed - 0.055).abs() < 1e-6
+                && (kill - 0.062).abs() < 1e-6
+                && dt == 1.0
+                && (seed_mix - 0.04).abs() < 1e-6
+                && feedback_node_id == reaction
         ));
     }
 

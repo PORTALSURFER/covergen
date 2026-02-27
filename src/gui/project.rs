@@ -216,6 +216,8 @@ pub(crate) enum ProjectNodeKind {
     TexLevel,
     /// `tex.feedback` one-frame delayed texture feedback node.
     TexFeedback,
+    /// `tex.reaction_diffusion` temporal Gray-Scott simulation node.
+    TexReactionDiffusion,
     /// `tex.blend` two-texture composite node.
     TexBlend,
     /// `scene.entity` mesh + transform + material binding node.
@@ -244,6 +246,7 @@ impl ProjectNodeKind {
             Self::TexTransform2D => "tex.transform_2d",
             Self::TexLevel => "tex.level",
             Self::TexFeedback => "tex.feedback",
+            Self::TexReactionDiffusion => "tex.reaction_diffusion",
             Self::TexBlend => "tex.blend",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
@@ -265,6 +268,7 @@ impl ProjectNodeKind {
             "tex.transform_2d" => Some(Self::TexTransform2D),
             "tex.level" => Some(Self::TexLevel),
             "tex.feedback" => Some(Self::TexFeedback),
+            "tex.reaction_diffusion" => Some(Self::TexReactionDiffusion),
             "tex.blend" => Some(Self::TexBlend),
             "scene.entity" => Some(Self::SceneEntity),
             "scene.build" => Some(Self::SceneBuild),
@@ -288,6 +292,7 @@ impl ProjectNodeKind {
             Self::TexTransform2D => ExecutionKind::Render,
             Self::TexLevel => ExecutionKind::Render,
             Self::TexFeedback => ExecutionKind::Render,
+            Self::TexReactionDiffusion => ExecutionKind::Render,
             Self::TexBlend => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
@@ -309,6 +314,7 @@ impl ProjectNodeKind {
             Self::TexTransform2D
             | Self::TexLevel
             | Self::TexFeedback
+            | Self::TexReactionDiffusion
             | Self::TexBlend
             | Self::IoWindowOut => Some(ResourceKind::Texture2D),
             Self::BufNoise => Some(ResourceKind::Buffer),
@@ -332,6 +338,7 @@ impl ProjectNodeKind {
                 | Self::TexTransform2D
                 | Self::TexLevel
                 | Self::TexFeedback
+                | Self::TexReactionDiffusion
                 | Self::TexBlend
                 | Self::SceneEntity
                 | Self::RenderCamera
@@ -374,6 +381,7 @@ impl ProjectNodeKind {
             | Self::TexTransform2D
             | Self::TexLevel
             | Self::TexFeedback
+            | Self::TexReactionDiffusion
             | Self::TexBlend
             | Self::RenderScenePass => Some(ResourceKind::Texture2D),
             Self::CtlLfo => Some(ResourceKind::Signal),

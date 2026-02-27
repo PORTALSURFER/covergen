@@ -802,6 +802,20 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
         ],
+        ProjectNodeKind::TexReactionDiffusion => vec![
+            // Gray-Scott diffusion coefficient for reagent A.
+            param("diff_a", "diff_a", 1.0, 0.0, 2.0, 0.01),
+            // Gray-Scott diffusion coefficient for reagent B.
+            param("diff_b", "diff_b", 0.5, 0.0, 2.0, 0.01),
+            // Feed rate that replenishes reagent A.
+            param("feed", "feed", 0.055, 0.0, 0.12, 0.001),
+            // Kill rate that removes reagent B.
+            param("kill", "kill", 0.062, 0.0, 0.12, 0.001),
+            // Integration step multiplier per frame.
+            param("dt", "dt", 1.0, 0.0, 2.0, 0.01),
+            // Blend amount for injecting source texture concentrations.
+            param("seed_mix", "seed_mix", 0.04, 0.0, 1.0, 0.01),
+        ],
         ProjectNodeKind::TexBlend => vec![
             // Optional secondary composite input for blend operations.
             param_texture_target(BLEND_LAYER_PARAM_KEY, BLEND_LAYER_PARAM_LABEL),

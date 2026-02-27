@@ -176,6 +176,28 @@ impl TexOpUniform {
         }
     }
 
+    fn reaction_diffusion(op: TexViewerOp) -> Self {
+        let TexViewerOp::ReactionDiffusion {
+            diffusion_a,
+            diffusion_b,
+            feed,
+            kill,
+            dt,
+            seed_mix,
+            ..
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [diffusion_a, diffusion_b, feed, kill],
+            p1: [seed_mix, dt, 0.0, 0.0],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
     fn blend(op: TexViewerOp) -> Self {
         let TexViewerOp::Blend {
             mode,
@@ -276,6 +298,7 @@ pub(super) struct TexPreviewRenderer {
     op_level_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
+    op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
 
     dummy_texture: Option<wgpu::Texture>,
@@ -365,6 +388,7 @@ impl TexPreviewRenderer {
             && self.op_level_pipeline.is_some()
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
+            && self.op_reaction_diffusion_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
         {
             return;
@@ -429,6 +453,13 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_feedback",
+            self.op_surface_format,
+        ));
+        self.op_reaction_diffusion_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_reaction_diffusion",
             self.op_surface_format,
         ));
         self.op_blend_pipeline = Some(create_op_pipeline(
@@ -548,6 +579,7 @@ impl TexPreviewRenderer {
             op_level_pipeline: None,
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
+            op_reaction_diffusion_pipeline: None,
             op_blend_pipeline: None,
             dummy_texture: None,
             dummy_bind_group: None,

@@ -127,6 +127,22 @@ Leave unbound to use the node's internal persistent history buffer.
 ### Param `feedback`
 History mix amount; higher values preserve more prior-frame content.
 
+## Node `tex.reaction_diffusion`
+Runs one Gray-Scott reaction-diffusion simulation step per frame.
+Primary input provides seed concentrations (`R = A`, `G = B`) for initialization/injection.
+### Param `diff_a`
+Diffusion coefficient for reagent `A`.
+### Param `diff_b`
+Diffusion coefficient for reagent `B`.
+### Param `feed`
+Feed rate replenishing reagent `A`.
+### Param `kill`
+Kill rate removing reagent `B`.
+### Param `dt`
+Per-frame integration step multiplier.
+### Param `seed_mix`
+Blend amount for injecting source concentrations into the evolving state.
+
 ## Node `tex.blend`
 Composites primary input with optional secondary texture.
 Similar to common DCC compositing workflows.

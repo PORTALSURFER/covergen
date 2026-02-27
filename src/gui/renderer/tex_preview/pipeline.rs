@@ -360,6 +360,52 @@ fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(out_rgb, out_a);
 }
 
+fn rd_concentrations(uv: vec2<f32>) -> vec2<f32> {
+    let src = textureSample(t_src, s_src, uv);
+    let history = textureSample(t_feedback, s_feedback, uv);
+    let history_weight = select(0.0, 1.0, history.a > 0.001);
+    let state = mix(src, history, history_weight);
+    return clamp(state.rg, vec2<f32>(0.0), vec2<f32>(1.0));
+}
+
+@fragment
+fn fs_reaction_diffusion(v: VertexOut) -> @location(0) vec4<f32> {
+    let diffusion_a = clamp(u_op.p0.x, 0.0, 2.0);
+    let diffusion_b = clamp(u_op.p0.y, 0.0, 2.0);
+    let feed = clamp(u_op.p0.z, 0.0, 0.12);
+    let kill = clamp(u_op.p0.w, 0.0, 0.12);
+    let seed_mix = clamp(u_op.p1.x, 0.0, 1.0);
+    let dt = clamp(u_op.p1.y, 0.0, 2.0);
+
+    let size = vec2<f32>(textureDimensions(t_feedback));
+    let texel = vec2<f32>(1.0 / max(size.x, 1.0), 1.0 / max(size.y, 1.0));
+    let center = rd_concentrations(v.uv);
+    let north = rd_concentrations(v.uv + vec2<f32>(0.0, -texel.y));
+    let south = rd_concentrations(v.uv + vec2<f32>(0.0, texel.y));
+    let west = rd_concentrations(v.uv + vec2<f32>(-texel.x, 0.0));
+    let east = rd_concentrations(v.uv + vec2<f32>(texel.x, 0.0));
+    let north_west = rd_concentrations(v.uv + vec2<f32>(-texel.x, -texel.y));
+    let north_east = rd_concentrations(v.uv + vec2<f32>(texel.x, -texel.y));
+    let south_west = rd_concentrations(v.uv + vec2<f32>(-texel.x, texel.y));
+    let south_east = rd_concentrations(v.uv + vec2<f32>(texel.x, texel.y));
+
+    let laplacian = (north + south + west + east) * 0.2
+        + (north_west + north_east + south_west + south_east) * 0.05
+        - center;
+    let a = center.x;
+    let b = center.y;
+    let reaction = a * b * b;
+    var next_a = a + (diffusion_a * laplacian.x - reaction + feed * (1.0 - a)) * dt;
+    var next_b = b + (diffusion_b * laplacian.y + reaction - (kill + feed) * b) * dt;
+    next_a = clamp(next_a, 0.0, 1.0);
+    next_b = clamp(next_b, 0.0, 1.0);
+
+    let seed = clamp(textureSample(t_src, s_src, v.uv).rg, vec2<f32>(0.0), vec2<f32>(1.0));
+    let next = mix(vec2<f32>(next_a, next_b), seed, seed_mix);
+    let display = vec3<f32>(next.x, next.y, clamp(next.x - next.y * 0.5, 0.0, 1.0));
+    return vec4<f32>(display, 1.0);
+}
+
 fn blend_mode_rgb(base: vec3<f32>, layer: vec3<f32>, mode: i32) -> vec3<f32> {
     if (mode == 1) {
         return clamp(base + layer, vec3<f32>(0.0), vec3<f32>(1.0));

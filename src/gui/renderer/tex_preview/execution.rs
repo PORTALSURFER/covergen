@@ -363,6 +363,16 @@ impl TexPreviewRenderer {
                 pass.set_bind_group(1, src_bind_group, &[]);
                 pass.set_bind_group(2, history_bind_group, &[]);
             }
+            PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion { .. }) => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                let history_key = prepared.feedback_history_key?;
+                let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
+                pass.set_pipeline(self.op_reaction_diffusion_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, history_bind_group, &[]);
+            }
             PlannedRenderOp::Runtime(TexViewerOp::Blend {
                 base_texture_node_id,
                 layer_texture_node_id,
@@ -429,6 +439,9 @@ impl TexPreviewRenderer {
                 TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
                 TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
                 TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
+                TexViewerOp::ReactionDiffusion { .. } => {
+                    TexOpUniform::reaction_diffusion(runtime_op)
+                }
                 TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
                 TexViewerOp::StoreTexture { .. } => TexOpUniform::solid(runtime_op),
             },
@@ -470,6 +483,9 @@ impl TexPreviewRenderer {
         };
         match runtime_op {
             TexViewerOp::Feedback { history, .. } => {
+                Some(FeedbackHistoryKey::from_binding(history))
+            }
+            TexViewerOp::ReactionDiffusion { history, .. } => {
                 Some(FeedbackHistoryKey::from_binding(history))
             }
             _ => None,

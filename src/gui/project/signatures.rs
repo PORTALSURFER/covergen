@@ -103,7 +103,9 @@ impl GuiProject {
         self.nodes.iter().any(|node| {
             matches!(
                 node.kind,
-                ProjectNodeKind::TexFeedback | ProjectNodeKind::BufNoise
+                ProjectNodeKind::TexFeedback
+                    | ProjectNodeKind::TexReactionDiffusion
+                    | ProjectNodeKind::BufNoise
             )
         })
     }

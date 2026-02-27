@@ -122,6 +122,22 @@ fn feedback_node_supports_in_and_out_links() {
 }
 
 #[test]
+fn reaction_diffusion_node_supports_in_and_out_links() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let source = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let reaction = project.add_node(ProjectNodeKind::TexReactionDiffusion, 160, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 300, 40, 420, 480);
+    assert!(project.connect_image_link(source, reaction));
+    assert!(project.connect_image_link(reaction, out));
+    assert_eq!(project.edge_count(), 2);
+    let source_id = project
+        .window_out_input_node_id()
+        .expect("window-out input must exist");
+    let source = project.node(source_id).expect("source node must exist");
+    assert_eq!(source.kind(), ProjectNodeKind::TexReactionDiffusion);
+}
+
+#[test]
 fn sphere_buffer_scene_chain_requires_typed_intermediate_nodes() {
     let mut project = GuiProject::new_empty(640, 480);
     let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
@@ -625,6 +641,7 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexFeedback,
+        ProjectNodeKind::TexReactionDiffusion,
         ProjectNodeKind::TexBlend,
         ProjectNodeKind::SceneEntity,
         ProjectNodeKind::SceneBuild,
@@ -660,6 +677,7 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexFeedback,
+        ProjectNodeKind::TexReactionDiffusion,
         ProjectNodeKind::TexBlend,
         ProjectNodeKind::SceneEntity,
         ProjectNodeKind::SceneBuild,
