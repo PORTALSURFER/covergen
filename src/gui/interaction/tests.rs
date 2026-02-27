@@ -939,6 +939,83 @@ fn timeline_bpm_buttons_update_bpm() {
 }
 
 #[test]
+fn timeline_bpm_value_click_starts_text_edit() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let input = InputSnapshot {
+        mouse_pos: Some((
+            controls.bpm_value.x + controls.bpm_value.w / 2,
+            controls.bpm_value.y + controls.bpm_value.h / 2,
+        )),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&input, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(consumed);
+    let edit = state
+        .timeline_bpm_edit
+        .as_ref()
+        .expect("bpm edit should be active");
+    assert_eq!(edit.buffer, state.export_menu.bpm);
+    assert_eq!(edit.cursor, state.export_menu.bpm.len());
+    assert_eq!(edit.anchor, 0);
+}
+
+#[test]
+fn timeline_bpm_text_commit_updates_bpm() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let click = InputSnapshot {
+        mouse_pos: Some((controls.bpm_value.x + 2, controls.bpm_value.y + 2)),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let _ = super::handle_timeline_input(&click, 640, 480, 60, &mut state);
+
+    let commit = InputSnapshot {
+        typed_text: "96".to_string(),
+        param_commit: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&commit, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(!consumed);
+    assert!(state.timeline_bpm_edit.is_none());
+    assert!((state.export_menu.parsed_bpm() - 96.0).abs() < 0.01);
+}
+
+#[test]
+fn timeline_bpm_invalid_commit_keeps_edit_open() {
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let timeline = timeline_rect(640, 480);
+    let controls = timeline_control_layout(timeline);
+    let click = InputSnapshot {
+        mouse_pos: Some((controls.bpm_value.x + 2, controls.bpm_value.y + 2)),
+        left_clicked: true,
+        ..InputSnapshot::default()
+    };
+    let _ = super::handle_timeline_input(&click, 640, 480, 60, &mut state);
+
+    let commit = InputSnapshot {
+        typed_text: ".".to_string(),
+        param_commit: true,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = super::handle_timeline_input(&commit, 640, 480, 60, &mut state);
+    assert!(changed);
+    assert!(!consumed);
+    let edit = state
+        .timeline_bpm_edit
+        .as_ref()
+        .expect("invalid bpm should keep edit active");
+    assert_eq!(edit.buffer, ".");
+    assert!((state.export_menu.parsed_bpm() - 120.0).abs() < 0.01);
+}
+
+#[test]
 fn alt_cut_unbinds_parameter_link_when_cut_crosses_param_wire() {
     let mut project = GuiProject::new_empty(640, 480);
     let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 60, 420, 480);

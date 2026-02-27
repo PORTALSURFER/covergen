@@ -17,7 +17,7 @@ use super::project::{
 };
 use super::state::{
     AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
-    RightMarqueeState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
+    RightMarqueeState, TimelineBpmEditState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
 use super::theme::AGIO;
@@ -1116,14 +1116,18 @@ impl SceneBuilder {
             TIMELINE_TEXT,
         );
         self.push_rect(controls.bpm_value, TIMELINE_TRACK_BG);
-        self.push_border(controls.bpm_value, TIMELINE_BORDER);
-        label.clear();
-        let _ = write!(&mut label, "BPM {:.2}", state.export_menu.parsed_bpm());
-        self.push_text(
-            controls.bpm_value.x + 4,
-            controls.bpm_value.y + 3,
-            label.as_str(),
-            TIMELINE_TEXT,
+        let bpm_edit = state.timeline_bpm_edit.as_ref();
+        let bpm_text = bpm_edit
+            .map(|edit| edit.buffer.as_str())
+            .unwrap_or(state.export_menu.bpm.as_str());
+        self.push_timeline_value_editor_text(controls.bpm_value, bpm_text, bpm_edit, TIMELINE_TEXT);
+        self.push_border(
+            controls.bpm_value,
+            if bpm_edit.is_some() {
+                PARAM_VALUE_ACTIVE
+            } else {
+                TIMELINE_BORDER
+            },
         );
         self.push_rect(controls.bpm_up, TIMELINE_BTN_IDLE);
         self.push_border(controls.bpm_up, TIMELINE_BORDER);
@@ -1484,6 +1488,45 @@ impl SceneBuilder {
                 + self
                     .text_renderer
                     .cursor_offset(text, caret_index, state.zoom);
+            let caret_top = text_y;
+            let caret_bottom = text_y + metrics.line_height_px.max(1) - 1;
+            self.push_line(caret_x, caret_top, caret_x, caret_bottom, PARAM_VALUE_CARET);
+        }
+    }
+
+    fn push_timeline_value_editor_text(
+        &mut self,
+        value_rect: Rect,
+        text: &str,
+        edit: Option<&TimelineBpmEditState>,
+        color: Color,
+    ) {
+        let metrics = self.text_renderer.metrics_scaled(1.0);
+        let text_x = value_rect.x + 4;
+        let text_y = value_rect.y + ((value_rect.h - metrics.line_height_px).max(0) / 2);
+        if let Some(edit_state) = edit {
+            let mut cursor = edit_state.cursor.min(text.len());
+            let mut anchor = edit_state.anchor.min(text.len());
+            if anchor > cursor {
+                std::mem::swap(&mut anchor, &mut cursor);
+            }
+            if anchor != cursor {
+                let start_w = self.text_renderer.cursor_offset(text, anchor, 1.0);
+                let end_w = self.text_renderer.cursor_offset(text, cursor, 1.0);
+                let highlight_x = text_x + start_w;
+                let highlight_w = (end_w - start_w).max(1);
+                let left = highlight_x.max(value_rect.x + 1);
+                let right = (highlight_x + highlight_w).min(value_rect.x + value_rect.w - 1);
+                let clamped = Rect::new(left, text_y, right - left, metrics.line_height_px.max(1));
+                if clamped.w > 0 && clamped.h > 0 {
+                    self.push_rect(clamped, PARAM_VALUE_SELECTION);
+                }
+            }
+        }
+        self.push_text(text_x, text_y, text, color);
+        if let Some(edit_state) = edit {
+            let caret_index = edit_state.cursor.min(text.len());
+            let caret_x = text_x + self.text_renderer.cursor_offset(text, caret_index, 1.0);
             let caret_top = text_y;
             let caret_bottom = text_y + metrics.line_height_px.max(1) - 1;
             self.push_line(caret_x, caret_top, caret_x, caret_bottom, PARAM_VALUE_CARET);

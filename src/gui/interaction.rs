@@ -20,7 +20,7 @@ use super::state::{
     AddNodeMenuEntry, AddNodeMenuState, ExportMenuItem, HoverInsertLink, HoverParamTarget,
     InputSnapshot, LinkCutState, MainMenuItem, MainMenuState, PanDragState, ParamDropdownState,
     ParamEditState, PendingAppAction, PopupDragState, PreviewState, RightMarqueeState,
-    WireDragState, ADD_NODE_OPTIONS, MAIN_MENU_WIDTH,
+    TimelineBpmEditState, WireDragState, ADD_NODE_OPTIONS, MAIN_MENU_WIDTH,
 };
 use super::timeline::{
     editor_panel_height, frame_from_track_x, next_looped_frame, pause_button_rect,
@@ -101,6 +101,7 @@ pub(crate) fn apply_preview_actions(
         state.export_menu_drag = None;
         state.right_marquee = None;
         state.param_edit = None;
+        state.timeline_bpm_edit = None;
         state.param_dropdown = None;
         state.selected_nodes.clear();
         state.pan_x = 0.0;
@@ -155,6 +156,15 @@ pub(crate) fn apply_preview_actions(
         state.menu = AddNodeMenuState::closed();
         state.main_menu = MainMenuState::closed();
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
+        state.prev_left_down = input.left_down;
+        return changed;
+    }
+    if state.timeline_bpm_edit.is_some() {
+        state.drag = None;
+        state.wire_drag = None;
+        state.hover_param_target = None;
+        state.param_dropdown = None;
+        changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
     }
@@ -286,6 +296,7 @@ fn handle_help_input(
     state.export_menu_drag = None;
     state.right_marquee = None;
     state.param_edit = None;
+    state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_param_target = None;
     state.hover_dropdown_item = None;
@@ -357,7 +368,7 @@ fn handle_timeline_input(
     timeline_fps: u32,
     state: &mut PreviewState,
 ) -> (bool, bool) {
-    let mut changed = false;
+    let mut changed = apply_timeline_bpm_text_edits(input, state);
     let mut consumed = false;
     let timeline = timeline_rect(viewport_width, panel_height);
     let play = play_button_rect(timeline);
@@ -369,9 +380,17 @@ fn handle_timeline_input(
     if !input.left_down && (state.timeline_scrub_active || state.timeline_volume_drag_active) {
         state.timeline_scrub_active = false;
         state.timeline_volume_drag_active = false;
-        return (false, true);
+        return (changed, true);
     }
     if let Some((mx, my)) = mouse_pos {
+        if input.left_clicked && controls.bpm_value.contains(mx, my) {
+            changed |= start_timeline_bpm_edit(state);
+            return (changed, true);
+        }
+        if input.left_clicked && state.timeline_bpm_edit.is_some() {
+            changed |= finish_timeline_bpm_edit(state);
+            consumed = true;
+        }
         if input.left_clicked && play.contains(mx, my) {
             state.paused = false;
             state.timeline_scrub_active = false;
@@ -385,16 +404,19 @@ fn handle_timeline_input(
             return (true, true);
         }
         if input.left_clicked && controls.bpm_down.contains(mx, my) {
-            return (adjust_timeline_bpm(state, -1.0), true);
+            changed |= adjust_timeline_bpm(state, -1.0);
+            return (changed, true);
         }
         if input.left_clicked && controls.bpm_up.contains(mx, my) {
-            return (adjust_timeline_bpm(state, 1.0), true);
+            changed |= adjust_timeline_bpm(state, 1.0);
+            return (changed, true);
         }
         if controls.bpm_value.contains(mx, my) && input.wheel_lines_y.abs() > f32::EPSILON {
-            return (
-                adjust_timeline_bpm(state, input.wheel_lines_y.signum()),
-                true,
-            );
+            if state.timeline_bpm_edit.is_some() {
+                changed |= finish_timeline_bpm_edit(state);
+            }
+            changed |= adjust_timeline_bpm(state, input.wheel_lines_y.signum());
+            return (changed, true);
         }
         if input.left_clicked && controls.volume_slider.contains(mx, my) {
             state.timeline_volume_drag_active = true;
@@ -422,17 +444,112 @@ fn handle_timeline_input(
     (changed, consumed)
 }
 
+fn start_timeline_bpm_edit(state: &mut PreviewState) -> bool {
+    let Some(active) = state.timeline_bpm_edit.as_mut() else {
+        let cursor = state.export_menu.bpm.len();
+        state.timeline_bpm_edit = Some(TimelineBpmEditState {
+            buffer: state.export_menu.bpm.clone(),
+            cursor,
+            anchor: 0,
+        });
+        return true;
+    };
+    let end = active.buffer.len();
+    if active.cursor == end && active.anchor == end {
+        return false;
+    }
+    active.cursor = end;
+    active.anchor = end;
+    true
+}
+
+fn finish_timeline_bpm_edit(state: &mut PreviewState) -> bool {
+    let Some(edit) = state.timeline_bpm_edit.take() else {
+        return false;
+    };
+    let _ = commit_timeline_bpm_buffer(state, edit.buffer.as_str());
+    true
+}
+
+fn apply_timeline_bpm_text_edits(input: &InputSnapshot, state: &mut PreviewState) -> bool {
+    let Some(edit) = state.timeline_bpm_edit.take() else {
+        return false;
+    };
+    let mut draft = timeline_bpm_edit_to_param(edit);
+    let mut changed = false;
+    if input.param_cancel {
+        return true;
+    }
+    if input.param_select_all {
+        changed |= param_edit::select_all_param_text(&mut draft);
+    }
+    if input.param_dec {
+        changed |= param_edit::move_param_cursor_left(&mut draft, input.shift_down);
+    }
+    if input.param_inc {
+        changed |= param_edit::move_param_cursor_right(&mut draft, input.shift_down);
+    }
+    if input.param_backspace {
+        changed |= param_edit::backspace_param_text(&mut draft);
+    }
+    if input.param_delete {
+        changed |= param_edit::delete_param_text(&mut draft);
+    }
+    if !input.typed_text.is_empty() {
+        for ch in input.typed_text.chars() {
+            if param_edit::insert_param_char(&mut draft, ch) {
+                changed = true;
+            }
+        }
+    }
+    if input.param_commit && commit_timeline_bpm_buffer(state, draft.buffer.as_str()) {
+        return true;
+    }
+    state.timeline_bpm_edit = Some(timeline_bpm_edit_from_param(draft));
+    changed
+}
+
+fn timeline_bpm_edit_to_param(edit: TimelineBpmEditState) -> ParamEditState {
+    ParamEditState {
+        node_id: 0,
+        param_index: 0,
+        buffer: edit.buffer,
+        cursor: edit.cursor,
+        anchor: edit.anchor,
+    }
+}
+
+fn timeline_bpm_edit_from_param(edit: ParamEditState) -> TimelineBpmEditState {
+    TimelineBpmEditState {
+        buffer: edit.buffer,
+        cursor: edit.cursor,
+        anchor: edit.anchor,
+    }
+}
+
+fn commit_timeline_bpm_buffer(state: &mut PreviewState, buffer: &str) -> bool {
+    let Ok(value) = buffer.trim().parse::<f32>() else {
+        return false;
+    };
+    state.export_menu.bpm = format_timeline_bpm(value.clamp(1.0, 400.0));
+    true
+}
+
+fn format_timeline_bpm(value: f32) -> String {
+    if (value - value.round()).abs() < 0.001 {
+        format!("{}", value.round() as u32)
+    } else {
+        format!("{value:.2}")
+    }
+}
+
 fn adjust_timeline_bpm(state: &mut PreviewState, delta: f32) -> bool {
     let current = state.export_menu.parsed_bpm();
     let next = (current + delta).clamp(1.0, 400.0);
     if (next - current).abs() < f32::EPSILON {
         return false;
     }
-    state.export_menu.bpm = if (next - next.round()).abs() < 0.001 {
-        format!("{}", next.round() as u32)
-    } else {
-        format!("{next:.2}")
-    };
+    state.export_menu.bpm = format_timeline_bpm(next);
     true
 }
 
@@ -581,6 +698,7 @@ fn handle_add_menu_toggle(
         state.wire_drag = None;
         state.hover_param_target = None;
         state.param_edit = None;
+        state.timeline_bpm_edit = None;
         state.param_dropdown = None;
         state.hover_dropdown_item = None;
         return true;
@@ -594,6 +712,7 @@ fn handle_add_menu_toggle(
     state.wire_drag = None;
     state.hover_param_target = None;
     state.param_edit = None;
+    state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     true
@@ -617,6 +736,7 @@ fn handle_main_menu_toggle(
     state.main_menu = MainMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
     state.menu = AddNodeMenuState::closed();
     state.param_edit = None;
+    state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     state.drag = None;
@@ -917,7 +1037,10 @@ fn handle_parameter_shortcuts(
     project: &mut GuiProject,
     state: &mut PreviewState,
 ) -> bool {
-    if state.param_edit.is_some() || state.param_dropdown.is_some() {
+    if state.param_edit.is_some()
+        || state.timeline_bpm_edit.is_some()
+        || state.param_dropdown.is_some()
+    {
         return false;
     }
     let target = state.hover_node.or(state.active_node);
@@ -966,6 +1089,7 @@ fn handle_delete_selected_nodes(
     state.right_marquee = None;
     state.link_cut = None;
     state.param_edit = None;
+    state.timeline_bpm_edit = None;
     state.param_dropdown = None;
     state.hover_dropdown_item = None;
     true
@@ -1241,6 +1365,7 @@ fn handle_link_cut(
                 state.wire_drag = None;
                 state.hover_param_target = None;
                 state.param_edit = None;
+                state.timeline_bpm_edit = None;
                 state.param_dropdown = None;
                 state.hover_dropdown_item = None;
                 return true;

@@ -127,7 +127,7 @@ struct OverlaysLayerState {
 }
 
 /// State subset that drives timeline-layer invalidation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct TimelineLayerState {
     frame_index: u32,
     total_frames: u32,
@@ -136,6 +136,7 @@ struct TimelineLayerState {
     timeline_volume_drag_active: bool,
     audio_volume_bits: u32,
     bpm_bits: u32,
+    bpm_edit: Option<(usize, usize, String)>,
     beats_per_bar: u32,
 }
 
@@ -244,6 +245,10 @@ impl SceneInvalidationSnapshot {
                 timeline_volume_drag_active: state.timeline_volume_drag_active,
                 audio_volume_bits: state.export_menu.parsed_audio_volume().to_bits(),
                 bpm_bits: state.export_menu.parsed_bpm().to_bits(),
+                bpm_edit: state
+                    .timeline_bpm_edit
+                    .as_ref()
+                    .map(|edit| (edit.cursor, edit.anchor, edit.buffer.clone())),
                 beats_per_bar: state.export_menu.parsed_beats_per_bar(),
             },
         }

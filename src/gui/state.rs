@@ -199,6 +199,14 @@ pub(crate) struct ParamDropdownState {
     pub(crate) param_index: usize,
 }
 
+/// Active text-edit session for timeline BPM.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TimelineBpmEditState {
+    pub(crate) buffer: String,
+    pub(crate) cursor: usize,
+    pub(crate) anchor: usize,
+}
+
 /// Runtime animation/editor state for one GUI session.
 #[derive(Clone, Debug)]
 pub(crate) struct PreviewState {
@@ -216,6 +224,7 @@ pub(crate) struct PreviewState {
     pub(crate) export_menu_drag: Option<PopupDragState>,
     pub(crate) right_marquee: Option<RightMarqueeState>,
     pub(crate) param_edit: Option<ParamEditState>,
+    pub(crate) timeline_bpm_edit: Option<TimelineBpmEditState>,
     pub(crate) param_dropdown: Option<ParamDropdownState>,
     pub(crate) selected_nodes: Vec<u32>,
     pub(crate) pan_x: f32,
@@ -261,6 +270,7 @@ impl PreviewState {
             export_menu_drag: None,
             right_marquee: None,
             param_edit: None,
+            timeline_bpm_edit: None,
             param_dropdown: None,
             selected_nodes: Vec::new(),
             pan_x: 0.0,
