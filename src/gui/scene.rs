@@ -340,6 +340,7 @@ pub(crate) struct SceneBuilder {
     fitted_label_cache: HashMap<FittedLabelCacheBucketKey, HashMap<String, String>>,
     param_route_cache_epoch: Option<u64>,
     param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
+    param_route_panel_scratch: Vec<(i32, i32)>,
     param_route_obstacle_map: wire_route::RouteObstacleMap,
     signal_eval_stack: SignalEvalStack,
     signal_sample_memo: SignalSampleMemo,
@@ -1801,7 +1802,7 @@ impl SceneBuilder {
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = self.edge_route_occupied.clone();
         let mut tail_slots = HashMap::new();
-        let mut route_panel = Vec::new();
+        let mut route_panel = std::mem::take(&mut self.param_route_panel_scratch);
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1875,6 +1876,7 @@ impl SceneBuilder {
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
+        self.param_route_panel_scratch = route_panel;
         self.param_route_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
     }
