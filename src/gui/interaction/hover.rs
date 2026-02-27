@@ -290,12 +290,8 @@ fn collapsed_param_target_index(
     if param_accepts_bind_kind(project, node_id, preferred, bind_kind) {
         return Some(preferred);
     }
-    for param_index in 0..node.param_count() {
-        if param_accepts_bind_kind(project, node_id, param_index, bind_kind) {
-            return Some(param_index);
-        }
-    }
-    None
+    (0..node.param_count())
+        .find(|&param_index| param_accepts_bind_kind(project, node_id, param_index, bind_kind))
 }
 
 fn param_accepts_bind_kind(

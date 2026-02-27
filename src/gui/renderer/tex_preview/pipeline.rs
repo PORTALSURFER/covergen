@@ -343,14 +343,20 @@ fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let history_pm = history.rgb * history.a;
     let out_a = mix(src.a, history.a, mix_amount);
     let out_pm = mix(src_pm, history_pm, mix_amount);
-    // Quantized history buffers can leave tiny residual alpha that never
-    // reaches exact zero; clamp near-black tails so feedback fades to black.
-    let fade_epsilon = 1.5 / 255.0;
+    // Quantized RGBA8 feedback can leave residual tails at high mix values.
+    // Increase the fade floor as feedback approaches 1.0 so stale history
+    // converges to black instead of lingering as gray patches.
+    let tail_boost = smoothstep(0.75, 1.0, mix_amount);
+    let fade_epsilon = mix(1.5 / 255.0, 6.0 / 255.0, tail_boost);
     if (out_a <= fade_epsilon || max(max(out_pm.r, out_pm.g), out_pm.b) <= fade_epsilon) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
     let safe_a = max(out_a, 1e-6);
-    let out_rgb = select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6);
+    let out_rgb = clamp(
+        select(vec3<f32>(0.0), out_pm / safe_a, out_a > 1e-6),
+        vec3<f32>(0.0),
+        vec3<f32>(1.0)
+    );
     return vec4<f32>(out_rgb, out_a);
 }
 
