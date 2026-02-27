@@ -14,6 +14,7 @@ const GRID_PITCH_PX: i32 = NODE_GRID_PITCH;
 const ROUTE_PADDING_CELLS: i32 = 6;
 const OBSTACLE_CLEARANCE_CELLS: i32 = 2;
 const ENDPOINT_CORRIDOR_CELLS: i32 = 3;
+const ENDPOINT_TAIL_CELLS: i32 = 2;
 const MAX_GRID_CELLS: usize = 48_000;
 
 const STEP_CARDINAL_COST: i32 = 10;
@@ -195,6 +196,54 @@ pub(crate) fn route_wire_path_with_map(
     if points.is_empty() {
         return vec![start_point, end_point];
     }
+    points
+}
+
+/// Build one obstacle-avoiding octilinear path with guaranteed straight
+/// endpoint tails that follow each endpoint corridor direction.
+///
+/// This is used by scene and interaction call sites so rendered geometry and
+/// cut-hit detection stay in sync. The returned polyline starts and ends at
+/// the snapped endpoint pin coordinates.
+pub(crate) fn route_wire_path_with_tails_with_map(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+) -> Vec<(i32, i32)> {
+    let start_pin = snap_endpoint_to_grid(start);
+    let end_pin = snap_endpoint_to_grid(end);
+    let start_tail = step_point(start_pin, start.corridor_dir, ENDPOINT_TAIL_CELLS);
+    let end_tail = step_point(end_pin, end.corridor_dir, ENDPOINT_TAIL_CELLS);
+
+    let core = route_wire_path_with_map(
+        RouteEndpoint {
+            point: start_tail,
+            corridor_dir: start.corridor_dir,
+        },
+        RouteEndpoint {
+            point: end_tail,
+            corridor_dir: end.corridor_dir,
+        },
+        obstacle_map,
+    );
+
+    let mut points = Vec::with_capacity(core.len().saturating_add(4));
+    points.push(start_pin);
+    if points.last().copied() != Some(start_tail) {
+        points.push(start_tail);
+    }
+    for point in core {
+        if points.last().copied() != Some(point) {
+            points.push(point);
+        }
+    }
+    if points.last().copied() != Some(end_tail) {
+        points.push(end_tail);
+    }
+    if points.last().copied() != Some(end_pin) {
+        points.push(end_pin);
+    }
+    dedupe_points(&mut points);
     points
 }
 
@@ -546,11 +595,19 @@ fn snap_endpoint_to_grid(endpoint: RouteEndpoint) -> (i32, i32) {
     (x, y)
 }
 
+fn step_point(point: (i32, i32), direction: RouteDirection, steps: i32) -> (i32, i32) {
+    (
+        point.0 + direction.dx() * steps * GRID_PITCH_PX,
+        point.1 + direction.dy() * steps * GRID_PITCH_PX,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        route_param_path, route_wire_path, route_wire_path_with_map, snap_endpoint_to_grid,
-        NodeObstacle, RouteDirection, RouteEndpoint, RouteObstacleMap,
+        route_param_path, route_wire_path, route_wire_path_with_map,
+        route_wire_path_with_tails_with_map, snap_endpoint_to_grid, NodeObstacle, RouteDirection,
+        RouteEndpoint, RouteObstacleMap,
     };
     use crate::gui::geometry::Rect;
 
@@ -651,5 +708,37 @@ mod tests {
         assert!(south.1 >= point.1);
         assert_eq!(south.0.rem_euclid(4), 0);
         assert_eq!(south.1.rem_euclid(4), 0);
+    }
+
+    #[test]
+    fn routed_path_includes_horizontal_endpoint_tails() {
+        let map = RouteObstacleMap::default();
+        let path = route_wire_path_with_tails_with_map(
+            RouteEndpoint {
+                point: (8, 40),
+                corridor_dir: RouteDirection::East,
+            },
+            RouteEndpoint {
+                point: (208, 40),
+                corridor_dir: RouteDirection::West,
+            },
+            &map,
+        );
+        assert!(
+            path.len() >= 4,
+            "path too short for explicit tails: {path:?}"
+        );
+        let start = path[0];
+        let start_tail = path[1];
+        assert_eq!(start.1, start_tail.1, "start tail should be horizontal");
+        assert!(
+            start_tail.0 > start.0,
+            "start tail should exit to the right"
+        );
+
+        let end = path[path.len() - 1];
+        let end_tail = path[path.len() - 2];
+        assert_eq!(end.1, end_tail.1, "end tail should be horizontal");
+        assert!(end_tail.0 < end.0, "end tail should enter from the left");
     }
 }

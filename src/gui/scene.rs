@@ -414,7 +414,7 @@ impl SceneBuilder {
                         .hover_insert_link
                         .map(|link| link.source_id == *source_id && link.target_id == target.id())
                         .unwrap_or(false);
-                let route = wire_route::route_wire_path_with_map(
+                let route = wire_route::route_wire_path_with_tails_with_map(
                     wire_route::RouteEndpoint {
                         point: (from_x, from_y),
                         corridor_dir: wire_route::RouteDirection::East,
@@ -1339,7 +1339,7 @@ impl SceneBuilder {
                 };
                 live_route_keys.insert(route_key);
                 if !self.param_route_cache.contains_key(&route_key) {
-                    let route = wire_route::route_wire_path_with_map(
+                    let route = wire_route::route_wire_path_with_tails_with_map(
                         wire_route::RouteEndpoint {
                             point: (from_x, from_y),
                             corridor_dir: wire_route::RouteDirection::East,

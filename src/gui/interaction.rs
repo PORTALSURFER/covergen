@@ -1450,7 +1450,7 @@ fn collect_cut_links_for_target(
         };
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-        let route = super::scene::wire_route::route_wire_path_with_map(
+        let route = super::scene::wire_route::route_wire_path_with_tails_with_map(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
@@ -1488,7 +1488,7 @@ fn collect_cut_links_for_target(
         let to_y = row.y + row.h / 2;
         let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
         let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-        let route = super::scene::wire_route::route_wire_path_with_map(
+        let route = super::scene::wire_route::route_wire_path_with_tails_with_map(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
