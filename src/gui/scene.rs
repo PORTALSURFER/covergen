@@ -1047,7 +1047,7 @@ impl SceneBuilder {
             label.as_str(),
             TIMELINE_TEXT,
         );
-        let beat_rect = Rect::new(timeline.x + timeline.w - 20, timeline.y + 4, 12, 8);
+        let beat_rect = controls.beat_indicator;
         if timeline_beat_indicator_on(
             state.frame_index,
             timeline_fps,

@@ -20,15 +20,18 @@ const TRACK_HEIGHT: i32 = 8;
 const CONTROL_GAP: i32 = 10;
 const BPM_BTN_W: i32 = 18;
 const BPM_VALUE_W: i32 = 72;
+const BEAT_INDICATOR_W: i32 = 12;
+const BEAT_INDICATOR_H: i32 = 8;
 const FRAME_STATUS_W_MIN: i32 = 120;
-const FRAME_STATUS_W_TARGET: i32 = 220;
 const VOLUME_W_MIN: i32 = 48;
 const VOLUME_W_TARGET: i32 = 136;
 const WAV_W_MIN: i32 = 64;
+const WAV_W_TARGET: i32 = 180;
 
-/// Timeline control-row layout for audio/BPM widgets.
+/// Timeline top-row layout for BPM, status, and audio widgets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TimelineControlLayout {
+    pub(crate) beat_indicator: Rect,
     pub(crate) frame_status: Rect,
     pub(crate) wav_drop: Rect,
     pub(crate) volume_slider: Rect,
@@ -110,42 +113,46 @@ pub(crate) fn track_rect(timeline: Rect) -> Rect {
 /// Return timeline control widget rectangles.
 pub(crate) fn timeline_control_layout(timeline: Rect) -> TimelineControlLayout {
     let row = control_row_rect(timeline);
-    let bpm_up_x = row.x + row.w - BPM_BTN_W;
-    let bpm_value_x = bpm_up_x - 4 - BPM_VALUE_W;
-    let bpm_down_x = bpm_value_x - 4 - BPM_BTN_W;
+    let beat_indicator = Rect::new(
+        row.x,
+        row.y + (row.h - BEAT_INDICATOR_H).max(0) / 2,
+        BEAT_INDICATOR_W,
+        BEAT_INDICATOR_H,
+    );
+    let bpm_down_x = beat_indicator.x + beat_indicator.w + 4;
+    let bpm_value_x = bpm_down_x + BPM_BTN_W + 4;
+    let bpm_up_x = bpm_value_x + BPM_VALUE_W + 4;
     let bpm_up = Rect::new(bpm_up_x, row.y, BPM_BTN_W, row.h);
     let bpm_value = Rect::new(bpm_value_x, row.y, BPM_VALUE_W, row.h);
     let bpm_down = Rect::new(bpm_down_x, row.y, BPM_BTN_W, row.h);
+    let left_group_w = bpm_up.x + bpm_up.w - row.x;
 
-    let left_available = (bpm_down.x - CONTROL_GAP - row.x)
-        .max(FRAME_STATUS_W_MIN + CONTROL_GAP + WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN);
-    let frame_status_w = FRAME_STATUS_W_TARGET
-        .min(
-            (left_available - CONTROL_GAP - WAV_W_MIN - CONTROL_GAP - VOLUME_W_MIN)
-                .max(FRAME_STATUS_W_MIN),
-        )
-        .max(FRAME_STATUS_W_MIN);
-    let remaining_left =
-        (left_available - frame_status_w - CONTROL_GAP).max(WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN);
+    let right_group_min_w = WAV_W_MIN + CONTROL_GAP + VOLUME_W_MIN;
+    let right_group_target_w = WAV_W_TARGET + CONTROL_GAP + VOLUME_W_TARGET;
+    let right_group_max_w =
+        (row.w - left_group_w - CONTROL_GAP * 2 - FRAME_STATUS_W_MIN).max(right_group_min_w);
+    let right_group_w = right_group_target_w
+        .min(right_group_max_w)
+        .max(right_group_min_w);
+    let right_group_x = row.x + row.w - right_group_w;
+
     let volume_w = VOLUME_W_TARGET
-        .min((remaining_left - CONTROL_GAP - WAV_W_MIN).max(VOLUME_W_MIN))
+        .min((right_group_w - CONTROL_GAP - WAV_W_MIN).max(VOLUME_W_MIN))
         .max(VOLUME_W_MIN);
-    let wav_w = (remaining_left - volume_w - CONTROL_GAP).max(WAV_W_MIN);
-    let frame_status = Rect::new(row.x, row.y, frame_status_w, row.h);
-    let wav_drop = Rect::new(
-        frame_status.x + frame_status.w + CONTROL_GAP,
-        row.y,
-        wav_w,
-        row.h,
-    );
+    let wav_w = (right_group_w - volume_w - CONTROL_GAP).max(WAV_W_MIN);
+    let wav_drop = Rect::new(right_group_x, row.y, wav_w, row.h);
     let volume_slider = Rect::new(
         wav_drop.x + wav_drop.w + CONTROL_GAP,
         row.y,
         volume_w,
         row.h,
     );
+    let status_x = row.x + left_group_w + CONTROL_GAP;
+    let status_w = (right_group_x - CONTROL_GAP - status_x).max(FRAME_STATUS_W_MIN);
+    let frame_status = Rect::new(status_x, row.y, status_w, row.h);
 
     TimelineControlLayout {
+        beat_indicator,
         frame_status,
         wav_drop,
         volume_slider,
