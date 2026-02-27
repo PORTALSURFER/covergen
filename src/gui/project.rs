@@ -105,6 +105,29 @@ const LFO_SYNC_MODE_OPTIONS: [NodeParamOption; 2] = [
         value: 1.0,
     },
 ];
+/// Waveform types exposed by the `ctl.lfo` node.
+const LFO_TYPE_OPTIONS: [NodeParamOption; 5] = [
+    NodeParamOption {
+        label: "sine",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "saw",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "triangle",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "pulse",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "drift",
+        value: 4.0,
+    },
+];
 /// Blend/composite modes exposed by the `tex.blend` node.
 const TEX_BLEND_MODE_OPTIONS: [NodeParamOption; 9] = [
     NodeParamOption {

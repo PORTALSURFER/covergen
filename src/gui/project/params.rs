@@ -647,6 +647,8 @@ impl GuiProject {
         const LFO_BIAS_INDEX: usize = 3;
         const LFO_SYNC_MODE_INDEX: usize = 4;
         const LFO_BEAT_MUL_INDEX: usize = 5;
+        const LFO_TYPE_INDEX: usize = 6;
+        const LFO_SHAPE_INDEX: usize = 7;
         let rate = self
             .node_param_value_by_index(node_id, LFO_RATE_INDEX, time_secs, eval_stack)
             .unwrap_or(0.4);
@@ -667,16 +669,66 @@ impl GuiProject {
             .node_param_value_by_index(node_id, LFO_BEAT_MUL_INDEX, time_secs, eval_stack)
             .unwrap_or(1.0)
             .clamp(0.125, 32.0);
+        let lfo_type = self
+            .node_param_value_by_index(node_id, LFO_TYPE_INDEX, time_secs, eval_stack)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 4.0) as usize;
+        let shape = self
+            .node_param_value_by_index(node_id, LFO_SHAPE_INDEX, time_secs, eval_stack)
+            .unwrap_or(0.0)
+            .clamp(-1.0, 1.0);
         let rate_hz = if sync_mode {
             (self.lfo_sync_bpm / 60.0) * beat_mul
         } else {
             rate
         };
-        let v = (time_secs * rate_hz * std::f32::consts::TAU + phase * std::f32::consts::TAU).sin()
-            * amplitude
-            + bias;
+        let cycle = (time_secs * rate_hz + phase).rem_euclid(1.0);
+        let v = (lfo_wave_sample(cycle, lfo_type, shape) * amplitude) + bias;
         eval_stack.pop();
         Some(v)
+    }
+}
+
+fn lfo_wave_sample(cycle: f32, lfo_type: usize, shape: f32) -> f32 {
+    let cycle = cycle.rem_euclid(1.0);
+    let shaped_cycle = apply_cycle_shape(cycle, shape);
+    match lfo_type {
+        1 => (2.0 * shaped_cycle) - 1.0,
+        2 => 1.0 - (4.0 * (shaped_cycle - 0.5).abs()),
+        3 => {
+            let width = ((shape + 1.0) * 0.5).mul_add(0.8, 0.1);
+            if cycle < width {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+        4 => {
+            let slow = (shaped_cycle * std::f32::consts::TAU).sin();
+            let mid = ((shaped_cycle * 0.51 + 0.17) * std::f32::consts::TAU).sin();
+            let fast = ((shaped_cycle * 2.03 + 0.61) * std::f32::consts::TAU).sin();
+            let roughness = (shape.abs() * 0.75).clamp(0.0, 0.75);
+            let blend =
+                (slow * (1.0 - roughness)) + (mid * roughness * 0.6) + (fast * roughness * 0.4);
+            blend.clamp(-1.0, 1.0)
+        }
+        _ => {
+            let base = (shaped_cycle * std::f32::consts::TAU).sin();
+            let harmonic = (shaped_cycle * std::f32::consts::TAU * 2.0).sin() * shape * 0.35;
+            (base + harmonic).clamp(-1.0, 1.0)
+        }
+    }
+}
+
+fn apply_cycle_shape(cycle: f32, shape: f32) -> f32 {
+    if shape.abs() < f32::EPSILON {
+        return cycle;
+    }
+    if shape > 0.0 {
+        cycle.powf(1.0 + shape * 3.0)
+    } else {
+        1.0 - (1.0 - cycle).powf(1.0 + (-shape) * 3.0)
     }
 }
 
@@ -797,6 +849,8 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param("bias", "bias", 0.5, -1.0, 1.0, 0.02),
             param_dropdown("sync_mode", "sync_mode", 0, &LFO_SYNC_MODE_OPTIONS),
             param("beat_mul", "beat_mul", 1.0, 0.125, 32.0, 0.125),
+            param_dropdown("lfo_type", "type", 0, &LFO_TYPE_OPTIONS),
+            param("shape", "shape", 0.0, -1.0, 1.0, 0.02),
         ],
         ProjectNodeKind::IoWindowOut => Vec::new(),
     }

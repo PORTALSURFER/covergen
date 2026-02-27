@@ -507,6 +507,62 @@ fn beat_synced_lfo_follows_project_timeline_bpm() {
 }
 
 #[test]
+fn lfo_type_uses_dropdown_options() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    assert!(project.param_is_dropdown(lfo, 6));
+    assert!(!project.param_supports_text_edit(lfo, 6));
+    let options = project
+        .node_param_dropdown_options(lfo, 6)
+        .expect("dropdown options should exist");
+    assert_eq!(options.len(), 5);
+    assert_eq!(project.node_param_raw_text(lfo, 6), Some("sine"));
+    assert!(project.set_param_dropdown_index(lfo, 6, 3));
+    assert_eq!(project.node_param_raw_text(lfo, 6), Some("pulse"));
+}
+
+#[test]
+fn lfo_type_changes_signal_shape() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    assert!(project.set_param_value(lfo, 1, 1.0));
+    assert!(project.set_param_value(lfo, 3, 0.0));
+
+    let sine = project
+        .sample_signal_node(lfo, 0.25, &mut Vec::new())
+        .expect("lfo should evaluate");
+    assert!(project.set_param_dropdown_index(lfo, 6, 1));
+    let saw = project
+        .sample_signal_node(lfo, 0.25, &mut Vec::new())
+        .expect("lfo should evaluate");
+    assert!(
+        (sine - saw).abs() > 0.1,
+        "changing lfo type should change sampled output"
+    );
+}
+
+#[test]
+fn lfo_shape_modifies_waveform() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    assert!(project.set_param_value(lfo, 1, 1.0));
+    assert!(project.set_param_value(lfo, 3, 0.0));
+    assert!(project.set_param_dropdown_index(lfo, 6, 3));
+    assert!(project.set_param_value(lfo, 7, -1.0));
+    let narrow = project
+        .sample_signal_node(lfo, 1.0, &mut Vec::new())
+        .expect("lfo should evaluate");
+    assert!(project.set_param_value(lfo, 7, 1.0));
+    let wide = project
+        .sample_signal_node(lfo, 1.0, &mut Vec::new())
+        .expect("lfo should evaluate");
+    assert!(
+        (narrow - wide).abs() > 1.0,
+        "shape should significantly alter pulse duty"
+    );
+}
+
+#[test]
 fn circle_nurbs_arc_style_uses_dropdown_options() {
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 40, 40, 420, 480);
