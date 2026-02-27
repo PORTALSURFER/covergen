@@ -1294,8 +1294,12 @@ pub(super) fn set_node_primary_input(node: &mut ProjectNode, source: Option<u32>
 
 pub(super) fn rebuild_node_inputs(node: &mut ProjectNode) {
     node.inputs.clear();
+    let mut seen_inputs =
+        std::collections::HashSet::with_capacity(node.params.len().saturating_mul(2) + 1);
     if let Some(texture_source) = node.texture_input {
-        node.inputs.push(texture_source);
+        if seen_inputs.insert(texture_source) {
+            node.inputs.push(texture_source);
+        }
     }
     for slot in &node.params {
         if node.kind == ProjectNodeKind::TexFeedback && is_feedback_history_param_key(slot.key) {
@@ -1306,7 +1310,7 @@ pub(super) fn rebuild_node_inputs(node: &mut ProjectNode) {
         let Some(texture_source) = slot.texture_source else {
             continue;
         };
-        if !node.inputs.contains(&texture_source) {
+        if seen_inputs.insert(texture_source) {
             node.inputs.push(texture_source);
         }
     }
@@ -1314,7 +1318,7 @@ pub(super) fn rebuild_node_inputs(node: &mut ProjectNode) {
         let Some(signal_source) = slot.signal_source else {
             continue;
         };
-        if !node.inputs.contains(&signal_source) {
+        if seen_inputs.insert(signal_source) {
             node.inputs.push(signal_source);
         }
     }
