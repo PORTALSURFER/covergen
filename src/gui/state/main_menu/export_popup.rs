@@ -6,7 +6,7 @@ use hound::WavReader;
 
 use super::super::popup_list;
 use crate::gui::geometry::Rect;
-use crate::gui::timeline::{total_frames_from_music, TIMELINE_DEFAULT_TOTAL_FRAMES};
+use crate::gui::timeline::TIMELINE_DEFAULT_TOTAL_FRAMES;
 
 /// Export-submenu popup width in panel-space pixels.
 const EXPORT_MENU_WIDTH: i32 = 420;
@@ -20,11 +20,9 @@ const EXPORT_MENU_PREVIEW_WIDTH: i32 = 180;
 const EXPORT_MENU_PREVIEW_HEIGHT: i32 = 101;
 const EXPORT_MENU_PREVIEW_GAP: i32 = 8;
 const EXPORT_DEFAULT_BPM: &str = "120";
-const EXPORT_DEFAULT_BARS: &str = "15";
 const EXPORT_DEFAULT_BEATS_PER_BAR: &str = "4";
 const EXPORT_DEFAULT_AUDIO_VOLUME: &str = "1.0";
 const EXPORT_DEFAULT_BPM_VALUE: f32 = 120.0;
-const EXPORT_DEFAULT_BARS_VALUE: u32 = 15;
 const EXPORT_DEFAULT_BEATS_PER_BAR_VALUE: u32 = 4;
 const EXPORT_DEFAULT_AUDIO_VOLUME_VALUE: f32 = 1.0;
 
@@ -33,17 +31,15 @@ const EXPORT_DEFAULT_AUDIO_VOLUME_VALUE: f32 = 1.0;
 pub(crate) enum ExportMenuItem {
     Directory,
     FileName,
-    Bars,
     BeatsPerBar,
     Codec,
     StartStop,
     Preview,
 }
 
-const EXPORT_MENU_ITEMS: [ExportMenuItem; 7] = [
+const EXPORT_MENU_ITEMS: [ExportMenuItem; 6] = [
     ExportMenuItem::Directory,
     ExportMenuItem::FileName,
-    ExportMenuItem::Bars,
     ExportMenuItem::BeatsPerBar,
     ExportMenuItem::Codec,
     ExportMenuItem::StartStop,
@@ -64,7 +60,6 @@ pub(crate) struct ExportMenuState {
     audio_wav_duration_secs: Option<f32>,
     audio_wav_probe_path: String,
     pub(crate) bpm: String,
-    pub(crate) bars: String,
     pub(crate) beats_per_bar: String,
     pub(crate) exporting: bool,
     pub(crate) preview_frame: u32,
@@ -91,7 +86,6 @@ impl ExportMenuState {
             audio_wav_duration_secs: None,
             audio_wav_probe_path: String::new(),
             bpm: EXPORT_DEFAULT_BPM.to_string(),
-            bars: EXPORT_DEFAULT_BARS.to_string(),
             beats_per_bar: EXPORT_DEFAULT_BEATS_PER_BAR.to_string(),
             exporting: false,
             preview_frame: 0,
@@ -215,11 +209,6 @@ impl ExportMenuState {
         parse_positive_f32_or_default(self.bpm.as_str(), EXPORT_DEFAULT_BPM_VALUE)
     }
 
-    /// Return parsed bars, with fallback when invalid.
-    pub(crate) fn parsed_bars(&self) -> u32 {
-        parse_positive_u32_or_default(self.bars.as_str(), EXPORT_DEFAULT_BARS_VALUE)
-    }
-
     /// Return parsed beats-per-bar, with fallback when invalid.
     pub(crate) fn parsed_beats_per_bar(&self) -> u32 {
         parse_positive_u32_or_default(
@@ -265,17 +254,14 @@ impl ExportMenuState {
     }
 
     /// Return derived timeline length in frames.
+    ///
+    /// Timeline length is driven by loaded WAV duration. If no valid duration is
+    /// available, this falls back to a fixed default.
     pub(crate) fn timeline_total_frames(&self, fps: u32) -> u32 {
         if let Some(duration_secs) = self.audio_wav_duration_secs {
             return total_frames_from_audio_length(duration_secs, fps);
         }
-        total_frames_from_music(
-            fps,
-            self.parsed_bpm(),
-            self.parsed_bars(),
-            self.parsed_beats_per_bar(),
-        )
-        .max(1)
+        TIMELINE_DEFAULT_TOTAL_FRAMES.max(1)
     }
 
     /// Return configured WAV path when non-empty.

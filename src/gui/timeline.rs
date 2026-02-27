@@ -57,17 +57,6 @@ fn control_row_rect(timeline: Rect) -> Rect {
     )
 }
 
-/// Convert music timing (`bpm`, `bars`, `beats_per_bar`) to total frame count.
-pub(crate) fn total_frames_from_music(fps: u32, bpm: f32, bars: u32, beats_per_bar: u32) -> u32 {
-    if fps == 0 || !bpm.is_finite() || bpm <= 0.0 || bars == 0 || beats_per_bar == 0 {
-        return TIMELINE_DEFAULT_TOTAL_FRAMES.max(1);
-    }
-    let total_beats = bars as f64 * beats_per_bar as f64;
-    let duration_secs = total_beats * 60.0 / bpm as f64;
-    let frames = (duration_secs * fps as f64).round();
-    frames.clamp(1.0, u32::MAX as f64) as u32
-}
-
 /// Return last frame index for one timeline length.
 pub(crate) fn end_frame(total_frames: u32) -> u32 {
     TIMELINE_START_FRAME + total_frames.max(1) - 1

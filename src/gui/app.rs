@@ -121,7 +121,6 @@ struct OverlaysLayerState {
     export_audio_wav: String,
     export_audio_volume: String,
     export_bpm: String,
-    export_bars: String,
     export_beats_per_bar: String,
     hover_export_menu_item: Option<usize>,
     hover_export_menu_close: bool,
@@ -137,7 +136,6 @@ struct TimelineLayerState {
     timeline_volume_drag_active: bool,
     audio_volume_bits: u32,
     bpm_bits: u32,
-    bars: u32,
     beats_per_bar: u32,
 }
 
@@ -234,7 +232,6 @@ impl SceneInvalidationSnapshot {
                 export_audio_wav: state.export_menu.audio_wav.clone(),
                 export_audio_volume: state.export_menu.audio_volume.clone(),
                 export_bpm: state.export_menu.bpm.clone(),
-                export_bars: state.export_menu.bars.clone(),
                 export_beats_per_bar: state.export_menu.beats_per_bar.clone(),
                 hover_export_menu_item: state.hover_export_menu_item,
                 hover_export_menu_close: state.hover_export_menu_close,
@@ -247,7 +244,6 @@ impl SceneInvalidationSnapshot {
                 timeline_volume_drag_active: state.timeline_volume_drag_active,
                 audio_volume_bits: state.export_menu.parsed_audio_volume().to_bits(),
                 bpm_bits: state.export_menu.parsed_bpm().to_bits(),
-                bars: state.export_menu.parsed_bars(),
                 beats_per_bar: state.export_menu.parsed_beats_per_bar(),
             },
         }

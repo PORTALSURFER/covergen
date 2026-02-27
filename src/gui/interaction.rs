@@ -758,7 +758,6 @@ fn apply_export_menu_text_input(input: &InputSnapshot, state: &mut PreviewState)
     let target = match selected {
         ExportMenuItem::Directory => Some(&mut state.export_menu.directory),
         ExportMenuItem::FileName => Some(&mut state.export_menu.file_name),
-        ExportMenuItem::Bars => Some(&mut state.export_menu.bars),
         ExportMenuItem::BeatsPerBar => Some(&mut state.export_menu.beats_per_bar),
         _ => None,
     };
@@ -832,7 +831,6 @@ fn activate_export_menu_selection(state: &mut PreviewState) -> bool {
     match state.export_menu.selected_item() {
         ExportMenuItem::Directory
         | ExportMenuItem::FileName
-        | ExportMenuItem::Bars
         | ExportMenuItem::BeatsPerBar
         | ExportMenuItem::Codec
         | ExportMenuItem::Preview => false,

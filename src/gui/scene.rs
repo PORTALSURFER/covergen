@@ -840,10 +840,6 @@ impl SceneBuilder {
                     menu_label_scratch.push_str("File Name: ");
                     menu_label_scratch.push_str(state.export_menu.file_name.as_str());
                 }
-                ExportMenuItem::Bars => {
-                    menu_label_scratch.push_str("Timeline Bars: ");
-                    menu_label_scratch.push_str(state.export_menu.bars.as_str());
-                }
                 ExportMenuItem::BeatsPerBar => {
                     menu_label_scratch.push_str("Beats / Bar: ");
                     menu_label_scratch.push_str(state.export_menu.beats_per_bar.as_str());
@@ -1029,15 +1025,19 @@ impl SceneBuilder {
 
         let mut label = std::mem::take(&mut self.label_scratch);
         label.clear();
-        let _ = write!(
-            &mut label,
-            "Frame {}  [{}, {}]  |  bars {} ({} / bar)",
-            state.frame_index,
-            TIMELINE_START_FRAME,
-            end_frame,
-            state.export_menu.parsed_bars(),
-            state.export_menu.parsed_beats_per_bar(),
-        );
+        if let Some(derived_bars) = state.export_menu.derived_bars_from_audio() {
+            let _ = write!(
+                &mut label,
+                "Frame {}  [{}, {}]  |  bars {:.2} derived",
+                state.frame_index, TIMELINE_START_FRAME, end_frame, derived_bars,
+            );
+        } else {
+            let _ = write!(
+                &mut label,
+                "Frame {}  [{}, {}]  |  bars unavailable (drop WAV)",
+                state.frame_index, TIMELINE_START_FRAME, end_frame,
+            );
+        }
         self.push_text(track.x + 4, timeline.y + 2, label.as_str(), TIMELINE_TEXT);
 
         self.push_rect(controls.wav_drop, TIMELINE_TRACK_BG);

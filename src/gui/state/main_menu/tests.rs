@@ -56,7 +56,6 @@ fn export_menu_uses_wav_duration_for_timeline_frame_count() {
     let mut menu = ExportMenuState::closed();
     menu.audio_wav = wav_path.to_string_lossy().to_string();
     menu.bpm = "100".to_string();
-    menu.bars = "1".to_string();
     menu.beats_per_bar = "4".to_string();
     menu.refresh_audio_duration_cache();
 
