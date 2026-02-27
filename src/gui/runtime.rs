@@ -11,6 +11,7 @@ use crate::telemetry;
 
 const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+const FEEDBACK_FRAME_GAP_PARAM_KEY: &str = "frame_gap";
 const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const DEFAULT_LOOP_FPS: u32 = 60;
 const SOLID_PARAM_KEYS: [&str; 4] = ["color_r", "color_g", "color_b", "alpha"];
@@ -108,14 +109,16 @@ const LEVEL_IN_HIGH_SLOT: usize = 1;
 const LEVEL_GAMMA_SLOT: usize = 2;
 const LEVEL_OUT_LOW_SLOT: usize = 3;
 const LEVEL_OUT_HIGH_SLOT: usize = 4;
-const FEEDBACK_PARAM_KEYS: [&str; 3] = [
+const FEEDBACK_PARAM_KEYS: [&str; 4] = [
     "feedback",
     FEEDBACK_HISTORY_PARAM_KEY,
     LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+    FEEDBACK_FRAME_GAP_PARAM_KEY,
 ];
 const FEEDBACK_MIX_SLOT: usize = 0;
 const FEEDBACK_HISTORY_SLOT: usize = 1;
 const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
+const FEEDBACK_FRAME_GAP_SLOT: usize = 3;
 const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] =
     ["diff_a", "diff_b", "feed", "kill", "dt", "seed_mix"];
 const REACTION_DIFFUSION_DIFF_A_SLOT: usize = 0;
@@ -225,9 +228,10 @@ pub(crate) enum TexRuntimeOp {
         out_low: f32,
         out_high: f32,
     },
-    /// `tex.feedback` one-frame delayed history output operation.
+    /// `tex.feedback` delayed history output operation with optional frame-gap decimation.
     Feedback {
         mix: f32,
+        frame_gap: u32,
         history: TexRuntimeFeedbackHistoryBinding,
     },
     /// `tex.reaction_diffusion` temporal Gray-Scott simulation operation.
@@ -1070,6 +1074,16 @@ impl GuiCompiledRuntime {
                         )
                         .unwrap_or(1.0)
                         .clamp(0.0, 1.0),
+                        frame_gap: compiled_param_value_opt(
+                            project,
+                            step,
+                            FEEDBACK_FRAME_GAP_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0)
+                        .round()
+                        .clamp(0.0, 32.0) as u32,
                         history,
                     });
                 }
@@ -1851,7 +1865,7 @@ mod tests {
         compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
         CompiledStepKind, GuiCompiledRuntime, PostProcessCategory,
         TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext, TexRuntimeOp,
-        FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
+        FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
 
@@ -2132,6 +2146,29 @@ mod tests {
                 history: TexRuntimeFeedbackHistoryBinding::Internal { feedback_node_id },
                 ..
             } if feedback_node_id == feedback
+        ));
+    }
+
+    #[test]
+    fn feedback_pipeline_emits_configured_frame_gap() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, feedback));
+        assert!(project.connect_image_link(feedback, out));
+        let frame_gap_slot = project
+            .node_param_slot_index(feedback, FEEDBACK_FRAME_GAP_PARAM_KEY)
+            .expect("feedback frame_gap slot should exist");
+        assert!(project.set_param_value(feedback, frame_gap_slot, 3.7));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = SignalEvalStack::default();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+        assert!(matches!(
+            ops.get(1),
+            Some(TexRuntimeOp::Feedback { frame_gap, .. }) if *frame_gap == 4
         ));
     }
 

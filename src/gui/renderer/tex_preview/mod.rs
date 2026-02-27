@@ -300,6 +300,10 @@ struct CachedTextureSlot {
 struct FeedbackHistorySlot {
     slots: [CachedTextureSlot; 2],
     read_index: usize,
+    /// Countdown in feedback-op invocations until the next history write.
+    write_cooldown: u32,
+    /// Last applied frame-gap value used to detect parameter changes.
+    configured_gap: u32,
 }
 
 /// GPU-backed tex preview state for GUI rendering.

@@ -921,6 +921,16 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             // History output gain for delayed feedback (`history * feedback`).
             param("feedback", "feedback", 1.0, 0.0, 1.0, 0.01),
+            // Number of skipped history-write frames between updates.
+            // `0` keeps classic one-frame feedback behavior.
+            param(
+                FEEDBACK_FRAME_GAP_PARAM_KEY,
+                FEEDBACK_FRAME_GAP_PARAM_LABEL,
+                0.0,
+                0.0,
+                32.0,
+                1.0,
+            ),
             // Clears this node's feedback history buffer.
             param_action_button(
                 FEEDBACK_RESET_PARAM_KEY,

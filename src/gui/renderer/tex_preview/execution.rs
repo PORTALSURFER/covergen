@@ -254,26 +254,29 @@ impl TexPreviewRenderer {
         if Self::is_feedback_history_tap_op(prepared.planned_op) {
             let history_key = prepared.feedback_history_key?;
             let source_target = source_target_before?;
-            if let Some(texture_node_id) =
-                Self::external_feedback_accumulation_texture(prepared.planned_op)
-            {
-                state
-                    .pending_external_feedback_writes
-                    .push(PendingExternalFeedbackWrite {
-                        history_key,
-                        texture_node_id,
-                        fallback_source_target: source_target,
-                    });
-            } else {
-                let history_write_target = self.feedback_history_write_target(history_key)?;
-                self.copy_target_to_target(
-                    dispatch.encoder,
-                    source_target,
-                    history_write_target,
-                    dispatch.width,
-                    dispatch.height,
-                );
-                self.swap_feedback_history(history_key)?;
+            let frame_gap = Self::feedback_frame_gap_for_planned(prepared.planned_op);
+            if self.should_write_feedback_history(history_key, frame_gap)? {
+                if let Some(texture_node_id) =
+                    Self::external_feedback_accumulation_texture(prepared.planned_op)
+                {
+                    state
+                        .pending_external_feedback_writes
+                        .push(PendingExternalFeedbackWrite {
+                            history_key,
+                            texture_node_id,
+                            fallback_source_target: source_target,
+                        });
+                } else {
+                    let history_write_target = self.feedback_history_write_target(history_key)?;
+                    self.copy_target_to_target(
+                        dispatch.encoder,
+                        source_target,
+                        history_write_target,
+                        dispatch.width,
+                        dispatch.height,
+                    );
+                    self.swap_feedback_history(history_key)?;
+                }
             }
             state.source_target = Some(prepared.target);
         } else {
@@ -590,6 +593,32 @@ impl TexPreviewRenderer {
         Some(texture_node_id)
     }
 
+    fn feedback_frame_gap_for_planned(op: PlannedRenderOp) -> u32 {
+        let PlannedRenderOp::Runtime(runtime_op) = op else {
+            return 0;
+        };
+        let TexViewerOp::Feedback { frame_gap, .. } = runtime_op else {
+            return 0;
+        };
+        frame_gap
+    }
+
+    fn should_write_feedback_history(
+        &mut self,
+        key: FeedbackHistoryKey,
+        frame_gap: u32,
+    ) -> Option<bool> {
+        let history = self.feedback_history.get_mut(&key)?;
+        if history.configured_gap != frame_gap {
+            history.configured_gap = frame_gap;
+            history.write_cooldown = 0;
+        }
+        Some(consume_feedback_write_cooldown(
+            &mut history.write_cooldown,
+            frame_gap,
+        ))
+    }
+
     fn resolve_external_feedback_write_for_texture(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -880,6 +909,8 @@ impl TexPreviewRenderer {
                     },
                 ],
                 read_index: 0,
+                write_cooldown: 0,
+                configured_gap: 0,
             },
         );
     }
@@ -1104,9 +1135,19 @@ fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
     }
 }
 
+fn consume_feedback_write_cooldown(write_cooldown: &mut u32, frame_gap: u32) -> bool {
+    if *write_cooldown == 0 {
+        *write_cooldown = frame_gap;
+        true
+    } else {
+        *write_cooldown = (*write_cooldown).saturating_sub(1);
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PlannedRenderOp, TexPreviewRenderer};
+    use super::{consume_feedback_write_cooldown, PlannedRenderOp, TexPreviewRenderer};
     use crate::gui::runtime::{PostProcessCategory, TexRuntimeFeedbackHistoryBinding};
     use crate::gui::tex_view::TexViewerOp;
 
@@ -1114,6 +1155,7 @@ mod tests {
     fn feedback_ops_use_history_tap_mode() {
         let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
             mix: 1.0,
+            frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 11,
             },
@@ -1154,6 +1196,7 @@ mod tests {
     fn external_feedback_accumulation_texture_detects_external_binding() {
         let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
             mix: 1.0,
+            frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::External {
                 texture_node_id: 77,
             },
@@ -1168,6 +1211,7 @@ mod tests {
     fn external_feedback_accumulation_texture_ignores_internal_and_non_feedback_ops() {
         let internal_feedback = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
             mix: 0.8,
+            frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 5,
             },
@@ -1191,5 +1235,18 @@ mod tests {
             TexPreviewRenderer::external_feedback_accumulation_texture(reaction),
             None
         );
+    }
+
+    #[test]
+    fn feedback_write_cooldown_obeys_frame_gap_steps() {
+        let mut cooldown = 0u32;
+        assert!(consume_feedback_write_cooldown(&mut cooldown, 2));
+        assert_eq!(cooldown, 2);
+        assert!(!consume_feedback_write_cooldown(&mut cooldown, 2));
+        assert_eq!(cooldown, 1);
+        assert!(!consume_feedback_write_cooldown(&mut cooldown, 2));
+        assert_eq!(cooldown, 0);
+        assert!(consume_feedback_write_cooldown(&mut cooldown, 2));
+        assert_eq!(cooldown, 2);
     }
 }

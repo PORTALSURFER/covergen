@@ -219,6 +219,10 @@ Solid node docs.
             "feedback docs should include accumulation_tex param docs"
         );
         assert!(
+            node.params.contains_key("frame_gap"),
+            "feedback docs should include frame_gap param docs"
+        );
+        assert!(
             node.params.contains_key("reset"),
             "feedback docs should include reset param docs"
         );

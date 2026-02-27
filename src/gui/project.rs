@@ -47,6 +47,12 @@ const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
 pub(crate) const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
 const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
+/// Stable parameter key for feedback history write decimation interval.
+///
+/// `0` updates history every frame (classic one-frame delay). Larger values
+/// insert additional frame holds between history writes for stepped trails.
+pub(crate) const FEEDBACK_FRAME_GAP_PARAM_KEY: &str = "frame_gap";
+const FEEDBACK_FRAME_GAP_PARAM_LABEL: &str = "frame_gap";
 /// Stable parameter key for the feedback history reset action button.
 pub(crate) const FEEDBACK_RESET_PARAM_KEY: &str = "reset";
 const FEEDBACK_RESET_PARAM_LABEL: &str = "reset";
@@ -552,7 +558,7 @@ pub(crate) enum ProjectNodeKind {
     TexTransform2D,
     /// `tex.level` render node for input/output remapping and gamma shaping.
     TexLevel,
-    /// `tex.feedback` one-frame delayed texture feedback node.
+    /// `tex.feedback` delayed texture feedback node with optional frame-gap stepping.
     TexFeedback,
     /// `tex.reaction_diffusion` temporal Gray-Scott simulation node.
     TexReactionDiffusion,

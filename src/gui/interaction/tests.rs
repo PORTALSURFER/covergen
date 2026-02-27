@@ -1180,7 +1180,7 @@ fn feedback_reset_button_click_queues_reset_action() {
     assert!(project.connect_texture_link_to_param(solid, feedback, 0));
     let value_rect = {
         let node = project.node(feedback).expect("feedback node should exist");
-        node_param_value_rect(node, 2).expect("reset value rect should exist")
+        node_param_value_rect(node, 3).expect("reset value rect should exist")
     };
     let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
     let click = InputSnapshot {
