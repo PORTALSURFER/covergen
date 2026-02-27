@@ -129,7 +129,7 @@ impl FrameDirEncodeWorker {
 }
 
 enum ClipEncodeWorker {
-    Stream(StreamEncodeWorker),
+    Stream(Box<StreamEncodeWorker>),
     FrameDir(FrameDirEncodeWorker),
 }
 
@@ -306,7 +306,7 @@ fn execute_animation(
                 encoder.frame_format(),
                 encoder.data_path()
             );
-            ClipEncodeWorker::Stream(StreamEncodeWorker::spawn(encoder))
+            ClipEncodeWorker::Stream(Box::new(StreamEncodeWorker::spawn(encoder)))
         };
         let mut pending_frame_indices = VecDeque::with_capacity(readback_capacity + 1);
         let clip_seed_offset = config
@@ -569,5 +569,34 @@ pub(crate) fn apply_motion_temporal_constraints(
         constrained.with_slew_limit(limit)
     } else {
         constrained
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ClipEncodeWorker, FrameDirEncodeWorker, StreamFrameFormat};
+    use crate::animation::frame_filename;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn frame_dir_clip_worker_writes_gray_frames_and_rejects_bgra() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-worker-{nonce}"));
+        std::fs::create_dir_all(&dir).expect("test temp dir should be created");
+
+        let mut worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
+        assert_eq!(worker.frame_format(), StreamFrameFormat::Gray8);
+        assert!(worker.submit_bgra(vec![0; 16]).is_err());
+        worker
+            .submit_gray(0, vec![0, 85, 170, 255])
+            .expect("gray frame should enqueue");
+        worker.finish().expect("frame-dir worker should finish");
+
+        let frame = dir.join(frame_filename(0));
+        assert!(frame.exists(), "encoded frame should exist on disk");
+        std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
     }
 }

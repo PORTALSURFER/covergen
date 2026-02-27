@@ -256,17 +256,9 @@ struct DrawnWireSegment {
 }
 
 /// Spatial hash over already drawn wire segments for bridge candidate lookup.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BridgeSegmentSpatialHash {
     buckets: HashMap<(i32, i32), Vec<usize>>,
-}
-
-impl Default for BridgeSegmentSpatialHash {
-    fn default() -> Self {
-        Self {
-            buckets: HashMap::new(),
-        }
-    }
 }
 
 impl BridgeSegmentSpatialHash {
@@ -320,6 +312,15 @@ struct SignalScopeCacheEntry {
     start_time: f32,
     step_secs: f32,
     values: Vec<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SignalScopeRecomputeConfig {
+    start_time: f32,
+    sample_count: usize,
+    step_secs: f32,
+    window_secs_bits: u32,
+    tex_eval_epoch: u64,
 }
 
 /// Stateful scene builder that reuses allocation capacity across frames.
@@ -823,11 +824,13 @@ impl SceneBuilder {
             self.recompute_signal_scope_values(
                 project,
                 node_id,
-                target_start,
-                sample_count,
-                step_secs,
-                window_secs_bits,
-                tex_eval_epoch,
+                SignalScopeRecomputeConfig {
+                    start_time: target_start,
+                    sample_count,
+                    step_secs,
+                    window_secs_bits,
+                    tex_eval_epoch,
+                },
             );
             return self
                 .signal_scope_cache
@@ -847,11 +850,13 @@ impl SceneBuilder {
             self.recompute_signal_scope_values(
                 project,
                 node_id,
-                target_start,
-                sample_count,
-                step_secs,
-                window_secs_bits,
-                tex_eval_epoch,
+                SignalScopeRecomputeConfig {
+                    start_time: target_start,
+                    sample_count,
+                    step_secs,
+                    window_secs_bits,
+                    tex_eval_epoch,
+                },
             );
             return self
                 .signal_scope_cache
@@ -892,12 +897,15 @@ impl SceneBuilder {
         &mut self,
         project: &GuiProject,
         node_id: u32,
-        start_time: f32,
-        sample_count: usize,
-        step_secs: f32,
-        window_secs_bits: u32,
-        tex_eval_epoch: u64,
+        config: SignalScopeRecomputeConfig,
     ) {
+        let SignalScopeRecomputeConfig {
+            start_time,
+            sample_count,
+            step_secs,
+            window_secs_bits,
+            tex_eval_epoch,
+        } = config;
         let mut values = Vec::with_capacity(sample_count);
         for index in 0..sample_count {
             let sample_t = start_time + step_secs * index as f32;
