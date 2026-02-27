@@ -659,6 +659,7 @@ impl GuiProject {
     }
 
     /// Evaluate one scalar signal node output.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn sample_signal_node<S: SignalEvalPath>(
         &self,
         node_id: u32,
