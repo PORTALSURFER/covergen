@@ -1735,9 +1735,23 @@ fn activate_add_menu_selection(
         }
         AddNodeMenuEntry::Option(option_index) => {
             let option = ADD_NODE_OPTIONS[option_index];
-            let (spawn_x, spawn_y) =
-                screen_to_graph(state.menu.open_cursor_x, state.menu.open_cursor_y, state);
-            project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
+            let drop_cursor_x = state.menu.open_cursor_x;
+            let drop_cursor_y = state.menu.open_cursor_y;
+            let (spawn_x, spawn_y) = screen_to_graph(drop_cursor_x, drop_cursor_y, state);
+            let node_id =
+                project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
+            if let Some(link) = hover_insert_link_at_cursor(
+                project,
+                panel_width,
+                panel_height,
+                state,
+                drop_cursor_x,
+                drop_cursor_y,
+                node_id,
+            ) {
+                let _ =
+                    project.insert_node_on_primary_link(node_id, link.source_id, link.target_id);
+            }
             state.menu = AddNodeMenuState::closed();
             state.hover_menu_item = None;
             true

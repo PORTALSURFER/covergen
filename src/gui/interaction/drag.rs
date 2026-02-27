@@ -1,5 +1,6 @@
 //! Node drag, wire-insert hover, and overlap-snap behavior.
 
+use crate::gui::scene::wire_route;
 use crate::gui::state::DragState;
 
 use super::{
@@ -303,6 +304,8 @@ pub(super) fn hover_insert_link_at_cursor(
     dragged_node_id: u32,
 ) -> Option<HoverInsertLink> {
     let mut best: Option<(HoverInsertLink, f32)> = None;
+    let obstacles = collect_hover_obstacles(project, dragged_node_id);
+    let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
     let query = HoverInsertQuery {
         cursor_x,
         cursor_y,
@@ -313,14 +316,42 @@ pub(super) fn hover_insert_link_at_cursor(
     let (view_x0, view_y0, view_x1, view_y1) = super::marquee::panel_graph_rect(ctx, state);
     let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
     for target_id in target_ids.iter().copied() {
-        consider_hover_insert_candidate(project, state, query, target_id, &mut best);
+        consider_hover_insert_candidate(project, state, query, &route_map, target_id, &mut best);
     }
     if best.is_none() && target_ids.len() < project.node_count() {
         for target in project.nodes() {
-            consider_hover_insert_candidate(project, state, query, target.id(), &mut best);
+            consider_hover_insert_candidate(
+                project,
+                state,
+                query,
+                &route_map,
+                target.id(),
+                &mut best,
+            );
         }
     }
     best.map(|(link, _)| link)
+}
+
+fn collect_hover_obstacles(
+    project: &GuiProject,
+    excluded_node_id: u32,
+) -> Vec<wire_route::NodeObstacle> {
+    let mut out = Vec::new();
+    for node in project.nodes() {
+        if node.id() == excluded_node_id {
+            continue;
+        }
+        out.push(wire_route::NodeObstacle {
+            rect: crate::gui::geometry::Rect::new(
+                node.x(),
+                node.y(),
+                NODE_WIDTH,
+                node.card_height(),
+            ),
+        });
+    }
+    out
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -335,6 +366,7 @@ fn consider_hover_insert_candidate(
     project: &GuiProject,
     state: &PreviewState,
     query: HoverInsertQuery,
+    route_map: &wire_route::RouteObstacleMap,
     target_id: u32,
     best: &mut Option<(HoverInsertLink, f32)>,
 ) {
@@ -356,16 +388,35 @@ fn consider_hover_insert_candidate(
     let Some((to_x, to_y)) = input_pin_center(target) else {
         return;
     };
-    let (from_x, from_y) = graph_point_to_panel(from_x, from_y, state);
-    let (to_x, to_y) = graph_point_to_panel(to_x, to_y, state);
-    let dist_sq = point_to_segment_distance_sq(
-        query.cursor_x as f32,
-        query.cursor_y as f32,
-        from_x as f32,
-        from_y as f32,
-        to_x as f32,
-        to_y as f32,
+    let route_graph = wire_route::route_wire_path_with_tails_with_map(
+        wire_route::RouteEndpoint {
+            point: (from_x, from_y),
+            corridor_dir: wire_route::RouteDirection::East,
+        },
+        wire_route::RouteEndpoint {
+            point: (to_x, to_y),
+            corridor_dir: wire_route::RouteDirection::West,
+        },
+        route_map,
     );
+    let dist_sq = route_graph
+        .windows(2)
+        .map(|segment| {
+            let (ax, ay) = graph_point_to_panel(segment[0].0, segment[0].1, state);
+            let (bx, by) = graph_point_to_panel(segment[1].0, segment[1].1, state);
+            point_to_segment_distance_sq(
+                query.cursor_x as f32,
+                query.cursor_y as f32,
+                ax as f32,
+                ay as f32,
+                bx as f32,
+                by as f32,
+            )
+        })
+        .fold(f32::MAX, f32::min);
+    if !dist_sq.is_finite() {
+        return;
+    }
     if dist_sq > query.threshold_sq {
         return;
     }
