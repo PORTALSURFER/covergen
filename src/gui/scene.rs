@@ -269,7 +269,8 @@ impl SceneBuilder {
         }
 
         let edges_epoch = state.invalidation.wires;
-        if self.cached_edges_epoch != Some(edges_epoch) {
+        let freeze_edges_for_drag = state.drag.is_some() && self.cached_edges_epoch.is_some();
+        if !freeze_edges_for_drag && self.cached_edges_epoch != Some(edges_epoch) {
             self.cached_edges_epoch = Some(edges_epoch);
             self.frame.dirty.edges = true;
             self.rebuild_edges_layer(project, state);
@@ -2303,8 +2304,11 @@ fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
 mod tests {
     use super::{
         build_smoothed_param_wire, smooth_param_wire_path, timeline_beat_indicator_on,
-        PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+        SceneBuilder, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
+    use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::state::{DragState, PreviewState};
+    use crate::runtime_config::V2Config;
 
     #[test]
     fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
@@ -2377,5 +2381,43 @@ mod tests {
         assert!(!timeline_beat_indicator_on(10, 0, 120.0));
         assert!(!timeline_beat_indicator_on(10, 60, 0.0));
         assert!(!timeline_beat_indicator_on(10, 60, f32::NAN));
+    }
+
+    #[test]
+    fn edge_layer_freezes_during_node_drag_and_refreshes_on_release() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 40, 40, 640, 480);
+        let target = project.add_node(ProjectNodeKind::IoWindowOut, 280, 40, 640, 480);
+        assert!(project.connect_image_link(source, target));
+
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let mut scene = SceneBuilder::default();
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(frame.dirty.edges, "initial build should populate edges");
+        let frozen_lines_before = frame.edges.lines.len();
+
+        assert!(project.move_node(source, 140, 40, 640, 480));
+        state.invalidation.invalidate_wires();
+        state.drag = Some(DragState {
+            node_id: source,
+            offset_x: 0,
+            offset_y: 0,
+            origin_x: 40,
+            origin_y: 40,
+        });
+
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            !frame.dirty.edges,
+            "edges should remain frozen while node drag is active"
+        );
+        assert_eq!(frame.edges.lines.len(), frozen_lines_before);
+
+        state.drag = None;
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            frame.dirty.edges,
+            "edges should rebuild once drag is released"
+        );
     }
 }
