@@ -52,77 +52,39 @@ struct FinalizeOutputSettings {
     fast_mode: bool,
 }
 
-#[derive(Debug)]
-enum StreamFrameJob {
-    Gray(Vec<u8>),
-    Bgra(Vec<u8>),
-}
-
-#[derive(Debug)]
 struct StreamEncodeWorker {
     frame_format: StreamFrameFormat,
-    sender: SyncSender<StreamFrameJob>,
-    join_handle: JoinHandle<Result<(), String>>,
+    encoder: RawVideoEncoder,
 }
 
 impl StreamEncodeWorker {
-    fn spawn(mut encoder: RawVideoEncoder) -> Self {
+    fn spawn(encoder: RawVideoEncoder) -> Self {
         let frame_format = encoder.frame_format();
-        let (sender, receiver) = mpsc::sync_channel(8);
-        let join_handle = thread::spawn(move || -> Result<(), String> {
-            while let Ok(job) = receiver.recv() {
-                match job {
-                    StreamFrameJob::Gray(frame) => encoder
-                        .write_gray_frame(&frame)
-                        .map_err(|err| err.to_string())?,
-                    StreamFrameJob::Bgra(frame) => encoder
-                        .write_bgra_frame(&frame)
-                        .map_err(|err| err.to_string())?,
-                }
-            }
-            encoder.finish().map_err(|err| err.to_string())
-        });
         Self {
             frame_format,
-            sender,
-            join_handle,
+            encoder,
         }
     }
 
-    fn submit_gray(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_gray(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
         if self.frame_format != StreamFrameFormat::Gray8 {
             return Err("stream worker expects BGRA frames, not grayscale".into());
         }
-        self.sender
-            .send(StreamFrameJob::Gray(frame))
-            .map_err(|_| "stream worker channel closed unexpectedly".into())
+        self.encoder.write_gray_frame(&frame)
     }
 
-    fn submit_bgra(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_bgra(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
         if self.frame_format != StreamFrameFormat::Bgra8 {
             return Err("stream worker expects grayscale frames, not BGRA".into());
         }
-        self.sender
-            .send(StreamFrameJob::Bgra(frame))
-            .map_err(|_| "stream worker channel closed unexpectedly".into())
+        self.encoder.write_bgra_frame(&frame)
     }
 
     fn finish(self) -> Result<(), Box<dyn Error>> {
-        let StreamEncodeWorker {
-            sender,
-            join_handle,
-            ..
-        } = self;
-        drop(sender);
-        match join_handle.join() {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
-            Err(_) => Err("stream encode worker panicked".into()),
-        }
+        self.encoder.finish()
     }
 }
 
-#[derive(Debug)]
 struct FrameDirEncodeWorker {
     sender: SyncSender<(u32, Vec<u8>)>,
     join_handle: JoinHandle<Result<(), String>>,
@@ -166,7 +128,6 @@ impl FrameDirEncodeWorker {
     }
 }
 
-#[derive(Debug)]
 enum ClipEncodeWorker {
     Stream(StreamEncodeWorker),
     FrameDir(FrameDirEncodeWorker),
@@ -180,14 +141,14 @@ impl ClipEncodeWorker {
         }
     }
 
-    fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_gray(&mut self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.submit_gray(frame),
             Self::FrameDir(worker) => worker.submit_gray(frame_index, frame),
         }
     }
 
-    fn submit_bgra(&self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_bgra(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.submit_bgra(frame),
             Self::FrameDir(_) => Err("frame-dir worker accepts grayscale frames only".into()),
@@ -327,7 +288,7 @@ fn execute_animation(
             None
         };
         let clip_path = clip_output_path(&config.output, clip_index, config.count);
-        let encode_worker = if let Some(dir) = frame_dir.as_ref() {
+        let mut encode_worker = if let Some(dir) = frame_dir.as_ref() {
             ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(
                 dir.clone(),
                 config.width,
@@ -380,7 +341,7 @@ fn execute_animation(
             while renderer.pending_retained_output_readbacks() >= readback_capacity {
                 drain_one_queued_export_frame(
                     renderer,
-                    &encode_worker,
+                    &mut encode_worker,
                     &mut pending_frame_indices,
                     buffers.output_gray.len(),
                     buffers.output_bgra.len(),
@@ -400,7 +361,7 @@ fn execute_animation(
         while renderer.pending_retained_output_readbacks() > 0 {
             drain_one_queued_export_frame(
                 renderer,
-                &encode_worker,
+                &mut encode_worker,
                 &mut pending_frame_indices,
                 buffers.output_gray.len(),
                 buffers.output_bgra.len(),
@@ -435,7 +396,7 @@ fn execute_animation(
 
 fn drain_one_queued_export_frame(
     renderer: &mut GpuLayerRenderer,
-    worker: &ClipEncodeWorker,
+    worker: &mut ClipEncodeWorker,
     pending_frame_indices: &mut VecDeque<u32>,
     gray_bytes: usize,
     bgra_bytes: usize,
