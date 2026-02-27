@@ -317,28 +317,48 @@ fn execute_animation(
         let modulation_intensity = motion.modulation_intensity();
         let use_seed_jitter = motion.use_seed_jitter();
         renderer.reset_feedback_state()?;
-
-        for frame_index in 0..frames {
-            let frame_start = Instant::now();
-            let frame_seed_offset = if use_seed_jitter {
-                clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9))
-            } else {
-                clip_seed_offset
-            };
-            let graph_time = apply_motion_temporal_constraints(
-                GraphTimeInput::from_frame(frame_index, frames)
-                    .with_intensity(modulation_intensity),
-                motion,
-            );
-            render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
-            renderer.submit_retained_output_readback(
-                finalize_settings.contrast,
-                finalize_settings.low_pct,
-                finalize_settings.high_pct,
-                finalize_settings.fast_mode,
-            )?;
-            pending_frame_indices.push_back(frame_index);
-            while renderer.pending_retained_output_readbacks() >= readback_capacity {
+        let clip_encode_result = (|| -> Result<(), Box<dyn Error>> {
+            for frame_index in 0..frames {
+                let frame_start = Instant::now();
+                let frame_seed_offset = if use_seed_jitter {
+                    clip_seed_offset.wrapping_add(frame_index.wrapping_mul(0x9E37_79B9))
+                } else {
+                    clip_seed_offset
+                };
+                let graph_time = apply_motion_temporal_constraints(
+                    GraphTimeInput::from_frame(frame_index, frames)
+                        .with_intensity(modulation_intensity),
+                    motion,
+                );
+                render_graph_frame(compiled, renderer, frame_seed_offset, Some(graph_time))?;
+                renderer.submit_retained_output_readback(
+                    finalize_settings.contrast,
+                    finalize_settings.low_pct,
+                    finalize_settings.high_pct,
+                    finalize_settings.fast_mode,
+                )?;
+                pending_frame_indices.push_back(frame_index);
+                while renderer.pending_retained_output_readbacks() >= readback_capacity {
+                    drain_one_queued_export_frame(
+                        renderer,
+                        &mut encode_worker,
+                        &mut pending_frame_indices,
+                        buffers.output_gray.len(),
+                        buffers.output_bgra.len(),
+                    )?;
+                }
+                let frame_elapsed = frame_start.elapsed();
+                telemetry::record_timing("v2.animation.frame.total", frame_elapsed);
+                telemetry::record_frame("v2.animation.frame.total", frame_elapsed);
+                print_animation_progress(
+                    frame_index + 1,
+                    frames,
+                    clip_start.elapsed().as_secs_f64(),
+                    config.count,
+                    clip_index,
+                );
+            }
+            while renderer.pending_retained_output_readbacks() > 0 {
                 drain_one_queued_export_frame(
                     renderer,
                     &mut encode_worker,
@@ -347,31 +367,15 @@ fn execute_animation(
                     buffers.output_bgra.len(),
                 )?;
             }
-            let frame_elapsed = frame_start.elapsed();
-            telemetry::record_timing("v2.animation.frame.total", frame_elapsed);
-            telemetry::record_frame("v2.animation.frame.total", frame_elapsed);
-            print_animation_progress(
-                frame_index + 1,
-                frames,
-                clip_start.elapsed().as_secs_f64(),
-                config.count,
-                clip_index,
-            );
-        }
-        while renderer.pending_retained_output_readbacks() > 0 {
-            drain_one_queued_export_frame(
-                renderer,
-                &mut encode_worker,
-                &mut pending_frame_indices,
-                buffers.output_gray.len(),
-                buffers.output_bgra.len(),
-            )?;
-        }
-        if !pending_frame_indices.is_empty() {
-            return Err("internal export pipeline mismatch: frame index queue not drained".into());
-        }
+            if !pending_frame_indices.is_empty() {
+                return Err(
+                    "internal export pipeline mismatch: frame index queue not drained".into(),
+                );
+            }
+            Ok(())
+        })();
         finish_animation_progress_line();
-        encode_worker.finish()?;
+        complete_encode_worker(clip_encode_result, encode_worker)?;
 
         if let Some(dir) = frame_dir.as_ref() {
             encode_frames_to_mp4(dir, config.animation.fps, &clip_path)?;
@@ -392,6 +396,26 @@ fn execute_animation(
         telemetry::snapshot_memory(format!("v2.animation.clip.{clip_index}.end"));
     }
     Ok(())
+}
+
+/// Finalize one clip encode worker and preserve the most actionable failure.
+///
+/// This keeps encoder cleanup deterministic even when clip rendering fails
+/// mid-stream, and reports both errors when work and finalization fail.
+fn complete_encode_worker(
+    clip_work_result: Result<(), Box<dyn Error>>,
+    worker: ClipEncodeWorker,
+) -> Result<(), Box<dyn Error>> {
+    let finish_result = worker.finish();
+    match (clip_work_result, finish_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Err(finish_err)) => Err(finish_err),
+        (Err(work_err), Ok(())) => Err(work_err),
+        (Err(work_err), Err(finish_err)) => Err(format!(
+            "{work_err}; additionally encoder finalization failed: {finish_err}"
+        )
+        .into()),
+    }
 }
 
 fn drain_one_queued_export_frame(
@@ -574,8 +598,11 @@ pub(crate) fn apply_motion_temporal_constraints(
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipEncodeWorker, FrameDirEncodeWorker, StreamFrameFormat};
+    use super::{
+        complete_encode_worker, ClipEncodeWorker, FrameDirEncodeWorker, StreamFrameFormat,
+    };
     use crate::animation::frame_filename;
+    use std::io::Error as IoError;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -598,5 +625,53 @@ mod tests {
         let frame = dir.join(frame_filename(0));
         assert!(frame.exists(), "encoded frame should exist on disk");
         std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
+    }
+
+    #[test]
+    fn complete_encode_worker_preserves_primary_work_error() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-complete-ok-{nonce}"));
+        std::fs::create_dir_all(&dir).expect("test temp dir should be created");
+
+        let worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
+        let err = complete_encode_worker(Err(IoError::other("work failed").into()), worker)
+            .expect_err("primary work failure should be returned");
+        assert!(
+            err.to_string().contains("work failed"),
+            "primary work failure message should be preserved"
+        );
+
+        std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
+    }
+
+    #[test]
+    fn complete_encode_worker_reports_finalize_error_when_both_fail() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-complete-missing-{nonce}"));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("stale temp path should be removable");
+        }
+
+        let mut worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
+        worker
+            .submit_gray(0, vec![0, 85, 170, 255])
+            .expect("gray frame should enqueue");
+        let err = complete_encode_worker(Err(IoError::other("work failed").into()), worker)
+            .expect_err("combined work/finalize failure should be returned");
+        let message = err.to_string();
+        assert!(
+            message.contains("work failed"),
+            "primary work failure should be included in combined message"
+        );
+        assert!(
+            message.contains("encoder finalization failed"),
+            "finalization failure context should be included"
+        );
     }
 }
