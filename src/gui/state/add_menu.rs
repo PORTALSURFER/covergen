@@ -179,7 +179,7 @@ impl AddNodeMenuState {
 
     /// Create an opened menu clamped to panel bounds.
     pub(crate) fn open_at(x: i32, y: i32, panel_width: usize, panel_height: usize) -> Self {
-        let menu_h = menu_height();
+        let menu_h = max_menu_height();
         let max_x = (panel_width as i32 - MENU_WIDTH - 8).max(8);
         let max_y = (panel_height as i32 - menu_h - 8).max(8);
         Self {
@@ -203,7 +203,12 @@ impl AddNodeMenuState {
 
     /// Return menu rectangle in panel coordinates.
     pub(crate) fn rect(&self) -> Rect {
-        Rect::new(self.x, self.y, MENU_WIDTH, menu_height())
+        Rect::new(
+            self.x,
+            self.y,
+            MENU_WIDTH,
+            menu_height_for_entries(self.visible_entry_count()),
+        )
     }
 
     /// Return query-edit rectangle in panel coordinates.
@@ -381,15 +386,21 @@ impl AddNodeMenuState {
     }
 }
 
-/// Return full popup menu height.
-pub(crate) fn menu_height() -> i32 {
-    let row_count = (ADD_NODE_OPTIONS.len() + 1).max(category_count()) as i32;
+/// Return popup menu height for current visible entry count.
+fn menu_height_for_entries(entry_count: usize) -> i32 {
+    let row_count = entry_count.max(1) as i32;
     MENU_TITLE_HEIGHT
         + MENU_BLOCK_GAP
         + MENU_SEARCH_HEIGHT
         + MENU_BLOCK_GAP
         + (row_count * MENU_ITEM_HEIGHT)
         + MENU_BOTTOM_PAD
+}
+
+/// Return maximum popup menu height across all stages.
+fn max_menu_height() -> i32 {
+    let row_count = (ADD_NODE_OPTIONS.len() + 1).max(category_count());
+    menu_height_for_entries(row_count)
 }
 
 fn category_count() -> usize {
@@ -513,5 +524,17 @@ mod tests {
                 .iter()
                 .any(|entry| matches!(entry, AddNodeMenuEntry::Option(option_index) if super::ADD_NODE_OPTIONS[*option_index].kind == ProjectNodeKind::TexFeedback))
         );
+    }
+
+    #[test]
+    fn menu_rect_height_tracks_visible_entries() {
+        let mut menu = AddNodeMenuState::open_at(100, 100, 420, 400);
+        let category_height = menu.rect().h;
+        assert!(menu.open_category(AddNodeCategory::Control));
+        let option_height = menu.rect().h;
+        assert!(option_height < category_height);
+        assert!(menu.apply_query_input("zzz", false));
+        let empty_height = menu.rect().h;
+        assert_eq!(empty_height, super::menu_height_for_entries(0));
     }
 }
