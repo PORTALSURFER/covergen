@@ -52,6 +52,11 @@ impl GuiProject {
         true
     }
 
+    /// Return timeline BPM currently used by beat-synced `ctl.lfo` nodes.
+    pub(crate) fn lfo_sync_bpm(&self) -> f32 {
+        self.lfo_sync_bpm
+    }
+
     /// Export this in-memory graph to a persisted autosave payload.
     pub(crate) fn to_persisted(&self) -> PersistedGuiProject {
         let nodes = self

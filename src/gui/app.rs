@@ -60,6 +60,21 @@ struct PanelResizeDrag {
     grab_offset_px: i32,
 }
 
+/// Snapshot of project-scoped invalidation epochs captured pre-update.
+#[derive(Clone, Copy, Debug)]
+struct SceneInvalidationSnapshot {
+    project: GuiProjectInvalidation,
+}
+
+impl SceneInvalidationSnapshot {
+    /// Capture the minimal invalidation state needed for post-update diffing.
+    fn capture(project: &GuiProject) -> Self {
+        Self {
+            project: project.invalidation(),
+        }
+    }
+}
+
 /// Frame scheduler and state owner for the realtime GUI loop.
 pub(crate) struct GuiApp {
     config: V2Config,
@@ -297,7 +312,9 @@ impl GuiApp {
         let input_elapsed = input_start.elapsed();
 
         let update_start = Instant::now();
-        let project_invalidation_before = self.project.invalidation();
+        let capture_scene_invalidation = self.should_capture_scene_invalidation_snapshot(&snapshot);
+        let scene_invalidation_before =
+            capture_scene_invalidation.then(|| SceneInvalidationSnapshot::capture(&self.project));
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(&snapshot);
         let mut scene_dirty = resize_changed;
         scene_dirty |= self
@@ -404,7 +421,7 @@ impl GuiApp {
         }
         self.sync_timeline_audio_preview(timeline_total_frames);
         self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
-        self.apply_project_scoped_invalidation(project_invalidation_before, resize_changed);
+        self.apply_project_scoped_invalidation(scene_invalidation_before, resize_changed);
         let update_elapsed = update_start.elapsed();
         let hit_test_scans = self.project.take_hit_test_scan_count();
 
@@ -515,19 +532,21 @@ impl GuiApp {
     /// Propagate project mutation deltas into scoped scene/tex epochs.
     fn apply_project_scoped_invalidation(
         &mut self,
-        project_before: GuiProjectInvalidation,
+        snapshot_before: Option<SceneInvalidationSnapshot>,
         resize_changed: bool,
     ) {
-        let project_after = self.project.invalidation();
-        if project_before.nodes != project_after.nodes {
-            self.state.invalidation.invalidate_nodes();
-        }
-        if project_before.wires != project_after.wires {
-            self.state.invalidation.invalidate_wires();
-            self.state.invalidation.invalidate_overlays();
-        }
-        if project_before.tex_eval != project_after.tex_eval {
-            self.state.invalidation.invalidate_tex_eval();
+        if let Some(snapshot_before) = snapshot_before {
+            let project_after = self.project.invalidation();
+            if snapshot_before.project.nodes != project_after.nodes {
+                self.state.invalidation.invalidate_nodes();
+            }
+            if snapshot_before.project.wires != project_after.wires {
+                self.state.invalidation.invalidate_wires();
+                self.state.invalidation.invalidate_overlays();
+            }
+            if snapshot_before.project.tex_eval != project_after.tex_eval {
+                self.state.invalidation.invalidate_tex_eval();
+            }
         }
 
         if resize_changed {
@@ -536,6 +555,37 @@ impl GuiApp {
             self.state.invalidation.invalidate_overlays();
             self.state.invalidation.invalidate_timeline();
         }
+    }
+
+    /// Return true when this frame can plausibly mutate project invalidation epochs.
+    fn should_capture_scene_invalidation_snapshot(&self, input: &InputSnapshot) -> bool {
+        if self.frame_counter == 0
+            || self.state.pending_app_action.is_some()
+            || self.config.gui.benchmark_drag
+            || self.state.request_new_project
+        {
+            return true;
+        }
+        if self.state.drag.is_some()
+            || self.state.wire_drag.is_some()
+            || self.state.link_cut.is_some()
+            || self.state.param_edit.is_some()
+            || self.state.param_scrub.is_some()
+            || self.state.param_dropdown.is_some()
+            || self.state.timeline_bpm_edit.is_some()
+            || self.state.timeline_bar_edit.is_some()
+            || self.state.right_marquee.is_some()
+            || self.state.export_menu_drag.is_some()
+        {
+            return true;
+        }
+        if (self.project.lfo_sync_bpm() - self.state.export_menu.parsed_bpm().clamp(1.0, 400.0))
+            .abs()
+            > f32::EPSILON
+        {
+            return true;
+        }
+        input_has_project_mutation_intent(input)
     }
 
     /// Flush trace output before event-loop shutdown.
@@ -1285,6 +1335,36 @@ fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
         return inst;
     }
     previous * 0.9 + inst * 0.1
+}
+
+fn input_has_project_mutation_intent(input: &InputSnapshot) -> bool {
+    input.left_down
+        || input.left_clicked
+        || input.right_down
+        || input.right_clicked
+        || input.middle_down
+        || input.middle_clicked
+        || input.alt_down
+        || input.shift_down
+        || input.wheel_lines_y.abs() > f32::EPSILON
+        || input.toggle_pause
+        || input.new_project
+        || input.focus_all
+        || input.open_help
+        || input.toggle_node_open
+        || input.toggle_add_menu
+        || input.toggle_main_menu
+        || input.menu_up
+        || input.menu_down
+        || input.param_dec
+        || input.param_inc
+        || input.menu_accept
+        || !input.typed_text.is_empty()
+        || input.param_backspace
+        || input.param_delete
+        || input.param_select_all
+        || input.param_commit
+        || input.param_cancel
 }
 
 #[cfg(test)]
