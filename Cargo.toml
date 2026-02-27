@@ -21,6 +21,7 @@ mp4 = "0.14"
 openh264 = "0.9.3"
 pollster = "0.3"
 rayon = "1.10"
+rfd = "0.15"
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

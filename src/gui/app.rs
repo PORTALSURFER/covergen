@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rfd::FileDialog;
 use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window};
@@ -37,6 +38,7 @@ const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
 const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
 const GUI_PROJECT_SAVE_FILE: &str = "covergen_gui_project.json";
+#[cfg(test)]
 const GUI_PROJECT_SAVE_FILE_LEGACY: &str = ".covergen_gui_project.json";
 const EXPORT_PREVIEW_BG_B: u8 = 8;
 const EXPORT_PREVIEW_BG_G: u8 = 8;
@@ -741,7 +743,10 @@ impl GuiApp {
         };
         match action {
             PendingAppAction::SaveProject => {
-                let path = manual_project_path();
+                let Some(path) = pick_save_project_path() else {
+                    self.state.export_menu.set_status("Save canceled");
+                    return Ok(true);
+                };
                 match save_project_file(&self.project, path.as_path()) {
                     Ok(()) => {
                         self.state
@@ -758,8 +763,12 @@ impl GuiApp {
                 Ok(true)
             }
             PendingAppAction::LoadProject => {
-                match load_manual_project(self.panel_width, self.renderer.height()) {
-                    Ok(Some((loaded, path))) => {
+                let Some(path) = pick_load_project_path() else {
+                    self.state.export_menu.set_status("Load canceled");
+                    return Ok(true);
+                };
+                match load_project_file(path.as_path(), self.panel_width, self.renderer.height()) {
+                    Ok(loaded) => {
                         self.project = loaded;
                         self.state = PreviewState::new(&self.config);
                         self.state.invalidation.invalidate_all();
@@ -769,12 +778,6 @@ impl GuiApp {
                             .export_menu
                             .set_status(format!("Loaded project: {}", path.display()));
                         println!("[gui] loaded project: {}", path.display());
-                    }
-                    Ok(None) => {
-                        self.state.export_menu.set_status(format!(
-                            "Load failed: no project file found (checked: {})",
-                            manual_project_load_candidates_display()
-                        ));
                     }
                     Err(err) => {
                         self.state
@@ -1275,41 +1278,49 @@ fn autosave_project_path() -> PathBuf {
 }
 
 /// Return explicit save/load project path in one base directory.
+#[cfg(test)]
 fn manual_project_path_in(base_dir: &Path) -> PathBuf {
     base_dir.join(GUI_PROJECT_SAVE_FILE)
 }
 
-/// Return explicit save/load project path in the process working directory.
-fn manual_project_path() -> PathBuf {
-    manual_project_path_in(working_directory().as_path())
+/// Return native picker initial directory for manual project save/load.
+fn project_picker_directory() -> PathBuf {
+    working_directory()
+}
+
+/// Open one native save-file picker for GUI projects.
+fn pick_save_project_path() -> Option<PathBuf> {
+    FileDialog::new()
+        .set_title("Save Project")
+        .set_directory(project_picker_directory())
+        .set_file_name(GUI_PROJECT_SAVE_FILE)
+        .add_filter("Covergen Project", &["json"])
+        .save_file()
+}
+
+/// Open one native open-file picker for GUI projects.
+fn pick_load_project_path() -> Option<PathBuf> {
+    FileDialog::new()
+        .set_title("Load Project")
+        .set_directory(project_picker_directory())
+        .add_filter("Covergen Project", &["json"])
+        .pick_file()
 }
 
 /// Return legacy hidden project path used by older GUI builds.
+#[cfg(test)]
 fn legacy_manual_project_path_in(base_dir: &Path) -> PathBuf {
     base_dir.join(GUI_PROJECT_SAVE_FILE_LEGACY)
 }
 
 /// Return ordered project-load candidates for one base directory.
+#[cfg(test)]
 fn manual_project_load_candidates_in(base_dir: &Path) -> [PathBuf; 3] {
     [
         manual_project_path_in(base_dir),
         legacy_manual_project_path_in(base_dir),
         autosave_project_path_in(base_dir),
     ]
-}
-
-/// Return ordered project-load candidates in the process working directory.
-fn manual_project_load_candidates() -> [PathBuf; 3] {
-    manual_project_load_candidates_in(working_directory().as_path())
-}
-
-/// Return one comma-separated candidate list for status messages.
-fn manual_project_load_candidates_display() -> String {
-    manual_project_load_candidates()
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Load autosaved GUI graph if present.
@@ -1321,15 +1332,8 @@ fn load_autosaved_project(
     load_project_file_if_exists(path.as_path(), panel_width, panel_height)
 }
 
-/// Load the best project candidate in the process working directory.
-fn load_manual_project(
-    panel_width: usize,
-    panel_height: usize,
-) -> Result<Option<(GuiProject, PathBuf)>, Box<dyn Error>> {
-    load_manual_project_from_dir(working_directory().as_path(), panel_width, panel_height)
-}
-
 /// Load the first existing project candidate from one directory.
+#[cfg(test)]
 fn load_manual_project_from_dir(
     base_dir: &Path,
     panel_width: usize,
@@ -1364,6 +1368,21 @@ fn load_project_file_if_exists(
     let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
     let project = GuiProject::from_persisted(persisted, panel_width, panel_height)?;
     Ok(Some(project))
+}
+
+/// Load one explicit GUI project file path.
+fn load_project_file(
+    path: &Path,
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<GuiProject, Box<dyn Error>> {
+    let bytes = fs::read(path)?;
+    let persisted = serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice())?;
+    Ok(GuiProject::from_persisted(
+        persisted,
+        panel_width,
+        panel_height,
+    )?)
 }
 
 /// Save current GUI graph to autosave file atomically.
