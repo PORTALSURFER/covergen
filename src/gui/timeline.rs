@@ -35,8 +35,8 @@ pub(crate) struct TimelineControlLayout {
 }
 
 fn top_row_rect(timeline: Rect) -> Rect {
-    let y = timeline.y + TIMELINE_PAD_Y;
     let h = ((timeline.h - TIMELINE_PAD_Y * 3) / 2).max(14);
+    let y = timeline.y + timeline.h - TIMELINE_PAD_Y - h;
     Rect::new(
         timeline.x + TIMELINE_PAD_X,
         y,
@@ -46,9 +46,8 @@ fn top_row_rect(timeline: Rect) -> Rect {
 }
 
 fn control_row_rect(timeline: Rect) -> Rect {
-    let top = top_row_rect(timeline);
-    let y = top.y + top.h + TIMELINE_PAD_Y;
-    let h = (timeline.y + timeline.h - TIMELINE_PAD_Y - y).max(14);
+    let h = ((timeline.h - TIMELINE_PAD_Y * 3) / 2).max(14);
+    let y = timeline.y + TIMELINE_PAD_Y;
     Rect::new(
         timeline.x + TIMELINE_PAD_X,
         y,
