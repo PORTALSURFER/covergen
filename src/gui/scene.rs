@@ -76,7 +76,8 @@ const PARAM_DROPDOWN_SELECTED: Color = Color::argb(0x663B82F6);
 const PARAM_DROPDOWN_HOVER: Color = Color::argb(0x3342A5F5);
 const NODE_SIGNAL_SCOPE_BG: Color = Color::argb(0x1A4A88D9);
 const NODE_SIGNAL_SCOPE_BORDER: Color = Color::argb(0x664A88D9);
-const NODE_SIGNAL_SCOPE_CENTER: Color = Color::argb(0x555C88B6);
+const NODE_SIGNAL_SCOPE_GUIDE_ZERO: Color = Color::argb(0x4466A2D9);
+const NODE_SIGNAL_SCOPE_GUIDE_ONE: Color = Color::argb(0x3381C784);
 const NODE_SIGNAL_SCOPE_WAVE: Color = Color::argb(0xFF9ED0FF);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
@@ -550,36 +551,45 @@ impl SceneBuilder {
             return;
         }
 
-        let center_y = inner.y + inner.h / 2;
-        self.push_line(
-            inner.x,
-            center_y,
-            inner.x + inner.w - 1,
-            center_y,
-            NODE_SIGNAL_SCOPE_CENTER,
-        );
-
         let window_secs = if node.expanded() { 2.0 } else { 1.2 };
         let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
         let samples = inner.w.max(16) as usize;
         self.signal_eval_stack.clear();
+        let mut values = Vec::with_capacity(samples);
+        for step in 0..samples {
+            let t = step as f32 / samples.saturating_sub(1).max(1) as f32;
+            let sample_t = time_now - window_secs + window_secs * t;
+            let value = project
+                .sample_signal_node(node.id(), sample_t.max(0.0), &mut self.signal_eval_stack)
+                .unwrap_or(0.5);
+            values.push(if value.is_finite() { value } else { 0.5 });
+        }
+        let (value_min, value_max) = signal_scope_range(values.as_slice());
+        let y_zero = signal_scope_y(0.0, value_min, value_max, inner);
+        let y_one = signal_scope_y(1.0, value_min, value_max, inner);
+        self.push_line(
+            inner.x,
+            y_zero,
+            inner.x + inner.w - 1,
+            y_zero,
+            NODE_SIGNAL_SCOPE_GUIDE_ZERO,
+        );
+        self.push_line(
+            inner.x,
+            y_one,
+            inner.x + inner.w - 1,
+            y_one,
+            NODE_SIGNAL_SCOPE_GUIDE_ONE,
+        );
         for step in 0..samples.saturating_sub(1) {
             let t0 = step as f32 / samples.saturating_sub(1).max(1) as f32;
             let t1 = (step + 1) as f32 / samples.saturating_sub(1).max(1) as f32;
-            let sample_t0 = time_now - window_secs + window_secs * t0;
-            let sample_t1 = time_now - window_secs + window_secs * t1;
-            let v0 = project
-                .sample_signal_node(node.id(), sample_t0.max(0.0), &mut self.signal_eval_stack)
-                .unwrap_or(0.5)
-                .clamp(0.0, 1.0);
-            let v1 = project
-                .sample_signal_node(node.id(), sample_t1.max(0.0), &mut self.signal_eval_stack)
-                .unwrap_or(0.5)
-                .clamp(0.0, 1.0);
+            let v0 = values[step];
+            let v1 = values[step + 1];
             let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
             let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
-            let y0 = inner.y + ((1.0 - v0) * (inner.h - 1) as f32).round() as i32;
-            let y1 = inner.y + ((1.0 - v1) * (inner.h - 1) as f32).round() as i32;
+            let y0 = signal_scope_y(v0, value_min, value_max, inner);
+            let y1 = signal_scope_y(v1, value_min, value_max, inner);
             self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
         }
     }
@@ -2400,11 +2410,37 @@ fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
     px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
 }
 
+fn signal_scope_range(values: &[f32]) -> (f32, f32) {
+    let mut min_value = f32::INFINITY;
+    let mut max_value = f32::NEG_INFINITY;
+    for value in values.iter().copied().filter(|value| value.is_finite()) {
+        min_value = min_value.min(value);
+        max_value = max_value.max(value);
+    }
+    if !min_value.is_finite() || !max_value.is_finite() {
+        return (-0.05, 1.05);
+    }
+    min_value = min_value.min(0.0);
+    max_value = max_value.max(1.0);
+    if (max_value - min_value).abs() <= 1e-5 {
+        min_value -= 0.5;
+        max_value += 0.5;
+    }
+    let pad = ((max_value - min_value) * 0.08).max(0.05);
+    (min_value - pad, max_value + pad)
+}
+
+fn signal_scope_y(value: f32, min_value: f32, max_value: f32, inner: Rect) -> i32 {
+    let span = (max_value - min_value).max(1e-5);
+    let t = ((value - min_value) / span).clamp(0.0, 1.0);
+    inner.y + ((1.0 - t) * (inner.h - 1) as f32).round() as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_smoothed_param_wire, smooth_param_wire_path, timeline_beat_indicator_on,
-        SceneBuilder, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+        build_smoothed_param_wire, signal_scope_range, signal_scope_y, smooth_param_wire_path,
+        timeline_beat_indicator_on, Rect, SceneBuilder, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
     use crate::gui::state::{DragState, PreviewState};
@@ -2466,6 +2502,22 @@ mod tests {
             "end tail too short: {}",
             end_tail_max_x - end.0
         );
+    }
+
+    #[test]
+    fn signal_scope_range_always_includes_zero_and_one_guides() {
+        let (min_v, max_v) = signal_scope_range(&[-0.4, 1.8, 0.3]);
+        assert!(min_v <= 0.0);
+        assert!(max_v >= 1.0);
+    }
+
+    #[test]
+    fn signal_scope_y_maps_bounds_to_inner_extents() {
+        let inner = Rect::new(10, 20, 100, 40);
+        let top = signal_scope_y(2.0, -1.0, 2.0, inner);
+        let bottom = signal_scope_y(-1.0, -1.0, 2.0, inner);
+        assert_eq!(top, inner.y);
+        assert_eq!(bottom, inner.y + inner.h - 1);
     }
 
     #[test]
