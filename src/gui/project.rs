@@ -37,6 +37,7 @@ pub(crate) const NODE_PARAM_VALUE_BOX_WIDTH: i32 = 52;
 pub(crate) const NODE_PARAM_DROPDOWN_ROW_HEIGHT: i32 = NODE_PARAM_ROW_HEIGHT;
 const NODE_PIN_HALF: i32 = NODE_PIN_SIZE / 2;
 const NODE_PARAM_FOOTER_PAD: i32 = 8;
+const NODE_SIGNAL_SCOPE_EXTRA_HEIGHT: i32 = 20;
 const HIT_BIN_SIZE: i32 = 128;
 const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
 const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
@@ -603,7 +604,13 @@ impl ProjectNode {
         if !self.expanded || self.params.is_empty() {
             return NODE_HEIGHT;
         }
-        NODE_HEIGHT + (self.params.len() as i32 * NODE_PARAM_ROW_HEIGHT) + NODE_PARAM_FOOTER_PAD
+        let mut height = NODE_HEIGHT
+            + (self.params.len() as i32 * NODE_PARAM_ROW_HEIGHT)
+            + NODE_PARAM_FOOTER_PAD;
+        if self.kind.shows_signal_preview() {
+            height += NODE_SIGNAL_SCOPE_EXTRA_HEIGHT;
+        }
+        height
     }
 
     /// Return number of editable parameters for this node.

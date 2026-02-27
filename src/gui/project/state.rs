@@ -212,6 +212,13 @@ impl GuiProject {
         self.nodes.len()
     }
 
+    /// Return true when at least one node should render an animated signal scope.
+    pub(crate) fn has_signal_preview_nodes(&self) -> bool {
+        self.nodes
+            .iter()
+            .any(|node| node.kind().shows_signal_preview())
+    }
+
     /// Return and reset accumulated hit-test scan count since last call.
     pub(crate) fn take_hit_test_scan_count(&self) -> u64 {
         let count = self.hit_test_scan_count.get();

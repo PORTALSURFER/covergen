@@ -701,6 +701,9 @@ impl GuiApp {
         }
         if state_before.timeline != state_after.timeline {
             self.state.invalidation.invalidate_timeline();
+            if self.project.has_signal_preview_nodes() {
+                self.state.invalidation.invalidate_nodes();
+            }
         }
 
         if resize_changed {

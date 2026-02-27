@@ -68,9 +68,10 @@ const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
 const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
 const PARAM_DROPDOWN_SELECTED: Color = Color::argb(0x663B82F6);
 const PARAM_DROPDOWN_HOVER: Color = Color::argb(0x3342A5F5);
-const NODE_LFO_BADGE_BG: Color = Color::argb(0x1A4A88D9);
-const NODE_LFO_BADGE_BORDER: Color = Color::argb(0x664A88D9);
-const NODE_LFO_WAVE: Color = Color::argb(0xFF9ED0FF);
+const NODE_SIGNAL_SCOPE_BG: Color = Color::argb(0x1A4A88D9);
+const NODE_SIGNAL_SCOPE_BORDER: Color = Color::argb(0x664A88D9);
+const NODE_SIGNAL_SCOPE_CENTER: Color = Color::argb(0x555C88B6);
+const NODE_SIGNAL_SCOPE_WAVE: Color = Color::argb(0xFF9ED0FF);
 const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
 const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
@@ -219,6 +220,7 @@ pub(crate) struct SceneBuilder {
     param_route_cache_epoch: Option<u64>,
     param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
     param_route_obstacle_map: wire_route::RouteObstacleMap,
+    signal_eval_stack: Vec<u32>,
     frame_alloc_bytes: u64,
 }
 
@@ -247,7 +249,7 @@ impl SceneBuilder {
         if self.cached_nodes_epoch != Some(nodes_epoch) {
             self.cached_nodes_epoch = Some(nodes_epoch);
             self.frame.dirty.nodes = true;
-            self.rebuild_nodes_layer(project, state);
+            self.rebuild_nodes_layer(project, state, timeline_fps);
         }
 
         let edges_epoch = state.invalidation.wires;
@@ -293,12 +295,17 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::StaticPanel));
     }
 
-    fn rebuild_nodes_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+    fn rebuild_nodes_layer(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        timeline_fps: u32,
+    ) {
         let before = self.layer_capacity(ActiveLayer::Nodes);
         self.set_active_layer(ActiveLayer::Nodes);
         self.clear_active_layer();
         self.push_header(project);
-        self.push_nodes(project, state);
+        self.push_nodes(project, state, timeline_fps);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
     }
 
@@ -404,7 +411,7 @@ impl SceneBuilder {
         }
     }
 
-    fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState) {
+    fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState, timeline_fps: u32) {
         for node in project.nodes() {
             let rect = node_rect(node, state);
             self.push_rect(rect, NODE_BODY);
@@ -428,54 +435,79 @@ impl SceneBuilder {
             let (title_x, title_y) = graph_point_to_panel(node.x() + 8, node.y() + 18, state);
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
+            if node.kind().shows_signal_preview() {
+                self.push_signal_scope(project, node, state, timeline_fps);
+            }
             if node.expanded() {
-                if node.kind().shows_signal_preview() {
-                    self.push_expanded_lfo_badge(node, state);
-                }
                 self.push_node_params(node, state);
             }
             self.push_pins(node, state);
         }
     }
 
-    fn push_expanded_lfo_badge(&mut self, node: &ProjectNode, state: &PreviewState) {
+    fn push_signal_scope(
+        &mut self,
+        project: &GuiProject,
+        node: &ProjectNode,
+        state: &PreviewState,
+        timeline_fps: u32,
+    ) {
         if !node.kind().shows_signal_preview() {
             return;
         }
         let rect = node_rect(node, state);
-        let badge_w = ((46.0 * state.zoom).round() as i32).clamp(30, 64);
-        let badge_h = ((14.0 * state.zoom).round() as i32).clamp(8, 20);
-        let pad_x = ((6.0 * state.zoom).round() as i32).clamp(4, 10);
+        let scope_h = if node.expanded() {
+            ((26.0 * state.zoom).round() as i32).clamp(14, 44)
+        } else {
+            ((18.0 * state.zoom).round() as i32).clamp(10, 30)
+        };
+        let pad_x = ((6.0 * state.zoom).round() as i32).clamp(4, 12);
         let pad_y = ((5.0 * state.zoom).round() as i32).clamp(3, 8);
-        let badge = Rect::new(
-            rect.x + rect.w - badge_w - pad_x,
-            rect.y + pad_y,
-            badge_w,
-            badge_h,
+        let scope = Rect::new(
+            rect.x + pad_x,
+            rect.y + rect.h - scope_h - pad_y,
+            (rect.w - (pad_x * 2)).max(12),
+            scope_h,
         );
-        self.push_rect(badge, NODE_LFO_BADGE_BG);
-        self.push_border(badge, NODE_LFO_BADGE_BORDER);
+        self.push_rect(scope, NODE_SIGNAL_SCOPE_BG);
+        self.push_border(scope, NODE_SIGNAL_SCOPE_BORDER);
 
-        let inner = Rect::new(badge.x + 2, badge.y + 2, badge.w - 4, badge.h - 4);
+        let inner = Rect::new(scope.x + 2, scope.y + 2, scope.w - 4, scope.h - 4);
         if inner.w < 8 || inner.h < 4 {
             return;
         }
-        let phase = (node.id() as f32 % 64.0) / 64.0 * std::f32::consts::TAU;
-        let amplitude = (inner.h as f32 * 0.36).max(1.0);
-        let mid_y = inner.y + inner.h / 2;
-        let segments = 14;
-        for step in 0..segments {
-            let t0 = step as f32 / segments as f32;
-            let t1 = (step + 1) as f32 / segments as f32;
+
+        let center_y = inner.y + inner.h / 2;
+        self.push_line(
+            inner.x,
+            center_y,
+            inner.x + inner.w - 1,
+            center_y,
+            NODE_SIGNAL_SCOPE_CENTER,
+        );
+
+        let window_secs = if node.expanded() { 2.0 } else { 1.2 };
+        let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
+        let samples = inner.w.max(16) as usize;
+        self.signal_eval_stack.clear();
+        for step in 0..samples.saturating_sub(1) {
+            let t0 = step as f32 / samples.saturating_sub(1).max(1) as f32;
+            let t1 = (step + 1) as f32 / samples.saturating_sub(1).max(1) as f32;
+            let sample_t0 = time_now - window_secs + window_secs * t0;
+            let sample_t1 = time_now - window_secs + window_secs * t1;
+            let v0 = project
+                .sample_signal_node(node.id(), sample_t0.max(0.0), &mut self.signal_eval_stack)
+                .unwrap_or(0.5)
+                .clamp(0.0, 1.0);
+            let v1 = project
+                .sample_signal_node(node.id(), sample_t1.max(0.0), &mut self.signal_eval_stack)
+                .unwrap_or(0.5)
+                .clamp(0.0, 1.0);
             let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
             let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
-            let w0 = (t0 * std::f32::consts::TAU * 1.5 + phase).sin()
-                + 0.35 * (t0 * std::f32::consts::TAU * 3.0 + phase * 0.7).sin();
-            let w1 = (t1 * std::f32::consts::TAU * 1.5 + phase).sin()
-                + 0.35 * (t1 * std::f32::consts::TAU * 3.0 + phase * 0.7).sin();
-            let y0 = mid_y - (w0 * amplitude).round() as i32;
-            let y1 = mid_y - (w1 * amplitude).round() as i32;
-            self.push_line(x0, y0, x1, y1, NODE_LFO_WAVE);
+            let y0 = inner.y + ((1.0 - v0) * (inner.h - 1) as f32).round() as i32;
+            let y1 = inner.y + ((1.0 - v1) * (inner.h - 1) as f32).round() as i32;
+            self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
         }
     }
 
