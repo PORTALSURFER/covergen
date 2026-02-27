@@ -217,10 +217,12 @@ impl InputCollector {
             KeyCode::KeyA if self.left_ctrl_down || self.right_ctrl_down => {
                 self.param_select_all = true;
             }
-            KeyCode::Space => self.toggle_add_menu = true,
+            KeyCode::KeyA if self.left_shift_down || self.right_shift_down => {
+                self.toggle_add_menu = true;
+            }
+            KeyCode::Space => self.toggle_pause = true,
             KeyCode::Backquote => self.toggle_main_menu = true,
             KeyCode::Tab => self.toggle_node_open = true,
-            KeyCode::KeyP => self.toggle_pause = true,
             KeyCode::KeyF => self.focus_all = true,
             KeyCode::F1 => self.open_help = true,
             KeyCode::ArrowUp => self.menu_up = true,
