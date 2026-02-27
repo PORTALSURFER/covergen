@@ -1800,6 +1800,7 @@ impl SceneBuilder {
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = self.edge_route_occupied.clone();
         let mut tail_slots = HashMap::new();
+        let mut route_panel = Vec::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1856,7 +1857,7 @@ impl SceneBuilder {
                 let Some(route) = self.param_route_cache.get(&route_key).cloned() else {
                     continue;
                 };
-                let route_panel = map_graph_path_to_panel(route.as_ref(), state);
+                map_graph_path_to_panel_into(route.as_ref(), state, &mut route_panel);
                 let color = if path_intersects_cut_line(state, route_panel.as_slice()) {
                     CUT_EDGE_COLOR
                 } else {
@@ -2298,12 +2299,18 @@ fn wire_layout_scale(zoom: f32) -> f32 {
     (zoom / WIRE_LAYOUT_BASE_ZOOM).max(0.001)
 }
 
-fn map_graph_path_to_panel(points: &[(i32, i32)], state: &PreviewState) -> Vec<(i32, i32)> {
-    points
-        .iter()
-        .copied()
-        .map(|(x, y)| graph_point_to_panel(x, y, state))
-        .collect()
+fn map_graph_path_to_panel_into(
+    points: &[(i32, i32)],
+    state: &PreviewState,
+    panel_points: &mut Vec<(i32, i32)>,
+) {
+    panel_points.clear();
+    panel_points.extend(
+        points
+            .iter()
+            .copied()
+            .map(|(x, y)| graph_point_to_panel(x, y, state)),
+    );
 }
 
 fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut SceneLayer {
