@@ -433,6 +433,9 @@ impl GuiApp {
         let mut bridge_intersection_tests = 0u64;
         let mut signal_scope_samples = 0u64;
         let mut signal_scope_eval_ms = 0.0f64;
+        let mut scene_nodes_ms = 0.0f64;
+        let mut scene_edges_ms = 0.0f64;
+        let mut scene_overlays_ms = 0.0f64;
         let export_active = self.export_session.is_some() || self.start_export_requested;
         if scene_dirty || self.needs_redraw || export_active {
             self.tex_view.update(
@@ -462,6 +465,9 @@ impl GuiApp {
             bridge_intersection_tests = frame.bridge_intersection_tests;
             signal_scope_samples = frame.signal_scope_samples;
             signal_scope_eval_ms = frame.signal_scope_eval_ms;
+            scene_nodes_ms = frame.nodes_ms;
+            scene_edges_ms = frame.edges_ms;
+            scene_overlays_ms = frame.overlays_ms;
 
             let render_start = Instant::now();
             self.renderer.render(
@@ -490,6 +496,9 @@ impl GuiApp {
         );
         telemetry::record_counter_u64("signal_scope_samples_per_frame", signal_scope_samples);
         telemetry::record_timing_ms("signal_scope_eval_ms", signal_scope_eval_ms);
+        telemetry::record_timing_ms("scene.nodes_ms", scene_nodes_ms);
+        telemetry::record_timing_ms("scene.edges_ms", scene_edges_ms);
+        telemetry::record_timing_ms("scene.overlays_ms", scene_overlays_ms);
         telemetry::record_counter_u64("gui.ui.alloc_bytes_per_frame", ui_alloc_bytes);
         let total_secs = total_elapsed.as_secs_f64();
         if total_secs > 0.0 {

@@ -180,6 +180,9 @@ pub(crate) struct SceneFrame {
     pub(crate) bridge_intersection_tests: u64,
     pub(crate) signal_scope_samples: u64,
     pub(crate) signal_scope_eval_ms: f64,
+    pub(crate) nodes_ms: f64,
+    pub(crate) edges_ms: f64,
+    pub(crate) overlays_ms: f64,
     pub(crate) camera_pan_x: f32,
     pub(crate) camera_pan_y: f32,
     pub(crate) camera_zoom: f32,
@@ -370,6 +373,9 @@ impl SceneBuilder {
         self.frame.bridge_intersection_tests = 0;
         self.frame.signal_scope_samples = 0;
         self.frame.signal_scope_eval_ms = 0.0;
+        self.frame.nodes_ms = 0.0;
+        self.frame.edges_ms = 0.0;
+        self.frame.overlays_ms = 0.0;
         self.signal_sample_memo.clear();
         self.frame.camera_pan_x = state.pan_x;
         self.frame.camera_pan_y = state.pan_y;
@@ -381,7 +387,9 @@ impl SceneBuilder {
         if self.cached_nodes_epoch != Some(nodes_epoch) {
             self.cached_nodes_epoch = Some(nodes_epoch);
             self.frame.dirty.nodes = true;
+            let start = Instant::now();
             self.rebuild_nodes_layer(project, state, timeline_fps);
+            self.frame.nodes_ms = start.elapsed().as_secs_f64() * 1000.0;
         }
 
         let edges_epoch = state.invalidation.wires;
@@ -389,14 +397,18 @@ impl SceneBuilder {
         if !freeze_edges_for_drag && self.cached_edges_epoch != Some(edges_epoch) {
             self.cached_edges_epoch = Some(edges_epoch);
             self.frame.dirty.edges = true;
+            let start = Instant::now();
             self.rebuild_edges_layer(project, state);
+            self.frame.edges_ms = start.elapsed().as_secs_f64() * 1000.0;
         }
 
         let overlays_epoch = state.invalidation.overlays;
         if self.cached_overlays_epoch != Some(overlays_epoch) {
             self.cached_overlays_epoch = Some(overlays_epoch);
             self.frame.dirty.overlays = true;
+            let start = Instant::now();
             self.rebuild_overlays_layer(project, state, panel_width, height);
+            self.frame.overlays_ms = start.elapsed().as_secs_f64() * 1000.0;
         }
 
         let timeline_epoch = state.invalidation.timeline;
