@@ -99,6 +99,8 @@ const WIRE_BRIDGE_HEIGHT_PX: f32 = 6.0;
 const WIRE_BRIDGE_LINK_THRESHOLD_PX: f32 = 14.0;
 const WIRE_BRIDGE_CORNER_GUARD_PX: f32 = 10.0;
 const WIRE_BRIDGE_STEPS: usize = 6;
+// Keep wire bridge geometry anchored to fully zoomed-out layout.
+const WIRE_LAYOUT_BASE_ZOOM: f32 = 0.35;
 const WIRE_TAIL_STAGGER_STEP_CELLS: i32 = 1;
 const WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS: i32 = 8;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
@@ -452,6 +454,7 @@ impl SceneBuilder {
                     route_panel.as_slice(),
                     color,
                     &mut drawn_segments,
+                    state.zoom,
                 );
                 occupied_edges.record_path_non_tail(route_graph.as_slice());
                 self.push_round_endpoint(from_x, from_y, color);
@@ -1433,6 +1436,7 @@ impl SceneBuilder {
                     route_panel.as_slice(),
                     color,
                     &mut drawn_segments,
+                    state.zoom,
                 );
                 occupied_edges.record_path_non_tail(route.as_ref());
                 self.push_param_target_marker(to_x, to_y, color);
@@ -1458,10 +1462,12 @@ impl SceneBuilder {
         points: &[(i32, i32)],
         color: Color,
         drawn_segments: &mut Vec<DrawnWireSegment>,
+        zoom: f32,
     ) {
         if points.len() < 2 {
             return;
         }
+        let bridge_scale = wire_layout_scale(zoom);
         let mut new_segments = Vec::new();
         let total_segments = points.len().saturating_sub(1);
         for (segment_index, pair) in points.windows(2).enumerate() {
@@ -1481,14 +1487,22 @@ impl SceneBuilder {
                 let Some(distance) = segment_crossing_distance(segment, existing) else {
                     continue;
                 };
-                if !bridge_distance_allowed(segment_index, total_segments, segment_len, distance) {
+                if !bridge_distance_allowed(
+                    segment_index,
+                    total_segments,
+                    segment_len,
+                    distance,
+                    bridge_scale,
+                ) {
                     continue;
                 }
                 crossings.push(distance);
             }
             crossings.sort_by(|a, b| a.total_cmp(b));
-            let bridge_clusters = cluster_bridge_ranges(crossings.as_slice(), segment_len);
-            let bridged_points = bridged_segment_points(segment, bridge_clusters.as_slice());
+            let bridge_clusters =
+                cluster_bridge_ranges(crossings.as_slice(), segment_len, bridge_scale);
+            let bridged_points =
+                bridged_segment_points(segment, bridge_clusters.as_slice(), bridge_scale);
             self.push_path_lines(bridged_points.as_slice(), color);
             new_segments.push(segment);
         }
@@ -1819,6 +1833,10 @@ fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
     (sx, sy)
 }
 
+fn wire_layout_scale(zoom: f32) -> f32 {
+    (zoom / WIRE_LAYOUT_BASE_ZOOM).max(0.001)
+}
+
 fn map_graph_path_to_panel(points: &[(i32, i32)], state: &PreviewState) -> Vec<(i32, i32)> {
     points
         .iter()
@@ -1933,14 +1951,16 @@ fn bridge_distance_allowed(
     total_segments: usize,
     segment_len: f32,
     distance: f32,
+    bridge_scale: f32,
 ) -> bool {
-    let mut min_distance = WIRE_ENDPOINT_RADIUS_PX as f32 + 1.0;
-    let mut max_distance = (segment_len - (WIRE_ENDPOINT_RADIUS_PX as f32 + 1.0)).max(0.0);
+    let endpoint_radius = (WIRE_ENDPOINT_RADIUS_PX as f32 * bridge_scale).max(1.0);
+    let mut min_distance = endpoint_radius + 1.0;
+    let mut max_distance = (segment_len - (endpoint_radius + 1.0)).max(0.0);
     if segment_index > 0 {
-        min_distance = min_distance.max(WIRE_BRIDGE_CORNER_GUARD_PX);
+        min_distance = min_distance.max(WIRE_BRIDGE_CORNER_GUARD_PX * bridge_scale);
     }
     if segment_index + 1 < total_segments {
-        max_distance = max_distance.min(segment_len - WIRE_BRIDGE_CORNER_GUARD_PX);
+        max_distance = max_distance.min(segment_len - WIRE_BRIDGE_CORNER_GUARD_PX * bridge_scale);
     }
     if max_distance <= min_distance {
         return false;
@@ -1948,18 +1968,22 @@ fn bridge_distance_allowed(
     distance > min_distance && distance < max_distance
 }
 
-fn cluster_bridge_ranges(crossings: &[f32], segment_len: f32) -> Vec<(f32, f32)> {
+fn cluster_bridge_ranges(
+    crossings: &[f32],
+    segment_len: f32,
+    bridge_scale: f32,
+) -> Vec<(f32, f32)> {
     if crossings.is_empty() {
         return Vec::new();
     }
-    let half_span = WIRE_BRIDGE_SPAN_PX * 0.5;
+    let half_span = WIRE_BRIDGE_SPAN_PX * 0.5 * bridge_scale;
     let mut clusters = Vec::new();
     let mut start = (crossings[0] - half_span).max(0.0);
     let mut end = (crossings[0] + half_span).min(segment_len);
     for &distance in crossings.iter().skip(1) {
         let next_start = (distance - half_span).max(0.0);
         let next_end = (distance + half_span).min(segment_len);
-        if next_start <= end + WIRE_BRIDGE_LINK_THRESHOLD_PX {
+        if next_start <= end + WIRE_BRIDGE_LINK_THRESHOLD_PX * bridge_scale {
             end = end.max(next_end);
         } else {
             if end > start {
@@ -1975,7 +1999,11 @@ fn cluster_bridge_ranges(crossings: &[f32], segment_len: f32) -> Vec<(f32, f32)>
     clusters
 }
 
-fn bridged_segment_points(segment: DrawnWireSegment, bridges: &[(f32, f32)]) -> Vec<(i32, i32)> {
+fn bridged_segment_points(
+    segment: DrawnWireSegment,
+    bridges: &[(f32, f32)],
+    bridge_scale: f32,
+) -> Vec<(i32, i32)> {
     let segment_len = segment_length(segment.from, segment.to);
     if segment_len <= 0.0 {
         return vec![segment.from];
@@ -2001,7 +2029,7 @@ fn bridged_segment_points(segment: DrawnWireSegment, bridges: &[(f32, f32)]) -> 
         for step in 1..=WIRE_BRIDGE_STEPS {
             let t = step as f32 / (WIRE_BRIDGE_STEPS as f32 + 1.0);
             let distance = start + (end - start) * t;
-            let lift = (std::f32::consts::PI * t).sin() * WIRE_BRIDGE_HEIGHT_PX;
+            let lift = (std::f32::consts::PI * t).sin() * WIRE_BRIDGE_HEIGHT_PX * bridge_scale;
             let point = offset_point_from_segment(segment, distance, lift);
             if points.last().copied() != Some(point) {
                 points.push(point);
