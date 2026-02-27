@@ -252,6 +252,7 @@ pub(crate) struct SceneBuilder {
     edge_route_cache_epoch: Option<u64>,
     edge_route_cache: HashMap<EdgeRouteCacheKey, Arc<[(i32, i32)]>>,
     edge_route_obstacle_map: wire_route::RouteObstacleMap,
+    edge_route_occupied: wire_route::RouteOccupiedEdges,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
@@ -412,6 +413,7 @@ impl SceneBuilder {
     }
 
     fn push_edges(&mut self, project: &GuiProject, state: &PreviewState) {
+        self.edge_route_occupied = wire_route::RouteOccupiedEdges::default();
         if project.edge_count() == 0 {
             return;
         }
@@ -511,6 +513,7 @@ impl SceneBuilder {
                 self.push_round_endpoint(to_x, to_y, color);
             }
         }
+        self.edge_route_occupied = occupied_edges;
         self.edge_route_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
     }
@@ -1522,7 +1525,7 @@ impl SceneBuilder {
         let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
-        let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
+        let mut occupied_edges = self.edge_route_occupied.clone();
         let mut tail_slots = HashMap::new();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
@@ -2552,9 +2555,16 @@ mod tests {
         build_smoothed_param_wire, signal_scope_range, signal_scope_y, smooth_param_wire_path,
         timeline_beat_indicator_on, Rect, SceneBuilder, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
-    use crate::gui::project::{GuiProject, ProjectNodeKind};
+    use crate::gui::project::{
+        collapsed_param_entry_pin_center, output_pin_center, GuiProject, ProjectNodeKind,
+        NODE_GRID_PITCH,
+    };
+    use crate::gui::scene::wire_route::{
+        self, RouteDirection, RouteEndpoint, RouteObstacleMap, DEFAULT_ENDPOINT_TAIL_CELLS,
+    };
     use crate::gui::state::{DragState, PreviewState};
     use crate::runtime_config::V2Config;
+    use std::collections::HashSet;
 
     #[test]
     fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
@@ -2781,5 +2791,102 @@ mod tests {
             .expect("cached edge route should remain populated")
             .to_vec();
         assert_eq!(pan_route, initial_route);
+    }
+
+    fn normalize_segment(a: (i32, i32), b: (i32, i32)) -> ((i32, i32), (i32, i32)) {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    fn collect_non_tail_segments(points: &[(i32, i32)]) -> HashSet<((i32, i32), (i32, i32))> {
+        let mut out = HashSet::new();
+        if points.len() < 2 {
+            return out;
+        }
+        let last_segment = points.len().saturating_sub(2);
+        for (segment_index, pair) in points.windows(2).enumerate() {
+            let is_endpoint_segment = segment_index == 0 || segment_index == last_segment;
+            let is_horizontal = pair[0].1 == pair[1].1;
+            if is_endpoint_segment && is_horizontal {
+                continue;
+            }
+            let dx = pair[1].0 - pair[0].0;
+            let dy = pair[1].1 - pair[0].1;
+            let steps = (dx.abs().max(dy.abs()) / NODE_GRID_PITCH).max(1);
+            let step_x = dx.signum() * NODE_GRID_PITCH;
+            let step_y = dy.signum() * NODE_GRID_PITCH;
+            let mut current = pair[0];
+            for _ in 0..steps {
+                let next = (current.0 + step_x, current.1 + step_y);
+                out.insert(normalize_segment(current, next));
+                current = next;
+            }
+        }
+        out
+    }
+
+    fn non_tail_overlap_count(a: &[(i32, i32)], b: &[(i32, i32)]) -> usize {
+        let a_segments = collect_non_tail_segments(a);
+        let b_segments = collect_non_tail_segments(b);
+        a_segments.intersection(&b_segments).count()
+    }
+
+    #[test]
+    fn param_routes_avoid_primary_route_diagonal_segments() {
+        let mut project = GuiProject::new_empty(900, 700);
+        let source = project.add_node(ProjectNodeKind::CtlLfo, 40, 300, 900, 700);
+        let target = project.add_node(ProjectNodeKind::TexCircle, 320, 120, 900, 700);
+        assert!(project.connect_signal_link_to_param(source, target, 0));
+
+        let source_node = project.node(source).expect("source node should exist");
+        let target_node = project.node(target).expect("target node should exist");
+        let start = RouteEndpoint {
+            point: output_pin_center(source_node).expect("source output pin"),
+            corridor_dir: RouteDirection::East,
+        };
+        let end = RouteEndpoint {
+            point: collapsed_param_entry_pin_center(target_node).expect("target param entry pin"),
+            corridor_dir: RouteDirection::East,
+        };
+        let obstacles = super::collect_graph_node_obstacles(&project);
+        let obstacle_map = RouteObstacleMap::from_obstacles(obstacles.as_slice());
+        let no_occupied = wire_route::RouteOccupiedEdges::default();
+        let baseline_route = wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+            start,
+            end,
+            &obstacle_map,
+            &no_occupied,
+            DEFAULT_ENDPOINT_TAIL_CELLS,
+            DEFAULT_ENDPOINT_TAIL_CELLS,
+        );
+        assert!(
+            !collect_non_tail_segments(baseline_route.as_slice()).is_empty(),
+            "baseline route should include non-tail segments"
+        );
+
+        let state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let mut scene = SceneBuilder::default();
+        scene
+            .edge_route_occupied
+            .record_path_non_tail(baseline_route.as_slice());
+        scene.push_param_links(&project, &state);
+        let rendered_param = scene
+            .param_route_cache
+            .values()
+            .next()
+            .expect("param route should be cached")
+            .to_vec();
+        assert_eq!(
+            non_tail_overlap_count(baseline_route.as_slice(), rendered_param.as_slice()),
+            0,
+            "parameter route should avoid occupied non-tail segments"
+        );
+        assert_ne!(
+            rendered_param, baseline_route,
+            "shared occupancy should force an alternate parameter route"
+        );
     }
 }
