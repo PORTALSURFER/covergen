@@ -119,13 +119,13 @@ Output low remap target.
 Output high remap target.
 
 ## Node `tex.feedback`
-Mixes current input with persistent accumulation history.
+Accumulates current input over persistent frame history.
 Input pin always provides current frame source; accumulation texture controls history storage.
 ### Param `accumulation_tex`
 Optional external history texture target for read/write accumulation.
 Leave unbound to use the node's internal persistent history buffer.
 ### Param `feedback`
-History mix amount; higher values preserve more prior-frame content.
+History carry amount in accumulation (`src + history * feedback`, clamped).
 
 ## Node `tex.reaction_diffusion`
 Runs one Gray-Scott reaction-diffusion simulation step per frame.

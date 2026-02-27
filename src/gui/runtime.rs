@@ -1050,7 +1050,7 @@ impl GuiCompiledRuntime {
                             time_secs,
                             eval_stack,
                         )
-                        .unwrap_or(0.95)
+                        .unwrap_or(1.0)
                         .clamp(0.0, 1.0),
                         history,
                     });

@@ -800,7 +800,8 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
         ProjectNodeKind::TexFeedback => vec![
             // Optional external accumulation-history binding for feedback.
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
-            param("feedback", "feedback", 0.95, 0.0, 1.0, 0.01),
+            // History carry amount used by accumulation (`src + history * feedback`).
+            param("feedback", "feedback", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::TexReactionDiffusion => vec![
             // Gray-Scott diffusion coefficient for reagent A.
