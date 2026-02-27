@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "name": "Circle Noise Feedback Trail",
+  "name": "Simple Feedback Trail",
   "preview_width": 1024,
   "preview_height": 1024,
   "nodes": [
     {
       "id": 1,
       "kind": "tex.circle",
-      "x": -520,
-      "y": 240,
+      "x": -500,
+      "y": 220,
       "texture_input": null,
       "selected_param": 0,
       "expanded": true,
@@ -16,24 +16,24 @@
         {
           "key": "center_x",
           "value": 0.5,
-          "signal_source": 7,
+          "signal_source": 6,
           "texture_source": null
         },
         {
           "key": "center_y",
           "value": 0.5,
-          "signal_source": 8,
+          "signal_source": 7,
           "texture_source": null
         },
         {
           "key": "radius",
-          "value": 0.18,
+          "value": 0.14,
           "signal_source": null,
           "texture_source": null
         },
         {
           "key": "feather",
-          "value": 0.035,
+          "value": 0.03,
           "signal_source": null,
           "texture_source": null
         },
@@ -65,51 +65,10 @@
     },
     {
       "id": 2,
-      "kind": "tex.post_noise_texture",
-      "x": -260,
-      "y": 240,
-      "texture_input": 1,
-      "selected_param": 1,
-      "expanded": true,
-      "params": [
-        {
-          "key": "effect",
-          "value": 0.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "amount",
-          "value": 0.35,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "scale",
-          "value": 0.55,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "thresh",
-          "value": 0.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "speed",
-          "value": 0.24,
-          "signal_source": null,
-          "texture_source": null
-        }
-      ]
-    },
-    {
-      "id": 3,
       "kind": "tex.feedback",
-      "x": 20,
-      "y": 240,
-      "texture_input": 2,
+      "x": -220,
+      "y": 220,
+      "texture_input": 1,
       "selected_param": 1,
       "expanded": true,
       "params": [
@@ -134,52 +93,11 @@
       ]
     },
     {
-      "id": 4,
-      "kind": "tex.transform_2d",
-      "x": 300,
-      "y": 240,
-      "texture_input": 3,
-      "selected_param": 4,
-      "expanded": true,
-      "params": [
-        {
-          "key": "brightness",
-          "value": 1.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "gain_r",
-          "value": 1.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "gain_g",
-          "value": 1.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "gain_b",
-          "value": 1.0,
-          "signal_source": null,
-          "texture_source": null
-        },
-        {
-          "key": "alpha_mul",
-          "value": 0.92,
-          "signal_source": null,
-          "texture_source": null
-        }
-      ]
-    },
-    {
-      "id": 5,
+      "id": 3,
       "kind": "tex.blend",
-      "x": 580,
-      "y": 240,
-      "texture_input": 4,
+      "x": 60,
+      "y": 220,
+      "texture_input": 2,
       "selected_param": 2,
       "expanded": true,
       "params": [
@@ -228,19 +146,60 @@
       ]
     },
     {
-      "id": 6,
+      "id": 4,
+      "kind": "tex.transform_2d",
+      "x": 340,
+      "y": 220,
+      "texture_input": 3,
+      "selected_param": 4,
+      "expanded": true,
+      "params": [
+        {
+          "key": "brightness",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_r",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_g",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "gain_b",
+          "value": 1.0,
+          "signal_source": null,
+          "texture_source": null
+        },
+        {
+          "key": "alpha_mul",
+          "value": 0.93,
+          "signal_source": null,
+          "texture_source": null
+        }
+      ]
+    },
+    {
+      "id": 5,
       "kind": "io.window_out",
-      "x": 860,
-      "y": 240,
-      "texture_input": 5,
+      "x": 620,
+      "y": 220,
+      "texture_input": 4,
       "selected_param": 0,
       "expanded": false,
       "params": []
     },
     {
-      "id": 7,
+      "id": 6,
       "kind": "ctl.lfo",
-      "x": -780,
+      "x": -760,
       "y": 120,
       "texture_input": null,
       "selected_param": 0,
@@ -297,9 +256,9 @@
       ]
     },
     {
-      "id": 8,
+      "id": 7,
       "kind": "ctl.lfo",
-      "x": -780,
+      "x": -760,
       "y": 360,
       "texture_input": null,
       "selected_param": 0,
@@ -313,7 +272,7 @@
         },
         {
           "key": "amplitude",
-          "value": 0.2,
+          "value": 0.20,
           "signal_source": null,
           "texture_source": null
         },

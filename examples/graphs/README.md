@@ -5,13 +5,12 @@ This directory contains ready-to-load GUI project graphs.
 ## Included
 
 - `circle_noise_feedback_trail.json`
-  - Demonstrates a working TD-style trail setup:
-    1. `tex.circle` produces the live shape.
-    2. `tex.post_noise_texture` modulates the feedback-history branch.
-    3. `tex.feedback` outputs delayed history.
-    4. `tex.transform_2d` fades history via `alpha_mul`.
-    5. `tex.blend` composites the raw live circle over faded trail.
-    6. `tex.feedback.accumulation_tex` is bound to the fade branch output for loop storage.
+  - Minimal trail demo (no post-process nodes):
+    1. `tex.circle` produces the moving live shape.
+    2. `tex.feedback` reads prior history (one-frame delayed).
+    3. `tex.blend` composites live circle over prior history.
+    4. `tex.transform_2d` fades the composite via `alpha_mul`.
+    5. `tex.feedback.accumulation_tex` is bound to `tex.transform_2d` output to store the faded result for the next frame.
 
 ## Load In GUI
 
@@ -19,4 +18,4 @@ This directory contains ready-to-load GUI project graphs.
 2. Choose `Load Project`.
 3. Pick one of the JSON files in this directory.
 
-Tip: If trails saturate, lower `tex.transform_2d.alpha_mul` or `tex.feedback.feedback`.
+Tip: If the trail is too short, increase `tex.transform_2d.alpha_mul` toward `1.0`.
