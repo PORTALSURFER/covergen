@@ -373,6 +373,20 @@ impl TexPreviewRenderer {
                 pass.set_bind_group(1, src_bind_group, &[]);
                 pass.set_bind_group(2, history_bind_group, &[]);
             }
+            PlannedRenderOp::Runtime(TexViewerOp::PostProcess { history, .. }) => {
+                let src_target = source_target?;
+                let src_bind_group = self.target_bind_group(src_target)?;
+                let feedback_bind_group = if history.is_some() {
+                    let history_key = prepared.feedback_history_key?;
+                    self.feedback_history_read_bind_group(history_key)?
+                } else {
+                    self.dummy_bind_group.as_ref()?
+                };
+                pass.set_pipeline(self.op_post_process_pipeline.as_ref()?);
+                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                pass.set_bind_group(1, src_bind_group, &[]);
+                pass.set_bind_group(2, feedback_bind_group, &[]);
+            }
             PlannedRenderOp::Runtime(TexViewerOp::Blend {
                 base_texture_node_id,
                 layer_texture_node_id,
@@ -442,6 +456,7 @@ impl TexPreviewRenderer {
                 TexViewerOp::ReactionDiffusion { .. } => {
                     TexOpUniform::reaction_diffusion(runtime_op)
                 }
+                TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
                 TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
                 TexViewerOp::StoreTexture { .. } => TexOpUniform::solid(runtime_op),
             },
@@ -488,6 +503,10 @@ impl TexPreviewRenderer {
             TexViewerOp::ReactionDiffusion { history, .. } => {
                 Some(FeedbackHistoryKey::from_binding(history))
             }
+            TexViewerOp::PostProcess {
+                history: Some(history),
+                ..
+            } => Some(FeedbackHistoryKey::from_binding(history)),
             _ => None,
         }
     }

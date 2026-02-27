@@ -332,6 +332,37 @@ mod tests {
     }
 
     #[test]
+    fn post_process_chain_produces_post_process_op() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+        let post = project.add_node(ProjectNodeKind::TexPostDistortion, 180, 80, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+        assert!(project.connect_image_link(solid, post));
+        assert!(project.connect_image_link(post, out));
+
+        let mut viewer = TexViewerGenerator::default();
+        viewer.update(
+            &project,
+            TexViewerUpdate {
+                viewport_width: 960,
+                viewport_height: 540,
+                panel_width: 420,
+                frame_index: 0,
+                timeline_total_frames: 1_800,
+                timeline_fps: 60,
+                tex_eval_epoch: project.invalidation().tex_eval,
+            },
+        );
+        let frame = viewer.frame().expect("viewer frame should exist");
+        let ops = match frame.payload {
+            TexViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+        assert!(matches!(ops[1], TexViewerOp::PostProcess { .. }));
+    }
+
+    #[test]
     fn lfo_binding_changes_gpu_op_parameter_over_time() {
         let mut project = GuiProject::new_empty(640, 480);
         let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);

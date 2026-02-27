@@ -98,13 +98,23 @@ impl GuiProject {
     /// Return true when the graph contains time-driven nodes.
     ///
     /// This includes nodes that change output over time without explicit
-    /// signal bindings, such as feedback and buffer noise deformation.
+    /// signal bindings, such as feedback, post-process temporal categories,
+    /// and buffer noise deformation.
     pub(crate) fn has_temporal_nodes(&self) -> bool {
         self.nodes.iter().any(|node| {
             matches!(
                 node.kind,
                 ProjectNodeKind::TexFeedback
                     | ProjectNodeKind::TexReactionDiffusion
+                    | ProjectNodeKind::TexPostColorTone
+                    | ProjectNodeKind::TexPostEdgeStructure
+                    | ProjectNodeKind::TexPostBlurDiffusion
+                    | ProjectNodeKind::TexPostDistortion
+                    | ProjectNodeKind::TexPostTemporal
+                    | ProjectNodeKind::TexPostNoiseTexture
+                    | ProjectNodeKind::TexPostLighting
+                    | ProjectNodeKind::TexPostScreenSpace
+                    | ProjectNodeKind::TexPostExperimental
                     | ProjectNodeKind::BufNoise
             )
         })

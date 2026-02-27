@@ -55,7 +55,7 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 16] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 25] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
         category: AddNodeCategory::Texture,
@@ -106,6 +106,42 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 16] = [
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexReactionDiffusion,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostColorTone,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostEdgeStructure,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostBlurDiffusion,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostDistortion,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostTemporal,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostNoiseTexture,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostLighting,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostScreenSpace,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexPostExperimental,
         category: AddNodeCategory::Texture,
     },
     AddNodeOption {

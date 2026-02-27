@@ -219,6 +219,40 @@ impl TexOpUniform {
             p4: [0.0; 4],
         }
     }
+
+    fn post_process(op: TexViewerOp) -> Self {
+        let TexViewerOp::PostProcess {
+            category,
+            effect,
+            amount,
+            scale,
+            threshold,
+            speed,
+            time,
+            ..
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        let category_id = match category {
+            crate::gui::runtime::PostProcessCategory::ColorTone => 0.0,
+            crate::gui::runtime::PostProcessCategory::EdgeStructure => 1.0,
+            crate::gui::runtime::PostProcessCategory::BlurDiffusion => 2.0,
+            crate::gui::runtime::PostProcessCategory::Distortion => 3.0,
+            crate::gui::runtime::PostProcessCategory::Temporal => 4.0,
+            crate::gui::runtime::PostProcessCategory::NoiseTexture => 5.0,
+            crate::gui::runtime::PostProcessCategory::Lighting => 6.0,
+            crate::gui::runtime::PostProcessCategory::ScreenSpace => 7.0,
+            crate::gui::runtime::PostProcessCategory::Experimental => 8.0,
+        };
+        Self {
+            p0: [category_id, effect, amount, scale],
+            p1: [threshold, speed, time, 0.0],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -299,6 +333,7 @@ pub(super) struct TexPreviewRenderer {
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
+    op_post_process_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
 
     dummy_texture: Option<wgpu::Texture>,
@@ -389,6 +424,7 @@ impl TexPreviewRenderer {
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_reaction_diffusion_pipeline.is_some()
+            && self.op_post_process_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
         {
             return;
@@ -460,6 +496,13 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_reaction_diffusion",
+            self.op_surface_format,
+        ));
+        self.op_post_process_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_post_process",
             self.op_surface_format,
         ));
         self.op_blend_pipeline = Some(create_op_pipeline(
@@ -580,6 +623,7 @@ impl TexPreviewRenderer {
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_reaction_diffusion_pipeline: None,
+            op_post_process_pipeline: None,
             op_blend_pipeline: None,
             dummy_texture: None,
             dummy_bind_group: None,

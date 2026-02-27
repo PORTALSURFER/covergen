@@ -1902,6 +1902,21 @@ fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::TexReactionDiffusion => {
             Color::argb(AGIO.node_header_tex_reaction_diffusion)
         }
+        ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
+        ProjectNodeKind::TexPostEdgeStructure => {
+            Color::argb(AGIO.node_header_tex_post_edge_structure)
+        }
+        ProjectNodeKind::TexPostBlurDiffusion => {
+            Color::argb(AGIO.node_header_tex_post_blur_diffusion)
+        }
+        ProjectNodeKind::TexPostDistortion => Color::argb(AGIO.node_header_tex_post_distortion),
+        ProjectNodeKind::TexPostTemporal => Color::argb(AGIO.node_header_tex_post_temporal),
+        ProjectNodeKind::TexPostNoiseTexture => {
+            Color::argb(AGIO.node_header_tex_post_noise_texture)
+        }
+        ProjectNodeKind::TexPostLighting => Color::argb(AGIO.node_header_tex_post_lighting),
+        ProjectNodeKind::TexPostScreenSpace => Color::argb(AGIO.node_header_tex_post_screen_space),
+        ProjectNodeKind::TexPostExperimental => Color::argb(AGIO.node_header_tex_post_experimental),
         ProjectNodeKind::TexBlend => Color::argb(AGIO.node_header_tex_blend),
         ProjectNodeKind::SceneEntity => Color::argb(AGIO.node_header_scene_entity),
         ProjectNodeKind::SceneBuild => Color::argb(AGIO.node_header_scene_build),

@@ -143,6 +143,132 @@ Per-frame integration step multiplier.
 ### Param `seed_mix`
 Blend amount for injecting source concentrations into the evolving state.
 
+## Node `tex.post_color_tone`
+Color and tone post-processing category node.
+Use `effect` to choose bloom/tone-map/grading style operators.
+### Param `effect`
+Selects color/tone effect preset for this category node.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Radius/strength scale used by effect kernels and remaps.
+### Param `thresh`
+Threshold gate for bright-pass or contrast-sensitive effects.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_edge_structure`
+Edge and structure post-processing category node.
+Includes edge detect, toon edge, emboss, sharpen, and painterly variants.
+### Param `effect`
+Selects edge/structure effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Kernel radius and edge amplification scale.
+### Param `thresh`
+Edge threshold used by contour-style modes.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_blur_diffusion`
+Blur and diffusion post-processing category node.
+Includes gaussian/box/kawase/radial/motion-style blur variants.
+### Param `effect`
+Selects blur/diffusion effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Blur radius or accumulation scale.
+### Param `thresh`
+Threshold gate for selective blur.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_distortion`
+Spatial distortion post-processing category node.
+Includes chromatic aberration, lens warp, heat/ripple/glitch-style offsets.
+### Param `effect`
+Selects distortion effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Distortion radius or UV offset scale.
+### Param `thresh`
+Threshold gate for distortion masking.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_temporal`
+Temporal post-processing category node.
+Uses frame history for trails/feedback/datamosh/afterimage-style effects.
+### Param `effect`
+Selects temporal effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Temporal offset/radius scaling.
+### Param `thresh`
+Threshold gate for history contribution.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_noise_texture`
+Noise and texture post-processing category node.
+Includes film grain, dither, scanline, VHS, pixelate, and mosaic variants.
+### Param `effect`
+Selects noise/texture effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Cell size / density / frequency scale.
+### Param `thresh`
+Threshold gate for selective application.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_lighting`
+Lighting simulation post-processing category node.
+Includes glow shafts, lens-style artifacts, vignette/leak/halation variants.
+### Param `effect`
+Selects lighting simulation effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Kernel radius and streak/stretch scale.
+### Param `thresh`
+Threshold gate for bright-region extraction.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_screen_space`
+Geometric and screen-space post-processing category node.
+Provides stylized SSAO/SSR/fog/refraction/curvature-inspired variants.
+### Param `effect`
+Selects screen-space effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Neighborhood radius / curvature scale.
+### Param `thresh`
+Threshold gate for shading transitions.
+### Param `speed`
+Animation rate for time-varying variants.
+
+## Node `tex.post_experimental`
+Experimental and pattern-driven post-processing category node.
+Includes reaction-diffusion filter, kaleidoscope, polar warp, and flow variants.
+### Param `effect`
+Selects experimental effect preset.
+### Param `amount`
+Master blend amount of the selected effect.
+### Param `scale`
+Pattern density / warp scale.
+### Param `thresh`
+Threshold gate for stylization transitions.
+### Param `speed`
+Animation rate for time-varying variants.
+
 ## Node `tex.blend`
 Composites primary input with optional secondary texture.
 Similar to common DCC compositing workflows.

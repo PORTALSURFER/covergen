@@ -816,6 +816,33 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             // Blend amount for injecting source texture concentrations.
             param("seed_mix", "seed_mix", 0.04, 0.0, 1.0, 0.01),
         ],
+        ProjectNodeKind::TexPostColorTone => {
+            post_process_params("effect", &POST_COLOR_TONE_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostEdgeStructure => {
+            post_process_params("effect", &POST_EDGE_STRUCTURE_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostBlurDiffusion => {
+            post_process_params("effect", &POST_BLUR_DIFFUSION_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostDistortion => {
+            post_process_params("effect", &POST_DISTORTION_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostTemporal => {
+            post_process_params("effect", &POST_TEMPORAL_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostNoiseTexture => {
+            post_process_params("effect", &POST_NOISE_TEXTURE_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostLighting => {
+            post_process_params("effect", &POST_LIGHTING_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostScreenSpace => {
+            post_process_params("effect", &POST_SCREEN_SPACE_EFFECT_OPTIONS)
+        }
+        ProjectNodeKind::TexPostExperimental => {
+            post_process_params("effect", &POST_EXPERIMENTAL_EFFECT_OPTIONS)
+        }
         ProjectNodeKind::TexBlend => vec![
             // Optional secondary composite input for blend operations.
             param_texture_target(BLEND_LAYER_PARAM_KEY, BLEND_LAYER_PARAM_LABEL),
@@ -941,6 +968,19 @@ fn param_dropdown(
         texture_source: None,
         widget: NodeParamWidget::Dropdown { options },
     }
+}
+
+fn post_process_params(
+    effect_label: &'static str,
+    options: &'static [NodeParamOption],
+) -> Vec<NodeParamSlot> {
+    vec![
+        param_dropdown("effect", effect_label, 0, options),
+        param("amount", "amount", 0.5, 0.0, 1.0, 0.01),
+        param("scale", "scale", 1.0, 0.0, 8.0, 0.05),
+        param("thresh", "thresh", 0.5, 0.0, 1.0, 0.01),
+        param("speed", "speed", 1.0, 0.0, 8.0, 0.05),
+    ]
 }
 
 fn format_param_value_text(value: f32) -> String {

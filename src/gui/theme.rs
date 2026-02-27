@@ -58,6 +58,24 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_tex_feedback: u32,
     /// Header color for `tex.reaction_diffusion` nodes.
     pub(crate) node_header_tex_reaction_diffusion: u32,
+    /// Header color for `tex.post_color_tone` nodes.
+    pub(crate) node_header_tex_post_color_tone: u32,
+    /// Header color for `tex.post_edge_structure` nodes.
+    pub(crate) node_header_tex_post_edge_structure: u32,
+    /// Header color for `tex.post_blur_diffusion` nodes.
+    pub(crate) node_header_tex_post_blur_diffusion: u32,
+    /// Header color for `tex.post_distortion` nodes.
+    pub(crate) node_header_tex_post_distortion: u32,
+    /// Header color for `tex.post_temporal` nodes.
+    pub(crate) node_header_tex_post_temporal: u32,
+    /// Header color for `tex.post_noise_texture` nodes.
+    pub(crate) node_header_tex_post_noise_texture: u32,
+    /// Header color for `tex.post_lighting` nodes.
+    pub(crate) node_header_tex_post_lighting: u32,
+    /// Header color for `tex.post_screen_space` nodes.
+    pub(crate) node_header_tex_post_screen_space: u32,
+    /// Header color for `tex.post_experimental` nodes.
+    pub(crate) node_header_tex_post_experimental: u32,
     /// Header color for `tex.blend` nodes.
     pub(crate) node_header_tex_blend: u32,
     /// Header color for `scene.entity` nodes.
@@ -100,6 +118,15 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     node_header_tex_level: 0xFF2E8B6F,
     node_header_tex_feedback: 0xFF2F7A7A,
     node_header_tex_reaction_diffusion: 0xFF2A6F5A,
+    node_header_tex_post_color_tone: 0xFF4A7E66,
+    node_header_tex_post_edge_structure: 0xFF4B6D77,
+    node_header_tex_post_blur_diffusion: 0xFF467A8F,
+    node_header_tex_post_distortion: 0xFF6A5A8F,
+    node_header_tex_post_temporal: 0xFF7A5A6F,
+    node_header_tex_post_noise_texture: 0xFF6A6A5A,
+    node_header_tex_post_lighting: 0xFF8A6A44,
+    node_header_tex_post_screen_space: 0xFF4C5E78,
+    node_header_tex_post_experimental: 0xFF5A4C8A,
     node_header_tex_blend: 0xFF3A7F6C,
     node_header_scene_entity: 0xFF3F6F8F,
     node_header_scene_build: 0xFF4C6C4F,

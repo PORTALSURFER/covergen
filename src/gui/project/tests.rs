@@ -138,6 +138,22 @@ fn reaction_diffusion_node_supports_in_and_out_links() {
 }
 
 #[test]
+fn post_process_node_supports_in_and_out_links() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let source = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let post = project.add_node(ProjectNodeKind::TexPostColorTone, 160, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 300, 40, 420, 480);
+    assert!(project.connect_image_link(source, post));
+    assert!(project.connect_image_link(post, out));
+    assert_eq!(project.edge_count(), 2);
+    let source_id = project
+        .window_out_input_node_id()
+        .expect("window-out input must exist");
+    let source = project.node(source_id).expect("source node must exist");
+    assert_eq!(source.kind(), ProjectNodeKind::TexPostColorTone);
+}
+
+#[test]
 fn sphere_buffer_scene_chain_requires_typed_intermediate_nodes() {
     let mut project = GuiProject::new_empty(640, 480);
     let sphere = project.add_node(ProjectNodeKind::BufSphere, 20, 40, 420, 480);
@@ -630,6 +646,21 @@ fn tex_blend_mode_uses_dropdown_options() {
 }
 
 #[test]
+fn post_color_tone_effect_uses_dropdown_options() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let post = project.add_node(ProjectNodeKind::TexPostColorTone, 40, 40, 420, 480);
+    assert!(project.param_is_dropdown(post, 0));
+    assert!(!project.param_supports_text_edit(post, 0));
+    let options = project
+        .node_param_dropdown_options(post, 0)
+        .expect("dropdown options should exist");
+    assert_eq!(options.len(), 10);
+    assert_eq!(project.node_param_raw_text(post, 0), Some("bloom"));
+    assert!(project.set_param_dropdown_index(post, 0, 9));
+    assert_eq!(project.node_param_raw_text(post, 0), Some("duotone"));
+}
+
+#[test]
 fn all_default_parameter_labels_fit_length_budget() {
     let mut project = GuiProject::new_empty(640, 480);
     let kinds = [
@@ -642,6 +673,15 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexPostColorTone,
+        ProjectNodeKind::TexPostEdgeStructure,
+        ProjectNodeKind::TexPostBlurDiffusion,
+        ProjectNodeKind::TexPostDistortion,
+        ProjectNodeKind::TexPostTemporal,
+        ProjectNodeKind::TexPostNoiseTexture,
+        ProjectNodeKind::TexPostLighting,
+        ProjectNodeKind::TexPostScreenSpace,
+        ProjectNodeKind::TexPostExperimental,
         ProjectNodeKind::TexBlend,
         ProjectNodeKind::SceneEntity,
         ProjectNodeKind::SceneBuild,
@@ -678,6 +718,15 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexPostColorTone,
+        ProjectNodeKind::TexPostEdgeStructure,
+        ProjectNodeKind::TexPostBlurDiffusion,
+        ProjectNodeKind::TexPostDistortion,
+        ProjectNodeKind::TexPostTemporal,
+        ProjectNodeKind::TexPostNoiseTexture,
+        ProjectNodeKind::TexPostLighting,
+        ProjectNodeKind::TexPostScreenSpace,
+        ProjectNodeKind::TexPostExperimental,
         ProjectNodeKind::TexBlend,
         ProjectNodeKind::SceneEntity,
         ProjectNodeKind::SceneBuild,

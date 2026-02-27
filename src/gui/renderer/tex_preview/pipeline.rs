@@ -406,6 +406,192 @@ fn fs_reaction_diffusion(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(display, 1.0);
 }
 
+fn pp_luma(rgb: vec3<f32>) -> f32 {
+    return dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+fn pp_hash21(p: vec2<f32>) -> f32 {
+    let h = dot(p, vec2<f32>(127.1, 311.7));
+    return fract(sin(h) * 43758.5453123);
+}
+
+fn pp_blur9(uv: vec2<f32>, texel: vec2<f32>, radius: f32) -> vec4<f32> {
+    let r = texel * radius;
+    let c0 = textureSample(t_src, s_src, uv);
+    let c1 = textureSample(t_src, s_src, uv + vec2<f32>(r.x, 0.0));
+    let c2 = textureSample(t_src, s_src, uv - vec2<f32>(r.x, 0.0));
+    let c3 = textureSample(t_src, s_src, uv + vec2<f32>(0.0, r.y));
+    let c4 = textureSample(t_src, s_src, uv - vec2<f32>(0.0, r.y));
+    let c5 = textureSample(t_src, s_src, uv + vec2<f32>(r.x, r.y));
+    let c6 = textureSample(t_src, s_src, uv + vec2<f32>(-r.x, r.y));
+    let c7 = textureSample(t_src, s_src, uv + vec2<f32>(r.x, -r.y));
+    let c8 = textureSample(t_src, s_src, uv + vec2<f32>(-r.x, -r.y));
+    return (c0 * 0.2) + (c1 + c2 + c3 + c4) * 0.12 + (c5 + c6 + c7 + c8) * 0.08;
+}
+
+@fragment
+fn fs_post_process(v: VertexOut) -> @location(0) vec4<f32> {
+    let category = i32(round(clamp(u_op.p0.x, 0.0, 8.0)));
+    let effect = i32(round(clamp(u_op.p0.y, 0.0, 15.0)));
+    let amount = clamp(u_op.p0.z, 0.0, 1.0);
+    let scale = clamp(u_op.p0.w, 0.0, 8.0);
+    let threshold = clamp(u_op.p1.x, 0.0, 1.0);
+    let speed = clamp(u_op.p1.y, 0.0, 8.0);
+    let time = u_op.p1.z;
+    let src = textureSample(t_src, s_src, v.uv);
+    let history = textureSample(t_feedback, s_feedback, v.uv);
+    let size = vec2<f32>(textureDimensions(t_src));
+    let texel = vec2<f32>(1.0 / max(size.x, 1.0), 1.0 / max(size.y, 1.0));
+    let blur = pp_blur9(v.uv, texel, max(scale, 0.5));
+    let luma = pp_luma(src.rgb);
+
+    if (category == 0) {
+        if (effect == 0) {
+            let bright = max(luma - threshold, 0.0);
+            let glow = blur.rgb * bright * (1.0 + scale * 0.5);
+            return vec4<f32>(clamp(src.rgb + glow * amount, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+        } else if (effect == 8) {
+            let levels = max(2.0, 16.0 - amount * 14.0);
+            let q = floor(src.rgb * levels) / levels;
+            return vec4<f32>(q, src.a);
+        } else if (effect == 9) {
+            let a = vec3<f32>(0.1, 0.2, 0.6);
+            let b = vec3<f32>(1.0, 0.85, 0.35);
+            let t = pow(luma, mix(2.0, 0.6, amount));
+            return vec4<f32>(mix(a, b, t), src.a);
+        }
+        let contrast = mix(1.0, 2.5, amount);
+        let graded = clamp((src.rgb - 0.5) * contrast + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
+        return vec4<f32>(graded, src.a);
+    }
+
+    if (category == 1) {
+        let gx = pp_luma(textureSample(t_src, s_src, v.uv + vec2<f32>(texel.x, 0.0)).rgb)
+            - pp_luma(textureSample(t_src, s_src, v.uv - vec2<f32>(texel.x, 0.0)).rgb);
+        let gy = pp_luma(textureSample(t_src, s_src, v.uv + vec2<f32>(0.0, texel.y)).rgb)
+            - pp_luma(textureSample(t_src, s_src, v.uv - vec2<f32>(0.0, texel.y)).rgb);
+        let edge = clamp(length(vec2<f32>(gx, gy)) * (1.0 + scale), 0.0, 1.0);
+        if (effect == 1) {
+            let line = select(0.0, 1.0, edge > threshold);
+            return vec4<f32>(mix(src.rgb, src.rgb * (1.0 - line), amount), src.a);
+        }
+        if (effect == 2) {
+            let e = vec3<f32>(0.5 + gx * 1.5, 0.5 + gy * 1.5, 0.5);
+            return vec4<f32>(mix(src.rgb, clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)), amount), src.a);
+        }
+        if (effect == 3) {
+            let sharp = clamp(src.rgb + (src.rgb - blur.rgb) * (amount * 2.5), vec3<f32>(0.0), vec3<f32>(1.0));
+            return vec4<f32>(sharp, src.a);
+        }
+        return vec4<f32>(mix(src.rgb, vec3<f32>(edge), amount), src.a);
+    }
+
+    if (category == 2) {
+        let radial_dir = normalize(v.uv - vec2<f32>(0.5, 0.5) + vec2<f32>(1e-4, 1e-4));
+        let radial_uv = v.uv + radial_dir * texel * scale * 6.0;
+        let radial = textureSample(t_src, s_src, radial_uv);
+        let blend = select(blur, radial, effect == 3);
+        return vec4<f32>(mix(src.rgb, blend.rgb, amount), src.a);
+    }
+
+    if (category == 3) {
+        let centered = v.uv - vec2<f32>(0.5, 0.5);
+        let r2 = dot(centered, centered);
+        let pulse = sin(time * speed + r2 * 60.0);
+        let warp = centered * (1.0 + amount * (r2 * 2.0 + pulse * 0.05));
+        let uv = warp + vec2<f32>(0.5, 0.5);
+        if (effect == 0) {
+            let off = texel * amount * 3.0;
+            let cr = textureSample(t_src, s_src, uv + off).r;
+            let cg = textureSample(t_src, s_src, uv).g;
+            let cb = textureSample(t_src, s_src, uv - off).b;
+            return vec4<f32>(vec3<f32>(cr, cg, cb), src.a);
+        }
+        return textureSample(t_src, s_src, uv);
+    }
+
+    if (category == 4) {
+        let mix_amount = clamp(amount * (0.65 + threshold * 0.35), 0.0, 1.0);
+        if (effect == 2) {
+            let moshed = vec3<f32>(history.r, src.g, history.b);
+            return vec4<f32>(mix(src.rgb, moshed, mix_amount), 1.0);
+        }
+        if (effect == 4) {
+            let delayed_uv = v.uv + vec2<f32>(sin(time * speed) * texel.x * scale * 12.0, 0.0);
+            let delayed = textureSample(t_feedback, s_feedback, delayed_uv);
+            return vec4<f32>(mix(src.rgb, delayed.rgb, mix_amount), 1.0);
+        }
+        return vec4<f32>(mix(src.rgb, history.rgb, mix_amount), 1.0);
+    }
+
+    if (category == 5) {
+        let n = pp_hash21(v.uv * size + vec2<f32>(time * speed * 37.0, time * speed * 11.0)) - 0.5;
+        if (effect == 4) {
+            let cell = max(1.0, floor(mix(1.0, 48.0, amount) * (1.0 + scale * 0.1)));
+            let uv = (floor(v.uv * size / cell) * cell) / size;
+            return textureSample(t_src, s_src, uv);
+        }
+        let noisy = clamp(src.rgb + n * amount * 0.2, vec3<f32>(0.0), vec3<f32>(1.0));
+        return vec4<f32>(noisy, src.a);
+    }
+
+    if (category == 6) {
+        if (effect == 2) {
+            let d = distance(v.uv, vec2<f32>(0.5, 0.5));
+            let vig = smoothstep(0.15 + threshold * 0.3, 0.9, d);
+            return vec4<f32>(src.rgb * (1.0 - vig * amount), src.a);
+        }
+        let bright = max(pp_luma(src.rgb) - threshold, 0.0);
+        let glow = blur.rgb * bright * amount;
+        let tint = vec3<f32>(1.0, 0.65, 0.45);
+        return vec4<f32>(clamp(src.rgb + glow * tint, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    }
+
+    if (category == 7) {
+        let occ = clamp(pp_luma(blur.rgb) - luma, -1.0, 1.0);
+        if (effect == 3) {
+            let fog = smoothstep(0.0, 1.0, v.uv.y);
+            let fog_color = mix(src.rgb, vec3<f32>(0.2, 0.25, 0.3), fog * amount);
+            return vec4<f32>(fog_color, src.a);
+        }
+        let shaded = clamp(src.rgb - occ * amount * 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
+        return vec4<f32>(shaded, src.a);
+    }
+
+    // Experimental
+    if (effect == 0) {
+        let cell = rd_concentrations(v.uv);
+        let n = rd_concentrations(v.uv + vec2<f32>(0.0, -texel.y));
+        let s = rd_concentrations(v.uv + vec2<f32>(0.0, texel.y));
+        let w = rd_concentrations(v.uv + vec2<f32>(-texel.x, 0.0));
+        let e = rd_concentrations(v.uv + vec2<f32>(texel.x, 0.0));
+        let lap = (n + s + w + e) * 0.25 - cell;
+        let a = clamp(cell.x + (lap.x - cell.x * cell.y * cell.y) * 0.8, 0.0, 1.0);
+        let b = clamp(cell.y + (lap.y + cell.x * cell.y * cell.y - cell.y * 0.05) * 0.8, 0.0, 1.0);
+        let rd = vec3<f32>(a, b, clamp(a - b * 0.5, 0.0, 1.0));
+        return vec4<f32>(mix(src.rgb, rd, amount), 1.0);
+    }
+    if (effect == 2) {
+        let centered = (v.uv - vec2<f32>(0.5, 0.5)) * (1.0 - amount * 0.15);
+        let zoomed = textureSample(t_feedback, s_feedback, centered + vec2<f32>(0.5, 0.5));
+        return vec4<f32>(mix(src.rgb, zoomed.rgb, amount), 1.0);
+    }
+    if (effect == 3) {
+        let p = abs(fract(v.uv * (2.0 + floor(scale))) - 0.5);
+        let uv = abs(vec2<f32>(p.x, p.y)) * 2.0;
+        return textureSample(t_src, s_src, uv);
+    }
+    let advect = textureSample(
+        t_src,
+        s_src,
+        v.uv + vec2<f32>(sin(time * speed + v.uv.y * 24.0), cos(time * speed + v.uv.x * 24.0))
+            * texel
+            * amount
+            * (4.0 + scale),
+    );
+    return vec4<f32>(mix(src.rgb, advect.rgb, amount), src.a);
+}
+
 fn blend_mode_rgb(base: vec3<f32>, layer: vec3<f32>, mode: i32) -> vec3<f32> {
     if (mode == 1) {
         return clamp(base + layer, vec3<f32>(0.0), vec3<f32>(1.0));

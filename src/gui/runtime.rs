@@ -120,6 +120,12 @@ const REACTION_DIFFUSION_FEED_SLOT: usize = 2;
 const REACTION_DIFFUSION_KILL_SLOT: usize = 3;
 const REACTION_DIFFUSION_DT_SLOT: usize = 4;
 const REACTION_DIFFUSION_SEED_MIX_SLOT: usize = 5;
+const POST_PROCESS_PARAM_KEYS: [&str; 5] = ["effect", "amount", "scale", "thresh", "speed"];
+const POST_PROCESS_EFFECT_SLOT: usize = 0;
+const POST_PROCESS_AMOUNT_SLOT: usize = 1;
+const POST_PROCESS_SCALE_SLOT: usize = 2;
+const POST_PROCESS_THRESH_SLOT: usize = 3;
+const POST_PROCESS_SPEED_SLOT: usize = 4;
 const BLEND_PARAM_KEYS: [&str; 6] = ["blend_mode", "opacity", "bg_r", "bg_g", "bg_b", "bg_a"];
 const BLEND_MODE_SLOT: usize = 0;
 const BLEND_OPACITY_SLOT: usize = 1;
@@ -131,6 +137,20 @@ const BLEND_BG_A_SLOT: usize = 5;
 /// Compile-time resolved parameter slot index for one node parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct ParamSlotIndex(usize);
+
+/// Category discriminator for generalized post-process runtime operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum PostProcessCategory {
+    ColorTone,
+    EdgeStructure,
+    BlurDiffusion,
+    Distortion,
+    Temporal,
+    NoiseTexture,
+    Lighting,
+    ScreenSpace,
+    Experimental,
+}
 
 /// One GPU operation emitted by GUI runtime evaluation.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -216,6 +236,17 @@ pub(crate) enum TexRuntimeOp {
         seed_mix: f32,
         history: TexRuntimeFeedbackHistoryBinding,
     },
+    /// Category post-process operation with shared controls.
+    PostProcess {
+        category: PostProcessCategory,
+        effect: f32,
+        amount: f32,
+        scale: f32,
+        threshold: f32,
+        speed: f32,
+        time: f32,
+        history: Option<TexRuntimeFeedbackHistoryBinding>,
+    },
     /// Cache the current operation output under one texture-node id.
     StoreTexture { texture_node_id: u32 },
     /// `tex.blend` two-texture compositing operation.
@@ -273,6 +304,9 @@ enum CompiledStepKind {
     Level,
     Feedback,
     ReactionDiffusion,
+    PostProcess {
+        category: PostProcessCategory,
+    },
     StoreTexture,
     Blend {
         base_source_id: u32,
@@ -1082,6 +1116,64 @@ impl GuiCompiledRuntime {
                         },
                     });
                 }
+                CompiledStepKind::PostProcess { category } => {
+                    let history = if post_process_uses_history(category) {
+                        Some(TexRuntimeFeedbackHistoryBinding::Internal {
+                            feedback_node_id: step.node_id,
+                        })
+                    } else {
+                        None
+                    };
+                    out_ops.push(TexRuntimeOp::PostProcess {
+                        category,
+                        effect: compiled_param_value_opt(
+                            project,
+                            step,
+                            POST_PROCESS_EFFECT_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.0),
+                        amount: compiled_param_value_opt(
+                            project,
+                            step,
+                            POST_PROCESS_AMOUNT_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5)
+                        .clamp(0.0, 1.0),
+                        scale: compiled_param_value_opt(
+                            project,
+                            step,
+                            POST_PROCESS_SCALE_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 8.0),
+                        threshold: compiled_param_value_opt(
+                            project,
+                            step,
+                            POST_PROCESS_THRESH_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(0.5)
+                        .clamp(0.0, 1.0),
+                        speed: compiled_param_value_opt(
+                            project,
+                            step,
+                            POST_PROCESS_SPEED_SLOT,
+                            time_secs,
+                            eval_stack,
+                        )
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 8.0),
+                        time: time_secs,
+                        history,
+                    });
+                }
                 CompiledStepKind::StoreTexture => {
                     out_ops.push(TexRuntimeOp::StoreTexture {
                         texture_node_id: step.node_id,
@@ -1252,6 +1344,38 @@ fn compiled_texture_source_for_param(
     project.texture_source_for_param(step.node_id, index)
 }
 
+fn post_process_uses_history(category: PostProcessCategory) -> bool {
+    matches!(
+        category,
+        PostProcessCategory::Temporal
+            | PostProcessCategory::Experimental
+            | PostProcessCategory::NoiseTexture
+    )
+}
+
+fn compile_post_process_node(
+    project: &GuiProject,
+    node_id: u32,
+    category: PostProcessCategory,
+    visiting: &mut Vec<u32>,
+    visited: &mut Vec<u32>,
+    out_steps: &mut Vec<CompiledStep>,
+) -> bool {
+    let Some(source_id) = project.input_source_node_id(node_id) else {
+        return false;
+    };
+    if !compile_node(project, source_id, visiting, visited, out_steps) {
+        return false;
+    }
+    out_steps.push(compiled_step(
+        project,
+        node_id,
+        CompiledStepKind::PostProcess { category },
+        &POST_PROCESS_PARAM_KEYS,
+    ));
+    true
+}
+
 fn compile_node(
     project: &GuiProject,
     node_id: u32,
@@ -1391,6 +1515,78 @@ fn compile_node(
                 true
             }
         }
+        ProjectNodeKind::TexPostColorTone => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::ColorTone,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostEdgeStructure => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::EdgeStructure,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostBlurDiffusion => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::BlurDiffusion,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostDistortion => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::Distortion,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostTemporal => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::Temporal,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostNoiseTexture => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::NoiseTexture,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostLighting => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::Lighting,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostScreenSpace => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::ScreenSpace,
+            visiting,
+            visited,
+            out_steps,
+        ),
+        ProjectNodeKind::TexPostExperimental => compile_post_process_node(
+            project,
+            node_id,
+            PostProcessCategory::Experimental,
+            visiting,
+            visited,
+            out_steps,
+        ),
         ProjectNodeKind::TexBlend => {
             let Some(base_source_id) = project.input_source_node_id(node_id) else {
                 return false;
@@ -1611,9 +1807,9 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
 mod tests {
     use super::{
         compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
-        CompiledStepKind, GuiCompiledRuntime, TexRuntimeFeedbackHistoryBinding,
-        TexRuntimeFrameContext, TexRuntimeOp, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS,
-        SOLID_PARAM_KEYS,
+        CompiledStepKind, GuiCompiledRuntime, PostProcessCategory,
+        TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext, TexRuntimeOp,
+        FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind};
 
@@ -1749,6 +1945,38 @@ mod tests {
                 && dt == 1.0
                 && (seed_mix - 0.04).abs() < 1e-6
                 && feedback_node_id == reaction
+        ));
+    }
+
+    #[test]
+    fn post_temporal_emits_post_process_op_with_history() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+        let post = project.add_node(ProjectNodeKind::TexPostTemporal, 180, 40, 420, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+        assert!(project.connect_image_link(solid, post));
+        assert!(project.connect_image_link(post, out));
+
+        let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+        let mut eval_stack = Vec::new();
+        let mut ops = Vec::new();
+        runtime.evaluate_ops(&project, 1.25, &mut eval_stack, &mut ops);
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(
+            ops[1],
+            TexRuntimeOp::PostProcess {
+                category: PostProcessCategory::Temporal,
+                amount,
+                scale,
+                threshold,
+                speed,
+                history: Some(TexRuntimeFeedbackHistoryBinding::Internal { feedback_node_id }),
+                ..
+            } if (amount - 0.5).abs() < 1e-6
+                && (scale - 1.0).abs() < 1e-6
+                && (threshold - 0.5).abs() < 1e-6
+                && (speed - 1.0).abs() < 1e-6
+                && feedback_node_id == post
         ));
     }
 

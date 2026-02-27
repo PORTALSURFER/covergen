@@ -167,6 +167,277 @@ const TEX_BLEND_MODE_OPTIONS: [NodeParamOption; 9] = [
         value: 8.0,
     },
 ];
+/// Effect options exposed by the `tex.post_color_tone` node.
+const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 10] = [
+    NodeParamOption {
+        label: "bloom",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "tone_map",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "grading",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "wb_shift",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "exposure",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "contrast",
+        value: 5.0,
+    },
+    NodeParamOption {
+        label: "gamma",
+        value: 6.0,
+    },
+    NodeParamOption {
+        label: "vibrance",
+        value: 7.0,
+    },
+    NodeParamOption {
+        label: "posterize",
+        value: 8.0,
+    },
+    NodeParamOption {
+        label: "duotone",
+        value: 9.0,
+    },
+];
+/// Effect options exposed by the `tex.post_edge_structure` node.
+const POST_EDGE_STRUCTURE_EFFECT_OPTIONS: [NodeParamOption; 6] = [
+    NodeParamOption {
+        label: "edge_detect",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "toon_edge",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "emboss",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "sharpen",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "kuwahara",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "depth_edge",
+        value: 5.0,
+    },
+];
+/// Effect options exposed by the `tex.post_blur_diffusion` node.
+const POST_BLUR_DIFFUSION_EFFECT_OPTIONS: [NodeParamOption; 7] = [
+    NodeParamOption {
+        label: "gaussian",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "box",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "kawase",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "radial",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "motion",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "dof",
+        value: 5.0,
+    },
+    NodeParamOption {
+        label: "tilt_shift",
+        value: 6.0,
+    },
+];
+/// Effect options exposed by the `tex.post_distortion` node.
+const POST_DISTORTION_EFFECT_OPTIONS: [NodeParamOption; 6] = [
+    NodeParamOption {
+        label: "chrom_ab",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "lens_warp",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "heat",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "shockwave",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "refract",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "glitch",
+        value: 5.0,
+    },
+];
+/// Effect options exposed by the `tex.post_temporal` node.
+const POST_TEMPORAL_EFFECT_OPTIONS: [NodeParamOption; 5] = [
+    NodeParamOption {
+        label: "trails",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "feedback",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "datamosh",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "afterimg",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "echo",
+        value: 4.0,
+    },
+];
+/// Effect options exposed by the `tex.post_noise_texture` node.
+const POST_NOISE_TEXTURE_EFFECT_OPTIONS: [NodeParamOption; 6] = [
+    NodeParamOption {
+        label: "grain",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "dither",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "scanline",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "vhs",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "pixelate",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "mosaic",
+        value: 5.0,
+    },
+];
+/// Effect options exposed by the `tex.post_lighting` node.
+const POST_LIGHTING_EFFECT_OPTIONS: [NodeParamOption; 6] = [
+    NodeParamOption {
+        label: "god_rays",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "lens_flare",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "vignette",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "leaks",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "anamorph",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "halation",
+        value: 5.0,
+    },
+];
+/// Effect options exposed by the `tex.post_screen_space` node.
+const POST_SCREEN_SPACE_EFFECT_OPTIONS: [NodeParamOption; 6] = [
+    NodeParamOption {
+        label: "ssao",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "ssr",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "ss_refract",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "depth_fog",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "height_fade",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "curvature",
+        value: 5.0,
+    },
+];
+/// Effect options exposed by the `tex.post_experimental` node.
+const POST_EXPERIMENTAL_EFFECT_OPTIONS: [NodeParamOption; 9] = [
+    NodeParamOption {
+        label: "rd_filter",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "cell_auto",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "zoom_fb",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "kaleido",
+        value: 3.0,
+    },
+    NodeParamOption {
+        label: "polar",
+        value: 4.0,
+    },
+    NodeParamOption {
+        label: "sdf_remap",
+        value: 5.0,
+    },
+    NodeParamOption {
+        label: "flow_adv",
+        value: 6.0,
+    },
+    NodeParamOption {
+        label: "fourier",
+        value: 7.0,
+    },
+    NodeParamOption {
+        label: "grad_style",
+        value: 8.0,
+    },
+];
 
 /// Resource kinds currently carried by GUI graph ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +489,24 @@ pub(crate) enum ProjectNodeKind {
     TexFeedback,
     /// `tex.reaction_diffusion` temporal Gray-Scott simulation node.
     TexReactionDiffusion,
+    /// `tex.post_color_tone` category post-process node.
+    TexPostColorTone,
+    /// `tex.post_edge_structure` category post-process node.
+    TexPostEdgeStructure,
+    /// `tex.post_blur_diffusion` category post-process node.
+    TexPostBlurDiffusion,
+    /// `tex.post_distortion` category post-process node.
+    TexPostDistortion,
+    /// `tex.post_temporal` category post-process node.
+    TexPostTemporal,
+    /// `tex.post_noise_texture` category post-process node.
+    TexPostNoiseTexture,
+    /// `tex.post_lighting` category post-process node.
+    TexPostLighting,
+    /// `tex.post_screen_space` category post-process node.
+    TexPostScreenSpace,
+    /// `tex.post_experimental` category post-process node.
+    TexPostExperimental,
     /// `tex.blend` two-texture composite node.
     TexBlend,
     /// `scene.entity` mesh + transform + material binding node.
@@ -247,6 +536,15 @@ impl ProjectNodeKind {
             Self::TexLevel => "tex.level",
             Self::TexFeedback => "tex.feedback",
             Self::TexReactionDiffusion => "tex.reaction_diffusion",
+            Self::TexPostColorTone => "tex.post_color_tone",
+            Self::TexPostEdgeStructure => "tex.post_edge_structure",
+            Self::TexPostBlurDiffusion => "tex.post_blur_diffusion",
+            Self::TexPostDistortion => "tex.post_distortion",
+            Self::TexPostTemporal => "tex.post_temporal",
+            Self::TexPostNoiseTexture => "tex.post_noise_texture",
+            Self::TexPostLighting => "tex.post_lighting",
+            Self::TexPostScreenSpace => "tex.post_screen_space",
+            Self::TexPostExperimental => "tex.post_experimental",
             Self::TexBlend => "tex.blend",
             Self::SceneEntity => "scene.entity",
             Self::SceneBuild => "scene.build",
@@ -269,6 +567,15 @@ impl ProjectNodeKind {
             "tex.level" => Some(Self::TexLevel),
             "tex.feedback" => Some(Self::TexFeedback),
             "tex.reaction_diffusion" => Some(Self::TexReactionDiffusion),
+            "tex.post_color_tone" => Some(Self::TexPostColorTone),
+            "tex.post_edge_structure" => Some(Self::TexPostEdgeStructure),
+            "tex.post_blur_diffusion" => Some(Self::TexPostBlurDiffusion),
+            "tex.post_distortion" => Some(Self::TexPostDistortion),
+            "tex.post_temporal" => Some(Self::TexPostTemporal),
+            "tex.post_noise_texture" => Some(Self::TexPostNoiseTexture),
+            "tex.post_lighting" => Some(Self::TexPostLighting),
+            "tex.post_screen_space" => Some(Self::TexPostScreenSpace),
+            "tex.post_experimental" => Some(Self::TexPostExperimental),
             "tex.blend" => Some(Self::TexBlend),
             "scene.entity" => Some(Self::SceneEntity),
             "scene.build" => Some(Self::SceneBuild),
@@ -293,6 +600,15 @@ impl ProjectNodeKind {
             Self::TexLevel => ExecutionKind::Render,
             Self::TexFeedback => ExecutionKind::Render,
             Self::TexReactionDiffusion => ExecutionKind::Render,
+            Self::TexPostColorTone => ExecutionKind::Render,
+            Self::TexPostEdgeStructure => ExecutionKind::Render,
+            Self::TexPostBlurDiffusion => ExecutionKind::Render,
+            Self::TexPostDistortion => ExecutionKind::Render,
+            Self::TexPostTemporal => ExecutionKind::Render,
+            Self::TexPostNoiseTexture => ExecutionKind::Render,
+            Self::TexPostLighting => ExecutionKind::Render,
+            Self::TexPostScreenSpace => ExecutionKind::Render,
+            Self::TexPostExperimental => ExecutionKind::Render,
             Self::TexBlend => ExecutionKind::Render,
             Self::SceneEntity => ExecutionKind::Control,
             Self::SceneBuild => ExecutionKind::Control,
@@ -315,6 +631,15 @@ impl ProjectNodeKind {
             | Self::TexLevel
             | Self::TexFeedback
             | Self::TexReactionDiffusion
+            | Self::TexPostColorTone
+            | Self::TexPostEdgeStructure
+            | Self::TexPostBlurDiffusion
+            | Self::TexPostDistortion
+            | Self::TexPostTemporal
+            | Self::TexPostNoiseTexture
+            | Self::TexPostLighting
+            | Self::TexPostScreenSpace
+            | Self::TexPostExperimental
             | Self::TexBlend
             | Self::IoWindowOut => Some(ResourceKind::Texture2D),
             Self::BufNoise => Some(ResourceKind::Buffer),
@@ -339,6 +664,15 @@ impl ProjectNodeKind {
                 | Self::TexLevel
                 | Self::TexFeedback
                 | Self::TexReactionDiffusion
+                | Self::TexPostColorTone
+                | Self::TexPostEdgeStructure
+                | Self::TexPostBlurDiffusion
+                | Self::TexPostDistortion
+                | Self::TexPostTemporal
+                | Self::TexPostNoiseTexture
+                | Self::TexPostLighting
+                | Self::TexPostScreenSpace
+                | Self::TexPostExperimental
                 | Self::TexBlend
                 | Self::SceneEntity
                 | Self::RenderCamera
@@ -382,6 +716,15 @@ impl ProjectNodeKind {
             | Self::TexLevel
             | Self::TexFeedback
             | Self::TexReactionDiffusion
+            | Self::TexPostColorTone
+            | Self::TexPostEdgeStructure
+            | Self::TexPostBlurDiffusion
+            | Self::TexPostDistortion
+            | Self::TexPostTemporal
+            | Self::TexPostNoiseTexture
+            | Self::TexPostLighting
+            | Self::TexPostScreenSpace
+            | Self::TexPostExperimental
             | Self::TexBlend
             | Self::RenderScenePass => Some(ResourceKind::Texture2D),
             Self::CtlLfo => Some(ResourceKind::Signal),
