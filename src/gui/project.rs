@@ -54,6 +54,9 @@ const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
 const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
 
+/// Per-frame signal sampling memo keyed by `(node_id, quantized_time_bucket)`.
+pub(crate) type SignalSampleMemo = HashMap<(u32, i32), Option<f32>>;
+
 /// Snap one graph-space scalar position to the shared node grid.
 pub(crate) fn snap_to_node_grid(value: i32) -> i32 {
     let base = value.div_euclid(NODE_GRID_PITCH) * NODE_GRID_PITCH;

@@ -1,6 +1,8 @@
 use super::state::clamp_node_position;
 use super::*;
 
+const SIGNAL_SAMPLE_TIME_BUCKETS_PER_SEC: f32 = 16_384.0;
+
 impl GuiProject {
     pub(crate) fn connect_signal_link_to_param(
         &mut self,
@@ -618,11 +620,25 @@ impl GuiProject {
         time_secs: f32,
         eval_stack: &mut Vec<u32>,
     ) -> Option<f32> {
+        let mut memo = None;
+        self.node_param_value_by_index_impl(node_id, param_index, time_secs, eval_stack, &mut memo)
+    }
+
+    fn node_param_value_by_index_impl(
+        &self,
+        node_id: u32,
+        param_index: usize,
+        time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+        memo: &mut Option<&mut SignalSampleMemo>,
+    ) -> Option<f32> {
         let node = self.node(node_id)?;
         let slot = node.params.get(param_index)?;
         let mut value = slot.value;
         if let Some(source_id) = slot.signal_source {
-            if let Some(signal) = self.sample_signal_node(source_id, time_secs, eval_stack) {
+            if let Some(signal) =
+                self.sample_signal_node_impl(source_id, time_secs, eval_stack, memo)
+            {
                 value = signal;
             }
         }
@@ -649,11 +665,50 @@ impl GuiProject {
         time_secs: f32,
         eval_stack: &mut Vec<u32>,
     ) -> Option<f32> {
+        let mut memo = None;
+        self.sample_signal_node_impl(node_id, time_secs, eval_stack, &mut memo)
+    }
+
+    /// Evaluate one scalar signal node output with a shared per-frame memo map.
+    ///
+    /// The memo map is keyed by node id and a quantized time bucket so repeated
+    /// graph evaluations within one frame can reuse prior signal samples.
+    pub(crate) fn sample_signal_node_with_memo(
+        &self,
+        node_id: u32,
+        time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+        memo: &mut SignalSampleMemo,
+    ) -> Option<f32> {
+        let mut memo = Some(memo);
+        self.sample_signal_node_impl(node_id, time_secs, eval_stack, &mut memo)
+    }
+
+    fn sample_signal_node_impl(
+        &self,
+        node_id: u32,
+        time_secs: f32,
+        eval_stack: &mut Vec<u32>,
+        memo: &mut Option<&mut SignalSampleMemo>,
+    ) -> Option<f32> {
+        let bucket = sample_time_bucket(time_secs);
+        if let Some(cached) = memo
+            .as_deref()
+            .and_then(|map| map.get(&(node_id, bucket)).copied())
+        {
+            return cached;
+        }
         if eval_stack.contains(&node_id) {
+            if let Some(map) = memo.as_deref_mut() {
+                map.insert((node_id, bucket), None);
+            }
             return None;
         }
         let node = self.node(node_id)?;
         if !node.kind.produces_signal_output() {
+            if let Some(map) = memo.as_deref_mut() {
+                map.insert((node_id, bucket), None);
+            }
             return None;
         }
         eval_stack.push(node_id);
@@ -666,32 +721,50 @@ impl GuiProject {
         const LFO_TYPE_INDEX: usize = 6;
         const LFO_SHAPE_INDEX: usize = 7;
         let rate = self
-            .node_param_value_by_index(node_id, LFO_RATE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(node_id, LFO_RATE_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.4);
         let amplitude = self
-            .node_param_value_by_index(node_id, LFO_AMPLITUDE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(
+                node_id,
+                LFO_AMPLITUDE_INDEX,
+                time_secs,
+                eval_stack,
+                memo,
+            )
             .unwrap_or(0.5);
         let phase = self
-            .node_param_value_by_index(node_id, LFO_PHASE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(node_id, LFO_PHASE_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.0);
         let bias = self
-            .node_param_value_by_index(node_id, LFO_BIAS_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(node_id, LFO_BIAS_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.5);
         let sync_mode = self
-            .node_param_value_by_index(node_id, LFO_SYNC_MODE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(
+                node_id,
+                LFO_SYNC_MODE_INDEX,
+                time_secs,
+                eval_stack,
+                memo,
+            )
             .unwrap_or(0.0)
             >= 0.5;
         let beat_mul = self
-            .node_param_value_by_index(node_id, LFO_BEAT_MUL_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(
+                node_id,
+                LFO_BEAT_MUL_INDEX,
+                time_secs,
+                eval_stack,
+                memo,
+            )
             .unwrap_or(1.0)
             .clamp(0.125, 32.0);
         let lfo_type = self
-            .node_param_value_by_index(node_id, LFO_TYPE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(node_id, LFO_TYPE_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.0)
             .round()
             .clamp(0.0, 4.0) as usize;
         let shape = self
-            .node_param_value_by_index(node_id, LFO_SHAPE_INDEX, time_secs, eval_stack)
+            .node_param_value_by_index_impl(node_id, LFO_SHAPE_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.0)
             .clamp(-1.0, 1.0);
         let rate_hz = if sync_mode {
@@ -703,8 +776,18 @@ impl GuiProject {
         let cycle = phase_time.rem_euclid(1.0);
         let v = (lfo_wave_sample(cycle, phase_time, lfo_type, shape) * amplitude) + bias;
         eval_stack.pop();
-        Some(v)
+        let sampled = Some(v);
+        if let Some(map) = memo.as_deref_mut() {
+            map.insert((node_id, bucket), sampled);
+        }
+        sampled
     }
+}
+
+fn sample_time_bucket(time_secs: f32) -> i32 {
+    let clamped = time_secs.max(0.0);
+    let bucket = (clamped * SIGNAL_SAMPLE_TIME_BUCKETS_PER_SEC).round();
+    bucket.clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
 fn lfo_wave_sample(cycle: f32, phase_time: f32, lfo_type: usize, shape: f32) -> f32 {

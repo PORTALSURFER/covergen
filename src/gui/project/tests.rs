@@ -1,7 +1,7 @@
 use super::{
     input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
-    GraphBounds, GuiProject, PersistedGuiProject, ProjectNodeKind, ResourceKind, NODE_HEIGHT,
-    PARAM_LABEL_MAX_LEN,
+    GraphBounds, GuiProject, PersistedGuiProject, ProjectNodeKind, ResourceKind, SignalSampleMemo,
+    NODE_HEIGHT, PARAM_LABEL_MAX_LEN,
 };
 
 #[test]
@@ -536,6 +536,34 @@ fn beat_synced_lfo_follows_project_timeline_bpm() {
         (sample_90 - sample_60).abs() > 0.05,
         "beat-synced lfo should change when bpm changes"
     );
+}
+
+#[test]
+fn signal_sampling_with_memo_matches_direct_sampling() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    let direct = project
+        .sample_signal_node(lfo, 0.125, &mut Vec::new())
+        .expect("lfo should evaluate");
+
+    let mut memo = SignalSampleMemo::default();
+    let mut eval_stack = Vec::new();
+    let memoized = project
+        .sample_signal_node_with_memo(lfo, 0.125, &mut eval_stack, &mut memo)
+        .expect("memoized lfo should evaluate");
+    assert!((memoized - direct).abs() <= 1e-6);
+    assert!(
+        !memo.is_empty(),
+        "memoized sampling should cache node/time evaluation results"
+    );
+
+    let memo_len = memo.len();
+    eval_stack.clear();
+    let repeated = project
+        .sample_signal_node_with_memo(lfo, 0.125, &mut eval_stack, &mut memo)
+        .expect("repeated memoized lfo should evaluate");
+    assert!((repeated - direct).abs() <= 1e-6);
+    assert_eq!(memo.len(), memo_len);
 }
 
 #[test]

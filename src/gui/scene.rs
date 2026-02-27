@@ -7,13 +7,13 @@
 pub(super) mod wire_route;
 
 use std::fmt::Write as _;
-use std::{collections::HashMap, collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashMap, collections::HashSet, path::Path, sync::Arc, time::Instant};
 
 use super::geometry::Rect;
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
-    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, NODE_WIDTH,
+    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, SignalSampleMemo, NODE_WIDTH,
 };
 use super::state::{
     AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
@@ -115,6 +115,7 @@ const WIRE_TAIL_STAGGER_STEP_CELLS: i32 = 1;
 const WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS: i32 = 8;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
 const FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
+const SIGNAL_SCOPE_MAX_SAMPLES: usize = 192;
 
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -176,6 +177,8 @@ pub(crate) struct SceneFrame {
     pub(crate) dirty: SceneLayerDirty,
     pub(crate) ui_alloc_bytes: u64,
     pub(crate) bridge_intersection_tests: u64,
+    pub(crate) signal_scope_samples: u64,
+    pub(crate) signal_scope_eval_ms: f64,
     pub(crate) camera_pan_x: f32,
     pub(crate) camera_pan_y: f32,
     pub(crate) camera_zoom: f32,
@@ -305,6 +308,16 @@ struct FittedLabelCacheBucketKey {
     zoom_bits: u32,
 }
 
+#[derive(Debug, Default)]
+struct SignalScopeCacheEntry {
+    sample_count: usize,
+    window_secs_bits: u32,
+    tex_eval_epoch: u64,
+    start_time: f32,
+    step_secs: f32,
+    values: Vec<f32>,
+}
+
 /// Stateful scene builder that reuses allocation capacity across frames.
 #[derive(Default)]
 pub(crate) struct SceneBuilder {
@@ -328,6 +341,9 @@ pub(crate) struct SceneBuilder {
     param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
     param_route_obstacle_map: wire_route::RouteObstacleMap,
     signal_eval_stack: Vec<u32>,
+    signal_sample_memo: SignalSampleMemo,
+    signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
+    live_signal_scope_nodes: HashSet<u32>,
     frame_alloc_bytes: u64,
 }
 
@@ -350,6 +366,9 @@ impl SceneBuilder {
         self.frame.dirty = SceneLayerDirty::default();
         self.frame_alloc_bytes = 0;
         self.frame.bridge_intersection_tests = 0;
+        self.frame.signal_scope_samples = 0;
+        self.frame.signal_scope_eval_ms = 0.0;
+        self.signal_sample_memo.clear();
         self.frame.camera_pan_x = state.pan_x;
         self.frame.camera_pan_y = state.pan_y;
         self.frame.camera_zoom = state.zoom.max(0.001);
@@ -418,9 +437,17 @@ impl SceneBuilder {
         self.set_active_layer(ActiveLayer::Nodes);
         self.set_active_space(CoordSpace::Screen);
         self.clear_active_layer();
+        self.live_signal_scope_nodes.clear();
         self.push_header(project);
         self.set_active_space(CoordSpace::Graph);
-        self.push_nodes(project, state, timeline_fps);
+        self.push_nodes(
+            project,
+            state,
+            timeline_fps,
+            project.invalidation().tex_eval,
+        );
+        self.signal_scope_cache
+            .retain(|node_id, _| self.live_signal_scope_nodes.contains(node_id));
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
     }
 
@@ -602,7 +629,13 @@ impl SceneBuilder {
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
     }
 
-    fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState, timeline_fps: u32) {
+    fn push_nodes(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        timeline_fps: u32,
+        tex_eval_epoch: u64,
+    ) {
         for node in project.nodes() {
             let rect = node_rect(node, state);
             self.push_rect(rect, NODE_BODY);
@@ -627,7 +660,7 @@ impl SceneBuilder {
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.kind().shows_signal_preview() {
-                self.push_signal_scope(project, node, state, timeline_fps);
+                self.push_signal_scope(project, node, state, timeline_fps, tex_eval_epoch);
             }
             if node.expanded() {
                 self.push_node_params(node, state);
@@ -642,10 +675,12 @@ impl SceneBuilder {
         node: &ProjectNode,
         state: &PreviewState,
         timeline_fps: u32,
+        tex_eval_epoch: u64,
     ) {
         if !node.kind().shows_signal_preview() {
             return;
         }
+        self.live_signal_scope_nodes.insert(node.id());
         let rect = node_rect(node, state);
         let mut scope_h = if node.expanded() {
             ((26.0 * state.zoom).round() as i32).clamp(14, 44)
@@ -685,17 +720,19 @@ impl SceneBuilder {
 
         let window_secs = if node.expanded() { 2.0 } else { 1.2 };
         let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
-        let samples = inner.w.max(16) as usize;
-        self.signal_eval_stack.clear();
-        let mut values = Vec::with_capacity(samples);
-        for step in 0..samples {
-            let t = step as f32 / samples.saturating_sub(1).max(1) as f32;
-            let sample_t = time_now - window_secs + window_secs * t;
-            let value = project
-                .sample_signal_node(node.id(), sample_t.max(0.0), &mut self.signal_eval_stack)
-                .unwrap_or(0.5);
-            values.push(if value.is_finite() { value } else { 0.5 });
-        }
+        let samples = (inner.w.max(16) as usize).min(SIGNAL_SCOPE_MAX_SAMPLES);
+        let eval_start = Instant::now();
+        let values = self
+            .sample_signal_scope_values(
+                project,
+                node.id(),
+                time_now,
+                window_secs,
+                samples,
+                tex_eval_epoch,
+            )
+            .to_vec();
+        let eval_ms = eval_start.elapsed().as_secs_f64() * 1000.0;
         let (value_min, value_max) = signal_scope_range(values.as_slice());
         let y_zero = signal_scope_y(0.0, value_min, value_max, inner);
         let y_one = signal_scope_y(1.0, value_min, value_max, inner);
@@ -723,6 +760,152 @@ impl SceneBuilder {
             let y0 = signal_scope_y(v0, value_min, value_max, inner);
             let y1 = signal_scope_y(v1, value_min, value_max, inner);
             self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
+        }
+        self.frame.signal_scope_eval_ms += eval_ms;
+    }
+
+    fn sample_signal_scope_values(
+        &mut self,
+        project: &GuiProject,
+        node_id: u32,
+        time_now: f32,
+        window_secs: f32,
+        sample_count: usize,
+        tex_eval_epoch: u64,
+    ) -> &[f32] {
+        let step_secs = if sample_count > 1 {
+            window_secs / (sample_count.saturating_sub(1) as f32)
+        } else {
+            window_secs
+        };
+        let step_secs = step_secs.max(1e-5);
+        let window_secs_bits = window_secs.to_bits();
+        let target_start = time_now - window_secs;
+        let cache_compatible = self
+            .signal_scope_cache
+            .get(&node_id)
+            .map(|entry| {
+                entry.sample_count == sample_count
+                    && entry.window_secs_bits == window_secs_bits
+                    && entry.tex_eval_epoch == tex_eval_epoch
+                    && entry.values.len() == sample_count
+                    && (entry.step_secs - step_secs).abs() <= f32::EPSILON
+                    && entry.start_time.is_finite()
+                    && target_start >= entry.start_time
+            })
+            .unwrap_or(false);
+        if !cache_compatible {
+            self.recompute_signal_scope_values(
+                project,
+                node_id,
+                target_start,
+                sample_count,
+                step_secs,
+                window_secs_bits,
+                tex_eval_epoch,
+            );
+            return self
+                .signal_scope_cache
+                .get(&node_id)
+                .map(|cached| cached.values.as_slice())
+                .unwrap_or(&[]);
+        }
+
+        let cached_start = self
+            .signal_scope_cache
+            .get(&node_id)
+            .map(|entry| entry.start_time)
+            .unwrap_or(target_start);
+        let delta_start = target_start - cached_start;
+        let shift = (delta_start / step_secs).floor().max(0.0) as usize;
+        if shift >= sample_count {
+            self.recompute_signal_scope_values(
+                project,
+                node_id,
+                target_start,
+                sample_count,
+                step_secs,
+                window_secs_bits,
+                tex_eval_epoch,
+            );
+            return self
+                .signal_scope_cache
+                .get(&node_id)
+                .map(|cached| cached.values.as_slice())
+                .unwrap_or(&[]);
+        }
+        if shift > 0 {
+            let new_start_index = sample_count.saturating_sub(shift);
+            let start_time = {
+                let entry = self
+                    .signal_scope_cache
+                    .get_mut(&node_id)
+                    .expect("signal scope cache entry should exist");
+                entry.values.rotate_left(shift);
+                entry.start_time += step_secs * shift as f32;
+                entry.start_time
+            };
+            let mut tail_values = Vec::with_capacity(shift);
+            for index in new_start_index..sample_count {
+                let sample_t = start_time + step_secs * index as f32;
+                tail_values.push(self.sample_scope_value(project, node_id, sample_t.max(0.0)));
+                self.frame.signal_scope_samples = self.frame.signal_scope_samples.saturating_add(1);
+            }
+            if let Some(entry) = self.signal_scope_cache.get_mut(&node_id) {
+                for (offset, value) in tail_values.into_iter().enumerate() {
+                    entry.values[new_start_index + offset] = value;
+                }
+            }
+        }
+        self.signal_scope_cache
+            .get(&node_id)
+            .map(|cached| cached.values.as_slice())
+            .unwrap_or(&[])
+    }
+
+    fn recompute_signal_scope_values(
+        &mut self,
+        project: &GuiProject,
+        node_id: u32,
+        start_time: f32,
+        sample_count: usize,
+        step_secs: f32,
+        window_secs_bits: u32,
+        tex_eval_epoch: u64,
+    ) {
+        let mut values = Vec::with_capacity(sample_count);
+        for index in 0..sample_count {
+            let sample_t = start_time + step_secs * index as f32;
+            values.push(self.sample_scope_value(project, node_id, sample_t.max(0.0)));
+            self.frame.signal_scope_samples = self.frame.signal_scope_samples.saturating_add(1);
+        }
+        self.signal_scope_cache.insert(
+            node_id,
+            SignalScopeCacheEntry {
+                sample_count,
+                window_secs_bits,
+                tex_eval_epoch,
+                start_time,
+                step_secs,
+                values,
+            },
+        );
+    }
+
+    fn sample_scope_value(&mut self, project: &GuiProject, node_id: u32, time_secs: f32) -> f32 {
+        self.signal_eval_stack.clear();
+        let value = project
+            .sample_signal_node_with_memo(
+                node_id,
+                time_secs,
+                &mut self.signal_eval_stack,
+                &mut self.signal_sample_memo,
+            )
+            .unwrap_or(0.5);
+        if value.is_finite() {
+            value
+        } else {
+            0.5
         }
     }
 
@@ -2683,6 +2866,7 @@ mod tests {
     use super::{
         build_smoothed_param_wire, signal_scope_range, signal_scope_y, smooth_param_wire_path,
         timeline_beat_indicator_on, Rect, SceneBuilder, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
+        SIGNAL_SCOPE_MAX_SAMPLES,
     };
     use crate::gui::project::{
         collapsed_param_entry_pin_center, output_pin_center, GuiProject, ProjectNodeKind,
@@ -2767,6 +2951,46 @@ mod tests {
         let bottom = signal_scope_y(-1.0, -1.0, 2.0, inner);
         assert_eq!(top, inner.y);
         assert_eq!(bottom, inner.y + inner.h - 1);
+    }
+
+    #[test]
+    fn signal_scope_sampling_reuses_cached_samples_between_ticks() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let _lfo = project.add_node(ProjectNodeKind::CtlLfo, 80, 80, 640, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.invalidation.invalidate_nodes();
+        let mut scene = SceneBuilder::default();
+
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let initial_samples = frame.signal_scope_samples;
+        assert!(
+            initial_samples > 0,
+            "initial scope build should evaluate sample points"
+        );
+
+        state.frame_index = 1;
+        state.invalidation.invalidate_nodes();
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            frame.signal_scope_samples < initial_samples,
+            "incremental update should evaluate fewer samples than full rebuild"
+        );
+    }
+
+    #[test]
+    fn signal_scope_sampling_caps_per_node_sample_count() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let _lfo = project.add_node(ProjectNodeKind::CtlLfo, 80, 80, 640, 480);
+        let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        state.zoom = 4.0;
+        state.invalidation.invalidate_nodes();
+        let mut scene = SceneBuilder::default();
+
+        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        assert!(
+            frame.signal_scope_samples <= SIGNAL_SCOPE_MAX_SAMPLES as u64,
+            "scope samples should be capped to avoid high zoom recompute spikes"
+        );
     }
 
     #[test]

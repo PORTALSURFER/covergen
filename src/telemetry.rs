@@ -4,8 +4,10 @@
 //! start collecting timings, frame samples, and memory snapshots, then
 //! `end_capture` to retrieve one immutable report.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::thread;
 use std::time::Duration;
 
 /// One named timing sample collected during a render run.
@@ -63,7 +65,7 @@ pub(crate) struct CaptureReport {
 
 #[derive(Default)]
 struct TelemetryState {
-    active: Option<CaptureReport>,
+    active: HashMap<thread::ThreadId, CaptureReport>,
 }
 
 fn telemetry_state() -> &'static Mutex<TelemetryState> {
@@ -90,22 +92,26 @@ fn with_state_mut<R>(f: impl FnOnce(&mut TelemetryState) -> R) -> R {
 
 /// Begin a fresh telemetry capture session and replace any prior active session.
 pub(crate) fn begin_capture(run_label: impl Into<String>) {
+    let thread_id = thread::current().id();
     let report = CaptureReport {
         run_label: run_label.into(),
         ..CaptureReport::default()
     };
     with_state_mut(|state| {
-        state.active = Some(report);
+        state.active.insert(thread_id, report);
     });
     capture_active_flag().store(true, Ordering::Release);
 }
 
 /// End the current telemetry capture session and return the captured report.
 pub(crate) fn end_capture() -> Option<CaptureReport> {
-    // Flip the fast-path flag first so new record calls short-circuit without
-    // taking the telemetry mutex while capture teardown is in progress.
-    capture_active_flag().store(false, Ordering::Release);
-    with_state_mut(|state| state.active.take())
+    let thread_id = thread::current().id();
+    let (report, has_remaining_active) = with_state_mut(|state| {
+        let report = state.active.remove(&thread_id);
+        (report, !state.active.is_empty())
+    });
+    capture_active_flag().store(has_remaining_active, Ordering::Release);
+    report
 }
 
 /// Record a timing sample for a named scope.
@@ -124,9 +130,10 @@ pub(crate) fn record_timing_ms(scope: impl Into<String>, ms: f64) {
     if !ms.is_finite() {
         return;
     }
+    let thread_id = thread::current().id();
     let scope = scope.into();
     with_state_mut(|state| {
-        if let Some(active) = state.active.as_mut() {
+        if let Some(active) = state.active.get_mut(&thread_id) {
             active.timings.push(TimingSample { scope, ms });
         }
     });
@@ -141,9 +148,10 @@ pub(crate) fn record_frame(scope: impl Into<String>, elapsed: Duration) {
     if !ms.is_finite() {
         return;
     }
+    let thread_id = thread::current().id();
     let scope = scope.into();
     with_state_mut(|state| {
-        if let Some(active) = state.active.as_mut() {
+        if let Some(active) = state.active.get_mut(&thread_id) {
             active.frames.push(FrameSample { scope, ms });
         }
     });
@@ -157,9 +165,10 @@ pub(crate) fn snapshot_memory(label: impl Into<String>) {
     let Some((rss_bytes, hwm_bytes)) = read_memory_bytes() else {
         return;
     };
+    let thread_id = thread::current().id();
     let label = label.into();
     with_state_mut(|state| {
-        if let Some(active) = state.active.as_mut() {
+        if let Some(active) = state.active.get_mut(&thread_id) {
             active.memory.push(MemorySample {
                 label,
                 rss_bytes,
@@ -177,9 +186,10 @@ pub(crate) fn record_counter(scope: impl Into<String>, value: f64) {
     if !value.is_finite() {
         return;
     }
+    let thread_id = thread::current().id();
     let scope = scope.into();
     with_state_mut(|state| {
-        if let Some(active) = state.active.as_mut() {
+        if let Some(active) = state.active.get_mut(&thread_id) {
             active.counters.push(CounterSample { scope, value });
         }
     });
