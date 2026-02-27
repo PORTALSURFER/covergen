@@ -21,5 +21,6 @@ Build a Windows-first, GPU-only node-graph shader/video playground with high-per
 
 ## Update Rules
 - Keep this file short; no implementation detail.
+- Keep status and task detail out of this file; store that in `MEMORY.md` and `docs/plans/active/todo.md`.
 - Update `MEMORY.md` and `docs/plans/active/todo.md` whenever priorities change.
 - Keep links in this file valid.

@@ -1,9 +1,9 @@
 # MEMORY.md
 
-Last Updated: 2026-02-25 15:28:00 UTC
+Last Updated: 2026-02-27 11:15:07 UTC
 
 ## Current Mission
-Current work is focused on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast export.
+Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
 
 ## Current State
 - `covergen` is V2-only and launches the GUI preview by default.
@@ -12,7 +12,7 @@ Current work is focused on building a Windows-first, GPU-only shader/video playg
 - Baseline performance tier is NVIDIA GeForce RTX 2060; target users are high-tier gaming GPUs or better.
 - Canonical design contract is `docs/v2/engine-v1-playground.md`.
 - Core feature scope tracks leading node-based real-time tools at a capability level while maintaining legal separation through original architecture and naming.
-- Engine model is now explicitly based on `ResourceKind + ExecutionKind + ClockDomain`.
+- Engine model is explicitly based on `ResourceKind + ExecutionKind + ClockDomain`.
 - System behavior is always real-time with a user-selected target frame rate (typically 60 FPS).
 - Interactive tex-viewer target is at least 60 FPS at 1080p, with meaningful idle headroom above target in low-complexity scenes.
 - Idle headroom gate (RTX 2060, 1080p, empty/light scene): primary `p95 frametime <= 10 ms`, secondary `average FPS >= 90`.
@@ -21,7 +21,8 @@ Current work is focused on building a Windows-first, GPU-only shader/video playg
 - Export architecture target is fully GPU-accelerated workflows, including zero-readback paths where feasible.
 - Windows H.264 implementation order is NVENC first, then AMF.
 - Current priority order is core stability, performance, and core features before extensibility.
-- Housekeeping preflight now runs through `scripts/run_agent_request.sh`.
+- Timeline BPM control is editable directly in the timeline value box using the same text-edit interaction style as node parameter value widgets.
+- Housekeeping preflight runs through `scripts/run_agent_request.sh`.
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
 
