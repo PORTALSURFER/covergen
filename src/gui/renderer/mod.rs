@@ -693,9 +693,16 @@ impl GuiRenderer {
     ) -> Result<u64, Box<dyn Error>> {
         let surface_tex = match self.surface.get_current_texture() {
             Ok(frame) => frame,
+            Err(err) if is_transient_surface_error(&err) => {
+                telemetry::record_counter_u64("gui.render.surface_timeouts", 1);
+                return Ok(0);
+            }
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 self.surface.configure(&self.device, &self.config);
                 self.surface.get_current_texture()?
+            }
+            Err(wgpu::SurfaceError::OutOfMemory) => {
+                return Err("failed to acquire GUI surface texture: out of memory".into())
             }
             Err(other) => {
                 return Err(format!("failed to acquire GUI surface texture: {other}").into())
@@ -913,4 +920,24 @@ fn panel_to_graph_x(panel_x: f32, camera: SceneCamera) -> f32 {
 
 fn panel_to_graph_y(panel_y: f32, camera: SceneCamera) -> f32 {
     (panel_y - camera.pan_y) / camera.zoom.max(0.001)
+}
+
+/// Return whether one surface acquisition error is transient and retryable.
+fn is_transient_surface_error(err: &wgpu::SurfaceError) -> bool {
+    matches!(err, wgpu::SurfaceError::Timeout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient_surface_error;
+
+    #[test]
+    fn timeout_surface_errors_are_treated_as_transient() {
+        assert!(is_transient_surface_error(&wgpu::SurfaceError::Timeout));
+        assert!(!is_transient_surface_error(&wgpu::SurfaceError::Lost));
+        assert!(!is_transient_surface_error(&wgpu::SurfaceError::Outdated));
+        assert!(!is_transient_surface_error(
+            &wgpu::SurfaceError::OutOfMemory
+        ));
+    }
 }

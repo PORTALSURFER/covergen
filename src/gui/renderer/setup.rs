@@ -65,8 +65,8 @@ impl Vertex {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct ViewportUniform {
-    viewport_size: [f32; 2],
-    camera_pan: [f32; 2],
+    viewport_size: [f32; 4],
+    camera_pan: [f32; 4],
     camera_zoom: f32,
     _pad: [f32; 3],
 }
@@ -75,8 +75,8 @@ impl ViewportUniform {
     /// Build viewport uniform from current surface dimensions.
     pub(super) fn new(width: u32, height: u32, pan_x: f32, pan_y: f32, zoom: f32) -> Self {
         Self {
-            viewport_size: [width.max(1) as f32, height.max(1) as f32],
-            camera_pan: [pan_x, pan_y],
+            viewport_size: [width.max(1) as f32, height.max(1) as f32, 0.0, 0.0],
+            camera_pan: [pan_x, pan_y, 0.0, 0.0],
             camera_zoom: zoom.max(0.001),
             _pad: [0.0, 0.0, 0.0],
         }
@@ -292,8 +292,8 @@ fn is_software_adapter(device_type: wgpu::DeviceType, adapter_name: &str) -> boo
 
 const SHADER_SOURCE: &str = r#"
 struct ViewportUniform {
-    viewport_size: vec2<f32>,
-    camera_pan: vec2<f32>,
+    viewport_size: vec4<f32>,
+    camera_pan: vec4<f32>,
     camera_zoom: f32,
     _pad0: f32,
     _pad1: f32,
@@ -333,3 +333,27 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     return v.color;
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::ViewportUniform;
+
+    #[test]
+    fn viewport_uniform_size_matches_wgsl_layout_contract() {
+        assert_eq!(
+            std::mem::size_of::<ViewportUniform>(),
+            48,
+            "viewport uniform must stay 48 bytes to match shader layout"
+        );
+    }
+
+    #[test]
+    fn viewport_uniform_new_clamps_dimensions_and_zoom() {
+        let uniform = ViewportUniform::new(0, 0, 12.0, -3.0, 0.0);
+        assert_eq!(uniform.viewport_size[0], 1.0);
+        assert_eq!(uniform.viewport_size[1], 1.0);
+        assert_eq!(uniform.camera_pan[0], 12.0);
+        assert_eq!(uniform.camera_pan[1], -3.0);
+        assert_eq!(uniform.camera_zoom, 0.001);
+    }
+}

@@ -1296,11 +1296,67 @@ fn save_project_file(project: &GuiProject, path: &Path) -> Result<(), Box<dyn Er
     let tmp = path.with_extension("tmp");
     let data = serde_json::to_vec_pretty(&project.to_persisted())?;
     fs::write(tmp.as_path(), data)?;
-    if path.exists() {
-        let _ = fs::remove_file(path);
+    let result = commit_saved_project_file(tmp.as_path(), path);
+    if result.is_err() {
+        let _ = fs::remove_file(tmp.as_path());
     }
-    fs::rename(tmp.as_path(), path)?;
-    Ok(())
+    result
+}
+
+/// Commit one tmp project save file into the destination path.
+///
+/// This prefers direct rename (atomic replace on Unix). When direct rename
+/// fails on platforms that do not replace existing files, it moves the
+/// previous destination to a backup path and restores it on commit failure.
+fn commit_saved_project_file(tmp: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
+    if let Ok(meta) = fs::metadata(dst) {
+        if !meta.is_file() {
+            return Err(format!(
+                "project save destination must be a file path: {}",
+                dst.display()
+            )
+            .into());
+        }
+    }
+
+    match fs::rename(tmp, dst) {
+        Ok(()) => return Ok(()),
+        Err(err) if !dst.exists() => {
+            return Err(format!(
+                "failed to finalize project save to {}: {err}",
+                dst.display()
+            )
+            .into())
+        }
+        Err(_) => {}
+    }
+
+    let backup = dst.with_extension("bak");
+    if backup.exists() {
+        fs::remove_file(backup.as_path())?;
+    }
+    fs::rename(dst, backup.as_path())?;
+    match fs::rename(tmp, dst) {
+        Ok(()) => {
+            let _ = fs::remove_file(backup.as_path());
+            Ok(())
+        }
+        Err(err) => {
+            let restore_result = fs::rename(backup.as_path(), dst);
+            if let Err(restore_err) = restore_result {
+                return Err(format!(
+                    "failed to finalize project save to {}: {err}; failed to restore previous file: {restore_err}",
+                    dst.display()
+                )
+                .into());
+            }
+            Err(format!(
+                "failed to finalize project save to {}: {err}; previous file restored",
+                dst.display()
+            )
+            .into())
+        }
+    }
 }
 
 fn fill_gray_from_bgra(src_bgra: &[u8], width: u32, height: u32, dst_gray: &mut Vec<u8>) {
@@ -1509,5 +1565,43 @@ mod tests {
             Some(circle_id),
             "trail example should composite raw circle as the live layer"
         );
+    }
+
+    #[test]
+    fn save_project_file_cleans_tmp_when_destination_is_invalid() {
+        let dir = temp_dir("save_invalid_destination");
+        let invalid_destination = dir.join("project.json");
+        fs::create_dir_all(invalid_destination.as_path()).expect("create invalid destination dir");
+
+        let project = GuiProject::new_empty(320, 240);
+        let result = save_project_file(&project, invalid_destination.as_path());
+        assert!(
+            result.is_err(),
+            "save should fail when destination is a directory"
+        );
+        assert!(
+            !invalid_destination.with_extension("tmp").exists(),
+            "failed save should not leave tmp files behind"
+        );
+
+        let _ = fs::remove_dir_all(dir.as_path());
+    }
+
+    #[test]
+    fn save_project_file_overwrite_does_not_leave_backup_artifacts() {
+        let dir = temp_dir("save_overwrite_backup_cleanup");
+        let path = dir.join("graph.json");
+        let project = GuiProject::new_empty(320, 240);
+        let updated_project = GuiProject::new_empty(640, 360);
+
+        save_project_file(&project, path.as_path()).expect("initial save should succeed");
+        save_project_file(&updated_project, path.as_path()).expect("overwrite save should succeed");
+
+        assert!(
+            !path.with_extension("bak").exists(),
+            "successful overwrite should not leave backup artifacts"
+        );
+
+        let _ = fs::remove_dir_all(dir.as_path());
     }
 }
