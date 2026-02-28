@@ -6,9 +6,9 @@ mod viewer;
 
 use std::error::Error;
 use std::fmt::Write as _;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, TryRecvError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use winit::window::Window;
 
@@ -37,6 +37,28 @@ const HUD_TEXT: Color = Color::argb(0xFFE8E8E8);
 const HUD_TEXT_WARN: Color = Color::argb(0xFFFF4D4D);
 const HUD_TARGET_FPS: f32 = 60.0;
 const GUI_READBACK_MAP_WAIT_TIMEOUT_MS: u64 = 2_000;
+
+/// One async tex-preview readback request tracked across frames.
+struct PendingTexPreviewReadback {
+    readback: wgpu::Buffer,
+    width: u32,
+    height: u32,
+    unpadded_bytes_per_row: u32,
+    padded_bytes_per_row: u32,
+    requested_at: Instant,
+    map_wait: Duration,
+    map_result_rx: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
+
+/// One capture attempt status for export frame sampling.
+pub(crate) enum TexPreviewCaptureState {
+    /// A frame is ready and copied into the output buffer.
+    Ready((u32, u32)),
+    /// Readback is still in flight; call again on a later frame.
+    Pending,
+    /// Viewer texture is not currently available for capture.
+    Unavailable,
+}
 
 /// Per-frame GUI renderer counters.
 #[derive(Clone, Copy, Debug, Default)]
@@ -305,6 +327,7 @@ pub(crate) struct GuiRenderer {
     camera_pan_y_bits: u32,
     camera_zoom_bits: u32,
     frame_perf: GuiRenderPerfCounters,
+    pending_tex_preview_readback: Option<PendingTexPreviewReadback>,
 }
 
 impl GuiRenderer {
@@ -418,6 +441,7 @@ impl GuiRenderer {
             camera_pan_y_bits: 0f32.to_bits(),
             camera_zoom_bits: 1f32.to_bits(),
             frame_perf: GuiRenderPerfCounters::default(),
+            pending_tex_preview_readback: None,
         })
     }
 
@@ -537,15 +561,32 @@ impl GuiRenderer {
     }
 
     /// Capture current tex preview texture to tightly packed BGRA bytes.
+    ///
+    /// This schedules async GPU readback and returns `Pending` until the map
+    /// callback completes on a later frame.
     pub(crate) fn capture_tex_preview_bgra(
         &mut self,
         out_bgra: &mut Vec<u8>,
-    ) -> Result<Option<(u32, u32)>, Box<dyn Error>> {
+    ) -> Result<TexPreviewCaptureState, Box<dyn Error>> {
+        if let Some(size) = self.try_collect_pending_tex_preview_readback(out_bgra)? {
+            return Ok(TexPreviewCaptureState::Ready(size));
+        }
+        if self.pending_tex_preview_readback.is_none() {
+            self.enqueue_tex_preview_readback()?;
+        }
+        if self.pending_tex_preview_readback.is_some() {
+            Ok(TexPreviewCaptureState::Pending)
+        } else {
+            Ok(TexPreviewCaptureState::Unavailable)
+        }
+    }
+
+    fn enqueue_tex_preview_readback(&mut self) -> Result<(), Box<dyn Error>> {
         let Some((texture, (width, height))) = self.tex_preview.viewer_texture_and_size() else {
-            return Ok(None);
+            return Ok(());
         };
         if width == 0 || height == 0 {
-            return Ok(None);
+            return Ok(());
         }
 
         let unpadded_bytes_per_row = width.saturating_mul(4);
@@ -591,51 +632,97 @@ impl GuiRenderer {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        let _ = self.device.poll(wgpu::Maintain::Wait);
-        let map_wait = Duration::from_millis(GUI_READBACK_MAP_WAIT_TIMEOUT_MS);
-        let map_wait_start = std::time::Instant::now();
-        match wait_for_readback_map_result(&rx, map_wait) {
-            Ok(()) => {
-                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
-            }
-            Err(ReadbackMapWaitError::Map(err)) => {
-                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
-                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
-                return Err(format!("failed to map tex preview readback: {err}").into());
-            }
-            Err(ReadbackMapWaitError::Timeout) => {
-                telemetry::record_counter_u64("gui.readback.map_wait_timeouts", 1);
-                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
-                return Err(format!(
-                    "timed out waiting for tex preview readback map after {} ms",
-                    map_wait.as_millis()
-                )
-                .into());
-            }
-            Err(ReadbackMapWaitError::Disconnected(err)) => {
-                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
-                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
-                return Err(format!("failed to wait for tex preview readback: {err}").into());
-            }
-        }
+        self.pending_tex_preview_readback = Some(PendingTexPreviewReadback {
+            readback,
+            width,
+            height,
+            unpadded_bytes_per_row,
+            padded_bytes_per_row,
+            requested_at: Instant::now(),
+            map_wait: Duration::from_millis(GUI_READBACK_MAP_WAIT_TIMEOUT_MS),
+            map_result_rx: rx,
+        });
+        Ok(())
+    }
 
-        let data = slice.get_mapped_range();
-        let row_bytes = unpadded_bytes_per_row as usize;
-        let padded_row_bytes = padded_bytes_per_row as usize;
-        out_bgra.resize(row_bytes * height as usize, 0);
-        for y in 0..height as usize {
-            let src_row = &data[y * padded_row_bytes..y * padded_row_bytes + row_bytes];
-            let dst_row = &mut out_bgra[y * row_bytes..(y + 1) * row_bytes];
-            for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
-                dst[0] = src[2];
-                dst[1] = src[1];
-                dst[2] = src[0];
-                dst[3] = src[3];
+    fn try_collect_pending_tex_preview_readback(
+        &mut self,
+        out_bgra: &mut Vec<u8>,
+    ) -> Result<Option<(u32, u32)>, Box<dyn Error>> {
+        let Some(pending) = self.pending_tex_preview_readback.as_ref() else {
+            return Ok(None);
+        };
+        let _ = self.device.poll(wgpu::Maintain::Poll);
+        match pending.map_result_rx.try_recv() {
+            Ok(Ok(())) => {
+                let pending = self
+                    .pending_tex_preview_readback
+                    .take()
+                    .ok_or("missing pending tex preview readback")?;
+                telemetry::record_timing("gui.readback.map_wait", pending.requested_at.elapsed());
+                let data = pending.readback.slice(..).get_mapped_range();
+                let row_bytes = pending.unpadded_bytes_per_row as usize;
+                let padded_row_bytes = pending.padded_bytes_per_row as usize;
+                out_bgra.resize(row_bytes * pending.height as usize, 0);
+                for y in 0..pending.height as usize {
+                    let src_row = &data[y * padded_row_bytes..y * padded_row_bytes + row_bytes];
+                    let dst_row = &mut out_bgra[y * row_bytes..(y + 1) * row_bytes];
+                    for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
+                        dst[0] = src[2];
+                        dst[1] = src[1];
+                        dst[2] = src[0];
+                        dst[3] = src[3];
+                    }
+                }
+                drop(data);
+                pending.readback.unmap();
+                Ok(Some((pending.width, pending.height)))
+            }
+            Ok(Err(err)) => {
+                let pending = self.pending_tex_preview_readback.take();
+                if let Some(pending) = pending {
+                    pending.readback.unmap();
+                    telemetry::record_timing(
+                        "gui.readback.map_wait",
+                        pending.requested_at.elapsed(),
+                    );
+                }
+                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
+                Err(format!("failed to map tex preview readback: {err}").into())
+            }
+            Err(TryRecvError::Empty) => {
+                if pending.requested_at.elapsed() >= pending.map_wait {
+                    let pending = self
+                        .pending_tex_preview_readback
+                        .take()
+                        .ok_or("missing pending tex preview readback timeout state")?;
+                    pending.readback.unmap();
+                    telemetry::record_counter_u64("gui.readback.map_wait_timeouts", 1);
+                    telemetry::record_timing(
+                        "gui.readback.map_wait",
+                        pending.requested_at.elapsed(),
+                    );
+                    return Err(format!(
+                        "timed out waiting for tex preview readback map after {} ms",
+                        pending.map_wait.as_millis()
+                    )
+                    .into());
+                }
+                Ok(None)
+            }
+            Err(TryRecvError::Disconnected) => {
+                let pending = self.pending_tex_preview_readback.take();
+                if let Some(pending) = pending {
+                    pending.readback.unmap();
+                    telemetry::record_timing(
+                        "gui.readback.map_wait",
+                        pending.requested_at.elapsed(),
+                    );
+                }
+                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
+                Err("failed to wait for tex preview readback: callback channel disconnected".into())
             }
         }
-        drop(data);
-        readback.unmap();
-        Ok(Some((width, height)))
     }
 
     fn rebuild_dirty_layers(
@@ -945,13 +1032,15 @@ fn panel_to_graph_y(panel_y: f32, camera: SceneCamera) -> f32 {
 
 /// Readback-map wait error classification used for bounded waits.
 #[derive(Debug)]
+#[cfg(test)]
 enum ReadbackMapWaitError {
     Map(wgpu::BufferAsyncError),
     Timeout,
-    Disconnected(mpsc::RecvTimeoutError),
+    Disconnected,
 }
 
 /// Wait for one readback-map callback with bounded timeout.
+#[cfg(test)]
 fn wait_for_readback_map_result(
     receiver: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
     timeout: Duration,
@@ -960,9 +1049,7 @@ fn wait_for_readback_map_result(
         Ok(Ok(())) => Ok(()),
         Ok(Err(err)) => Err(ReadbackMapWaitError::Map(err)),
         Err(mpsc::RecvTimeoutError::Timeout) => Err(ReadbackMapWaitError::Timeout),
-        Err(err @ mpsc::RecvTimeoutError::Disconnected) => {
-            Err(ReadbackMapWaitError::Disconnected(err))
-        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(ReadbackMapWaitError::Disconnected),
     }
 }
 
