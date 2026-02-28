@@ -5,7 +5,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rfd::FileDialog;
 use winit::event::{ElementState, WindowEvent};
@@ -1203,7 +1203,31 @@ fn load_autosaved_project(
     panel_height: usize,
 ) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
     let path = autosave_project_path();
-    load_project_file_if_exists(path.as_path(), panel_width, panel_height)
+    load_autosaved_project_from_path(path.as_path(), panel_width, panel_height)
+}
+
+/// Load one autosave project path, quarantining malformed/corrupt files.
+fn load_autosaved_project_from_path(
+    path: &Path,
+    panel_width: usize,
+    panel_height: usize,
+) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
+    match load_project_file_if_exists(path, panel_width, panel_height) {
+        Ok(project) => Ok(project),
+        Err(load_err) => {
+            if !path.exists() {
+                return Err(load_err);
+            }
+            let quarantined = quarantine_corrupt_autosave(path)?;
+            telemetry::record_counter_u64("gui.project.autosave_quarantined", 1);
+            eprintln!(
+                "[gui] quarantined corrupt autosave {} -> {} ({load_err})",
+                path.display(),
+                quarantined.display()
+            );
+            Ok(None)
+        }
+    }
 }
 
 /// Load the first existing project candidate from one directory.
@@ -1257,6 +1281,21 @@ fn load_project_file(
         panel_width,
         panel_height,
     )?)
+}
+
+/// Move one malformed autosave to a timestamped quarantine path.
+fn quarantine_corrupt_autosave(path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("covergen_gui_autosave");
+    let quarantined = path.with_file_name(format!("{file_name}.corrupt-{timestamp}"));
+    fs::rename(path, quarantined.as_path())?;
+    Ok(quarantined)
 }
 
 /// Format one status line after loading a project from disk.
@@ -1522,6 +1561,43 @@ mod tests {
         assert_eq!(loaded_path, explicit);
         assert_eq!(loaded.project.to_persisted().preview_width, 1024);
         assert!(loaded.warnings.is_empty());
+
+        let _ = fs::remove_dir_all(dir.as_path());
+    }
+
+    #[test]
+    fn load_autosaved_project_quarantines_corrupt_payload() {
+        let dir = temp_dir("autosave_corrupt_quarantine");
+        let autosave = autosave_project_path_in(dir.as_path());
+        fs::write(autosave.as_path(), b"{not-valid-json").expect("write corrupt autosave");
+
+        let loaded =
+            load_autosaved_project_from_path(autosave.as_path(), 640, 480).expect("load autosave");
+        assert!(
+            loaded.is_none(),
+            "corrupt autosave should be quarantined and treated as missing"
+        );
+        assert!(
+            !autosave.exists(),
+            "autosave path should be moved away after quarantine"
+        );
+        let mut quarantined_count = 0usize;
+        for entry in fs::read_dir(dir.as_path()).expect("read temp dir") {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name.starts_with(&format!("{GUI_PROJECT_AUTOSAVE_FILE}.corrupt-")) {
+                quarantined_count = quarantined_count.saturating_add(1);
+            }
+        }
+        assert_eq!(
+            quarantined_count, 1,
+            "exactly one quarantined autosave copy should be created"
+        );
 
         let _ = fs::remove_dir_all(dir.as_path());
     }

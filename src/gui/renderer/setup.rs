@@ -336,7 +336,12 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::ViewportUniform;
+    use super::{
+        create_pipeline, create_shader_module, create_uniform_bind_group, create_uniform_buffer,
+        create_vertex_buffer, is_software_adapter, preferred_surface_format, ViewportUniform,
+    };
+    use crate::test_gpu_env::should_skip_gpu_adapter_probe;
+    use pollster::block_on;
 
     #[test]
     fn viewport_uniform_size_matches_wgsl_layout_contract() {
@@ -355,5 +360,88 @@ mod tests {
         assert_eq!(uniform.camera_pan[0], 12.0);
         assert_eq!(uniform.camera_pan[1], -3.0);
         assert_eq!(uniform.camera_zoom, 0.001);
+    }
+
+    #[test]
+    fn gui_uniform_pipeline_draw_smoke_test_on_hardware_gpu() {
+        if should_skip_gpu_adapter_probe() {
+            return;
+        }
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        }));
+        let Some(adapter) = adapter else {
+            return;
+        };
+        let info = adapter.get_info();
+        if is_software_adapter(info.device_type, &info.name) {
+            return;
+        };
+        let Ok((device, queue)) = block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("gui-uniform-smoke-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+            },
+            None,
+        )) else {
+            return;
+        };
+        let format = preferred_surface_format(&[wgpu::TextureFormat::Bgra8UnormSrgb]);
+        let shader = create_shader_module(&device);
+        let uniform_buffer = create_uniform_buffer(&device, 64, 64);
+        let (uniform_layout, uniform_bind_group) =
+            create_uniform_bind_group(&device, &uniform_buffer);
+        let pipeline = create_pipeline(
+            &device,
+            &shader,
+            &uniform_layout,
+            format,
+            wgpu::PrimitiveTopology::TriangleList,
+        );
+        let vertex_buffer = create_vertex_buffer(&device, 6, "gui-uniform-smoke-vb");
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gui-uniform-smoke-target"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gui-uniform-smoke-encoder"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gui-uniform-smoke-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.draw(0..6, 0..1);
+        }
+        queue.submit(std::iter::once(encoder.finish()));
+        let _ = device.poll(wgpu::Maintain::Wait);
     }
 }

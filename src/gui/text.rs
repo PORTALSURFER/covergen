@@ -4,6 +4,7 @@
 //! rasterizing glyphs from `assets/JetBrainsMono.ttf` and emitting lit spans
 //! as `ColoredRect` rows. Glyph bitmaps are cached per character.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use rusttype::{point, Font, Scale};
@@ -166,18 +167,19 @@ impl GuiTextRenderer {
 
     fn cached_glyph(&mut self, ch: char, size_key: u16, baseline_px: i32) -> &GlyphBitmap {
         let key = self.lookup_char(ch);
+        let font = self.font.as_ref();
         let cache_key = GlyphCacheKey {
             ch: key,
             size_key,
             baseline_px,
         };
-        if !self.glyph_cache.contains_key(&cache_key) {
-            let glyph = self.rasterize_glyph(key, size_key, baseline_px);
-            self.glyph_cache.insert(cache_key, glyph);
+        match self.glyph_cache.entry(cache_key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let glyph = rasterize_glyph(font, key, size_key, baseline_px);
+                entry.insert(glyph)
+            }
         }
-        self.glyph_cache
-            .get(&cache_key)
-            .expect("glyph must exist after cache insert")
     }
 
     fn lookup_char(&self, ch: char) -> char {
@@ -188,34 +190,6 @@ impl GuiTextRenderer {
             ch
         } else {
             '?'
-        }
-    }
-
-    fn rasterize_glyph(&self, ch: char, size_key: u16, baseline_px: i32) -> GlyphBitmap {
-        let Some(font) = &self.font else {
-            return GlyphBitmap::empty(8);
-        };
-        let scale = Scale::uniform(font_size_from_key(size_key));
-        let scaled = font.glyph(ch).scaled(scale);
-        let advance_px = scaled.h_metrics().advance_width.ceil() as i32;
-        let positioned = scaled.positioned(point(0.0, baseline_px as f32));
-        let Some(bounds) = positioned.pixel_bounding_box() else {
-            return GlyphBitmap::empty(advance_px.max(1));
-        };
-        let width = bounds.width().max(0) as usize;
-        let height = bounds.height().max(0) as usize;
-        let mut coverage = vec![0u8; width.saturating_mul(height)];
-        positioned.draw(|px, py, value| {
-            let idx = py as usize * width + px as usize;
-            coverage[idx] = (value * 255.0).round() as u8;
-        });
-        GlyphBitmap {
-            x_offset_px: bounds.min.x,
-            y_offset_px: bounds.min.y,
-            width_px: width as i32,
-            height_px: height as i32,
-            advance_px: advance_px.max(1),
-            coverage,
         }
     }
 }
@@ -255,6 +229,40 @@ fn line_metrics(font: &Font<'_>, scale: Scale) -> (i32, i32) {
     let baseline_px = metrics.ascent.ceil() as i32;
     let line_height = metrics.ascent - metrics.descent + metrics.line_gap;
     (baseline_px.max(1), line_height.ceil() as i32)
+}
+
+/// Rasterize one glyph from the optional loaded font into coverage rows.
+fn rasterize_glyph(
+    font: Option<&Font<'static>>,
+    ch: char,
+    size_key: u16,
+    baseline_px: i32,
+) -> GlyphBitmap {
+    let Some(font) = font else {
+        return GlyphBitmap::empty(8);
+    };
+    let scale = Scale::uniform(font_size_from_key(size_key));
+    let scaled = font.glyph(ch).scaled(scale);
+    let advance_px = scaled.h_metrics().advance_width.ceil() as i32;
+    let positioned = scaled.positioned(point(0.0, baseline_px as f32));
+    let Some(bounds) = positioned.pixel_bounding_box() else {
+        return GlyphBitmap::empty(advance_px.max(1));
+    };
+    let width = bounds.width().max(0) as usize;
+    let height = bounds.height().max(0) as usize;
+    let mut coverage = vec![0u8; width.saturating_mul(height)];
+    positioned.draw(|px, py, value| {
+        let idx = py as usize * width + px as usize;
+        coverage[idx] = (value * 255.0).round() as u8;
+    });
+    GlyphBitmap {
+        x_offset_px: bounds.min.x,
+        y_offset_px: bounds.min.y,
+        width_px: width as i32,
+        height_px: height as i32,
+        advance_px: advance_px.max(1),
+        coverage,
+    }
 }
 
 fn quantized_font_size(scale: f32) -> u16 {
@@ -349,5 +357,19 @@ mod tests {
     fn quantized_font_size_is_clamped_to_safe_bounds() {
         assert!(font_size_from_key(quantized_font_size(0.01)) >= MIN_FONT_SIZE_PX);
         assert!(font_size_from_key(quantized_font_size(99.0)) <= MAX_FONT_SIZE_PX);
+    }
+
+    #[test]
+    fn glyph_cache_reuses_existing_entries_without_growth() {
+        let mut text = GuiTextRenderer::default();
+        let mut rects = Vec::new();
+        text.push_text(&mut rects, 0, 0, "A", Color::argb(0xFFFFFFFF));
+        let first_len = text.glyph_cache.len();
+        text.push_text(&mut rects, 12, 0, "A", Color::argb(0xFFFFFFFF));
+        assert_eq!(
+            text.glyph_cache.len(),
+            first_len,
+            "repeated glyph lookup should reuse cache entry"
+        );
     }
 }

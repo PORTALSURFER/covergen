@@ -8,6 +8,7 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use winit::window::Window;
 
@@ -35,6 +36,7 @@ const HUD_BORDER: Color = Color::argb(0xFF3A3A3A);
 const HUD_TEXT: Color = Color::argb(0xFFE8E8E8);
 const HUD_TEXT_WARN: Color = Color::argb(0xFFFF4D4D);
 const HUD_TARGET_FPS: f32 = 60.0;
+const GUI_READBACK_MAP_WAIT_TIMEOUT_MS: u64 = 2_000;
 
 /// Per-frame GUI renderer counters.
 #[derive(Clone, Copy, Debug, Default)]
@@ -590,11 +592,30 @@ impl GuiRenderer {
             let _ = tx.send(result);
         });
         let _ = self.device.poll(wgpu::Maintain::Wait);
-        match rx.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => return Err(format!("failed to map tex preview readback: {err}").into()),
-            Err(err) => {
-                return Err(format!("failed to wait for tex preview readback: {err}").into())
+        let map_wait = Duration::from_millis(GUI_READBACK_MAP_WAIT_TIMEOUT_MS);
+        let map_wait_start = std::time::Instant::now();
+        match wait_for_readback_map_result(&rx, map_wait) {
+            Ok(()) => {
+                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
+            }
+            Err(ReadbackMapWaitError::Map(err)) => {
+                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
+                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
+                return Err(format!("failed to map tex preview readback: {err}").into());
+            }
+            Err(ReadbackMapWaitError::Timeout) => {
+                telemetry::record_counter_u64("gui.readback.map_wait_timeouts", 1);
+                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
+                return Err(format!(
+                    "timed out waiting for tex preview readback map after {} ms",
+                    map_wait.as_millis()
+                )
+                .into());
+            }
+            Err(ReadbackMapWaitError::Disconnected(err)) => {
+                telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
+                telemetry::record_timing("gui.readback.map_wait", map_wait_start.elapsed());
+                return Err(format!("failed to wait for tex preview readback: {err}").into());
             }
         }
 
@@ -922,6 +943,29 @@ fn panel_to_graph_y(panel_y: f32, camera: SceneCamera) -> f32 {
     (panel_y - camera.pan_y) / camera.zoom.max(0.001)
 }
 
+/// Readback-map wait error classification used for bounded waits.
+#[derive(Debug)]
+enum ReadbackMapWaitError {
+    Map(wgpu::BufferAsyncError),
+    Timeout,
+    Disconnected(mpsc::RecvTimeoutError),
+}
+
+/// Wait for one readback-map callback with bounded timeout.
+fn wait_for_readback_map_result(
+    receiver: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    timeout: Duration,
+) -> Result<(), ReadbackMapWaitError> {
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(ReadbackMapWaitError::Map(err)),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(ReadbackMapWaitError::Timeout),
+        Err(err @ mpsc::RecvTimeoutError::Disconnected) => {
+            Err(ReadbackMapWaitError::Disconnected(err))
+        }
+    }
+}
+
 /// Return whether one surface acquisition error is transient and retryable.
 fn is_transient_surface_error(err: &wgpu::SurfaceError) -> bool {
     matches!(err, wgpu::SurfaceError::Timeout)
@@ -929,7 +973,9 @@ fn is_transient_surface_error(err: &wgpu::SurfaceError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_transient_surface_error;
+    use super::{is_transient_surface_error, wait_for_readback_map_result, ReadbackMapWaitError};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn timeout_surface_errors_are_treated_as_transient() {
@@ -939,5 +985,27 @@ mod tests {
         assert!(!is_transient_surface_error(
             &wgpu::SurfaceError::OutOfMemory
         ));
+    }
+
+    #[test]
+    fn readback_wait_timeout_is_bounded_and_deterministic() {
+        let (_tx, rx) = mpsc::channel::<Result<(), wgpu::BufferAsyncError>>();
+        let begin = Instant::now();
+        let result = wait_for_readback_map_result(&rx, Duration::from_millis(8));
+        let elapsed = begin.elapsed();
+        assert!(matches!(result, Err(ReadbackMapWaitError::Timeout)));
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "readback wait timeout should remain bounded; elapsed={elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn readback_wait_accepts_success_signal() {
+        let (tx, rx) = mpsc::channel::<Result<(), wgpu::BufferAsyncError>>();
+        tx.send(Ok(()))
+            .expect("sending synthetic readback success should work");
+        let result = wait_for_readback_map_result(&rx, Duration::from_millis(10));
+        assert!(result.is_ok());
     }
 }

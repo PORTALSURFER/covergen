@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::Path;
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -86,13 +86,20 @@ impl StreamEncodeWorker {
 }
 
 struct FrameDirEncodeWorker {
-    sender: SyncSender<(u32, Vec<u8>)>,
-    join_handle: JoinHandle<Result<(), String>>,
+    sender: SyncSender<FrameDirWorkerJob>,
+    completion_rx: Receiver<Result<(), String>>,
+    join_handle: Option<JoinHandle<()>>,
 }
 
 const FRAME_DIR_QUEUE_CAPACITY: usize = 8;
 const FRAME_DIR_SEND_RETRY_SLEEP_MS: u64 = 2;
 const FRAME_DIR_SEND_MAX_WAIT_MS: u64 = 1_500;
+const FRAME_DIR_FINISH_MAX_WAIT_MS: u64 = 1_500;
+
+enum FrameDirWorkerJob {
+    Frame { frame_index: u32, gray: Vec<u8> },
+    Shutdown,
+}
 
 #[derive(Clone, Copy, Debug)]
 struct FrameDirSendPolicy {
@@ -109,43 +116,121 @@ impl FrameDirSendPolicy {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct FrameDirFinishPolicy {
+    max_wait: Duration,
+}
+
+impl FrameDirFinishPolicy {
+    fn default_policy() -> Self {
+        Self {
+            max_wait: Duration::from_millis(FRAME_DIR_FINISH_MAX_WAIT_MS),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameDirFinishWaitError {
+    Timeout,
+    Disconnected,
+}
+
 impl FrameDirEncodeWorker {
     fn spawn(dir: std::path::PathBuf, width: u32, height: u32) -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<(u32, Vec<u8>)>(FRAME_DIR_QUEUE_CAPACITY);
-        let join_handle = thread::spawn(move || -> Result<(), String> {
-            while let Ok((frame_index, gray)) = receiver.recv() {
-                let encoded = encode_png_bytes(width, height, &gray, CompressionType::Fast)
-                    .map_err(|err| err.to_string())?;
-                let frame_path = dir.join(frame_filename(frame_index));
-                std::fs::write(frame_path, encoded).map_err(|err| err.to_string())?;
-            }
-            Ok(())
+        let (sender, receiver) = mpsc::sync_channel::<FrameDirWorkerJob>(FRAME_DIR_QUEUE_CAPACITY);
+        let (completion_tx, completion_rx) = mpsc::channel::<Result<(), String>>();
+        let join_handle = thread::spawn(move || {
+            let result = run_frame_dir_worker_loop(receiver, dir, width, height);
+            let _ = completion_tx.send(result);
         });
         Self {
             sender,
-            join_handle,
+            completion_rx,
+            join_handle: Some(join_handle),
         }
     }
 
     fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
         submit_frame_dir_with_backpressure(
             &self.sender,
-            (frame_index, frame),
+            FrameDirWorkerJob::Frame {
+                frame_index,
+                gray: frame,
+            },
             FrameDirSendPolicy::default_policy(),
         )
     }
 
-    fn finish(self) -> Result<(), Box<dyn Error>> {
-        let FrameDirEncodeWorker {
-            sender,
-            join_handle,
-        } = self;
+    fn finish(mut self) -> Result<(), Box<dyn Error>> {
+        let finish_policy = FrameDirFinishPolicy::default_policy();
+        let sender = std::mem::replace(&mut self.sender, mpsc::sync_channel(1).0);
+        let _ = sender.try_send(FrameDirWorkerJob::Shutdown);
         drop(sender);
-        match join_handle.join() {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.into()),
-            Err(_) => Err("frame-dir encode worker panicked".into()),
+        let wait_start = Instant::now();
+        let completion = wait_for_frame_dir_worker_completion(&self.completion_rx, finish_policy);
+        telemetry::record_timing("v2.export.frame_dir.finish_wait", wait_start.elapsed());
+        match completion {
+            Ok(result) => {
+                if let Some(join_handle) = self.join_handle.take() {
+                    if join_handle.join().is_err() {
+                        telemetry::record_counter_u64("v2.export.frame_dir.finish_panics", 1);
+                        return Err("frame-dir encode worker panicked".into());
+                    }
+                }
+                result.map_err(|err| err.into())
+            }
+            Err(FrameDirFinishWaitError::Timeout) => {
+                telemetry::record_counter_u64("v2.export.frame_dir.finish_timeouts", 1);
+                let _ = self.join_handle.take();
+                Err(format!(
+                    "frame-dir worker finalization timeout after {} ms",
+                    finish_policy.max_wait.as_millis()
+                )
+                .into())
+            }
+            Err(FrameDirFinishWaitError::Disconnected) => {
+                telemetry::record_counter_u64("v2.export.frame_dir.finish_disconnected", 1);
+                if let Some(join_handle) = self.join_handle.take() {
+                    if join_handle.join().is_err() {
+                        telemetry::record_counter_u64("v2.export.frame_dir.finish_panics", 1);
+                        return Err("frame-dir encode worker panicked".into());
+                    }
+                }
+                Err("frame-dir worker completion channel disconnected".into())
+            }
         }
+    }
+}
+
+fn run_frame_dir_worker_loop(
+    receiver: Receiver<FrameDirWorkerJob>,
+    dir: std::path::PathBuf,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    while let Ok(job) = receiver.recv() {
+        match job {
+            FrameDirWorkerJob::Frame { frame_index, gray } => {
+                let encoded = encode_png_bytes(width, height, &gray, CompressionType::Fast)
+                    .map_err(|err| err.to_string())?;
+                let frame_path = dir.join(frame_filename(frame_index));
+                std::fs::write(frame_path, encoded).map_err(|err| err.to_string())?;
+            }
+            FrameDirWorkerJob::Shutdown => break,
+        }
+    }
+    Ok(())
+}
+
+/// Wait for frame-dir worker completion with bounded timeout.
+fn wait_for_frame_dir_worker_completion(
+    completion_rx: &Receiver<Result<(), String>>,
+    policy: FrameDirFinishPolicy,
+) -> Result<Result<(), String>, FrameDirFinishWaitError> {
+    match completion_rx.recv_timeout(policy.max_wait) {
+        Ok(result) => Ok(result),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(FrameDirFinishWaitError::Timeout),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(FrameDirFinishWaitError::Disconnected),
     }
 }
 
@@ -153,9 +238,9 @@ impl FrameDirEncodeWorker {
 ///
 /// This keeps the producer thread responsive under encoder stalls while
 /// preserving deterministic failure behavior after a configured timeout.
-fn submit_frame_dir_with_backpressure(
-    sender: &SyncSender<(u32, Vec<u8>)>,
-    payload: (u32, Vec<u8>),
+fn submit_frame_dir_with_backpressure<T>(
+    sender: &SyncSender<T>,
+    payload: T,
     policy: FrameDirSendPolicy,
 ) -> Result<(), Box<dyn Error>> {
     let submit_start = Instant::now();
@@ -675,8 +760,10 @@ pub(crate) fn apply_motion_temporal_constraints(
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_encode_worker, submit_frame_dir_with_backpressure, ClipEncodeWorker,
-        FrameDirEncodeWorker, FrameDirSendPolicy, StreamFrameFormat, FRAME_DIR_QUEUE_CAPACITY,
+        complete_encode_worker, submit_frame_dir_with_backpressure,
+        wait_for_frame_dir_worker_completion, ClipEncodeWorker, FrameDirEncodeWorker,
+        FrameDirFinishPolicy, FrameDirFinishWaitError, FrameDirSendPolicy, StreamFrameFormat,
+        FRAME_DIR_QUEUE_CAPACITY,
     };
     use crate::animation::frame_filename;
     use std::io::Error as IoError;
@@ -806,5 +893,36 @@ mod tests {
         submit_frame_dir_with_backpressure(&sender, (123, vec![0u8]), policy)
             .expect("submit should succeed after consumer drains one slot");
         let _ = drain_thread.join();
+    }
+
+    #[test]
+    fn frame_dir_finish_timeout_is_bounded_with_deterministic_error() {
+        let (_tx, rx) = mpsc::channel::<Result<(), String>>();
+        let begin = Instant::now();
+        let wait = wait_for_frame_dir_worker_completion(
+            &rx,
+            FrameDirFinishPolicy {
+                max_wait: Duration::from_millis(8),
+            },
+        );
+        let elapsed = begin.elapsed();
+        assert!(matches!(wait, Err(FrameDirFinishWaitError::Timeout)));
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "frame-dir finish timeout should stay bounded; elapsed={elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn frame_dir_finish_reports_disconnected_completion_channel() {
+        let (tx, rx) = mpsc::channel::<Result<(), String>>();
+        drop(tx);
+        let wait = wait_for_frame_dir_worker_completion(
+            &rx,
+            FrameDirFinishPolicy {
+                max_wait: Duration::from_millis(10),
+            },
+        );
+        assert!(matches!(wait, Err(FrameDirFinishWaitError::Disconnected)));
     }
 }
