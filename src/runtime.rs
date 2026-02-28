@@ -86,7 +86,7 @@ impl StreamEncodeWorker {
 }
 
 struct FrameDirEncodeWorker {
-    sender: SyncSender<FrameDirWorkerJob>,
+    sender: Option<SyncSender<FrameDirWorkerJob>>,
     completion_rx: Receiver<Result<(), String>>,
     join_handle: Option<JoinHandle<()>>,
 }
@@ -144,15 +144,18 @@ impl FrameDirEncodeWorker {
             let _ = completion_tx.send(result);
         });
         Self {
-            sender,
+            sender: Some(sender),
             completion_rx,
             join_handle: Some(join_handle),
         }
     }
 
     fn submit_gray(&self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err("frame-dir worker is no longer accepting frames".into());
+        };
         submit_frame_dir_with_backpressure(
-            &self.sender,
+            sender,
             FrameDirWorkerJob::Frame {
                 frame_index,
                 gray: frame,
@@ -163,9 +166,10 @@ impl FrameDirEncodeWorker {
 
     fn finish(mut self) -> Result<(), Box<dyn Error>> {
         let finish_policy = FrameDirFinishPolicy::default_policy();
-        let sender = std::mem::replace(&mut self.sender, mpsc::sync_channel(1).0);
-        let _ = sender.try_send(FrameDirWorkerJob::Shutdown);
-        drop(sender);
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.try_send(FrameDirWorkerJob::Shutdown);
+            drop(sender);
+        }
         let wait_start = Instant::now();
         let completion = wait_for_frame_dir_worker_completion(&self.completion_rx, finish_policy);
         telemetry::record_timing("v2.export.frame_dir.finish_wait", wait_start.elapsed());
@@ -772,14 +776,22 @@ mod tests {
     use std::time::{Duration, Instant};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
-    fn frame_dir_clip_worker_writes_gray_frames_and_rejects_bgra() {
+    fn create_temp_dir(prefix: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after unix epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-worker-{nonce}"));
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nonce}"));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("stale temp path should be removable");
+        }
         std::fs::create_dir_all(&dir).expect("test temp dir should be created");
+        dir
+    }
+
+    #[test]
+    fn frame_dir_clip_worker_writes_gray_frames_and_rejects_bgra() {
+        let dir = create_temp_dir("covergen-frame-dir-worker");
 
         let mut worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
         assert_eq!(worker.frame_format(), StreamFrameFormat::Gray8);
@@ -796,12 +808,7 @@ mod tests {
 
     #[test]
     fn complete_encode_worker_preserves_primary_work_error() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after unix epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-complete-ok-{nonce}"));
-        std::fs::create_dir_all(&dir).expect("test temp dir should be created");
+        let dir = create_temp_dir("covergen-frame-dir-complete-ok");
 
         let worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
         let err = complete_encode_worker(Err(IoError::other("work failed").into()), worker)
@@ -816,16 +823,10 @@ mod tests {
 
     #[test]
     fn complete_encode_worker_reports_finalize_error_when_both_fail() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after unix epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("covergen-frame-dir-complete-missing-{nonce}"));
-        if dir.exists() {
-            std::fs::remove_dir_all(&dir).expect("stale temp path should be removable");
-        }
+        let dir = create_temp_dir("covergen-frame-dir-complete-missing");
 
         let mut worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
+        std::fs::remove_dir_all(&dir).expect("test should remove output dir before finalize");
         worker
             .submit_gray(0, vec![0, 85, 170, 255])
             .expect("gray frame should enqueue");

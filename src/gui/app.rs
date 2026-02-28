@@ -23,8 +23,8 @@ use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
 use super::perf::GuiPerfRecorder;
 use super::project::{
-    GuiProject, GuiProjectInvalidation, PersistedGuiProject, PersistedProjectLoadOutcome,
-    PersistedProjectLoadWarning, ProjectNodeKind, NODE_WIDTH,
+    GuiProject, GuiProjectInvalidation, PersistedGuiProject, PersistedProjectLoadError,
+    PersistedProjectLoadOutcome, PersistedProjectLoadWarning, ProjectNodeKind, NODE_WIDTH,
 };
 use super::renderer::GuiRenderer;
 use super::scene::SceneBuilder;
@@ -1215,7 +1215,7 @@ fn load_autosaved_project_from_path(
     match load_project_file_if_exists(path, panel_width, panel_height) {
         Ok(project) => Ok(project),
         Err(load_err) => {
-            if !path.exists() {
+            if !path.exists() || !should_quarantine_autosave_load_error(load_err.as_ref()) {
                 return Err(load_err);
             }
             let quarantined = quarantine_corrupt_autosave(path)?;
@@ -1296,6 +1296,16 @@ fn quarantine_corrupt_autosave(path: &Path) -> Result<PathBuf, Box<dyn Error>> {
     let quarantined = path.with_file_name(format!("{file_name}.corrupt-{timestamp}"));
     fs::rename(path, quarantined.as_path())?;
     Ok(quarantined)
+}
+
+/// Return true when one autosave load error indicates corrupt file contents.
+fn should_quarantine_autosave_load_error(err: &(dyn Error + 'static)) -> bool {
+    if err.is::<serde_json::Error>() || err.is::<PersistedProjectLoadError>() {
+        return true;
+    }
+    err.downcast_ref::<std::io::Error>()
+        .map(|io_err| io_err.kind() == ErrorKind::InvalidData)
+        .unwrap_or(false)
 }
 
 /// Format one status line after loading a project from disk.
@@ -1597,6 +1607,40 @@ mod tests {
         assert_eq!(
             quarantined_count, 1,
             "exactly one quarantined autosave copy should be created"
+        );
+
+        let _ = fs::remove_dir_all(dir.as_path());
+    }
+
+    #[test]
+    fn load_autosaved_project_does_not_quarantine_non_corrupt_io_errors() {
+        let dir = temp_dir("autosave_non_corrupt_io_error");
+        let autosave_dir = autosave_project_path_in(dir.as_path());
+        fs::create_dir_all(autosave_dir.as_path()).expect("create autosave directory path");
+
+        let result = load_autosaved_project_from_path(autosave_dir.as_path(), 640, 480);
+        assert!(
+            result.is_err(),
+            "directory read failure should propagate as IO error"
+        );
+        assert!(
+            autosave_dir.exists() && autosave_dir.is_dir(),
+            "non-corrupt IO errors should not quarantine autosave path"
+        );
+        let corrupt_files = fs::read_dir(dir.as_path())
+            .expect("read temp dir")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .map(|name| name.contains(".corrupt-"))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(
+            corrupt_files, 0,
+            "non-corrupt IO failures should not create quarantine artifacts"
         );
 
         let _ = fs::remove_dir_all(dir.as_path());
