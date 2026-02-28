@@ -319,7 +319,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     var out: VertexOut;
     var screen_pos = v.position;
     if (v.space > 0.5) {
-        screen_pos = v.position * u_view.camera_zoom + u_view.camera_pan;
+        screen_pos = v.position * u_view.camera_zoom + u_view.camera_pan.xy;
     }
     let ndc_x = (screen_pos.x / u_view.viewport_size.x) * 2.0 - 1.0;
     let ndc_y = 1.0 - (screen_pos.y / u_view.viewport_size.y) * 2.0;
