@@ -350,6 +350,9 @@ pub(crate) struct SceneBuilder {
     signal_sample_memo: SignalSampleMemo,
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
+    bridge_new_segments_scratch: Vec<DrawnWireSegment>,
+    bridge_candidate_indices_scratch: Vec<usize>,
+    bridge_crossings_scratch: Vec<f32>,
     frame_alloc_bytes: u64,
     was_dragging: bool,
 }
@@ -1970,8 +1973,12 @@ impl SceneBuilder {
             return;
         }
         let bridge_scale = wire_layout_scale(zoom);
-        let mut new_segments = Vec::new();
-        let mut candidate_indices = Vec::new();
+        let mut new_segments = std::mem::take(&mut self.bridge_new_segments_scratch);
+        let mut candidate_indices = std::mem::take(&mut self.bridge_candidate_indices_scratch);
+        let mut crossings = std::mem::take(&mut self.bridge_crossings_scratch);
+        new_segments.clear();
+        candidate_indices.clear();
+        crossings.clear();
         let total_segments = points.len().saturating_sub(1);
         let mut bridge_intersection_tests = 0u64;
         for (segment_index, pair) in points.windows(2).enumerate() {
@@ -1986,7 +1993,7 @@ impl SceneBuilder {
             if segment_len <= 0.0 {
                 continue;
             }
-            let mut crossings = Vec::new();
+            crossings.clear();
             drawn_segment_hash.collect_candidates(segment, &mut candidate_indices);
             for existing_index in candidate_indices.iter().copied() {
                 let existing = drawn_segments[existing_index];
@@ -2013,11 +2020,17 @@ impl SceneBuilder {
             self.push_path_lines(bridged_points.as_slice(), color);
             new_segments.push(segment);
         }
-        for segment in new_segments {
+        for segment in new_segments.iter().copied() {
             let index = drawn_segments.len();
             drawn_segments.push(segment);
             drawn_segment_hash.insert_segment(segment, index);
         }
+        new_segments.clear();
+        candidate_indices.clear();
+        crossings.clear();
+        self.bridge_new_segments_scratch = new_segments;
+        self.bridge_candidate_indices_scratch = candidate_indices;
+        self.bridge_crossings_scratch = crossings;
         self.frame.bridge_intersection_tests = self
             .frame
             .bridge_intersection_tests
