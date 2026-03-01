@@ -1,5 +1,6 @@
 use super::*;
 use crate::gui::geometry::Rect;
+use std::collections::HashSet;
 
 impl GuiProject {
     pub(crate) fn node_at(&self, x: i32, y: i32) -> Option<u32> {
@@ -70,6 +71,7 @@ impl GuiProject {
         };
         self.ensure_hit_test_cache();
         let cache = self.hit_test_cache.borrow();
+        let mut seen = HashSet::new();
         let mut candidates = Vec::new();
         for by in hit_bin_coord(min_y)..=hit_bin_coord(max_y) {
             for bx in hit_bin_coord(min_x)..=hit_bin_coord(max_x) {
@@ -77,14 +79,16 @@ impl GuiProject {
                     continue;
                 };
                 self.bump_hit_test_scan_count(ids.len() as u64);
-                candidates.extend_from_slice(ids.as_slice());
+                for node_id in ids {
+                    if seen.insert(*node_id) {
+                        candidates.push(*node_id);
+                    }
+                }
             }
         }
         if candidates.is_empty() {
             return candidates;
         }
-        candidates.sort_unstable();
-        candidates.dedup();
         candidates.sort_unstable_by_key(|node_id| {
             cache
                 .node_index_by_id
@@ -150,7 +154,7 @@ impl GuiProject {
         let max_x = x.saturating_add(radius_px);
         let min_y = y.saturating_sub(radius_px);
         let max_y = y.saturating_add(radius_px);
-        let mut seen = Vec::new();
+        let mut seen = HashSet::new();
         let mut hit = None;
         let mut hit_z = 0_usize;
 
@@ -167,10 +171,9 @@ impl GuiProject {
                 };
                 for node_id in candidates.iter().rev() {
                     self.bump_hit_test_scan_count(1);
-                    if Some(*node_id) == disallow_source || seen.contains(node_id) {
+                    if Some(*node_id) == disallow_source || !seen.insert(*node_id) {
                         continue;
                     }
-                    seen.push(*node_id);
                     let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
                         continue;
                     };

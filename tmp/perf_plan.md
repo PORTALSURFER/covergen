@@ -34,7 +34,7 @@ Date: 2026-03-01
     - Confirm lower `scene_ms_p95` and lower `bridge_intersection_tests`-adjacent CPU cost in GUI trace.
   - Completed: 2026-03-01 (commit 743217e)
 
-- [ ] 2. Fix hit-test candidate de-dup complexity (`Vec::contains`) and remove redundant sort passes
+- [x] 2. Fix hit-test candidate de-dup complexity (`Vec::contains`) and remove redundant sort passes
   - ROI: Very High
   - Effort: S
   - Expected impact: p95 interaction latency, CPU, frame time
@@ -55,6 +55,7 @@ Date: 2026-03-01
     - `cargo test gui::interaction` and hit-test focused tests
     - On GPU/display host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Verify reduced `hit_test_scans_p95_max` pressure and lower `update_ms_p95`.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 3. Remove signal-scope cloning and tail-vector churn; render directly from cached slices
   - ROI: Very High
