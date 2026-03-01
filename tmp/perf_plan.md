@@ -77,7 +77,7 @@ Date: 2026-03-01
     - `cargo test gui::scene` signal-scope related tests
     - On GPU/display host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Confirm `signal_scope_eval_ms` and `scene.nodes_ms` p95 improvements.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit a39828f)
 
 - [ ] 4. Replace O(cells * blocked_rects) route-grid blocking with direct rectangle rasterization
   - ROI: Very High
