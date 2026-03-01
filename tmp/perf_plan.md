@@ -32,7 +32,7 @@ Date: 2026-03-01
     - `cargo test gui::scene` (or nearest scene-related tests)
     - On GPU/display host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Confirm lower `scene_ms_p95` and lower `bridge_intersection_tests`-adjacent CPU cost in GUI trace.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit 743217e)
 
 - [ ] 2. Fix hit-test candidate de-dup complexity (`Vec::contains`) and remove redundant sort passes
   - ROI: Very High
