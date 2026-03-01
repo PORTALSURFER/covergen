@@ -118,7 +118,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test gui::scene::wire_route`
     - On GPU/display host: GUI trace compare for dense-graph drag scenarios.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit f380faf)
 
 - [ ] 6. Cache tex-preview execution plans by op-signature and remove hot-path scans
   - ROI: High
