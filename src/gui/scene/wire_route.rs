@@ -521,13 +521,32 @@ impl SearchGrid {
             return None;
         }
         let mut blocked = vec![false; len];
-        for y in 0..rows {
-            for x in 0..cols {
-                let index = (y * cols + x) as usize;
-                let point = (min_x + x * GRID_PITCH_PX, min_y + y * GRID_PITCH_PX);
-                blocked[index] = blocked_rects
-                    .iter()
-                    .any(|rect| rect.contains(point.0, point.1));
+        for rect in blocked_rects {
+            if rect.w <= 0 || rect.h <= 0 {
+                continue;
+            }
+            let rect_max_x_exclusive = rect.x.saturating_add(rect.w);
+            let rect_max_y_exclusive = rect.y.saturating_add(rect.h);
+            let rect_max_x_inclusive = rect_max_x_exclusive.saturating_sub(1);
+            let rect_max_y_inclusive = rect_max_y_exclusive.saturating_sub(1);
+            let min_col = ceil_div(rect.x.saturating_sub(min_x), GRID_PITCH_PX).clamp(0, cols - 1);
+            let max_col = rect_max_x_inclusive
+                .saturating_sub(min_x)
+                .div_euclid(GRID_PITCH_PX)
+                .clamp(0, cols - 1);
+            let min_row = ceil_div(rect.y.saturating_sub(min_y), GRID_PITCH_PX).clamp(0, rows - 1);
+            let max_row = rect_max_y_inclusive
+                .saturating_sub(min_y)
+                .div_euclid(GRID_PITCH_PX)
+                .clamp(0, rows - 1);
+            if min_col > max_col || min_row > max_row {
+                continue;
+            }
+            for y in min_row..=max_row {
+                let row_offset = (y * cols) as usize;
+                for x in min_col..=max_col {
+                    blocked[row_offset + x as usize] = true;
+                }
             }
         }
         Some(Self {
@@ -694,6 +713,15 @@ impl SearchGrid {
         let x = (index % cols) as i32;
         let y = (index / cols) as i32;
         Cell { x, y }
+    }
+}
+
+fn ceil_div(value: i32, divisor: i32) -> i32 {
+    let base = value.div_euclid(divisor);
+    if value.rem_euclid(divisor) == 0 {
+        base
+    } else {
+        base.saturating_add(1)
     }
 }
 

@@ -79,7 +79,7 @@ Date: 2026-03-01
     - Confirm `signal_scope_eval_ms` and `scene.nodes_ms` p95 improvements.
   - Completed: 2026-03-01 (commit a39828f)
 
-- [ ] 4. Replace O(cells * blocked_rects) route-grid blocking with direct rectangle rasterization
+- [x] 4. Replace O(cells * blocked_rects) route-grid blocking with direct rectangle rasterization
   - ROI: Very High
   - Effort: M
   - Expected impact: frame time (wire rebuild), CPU
@@ -98,6 +98,7 @@ Date: 2026-03-01
     - `cargo test gui::scene::wire_route`
     - On GPU/display host: `scripts/gui/tier_gate.sh validate desktop_mid`
     - Compare `scene.edges_ms` and `bridge_intersection_tests` trends in traces.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 5. Reuse A* pathfinding workspaces across route queries (best-cost/parent/open-set buffers)
   - ROI: High
