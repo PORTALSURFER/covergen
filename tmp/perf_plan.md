@@ -219,7 +219,7 @@ Date: 2026-03-01
   - Validation plan:
     - Add A/B quality regression checks over fixed seeds.
     - Measure exploration runtime reduction under high candidate counts.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit 85b68a5)
 
 - [ ] 11. Replace placeholder tier thresholds with locked real-hardware baselines
   - ROI: Low
