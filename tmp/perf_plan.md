@@ -98,7 +98,7 @@ Date: 2026-03-01
     - `cargo test gui::scene::wire_route`
     - On GPU/display host: `scripts/gui/tier_gate.sh validate desktop_mid`
     - Compare `scene.edges_ms` and `bridge_intersection_tests` trends in traces.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit eae3820)
 
 - [ ] 5. Reuse A* pathfinding workspaces across route queries (best-cost/parent/open-set buffers)
   - ROI: High
