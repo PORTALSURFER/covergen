@@ -2,6 +2,7 @@
 
 use crate::gui::geometry::Rect;
 use crate::gui::tex_view::{TexViewerFrame, TexViewerOp, TexViewerPayload};
+use std::collections::HashMap;
 
 use super::super::viewer;
 use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
@@ -20,20 +21,11 @@ const TRANSPARENT_BG: wgpu::Color = wgpu::Color {
 
 const TEX_OP_UNIFORM_SIZE: usize = std::mem::size_of::<TexOpUniform>();
 
-/// Planned data used by staged tex-op dispatch.
-#[derive(Debug)]
-struct PlannedGpuDispatch {
-    steps: Vec<PlannedStep>,
-    render_ops: Vec<PlannedRenderOp>,
-    upload_bytes: u64,
-}
-
 /// Deferred history write request for feedback nodes that bind external
 /// accumulation textures.
 #[derive(Clone, Copy, Debug)]
 struct PendingExternalFeedbackWrite {
     history_key: FeedbackHistoryKey,
-    texture_node_id: u32,
     fallback_source_target: RenderTargetRef,
 }
 
@@ -43,7 +35,7 @@ struct GpuDispatchState {
     source_target: Option<RenderTargetRef>,
     scratch_flip: bool,
     rendered_count: usize,
-    pending_external_feedback_writes: Vec<PendingExternalFeedbackWrite>,
+    pending_external_feedback_writes: HashMap<u32, Vec<PendingExternalFeedbackWrite>>,
 }
 
 /// Render-pass inputs resolved during target preparation.
@@ -161,7 +153,9 @@ impl TexPreviewRenderer {
         width: u32,
         height: u32,
     ) -> Option<u64> {
-        let planned = self.plan_gpu_dispatch(device, queue, ops, width, height)?;
+        let upload_bytes = self.plan_gpu_dispatch(device, queue, ops, width, height)?;
+        let planned_steps = std::mem::take(&mut self.cached_plan_steps);
+        let planned_render_ops = std::mem::take(&mut self.cached_plan_render_ops);
         let mut dispatch = DispatchContext {
             device,
             encoder,
@@ -169,14 +163,16 @@ impl TexPreviewRenderer {
             height,
         };
         let mut state = GpuDispatchState::default();
-        for step in planned.steps.iter().copied() {
+        for step in planned_steps.iter().copied() {
             self.dispatch_planned_step(
                 &mut dispatch,
                 step,
-                planned.render_ops.as_slice(),
+                planned_render_ops.as_slice(),
                 &mut state,
             )?;
         }
+        self.cached_plan_steps = planned_steps;
+        self.cached_plan_render_ops = planned_render_ops;
         self.flush_pending_external_feedback_writes(
             dispatch.encoder,
             &mut state,
@@ -189,7 +185,7 @@ impl TexPreviewRenderer {
             dispatch.width,
             dispatch.height,
         )?;
-        Some(planned.upload_bytes)
+        Some(upload_bytes)
     }
 
     /// Build a render plan and allocate resources needed for this frame.
@@ -200,26 +196,35 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
-    ) -> Option<PlannedGpuDispatch> {
+    ) -> Option<u64> {
         self.blend_source_aliases.clear();
-        let mut steps = Vec::new();
-        let mut render_ops = Vec::new();
-        build_execution_plan(ops, &mut steps, &mut render_ops);
-        if render_ops.is_empty() {
+        self.blend_alias_count_scratch_a = 0;
+        self.blend_alias_count_scratch_b = 0;
+        if self.cached_plan_ops.as_slice() != ops {
+            self.cached_plan_ops.clear();
+            self.cached_plan_ops.extend_from_slice(ops);
+            self.cached_plan_steps.clear();
+            self.cached_plan_render_ops.clear();
+            build_execution_plan(
+                ops,
+                &mut self.cached_plan_steps,
+                &mut self.cached_plan_render_ops,
+            );
+        }
+        if self.cached_plan_render_ops.is_empty() {
             return None;
         }
         self.ensure_op_pipelines(device);
         self.ensure_dummy_bind_group(device);
-        self.ensure_op_uniform_capacity(device, render_ops.len());
+        let render_op_count = self.cached_plan_render_ops.len();
+        self.ensure_op_uniform_capacity(device, render_op_count);
+        let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
         let upload_bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
-        if render_ops.len() > 1 {
+        self.cached_plan_render_ops = render_ops;
+        if render_op_count > 1 {
             self.ensure_scratch_textures(device, width, height);
         }
-        Some(PlannedGpuDispatch {
-            steps,
-            render_ops,
-            upload_bytes,
-        })
+        Some(upload_bytes)
     }
 
     /// Apply one planned step, including store-texture aliases and render passes.
@@ -261,9 +266,10 @@ impl TexPreviewRenderer {
                 {
                     state
                         .pending_external_feedback_writes
+                        .entry(texture_node_id)
+                        .or_default()
                         .push(PendingExternalFeedbackWrite {
                             history_key,
-                            texture_node_id,
                             fallback_source_target: source_target,
                         });
                 } else {
@@ -628,14 +634,13 @@ impl TexPreviewRenderer {
         width: u32,
         height: u32,
     ) -> Option<()> {
-        let mut index = 0usize;
-        while index < state.pending_external_feedback_writes.len() {
-            let pending = state.pending_external_feedback_writes[index];
-            if pending.texture_node_id != texture_node_id {
-                index = index.saturating_add(1);
-                continue;
-            }
-            let pending = state.pending_external_feedback_writes.swap_remove(index);
+        let Some(pending_writes) = state
+            .pending_external_feedback_writes
+            .remove(&texture_node_id)
+        else {
+            return Some(());
+        };
+        for pending in pending_writes {
             let history_write_target = self.feedback_history_write_target(pending.history_key)?;
             self.copy_target_to_target(encoder, source_target, history_write_target, width, height);
             self.swap_feedback_history(pending.history_key)?;
@@ -650,16 +655,23 @@ impl TexPreviewRenderer {
         width: u32,
         height: u32,
     ) -> Option<()> {
-        for pending in state.pending_external_feedback_writes.drain(..) {
-            let history_write_target = self.feedback_history_write_target(pending.history_key)?;
-            self.copy_target_to_target(
-                encoder,
-                pending.fallback_source_target,
-                history_write_target,
-                width,
-                height,
-            );
-            self.swap_feedback_history(pending.history_key)?;
+        for pending_writes in state
+            .pending_external_feedback_writes
+            .drain()
+            .map(|(_, writes)| writes)
+        {
+            for pending in pending_writes {
+                let history_write_target =
+                    self.feedback_history_write_target(pending.history_key)?;
+                self.copy_target_to_target(
+                    encoder,
+                    pending.fallback_source_target,
+                    history_write_target,
+                    width,
+                    height,
+                );
+                self.swap_feedback_history(pending.history_key)?;
+            }
         }
         Some(())
     }
@@ -686,14 +698,22 @@ impl TexPreviewRenderer {
     }
 
     fn has_blend_alias_target(&self, target: RenderTargetRef) -> bool {
-        self.blend_source_aliases
-            .values()
-            .copied()
-            .any(|alias| alias == target)
+        match target {
+            RenderTargetRef::ScratchA => self.blend_alias_count_scratch_a > 0,
+            RenderTargetRef::ScratchB => self.blend_alias_count_scratch_b > 0,
+            _ => self
+                .blend_source_aliases
+                .values()
+                .copied()
+                .any(|alias| alias == target),
+        }
     }
 
     fn bind_blend_source_alias(&mut self, texture_node_id: u32, target: RenderTargetRef) {
-        self.blend_source_aliases.insert(texture_node_id, target);
+        if let Some(previous) = self.blend_source_aliases.insert(texture_node_id, target) {
+            self.decrement_blend_alias_target_count(previous);
+        }
+        self.increment_blend_alias_target_count(target);
     }
 
     fn materialize_blend_source_aliases_for_target(
@@ -704,17 +724,49 @@ impl TexPreviewRenderer {
         width: u32,
         height: u32,
     ) {
-        let materialize = self
-            .blend_source_aliases
-            .iter()
-            .filter_map(|(&texture_node_id, &alias_target)| {
-                (alias_target == target).then_some(texture_node_id)
-            })
-            .collect::<Vec<_>>();
-        for texture_node_id in materialize {
+        let mut materialize = std::mem::take(&mut self.blend_alias_materialize_scratch);
+        materialize.clear();
+        for (&texture_node_id, &alias_target) in self.blend_source_aliases.iter() {
+            if alias_target == target {
+                materialize.push(texture_node_id);
+            }
+        }
+        for texture_node_id in materialize.iter().copied() {
             self.ensure_blend_source_slot(device, encoder, texture_node_id, width, height);
             self.copy_target_to_blend_source(encoder, target, texture_node_id, width, height);
-            self.blend_source_aliases.remove(&texture_node_id);
+            if let Some(alias_target) = self.blend_source_aliases.remove(&texture_node_id) {
+                self.decrement_blend_alias_target_count(alias_target);
+            }
+        }
+        materialize.clear();
+        self.blend_alias_materialize_scratch = materialize;
+    }
+
+    fn increment_blend_alias_target_count(&mut self, target: RenderTargetRef) {
+        match target {
+            RenderTargetRef::ScratchA => {
+                self.blend_alias_count_scratch_a =
+                    self.blend_alias_count_scratch_a.saturating_add(1);
+            }
+            RenderTargetRef::ScratchB => {
+                self.blend_alias_count_scratch_b =
+                    self.blend_alias_count_scratch_b.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn decrement_blend_alias_target_count(&mut self, target: RenderTargetRef) {
+        match target {
+            RenderTargetRef::ScratchA => {
+                self.blend_alias_count_scratch_a =
+                    self.blend_alias_count_scratch_a.saturating_sub(1);
+            }
+            RenderTargetRef::ScratchB => {
+                self.blend_alias_count_scratch_b =
+                    self.blend_alias_count_scratch_b.saturating_sub(1);
+            }
+            _ => {}
         }
     }
 

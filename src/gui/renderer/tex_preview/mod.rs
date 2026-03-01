@@ -329,6 +329,9 @@ pub(super) struct TexPreviewRenderer {
     op_uniform_stride: u64,
     op_uniform_capacity: usize,
     op_uniform_staging: Vec<u8>,
+    cached_plan_ops: Vec<TexViewerOp>,
+    cached_plan_steps: Vec<execution_plan::PlannedStep>,
+    cached_plan_render_ops: Vec<execution_plan::PlannedRenderOp>,
     op_solid_pipeline: Option<wgpu::RenderPipeline>,
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
@@ -353,6 +356,9 @@ pub(super) struct TexPreviewRenderer {
     feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
     blend_source_slots: HashMap<u32, CachedTextureSlot>,
     blend_source_aliases: HashMap<u32, RenderTargetRef>,
+    blend_alias_count_scratch_a: usize,
+    blend_alias_count_scratch_b: usize,
+    blend_alias_materialize_scratch: Vec<u32>,
     op_pass_timestamps: OptionalGpuTimestampQueries,
 }
 
@@ -619,6 +625,9 @@ impl TexPreviewRenderer {
             op_uniform_stride,
             op_uniform_capacity: 1,
             op_uniform_staging: Vec::new(),
+            cached_plan_ops: Vec::new(),
+            cached_plan_steps: Vec::new(),
+            cached_plan_render_ops: Vec::new(),
             op_solid_pipeline: None,
             op_circle_pipeline: None,
             op_sphere_pipeline: None,
@@ -641,6 +650,9 @@ impl TexPreviewRenderer {
             feedback_history: HashMap::new(),
             blend_source_slots: HashMap::new(),
             blend_source_aliases: HashMap::new(),
+            blend_alias_count_scratch_a: 0,
+            blend_alias_count_scratch_b: 0,
+            blend_alias_materialize_scratch: Vec::new(),
             op_pass_timestamps,
         }
     }

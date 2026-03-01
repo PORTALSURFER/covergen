@@ -120,7 +120,7 @@ Date: 2026-03-01
     - On GPU/display host: GUI trace compare for dense-graph drag scenarios.
   - Completed: 2026-03-01 (commit f380faf)
 
-- [ ] 6. Cache tex-preview execution plans by op-signature and remove hot-path scans
+- [x] 6. Cache tex-preview execution plans by op-signature and remove hot-path scans
   - ROI: High
   - Effort: M
   - Expected impact: frame time, CPU, memory churn
@@ -140,6 +140,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test gui::renderer::tex_preview`
     - On GPU/display host: GUI trace `render_ms_p95` and upload stability checks.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 7. Add retained wire-geometry partitions with scoped invalidation (architectural)
   - ROI: High
