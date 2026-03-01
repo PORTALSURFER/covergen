@@ -241,3 +241,4 @@ Date: 2026-03-01
     - `scripts/ci_local.sh lock laptop_integrated`
     - `scripts/ci_local.sh validate desktop_mid`
     - `scripts/ci_local.sh validate laptop_integrated`
+  - Blocked: 2026-03-01 on current host (software adapter only). `scripts/bench/tier_gate.sh lock laptop_integrated` fails with hardware-GPU requirement.
