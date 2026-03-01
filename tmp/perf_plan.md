@@ -161,7 +161,7 @@ Date: 2026-03-01
   - Validation plan:
     - Add regression tests for route determinism and dirty-region correctness.
     - On GPU/display host: benchmark drag scenario and verify `scene.edges_ms` p95 reduction without visual regressions.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit ee7ef1c)
 
 - [ ] 8. Share GPU adapter/device context between full-res and low-res selection renderers (startup + responsiveness)
   - ROI: High
