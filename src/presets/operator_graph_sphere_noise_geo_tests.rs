@@ -29,6 +29,7 @@ fn config(seed: u32) -> V2Config {
         selection: crate::runtime_config::SelectionConfig {
             explore_candidates: 0,
             explore_size: 320,
+            novelty_window: 0,
         },
         gui: crate::runtime_config::GuiConfig::default(),
     }

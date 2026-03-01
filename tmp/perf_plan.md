@@ -202,7 +202,7 @@ Date: 2026-03-01
     - Confirm telemetry content parity and lower measurement overhead in benchmark mode.
   - Completed: 2026-03-01 (commit e7b3a3a)
 
-- [ ] 10. Bound novelty-score complexity in candidate exploration (keep quality-preserving fallback)
+- [x] 10. Bound novelty-score complexity in candidate exploration (keep quality-preserving fallback)
   - ROI: Medium
   - Effort: M
   - Expected impact: CPU, still-render throughput latency
@@ -219,6 +219,7 @@ Date: 2026-03-01
   - Validation plan:
     - Add A/B quality regression checks over fixed seeds.
     - Measure exploration runtime reduction under high candidate counts.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 11. Replace placeholder tier thresholds with locked real-hardware baselines
   - ROI: Low

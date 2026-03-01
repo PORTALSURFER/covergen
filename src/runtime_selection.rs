@@ -144,6 +144,7 @@ pub(crate) async fn execute_still_with_selection(
     let temporal_probe = &mut low_res_resources.temporal_probe;
 
     let candidate_count = config.selection.explore_candidates.max(config.count);
+    let novelty_window = config.selection.novelty_window as usize;
     let mut scored = Vec::with_capacity(candidate_count as usize);
     let mut prior_histograms = Vec::with_capacity(candidate_count as usize);
     let stability_time = apply_motion_temporal_constraints(
@@ -173,12 +174,18 @@ pub(crate) async fn execute_still_with_selection(
         finalize_luma_for_output(low_res_config, low_res_renderer, low_res_buffers)?;
         temporal_probe.copy_from_slice(&low_res_buffers.output_gray);
 
+        let novelty_history = if novelty_window == 0 {
+            prior_histograms.as_slice()
+        } else {
+            let start = prior_histograms.len().saturating_sub(novelty_window);
+            &prior_histograms[start..]
+        };
         let breakdown = score_candidate(
             primary_probe,
             temporal_probe,
             low_res_config.width,
             low_res_config.height,
-            &prior_histograms,
+            novelty_history,
         );
         prior_histograms.push(breakdown.histogram);
         scored.push(CandidateScore {

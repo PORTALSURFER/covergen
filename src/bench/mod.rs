@@ -287,6 +287,7 @@ fn v2_base_config(config: &BenchConfig, output: String) -> V2Config {
         selection: SelectionConfig {
             explore_candidates: 0,
             explore_size: 320,
+            novelty_window: 0,
         },
         gui: crate::runtime_config::GuiConfig::default(),
     }

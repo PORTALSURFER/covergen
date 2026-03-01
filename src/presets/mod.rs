@@ -12,12 +12,6 @@ mod grammar;
 mod graph_art_direction;
 mod module_invocation;
 pub mod node_catalog;
-pub mod preset_catalog;
-mod primitives;
-pub mod subgraph_catalog;
-#[cfg(test)]
-mod subgraph_catalog_tests;
-mod subgraph_motifs;
 mod operator_graph;
 mod operator_graph_cascade;
 #[cfg(test)]
@@ -52,6 +46,12 @@ mod operator_graph_sphere_noise_geo_tests;
 mod operator_graph_stage_primitives;
 #[cfg(test)]
 mod operator_graph_tests;
+pub mod preset_catalog;
+mod primitives;
+pub mod subgraph_catalog;
+#[cfg(test)]
+mod subgraph_catalog_tests;
+mod subgraph_motifs;
 
 use node_catalog::NodeCatalog;
 use preset_catalog::PresetCatalog;
@@ -114,6 +114,7 @@ mod tests {
             selection: crate::runtime_config::SelectionConfig {
                 explore_candidates: 0,
                 explore_size: 320,
+                novelty_window: 0,
             },
             gui: crate::runtime_config::GuiConfig::default(),
         }

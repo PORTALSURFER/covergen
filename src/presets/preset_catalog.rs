@@ -11,7 +11,6 @@ use crate::runtime_config::V2Config;
 use super::families;
 use super::grammar;
 use super::node_catalog::NodeCatalog;
-use super::subgraph_catalog::SubgraphCatalog;
 use super::operator_graph;
 use super::operator_graph_cascade;
 use super::operator_graph_feedback_atlas;
@@ -23,6 +22,7 @@ use super::operator_graph_patchwork;
 use super::operator_graph_router;
 use super::operator_graph_signal_lab;
 use super::operator_graph_sphere_noise_geo;
+use super::subgraph_catalog::SubgraphCatalog;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -240,6 +240,7 @@ mod tests {
             selection: crate::runtime_config::SelectionConfig {
                 explore_candidates: 0,
                 explore_size: 320,
+                novelty_window: 0,
             },
             gui: crate::runtime_config::GuiConfig::default(),
         }

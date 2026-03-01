@@ -72,6 +72,9 @@ pub struct SelectionConfig {
     pub explore_candidates: u32,
     /// Maximum dimension used for low-resolution candidate scoring renders.
     pub explore_size: u32,
+    /// Optional bounded novelty comparison window. `0` keeps full-history novelty scoring.
+    #[serde(default)]
+    pub novelty_window: u32,
 }
 
 impl SelectionConfig {
@@ -138,6 +141,9 @@ pub struct V2Args {
     /// Maximum low-res candidate dimension used by the exploration pass.
     #[arg(long, default_value_t = 320)]
     explore_size: u32,
+    /// Limit novelty comparisons to the N most recent candidates (`0` = full history).
+    #[arg(long, default_value_t = 0)]
+    explore_novelty_window: u32,
     /// Write a reproducibility manifest JSON containing graph + runtime config.
     #[arg(long)]
     manifest_out: Option<String>,
@@ -272,6 +278,7 @@ impl V2Config {
             selection: SelectionConfig {
                 explore_candidates: args.explore_candidates,
                 explore_size: args.explore_size,
+                novelty_window: args.explore_novelty_window,
             },
             gui: GuiConfig {
                 target_fps: args.gui_target_fps,
@@ -320,6 +327,7 @@ impl V2Config {
             selection: SelectionConfig {
                 explore_candidates: 0,
                 explore_size: self.selection.explore_size,
+                novelty_window: self.selection.novelty_window,
             },
             gui: self.gui.clone(),
         })
