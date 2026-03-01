@@ -200,7 +200,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test telemetry`
     - Confirm telemetry content parity and lower measurement overhead in benchmark mode.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit e7b3a3a)
 
 - [ ] 10. Bound novelty-score complexity in candidate exploration (keep quality-preserving fallback)
   - ROI: Medium
