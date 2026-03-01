@@ -182,7 +182,7 @@ Date: 2026-03-01
     - On GPU host: compare first-run still-selection startup timings and `v2.selection.low_res_resources.acquire` telemetry.
   - Completed: 2026-03-01 (commit a2c12c8)
 
-- [ ] 9. Reduce telemetry capture lock contention with per-thread staging buffers
+- [x] 9. Reduce telemetry capture lock contention with per-thread staging buffers
   - ROI: Medium
   - Effort: M
   - Expected impact: frame time stability, CPU
@@ -200,6 +200,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test telemetry`
     - Confirm telemetry content parity and lower measurement overhead in benchmark mode.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 10. Bound novelty-score complexity in candidate exploration (keep quality-preserving fallback)
   - ROI: Medium

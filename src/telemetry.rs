@@ -4,6 +4,7 @@
 //! start collecting timings, frame samples, and memory snapshots, then
 //! `end_capture` to retrieve one immutable report.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -68,6 +69,45 @@ struct TelemetryState {
     active: HashMap<thread::ThreadId, CaptureReport>,
 }
 
+const LOCAL_CAPTURE_FLUSH_THRESHOLD: usize = 256;
+
+#[derive(Default)]
+struct ThreadLocalCaptureBuffer {
+    timings: Vec<TimingSample>,
+    frames: Vec<FrameSample>,
+    memory: Vec<MemorySample>,
+    counters: Vec<CounterSample>,
+}
+
+impl ThreadLocalCaptureBuffer {
+    fn sample_count(&self) -> usize {
+        self.timings
+            .len()
+            .saturating_add(self.frames.len())
+            .saturating_add(self.memory.len())
+            .saturating_add(self.counters.len())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.timings.is_empty()
+            && self.frames.is_empty()
+            && self.memory.is_empty()
+            && self.counters.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.timings.clear();
+        self.frames.clear();
+        self.memory.clear();
+        self.counters.clear();
+    }
+}
+
+thread_local! {
+    static LOCAL_CAPTURE_BUFFER: RefCell<ThreadLocalCaptureBuffer> =
+        RefCell::new(ThreadLocalCaptureBuffer::default());
+}
+
 fn telemetry_state() -> &'static Mutex<TelemetryState> {
     static STATE: OnceLock<Mutex<TelemetryState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(TelemetryState::default()))
@@ -90,8 +130,46 @@ fn with_state_mut<R>(f: impl FnOnce(&mut TelemetryState) -> R) -> R {
     f(&mut guard)
 }
 
+fn with_local_capture_buffer_mut<R>(f: impl FnOnce(&mut ThreadLocalCaptureBuffer) -> R) -> R {
+    LOCAL_CAPTURE_BUFFER.with(|buffer| {
+        let mut borrow = buffer.borrow_mut();
+        f(&mut borrow)
+    })
+}
+
+fn push_local_capture_sample(f: impl FnOnce(&mut ThreadLocalCaptureBuffer)) {
+    let should_flush = with_local_capture_buffer_mut(|buffer| {
+        f(buffer);
+        buffer.sample_count() >= LOCAL_CAPTURE_FLUSH_THRESHOLD
+    });
+    if should_flush {
+        flush_current_thread_capture_buffer();
+    }
+}
+
+fn flush_current_thread_capture_buffer() {
+    let pending = LOCAL_CAPTURE_BUFFER.with(|buffer| {
+        let mut borrow = buffer.borrow_mut();
+        std::mem::take(&mut *borrow)
+    });
+    if pending.is_empty() {
+        return;
+    }
+    let thread_id = thread::current().id();
+    with_state_mut(|state| {
+        let Some(active) = state.active.get_mut(&thread_id) else {
+            return;
+        };
+        active.timings.extend(pending.timings);
+        active.frames.extend(pending.frames);
+        active.memory.extend(pending.memory);
+        active.counters.extend(pending.counters);
+    });
+}
+
 /// Begin a fresh telemetry capture session and replace any prior active session.
 pub(crate) fn begin_capture(run_label: impl Into<String>) {
+    with_local_capture_buffer_mut(ThreadLocalCaptureBuffer::clear);
     let thread_id = thread::current().id();
     let report = CaptureReport {
         run_label: run_label.into(),
@@ -105,6 +183,7 @@ pub(crate) fn begin_capture(run_label: impl Into<String>) {
 
 /// End the current telemetry capture session and return the captured report.
 pub(crate) fn end_capture() -> Option<CaptureReport> {
+    flush_current_thread_capture_buffer();
     let thread_id = thread::current().id();
     let (report, has_remaining_active) = with_state_mut(|state| {
         let report = state.active.remove(&thread_id);
@@ -130,12 +209,9 @@ pub(crate) fn record_timing_ms(scope: impl Into<String>, ms: f64) {
     if !ms.is_finite() {
         return;
     }
-    let thread_id = thread::current().id();
     let scope = scope.into();
-    with_state_mut(|state| {
-        if let Some(active) = state.active.get_mut(&thread_id) {
-            active.timings.push(TimingSample { scope, ms });
-        }
+    push_local_capture_sample(|buffer| {
+        buffer.timings.push(TimingSample { scope, ms });
     });
 }
 
@@ -148,12 +224,9 @@ pub(crate) fn record_frame(scope: impl Into<String>, elapsed: Duration) {
     if !ms.is_finite() {
         return;
     }
-    let thread_id = thread::current().id();
     let scope = scope.into();
-    with_state_mut(|state| {
-        if let Some(active) = state.active.get_mut(&thread_id) {
-            active.frames.push(FrameSample { scope, ms });
-        }
+    push_local_capture_sample(|buffer| {
+        buffer.frames.push(FrameSample { scope, ms });
     });
 }
 
@@ -165,16 +238,13 @@ pub(crate) fn snapshot_memory(label: impl Into<String>) {
     let Some((rss_bytes, hwm_bytes)) = read_memory_bytes() else {
         return;
     };
-    let thread_id = thread::current().id();
     let label = label.into();
-    with_state_mut(|state| {
-        if let Some(active) = state.active.get_mut(&thread_id) {
-            active.memory.push(MemorySample {
-                label,
-                rss_bytes,
-                hwm_bytes,
-            });
-        }
+    push_local_capture_sample(|buffer| {
+        buffer.memory.push(MemorySample {
+            label,
+            rss_bytes,
+            hwm_bytes,
+        });
     });
 }
 
@@ -186,12 +256,9 @@ pub(crate) fn record_counter(scope: impl Into<String>, value: f64) {
     if !value.is_finite() {
         return;
     }
-    let thread_id = thread::current().id();
     let scope = scope.into();
-    with_state_mut(|state| {
-        if let Some(active) = state.active.get_mut(&thread_id) {
-            active.counters.push(CounterSample { scope, value });
-        }
+    push_local_capture_sample(|buffer| {
+        buffer.counters.push(CounterSample { scope, value });
     });
 }
 
