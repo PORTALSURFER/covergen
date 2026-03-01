@@ -2,7 +2,8 @@
 //!
 //! The builder partitions GUI geometry into retained layers and marks only
 //! changed layers dirty each update (`static_panel`, `edges`, `nodes`,
-//! `overlays`). Rendering stays on GPU and unchanged layers are reused.
+//! `param_wires`, `overlays`). Rendering stays on GPU and unchanged layers are
+//! reused.
 
 pub(super) mod wire_route;
 
@@ -173,6 +174,7 @@ pub(crate) struct SceneFrame {
     pub(crate) static_panel: SceneLayer,
     pub(crate) edges: SceneLayer,
     pub(crate) nodes: SceneLayer,
+    pub(crate) param_wires: SceneLayer,
     pub(crate) overlays: SceneLayer,
     pub(crate) timeline: SceneLayer,
     pub(crate) dirty: SceneLayerDirty,
@@ -201,6 +203,7 @@ pub(crate) struct SceneLayerDirty {
     pub(crate) static_panel: bool,
     pub(crate) edges: bool,
     pub(crate) nodes: bool,
+    pub(crate) param_wires: bool,
     pub(crate) overlays: bool,
     pub(crate) timeline: bool,
 }
@@ -208,7 +211,12 @@ pub(crate) struct SceneLayerDirty {
 impl SceneLayerDirty {
     /// Return true when any retained layer needs a GPU buffer update.
     pub(crate) fn any(self) -> bool {
-        self.static_panel || self.edges || self.nodes || self.overlays || self.timeline
+        self.static_panel
+            || self.edges
+            || self.nodes
+            || self.param_wires
+            || self.overlays
+            || self.timeline
     }
 }
 
@@ -218,6 +226,7 @@ enum ActiveLayer {
     Edges,
     #[default]
     Nodes,
+    ParamWires,
     Overlays,
     Timeline,
 }
@@ -332,6 +341,8 @@ pub(crate) struct SceneBuilder {
     cached_static_key: Option<(usize, usize, usize)>,
     cached_nodes_epoch: Option<u64>,
     cached_edges_epoch: Option<u64>,
+    cached_param_wires_epoch: Option<u64>,
+    cached_param_wires_overlay_epoch: Option<u64>,
     cached_overlays_epoch: Option<u64>,
     cached_timeline_epoch: Option<u64>,
     edge_route_cache_epoch: Option<u64>,
@@ -392,6 +403,8 @@ impl SceneBuilder {
             // Force one post-drop recompute pass so cached wire routes refresh even
             // when epoch invalidation was suppressed during drag freeze.
             self.cached_edges_epoch = None;
+            self.cached_param_wires_epoch = None;
+            self.cached_param_wires_overlay_epoch = None;
             self.cached_overlays_epoch = None;
             self.edge_route_cache_epoch = None;
             self.param_route_cache_epoch = None;
@@ -418,13 +431,29 @@ impl SceneBuilder {
             self.frame.edges_ms = start.elapsed().as_secs_f64() * 1000.0;
         }
 
+        let param_wires_epoch = state.invalidation.wires;
+        let param_wires_overlay_epoch = state.link_cut.map(|_| state.invalidation.overlays);
+        let freeze_param_wires_for_drag =
+            state.drag.is_some() && self.cached_param_wires_epoch.is_some();
+        if !freeze_param_wires_for_drag
+            && (self.cached_param_wires_epoch != Some(param_wires_epoch)
+                || self.cached_param_wires_overlay_epoch != param_wires_overlay_epoch)
+        {
+            self.cached_param_wires_epoch = Some(param_wires_epoch);
+            self.cached_param_wires_overlay_epoch = param_wires_overlay_epoch;
+            self.frame.dirty.param_wires = true;
+            let start = Instant::now();
+            self.rebuild_param_wires_layer(project, state);
+            self.frame.overlays_ms += start.elapsed().as_secs_f64() * 1000.0;
+        }
+
         let overlays_epoch = state.invalidation.overlays;
         if self.cached_overlays_epoch != Some(overlays_epoch) {
             self.cached_overlays_epoch = Some(overlays_epoch);
             self.frame.dirty.overlays = true;
             let start = Instant::now();
             self.rebuild_overlays_layer(project, state, panel_width, height);
-            self.frame.overlays_ms = start.elapsed().as_secs_f64() * 1000.0;
+            self.frame.overlays_ms += start.elapsed().as_secs_f64() * 1000.0;
         }
 
         let timeline_epoch = state.invalidation.timeline;
@@ -490,6 +519,15 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Edges));
     }
 
+    fn rebuild_param_wires_layer(&mut self, project: &GuiProject, state: &PreviewState) {
+        let before = self.layer_capacity(ActiveLayer::ParamWires);
+        self.set_active_layer(ActiveLayer::ParamWires);
+        self.set_active_space(CoordSpace::Graph);
+        self.clear_active_layer();
+        self.push_param_links(project, state);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::ParamWires));
+    }
+
     fn rebuild_overlays_layer(
         &mut self,
         project: &GuiProject,
@@ -501,7 +539,6 @@ impl SceneBuilder {
         self.set_active_layer(ActiveLayer::Overlays);
         self.set_active_space(CoordSpace::Graph);
         self.clear_active_layer();
-        self.push_param_links(project, state);
         self.push_param_dropdown(project, state);
         self.set_active_space(CoordSpace::Screen);
         self.push_wire_drag(project, state);
@@ -2317,6 +2354,7 @@ impl SceneBuilder {
             ActiveLayer::StaticPanel => &self.frame.static_panel,
             ActiveLayer::Edges => &self.frame.edges,
             ActiveLayer::Nodes => &self.frame.nodes,
+            ActiveLayer::ParamWires => &self.frame.param_wires,
             ActiveLayer::Overlays => &self.frame.overlays,
             ActiveLayer::Timeline => &self.frame.timeline,
         };
@@ -2406,6 +2444,7 @@ fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut Sc
         ActiveLayer::StaticPanel => &mut frame.static_panel,
         ActiveLayer::Edges => &mut frame.edges,
         ActiveLayer::Nodes => &mut frame.nodes,
+        ActiveLayer::ParamWires => &mut frame.param_wires,
         ActiveLayer::Overlays => &mut frame.overlays,
         ActiveLayer::Timeline => &mut frame.timeline,
     }
@@ -3261,8 +3300,8 @@ mod tests {
         state.drag = None;
         let frame = scene.build(&project, &state, 640, 480, 640, 60);
         assert!(
-            frame.dirty.overlays,
-            "drop should force one overlay refresh so parameter routes update"
+            frame.dirty.param_wires,
+            "drop should force one parameter-wire refresh so parameter routes update"
         );
         let release_route = scene
             .param_route_cache

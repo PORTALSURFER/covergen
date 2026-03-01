@@ -142,7 +142,7 @@ Date: 2026-03-01
     - On GPU/display host: GUI trace `render_ms_p95` and upload stability checks.
   - Completed: 2026-03-01 (commit fd59670)
 
-- [ ] 7. Add retained wire-geometry partitions with scoped invalidation (architectural)
+- [x] 7. Add retained wire-geometry partitions with scoped invalidation (architectural)
   - ROI: High
   - Effort: L
   - Expected impact: p95 interaction latency, frame time, CPU
@@ -161,6 +161,7 @@ Date: 2026-03-01
   - Validation plan:
     - Add regression tests for route determinism and dirty-region correctness.
     - On GPU/display host: benchmark drag scenario and verify `scene.edges_ms` p95 reduction without visual regressions.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 8. Share GPU adapter/device context between full-res and low-res selection renderers (startup + responsiveness)
   - ROI: High
