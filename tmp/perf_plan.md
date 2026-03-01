@@ -140,7 +140,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test gui::renderer::tex_preview`
     - On GPU/display host: GUI trace `render_ms_p95` and upload stability checks.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit fd59670)
 
 - [ ] 7. Add retained wire-geometry partitions with scoped invalidation (architectural)
   - ROI: High
