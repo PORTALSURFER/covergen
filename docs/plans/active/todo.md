@@ -11,7 +11,7 @@ Status notes (2026-02-27):
 - Mission focus is a Windows-first, GPU-only shader/video playground with node-graph authoring and real-time generative output.
 - Canonical design source is `docs/v2/engine-v1-playground.md`.
 - Architecture is engine-centric and uses `ResourceKind + ExecutionKind + ClockDomain`.
-- UX/capability target is comparable to TouchDesigner-style workflows while maintaining legal separation via original nomenclature and architecture.
+- UX/capability target is comparable to high-end node-graph operator workflows while maintaining legal separation via original nomenclature and architecture.
 - Runtime is always real-time with user-selected target FPS (typically 60 FPS), with headroom required in idle/low-complexity scenes.
 - Baseline perf tier is RTX 2060; target deployment class is high-tier gaming GPUs or better.
 - Export scope is currently H.264 and image sequences via GPU-accelerated workflows.

@@ -18,19 +18,19 @@ Current presets:
 - `mask-atlas`
 - `warp-grid`
 - `random-grammar`
-- `td-primitive-stage`
-- `td-random-network`
-- `td-cascade-lab`
-- `td-feedback-atlas`
-- `td-hyperweave`
-- `td-patchwork`
-- `td-router`
-- `td-signal-lab`
-- `td-orbit-forge`
-- `td-modular-network`
-- `td-multi-stage`
+- `op-primitive-stage`
+- `op-random-network`
+- `op-cascade-lab`
+- `op-feedback-atlas`
+- `op-hyperweave`
+- `op-patchwork`
+- `op-router`
+- `op-signal-lab`
+- `op-orbit-forge`
+- `op-modular-network`
+- `op-multi-stage`
 
-TouchDesigner-focused presets use constrained CHOP/SOP/tex wiring plus
+Operator-graph-focused presets use constrained CHOP/SOP/tex wiring plus
 `SourceNoise`/`Mask` sub-branches so random graphs stay visually varied without
 devolving into unstructured flicker.
 

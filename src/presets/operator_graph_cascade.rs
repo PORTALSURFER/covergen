@@ -1,4 +1,4 @@
-//! TouchDesigner-inspired cascading preset that mixes SOP cameras with tex fractal stages.
+//! operator-graph cascading preset that mixes SOP cameras with tex fractal stages.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
@@ -9,7 +9,7 @@ use super::preset_catalog::PresetContext;
 use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
-use super::touchdesigner_stage_primitives::{
+use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_noise_mask_pair, add_outputs, add_remap, add_sphere, pick,
     pop_optional, pop_random, TextureFx,
 };
@@ -22,7 +22,7 @@ struct ControlLanes {
 }
 
 /// Build a staged graph that cascades SOP camera outputs through texture/fractal operators.
-pub(super) fn build_td_cascade_lab(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+pub(super) fn build_operator_cascade_lab(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x11A9_4FD3);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0xA3E0_5B17);

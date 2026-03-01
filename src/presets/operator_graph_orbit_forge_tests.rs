@@ -1,4 +1,4 @@
-//! Tests for the `td-signal-lab` preset.
+//! Tests for the `op-orbit-forge` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -11,9 +11,9 @@ fn config(seed: u32) -> V2Config {
         seed,
         count: 1,
         output: "test.png".to_string(),
-        layers: 6,
+        layers: 7,
         antialias: 1,
-        preset: "td-signal-lab".to_string(),
+        preset: "op-orbit-forge".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,11 +34,11 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_signal_lab_is_seed_deterministic() {
+fn operator_orbit_forge_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(6451);
+    let cfg = config(1701);
 
     let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
     let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
@@ -46,38 +46,34 @@ fn td_signal_lab_is_seed_deterministic() {
 }
 
 #[test]
-fn td_signal_lab_exposes_sop_top_chop_flow() {
+fn operator_orbit_forge_has_rich_multilane_topology() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(9412);
-
+    let cfg = config(9182);
     let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
         .expect("graph should build");
 
     let mut outputs = 0usize;
     let mut cameras = 0usize;
     let mut lfos = 0usize;
-    let mut circles = 0usize;
-    let mut spheres = 0usize;
     let mut masks = 0usize;
+    let mut blends = 0usize;
 
     for node in &graph.nodes {
         match node.kind {
             NodeKind::Output(_) => outputs += 1,
             NodeKind::TopCameraRender(_) => cameras += 1,
             NodeKind::ChopLfo(_) => lfos += 1,
-            NodeKind::SopCircle(_) => circles += 1,
-            NodeKind::SopSphere(_) => spheres += 1,
             NodeKind::Mask(_) => masks += 1,
+            NodeKind::Blend(_) => blends += 1,
             _ => {}
         }
     }
 
-    assert!(outputs >= 4);
-    assert!(cameras >= 4);
-    assert!(lfos >= 3);
-    assert!(circles >= 3);
-    assert!(spheres >= 3);
-    assert!(masks >= 2);
+    assert!(outputs >= 5);
+    assert!(cameras >= 5);
+    assert!(lfos >= 4);
+    assert!(masks >= 3);
+    assert!(blends >= 3);
 }

@@ -1,4 +1,4 @@
-//! TouchDesigner-style preset: sphere + noise-driven SOP geometry + camera tex.
+//! operator-family preset: sphere + noise-driven SOP geometry + camera tex.
 
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder};
 use crate::model::XorShift32;
@@ -11,7 +11,7 @@ use super::primitives::render_size;
 
 /// Build a graph-native pipeline:
 /// `sop-sphere -> source-noise(channel) -> sop-geometry -> top-camera-render -> output`.
-pub(super) fn build_td_sphere_noise_geo(
+pub(super) fn build_operator_sphere_noise_geo(
     ctx: PresetContext<'_>,
 ) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);

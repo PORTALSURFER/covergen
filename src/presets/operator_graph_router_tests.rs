@@ -1,4 +1,4 @@
-//! Tests for the `td-router` preset.
+//! Tests for the `op-router` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -13,7 +13,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 6,
         antialias: 1,
-        preset: "td-router".to_string(),
+        preset: "op-router".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,7 +34,7 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_router_is_seed_deterministic() {
+fn operator_router_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
@@ -46,7 +46,7 @@ fn td_router_is_seed_deterministic() {
 }
 
 #[test]
-fn td_router_has_lane_taps_and_mixed_ops() {
+fn operator_router_has_lane_taps_and_mixed_ops() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");

@@ -1,4 +1,4 @@
-//! Tests for the `td-hyperweave` preset.
+//! Tests for the `op-modular-network` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -13,7 +13,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 6,
         antialias: 1,
-        preset: "td-hyperweave".to_string(),
+        preset: "op-modular-network".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,11 +34,11 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_hyperweave_is_seed_deterministic() {
+fn operator_modular_network_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(1122);
+    let cfg = config(515);
 
     let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
     let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
@@ -46,32 +46,35 @@ fn td_hyperweave_is_seed_deterministic() {
 }
 
 #[test]
-fn td_hyperweave_emits_rich_taps_and_ops() {
+fn operator_modular_network_has_multiple_outputs_and_modules() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(3344);
+    let cfg = config(717);
 
     let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
         .expect("graph should build");
 
-    let mut outputs = 0usize;
-    let mut cameras = 0usize;
-    let mut masks = 0usize;
-    let mut blends = 0usize;
+    let mut output_count = 0usize;
+    let mut has_generate = false;
+    let mut has_source_noise = false;
+    let mut has_mask = false;
+    let mut has_camera = false;
 
     for node in &graph.nodes {
         match node.kind {
-            NodeKind::Output(_) => outputs += 1,
-            NodeKind::TopCameraRender(_) => cameras += 1,
-            NodeKind::Mask(_) => masks += 1,
-            NodeKind::Blend(_) => blends += 1,
+            NodeKind::Output(_) => output_count += 1,
+            NodeKind::GenerateLayer(_) => has_generate = true,
+            NodeKind::SourceNoise(_) => has_source_noise = true,
+            NodeKind::Mask(_) => has_mask = true,
+            NodeKind::TopCameraRender(_) => has_camera = true,
             _ => {}
         }
     }
 
-    assert!(outputs >= 4);
-    assert!(cameras >= 5);
-    assert!(masks >= 3);
-    assert!(blends >= 2);
+    assert!(output_count >= 3);
+    assert!(has_generate);
+    assert!(has_source_noise);
+    assert!(has_mask);
+    assert!(has_camera);
 }

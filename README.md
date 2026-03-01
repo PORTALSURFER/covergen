@@ -44,7 +44,7 @@ Useful V2 flags:
   - If omitted, V2 generates a fresh seed for each run.
 - `--count <u32>`
 - `--layers <u32>`
-- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|td-primitive-stage|td-random-network|td-cascade-lab|td-feedback-atlas|td-hyperweave|td-patchwork|td-router|td-signal-lab|td-orbit-forge|td-modular-network|td-multi-stage|td-sphere-noise-geo>`
+- `--preset <hybrid-stack|field-weave|node-weave|mask-atlas|warp-grid|random-grammar|op-primitive-stage|op-random-network|op-cascade-lab|op-feedback-atlas|op-hyperweave|op-patchwork|op-router|op-signal-lab|op-orbit-forge|op-modular-network|op-multi-stage|op-sphere-noise-geo>`
 - `--profile <quality|performance>`
 - `--antialias <1..=4>`
 - `--output <path>`
@@ -70,7 +70,7 @@ Replay workflow:
 
 ```bash
 # Generate art and persist an exact replay manifest.
-cargo run --bin covergen -- render --preset td-hyperweave --output still.png --manifest-out replay.json
+cargo run --bin covergen -- render --preset op-hyperweave --output still.png --manifest-out replay.json
 
 # Re-run exactly from the manifest graph+config.
 cargo run --bin covergen -- render --manifest-in replay.json
@@ -79,7 +79,7 @@ cargo run --bin covergen -- render --manifest-in replay.json
 Sphere-noise-geometry network command:
 
 ```bash
-cargo run --bin covergen -- render --preset td-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
+cargo run --bin covergen -- render --preset op-sphere-noise-geo --size 1080 --output sphere_noise_geo.png
 ```
 
 Realtime GUI controls:
@@ -103,7 +103,7 @@ GUI session persistence:
 Example GUI graphs:
 
 - `examples/graphs/circle_noise_feedback_trail.json`: circle + animated noise +
-  TD-style delayed feedback trail (with fade loop and live composite).
+  delayed feedback trail (with fade loop and live composite).
 - Load one example from the GUI Main menu via `Load Project`.
 
 GUI responsiveness notes:
@@ -118,7 +118,7 @@ Launch command:
 cargo run --bin covergen -- gui --size 1024
 ```
 
-Operator-family model (TouchDesigner-style):
+Operator-family model:
 
 - `tex`: image/texture operators (includes camera render from SOP primitives)
 - `CHOP`: channel operators (`chop-lfo`, `chop-math`, `chop-remap`)

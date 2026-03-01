@@ -11,7 +11,7 @@ pub use super::temporal::{
     TemporalCurve, TemporalModulation, ToneMapTemporal, WarpTransformTemporal,
 };
 
-/// TouchDesigner-style operator families used for graph authoring semantics.
+/// Operator families used for graph authoring semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatorFamily {
     Top,
@@ -320,7 +320,7 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
-    /// Return the TouchDesigner-style family for this node.
+    /// Return the operator family for this node.
     #[cfg_attr(not(test), allow(dead_code))]
     pub const fn operator_family(self) -> OperatorFamily {
         match self {

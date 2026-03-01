@@ -1,4 +1,4 @@
-//! Tests for the `td-cascade-lab` TouchDesigner-style preset.
+//! Tests for the `op-signal-lab` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -13,7 +13,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 6,
         antialias: 1,
-        preset: "td-cascade-lab".to_string(),
+        preset: "op-signal-lab".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,11 +34,11 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_cascade_lab_is_seed_deterministic() {
+fn operator_signal_lab_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(77);
+    let cfg = config(6451);
 
     let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
     let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
@@ -46,38 +46,38 @@ fn td_cascade_lab_is_seed_deterministic() {
 }
 
 #[test]
-fn td_cascade_lab_contains_td_and_graph_native_families() {
+fn operator_signal_lab_exposes_sop_top_chop_flow() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(99);
+    let cfg = config(9412);
 
     let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
         .expect("graph should build");
 
-    let mut chop = 0usize;
-    let mut sop = 0usize;
-    let mut camera = 0usize;
-    let mut layer = 0usize;
-    let mut source = 0usize;
-    let mut mask = 0usize;
+    let mut outputs = 0usize;
+    let mut cameras = 0usize;
+    let mut lfos = 0usize;
+    let mut circles = 0usize;
+    let mut spheres = 0usize;
+    let mut masks = 0usize;
 
     for node in &graph.nodes {
         match node.kind {
-            NodeKind::ChopLfo(_) | NodeKind::ChopMath(_) | NodeKind::ChopRemap(_) => chop += 1,
-            NodeKind::SopCircle(_) | NodeKind::SopSphere(_) => sop += 1,
-            NodeKind::TopCameraRender(_) => camera += 1,
-            NodeKind::GenerateLayer(_) => layer += 1,
-            NodeKind::SourceNoise(_) => source += 1,
-            NodeKind::Mask(_) => mask += 1,
+            NodeKind::Output(_) => outputs += 1,
+            NodeKind::TopCameraRender(_) => cameras += 1,
+            NodeKind::ChopLfo(_) => lfos += 1,
+            NodeKind::SopCircle(_) => circles += 1,
+            NodeKind::SopSphere(_) => spheres += 1,
+            NodeKind::Mask(_) => masks += 1,
             _ => {}
         }
     }
 
-    assert!(chop >= 4);
-    assert!(sop >= 4);
-    assert!(camera >= 4);
-    assert!(layer >= 3);
-    assert!(source >= 3);
-    assert!(mask >= 3);
+    assert!(outputs >= 4);
+    assert!(cameras >= 4);
+    assert!(lfos >= 3);
+    assert!(circles >= 3);
+    assert!(spheres >= 3);
+    assert!(masks >= 2);
 }

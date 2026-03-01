@@ -1,4 +1,4 @@
-//! TouchDesigner-inspired preset builders using CHOP/SOP/tex composition.
+//! operator-graph preset builders using CHOP/SOP/tex composition.
 
 use crate::chop::{ChopLfoNode, ChopMathMode, ChopMathNode, ChopRemapNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, MaskNode, NodeId, SourceNoiseNode};
@@ -12,7 +12,7 @@ use super::preset_catalog::PresetContext;
 use super::primitives::{random_blend, random_tonemap, random_warp, render_size};
 
 /// Build a CHOP/SOP/tex chain with basic camera-rendered primitives.
-pub(super) fn build_td_primitive_stage(
+pub(super) fn build_operator_primitive_stage(
     ctx: PresetContext<'_>,
 ) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
@@ -77,8 +77,8 @@ pub(super) fn build_td_primitive_stage(
     builder.build()
 }
 
-/// Build a constrained random TouchDesigner-style network with CHOP/SOP/tex branches.
-pub(super) fn build_td_random_network(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+/// Build a constrained random operator-family network with CHOP/SOP/tex branches.
+pub(super) fn build_operator_random_network(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x58C3_1D27);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x9A27_5B41);
@@ -365,7 +365,7 @@ fn add_outputs(
 fn choose_node(pool: &[NodeId], rng: &mut XorShift32) -> Result<NodeId, GraphBuildError> {
     if pool.is_empty() {
         return Err(GraphBuildError::new(
-            "touchdesigner preset has no available nodes",
+            "operator preset has no available nodes",
         ));
     }
     let index = (rng.next_u32() as usize) % pool.len();

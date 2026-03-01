@@ -338,7 +338,7 @@ fn fs_transform_fused(v: VertexOut) -> @location(0) vec4<f32> {
 fn fs_feedback(v: VertexOut) -> @location(0) vec4<f32> {
     let history = textureSample(t_feedback, s_feedback, v.uv);
     let feedback_amount = clamp(u_op.p0.x, 0.0, 1.0);
-    // TD-style delayed feedback output: emit only prior-frame history and scale
+    // Delayed feedback output: emit only prior-frame history and scale.
     // it by the feedback amount. The current input is written into history in
     // the execution layer after this pass to become next frame's output.
     let history_pm = history.rgb * history.a;

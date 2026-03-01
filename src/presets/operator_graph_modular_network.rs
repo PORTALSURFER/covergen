@@ -1,4 +1,4 @@
-//! TouchDesigner-style modular network preset built from reusable subgraph modules.
+//! operator-family modular network preset built from reusable subgraph modules.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
@@ -9,7 +9,7 @@ use super::node_catalog::NodePayload;
 use super::preset_catalog::PresetContext;
 use super::primitives::{generate_layer_node, random_tonemap, render_size};
 use super::subgraph_catalog::{ModuleBuildContext, ModuleParams, ModuleRequest};
-use super::touchdesigner_stage_primitives::{
+use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
 };
 
@@ -19,8 +19,8 @@ struct ControlBus {
     tone: NodeId,
 }
 
-/// Build a reusable-module-oriented TouchDesigner graph with staged fan-in merging.
-pub(super) fn build_td_modular_network(
+/// Build a reusable-module-oriented operator-graph with staged fan-in merging.
+pub(super) fn build_operator_modular_network(
     ctx: PresetContext<'_>,
 ) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
@@ -179,7 +179,7 @@ fn merge_branches_with_modules(
 ) -> Result<NodeId, GraphBuildError> {
     if branches.is_empty() {
         return Err(GraphBuildError::new(
-            "td-modular-network requires at least one branch",
+            "op-modular-network requires at least one branch",
         ));
     }
 

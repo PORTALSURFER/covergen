@@ -18,40 +18,40 @@ pub mod subgraph_catalog;
 #[cfg(test)]
 mod subgraph_catalog_tests;
 mod subgraph_motifs;
-mod touchdesigner;
-mod touchdesigner_cascade;
+mod operator_graph;
+mod operator_graph_cascade;
 #[cfg(test)]
-mod touchdesigner_cascade_tests;
-mod touchdesigner_feedback_atlas;
+mod operator_graph_cascade_tests;
+mod operator_graph_feedback_atlas;
 #[cfg(test)]
-mod touchdesigner_feedback_atlas_tests;
-mod touchdesigner_hyperweave;
+mod operator_graph_feedback_atlas_tests;
+mod operator_graph_hyperweave;
 #[cfg(test)]
-mod touchdesigner_hyperweave_tests;
-mod touchdesigner_modular_network;
+mod operator_graph_hyperweave_tests;
+mod operator_graph_modular_network;
 #[cfg(test)]
-mod touchdesigner_modular_network_tests;
-mod touchdesigner_multi_stage;
+mod operator_graph_modular_network_tests;
+mod operator_graph_multi_stage;
 #[cfg(test)]
-mod touchdesigner_multi_stage_tests;
-mod touchdesigner_orbit_forge;
+mod operator_graph_multi_stage_tests;
+mod operator_graph_orbit_forge;
 #[cfg(test)]
-mod touchdesigner_orbit_forge_tests;
-mod touchdesigner_patchwork;
+mod operator_graph_orbit_forge_tests;
+mod operator_graph_patchwork;
 #[cfg(test)]
-mod touchdesigner_patchwork_tests;
-mod touchdesigner_router;
+mod operator_graph_patchwork_tests;
+mod operator_graph_router;
 #[cfg(test)]
-mod touchdesigner_router_tests;
-mod touchdesigner_signal_lab;
+mod operator_graph_router_tests;
+mod operator_graph_signal_lab;
 #[cfg(test)]
-mod touchdesigner_signal_lab_tests;
-mod touchdesigner_sphere_noise_geo;
+mod operator_graph_signal_lab_tests;
+mod operator_graph_sphere_noise_geo;
 #[cfg(test)]
-mod touchdesigner_sphere_noise_geo_tests;
-mod touchdesigner_stage_primitives;
+mod operator_graph_sphere_noise_geo_tests;
+mod operator_graph_stage_primitives;
 #[cfg(test)]
-mod touchdesigner_tests;
+mod operator_graph_tests;
 
 use node_catalog::NodeCatalog;
 use preset_catalog::PresetCatalog;

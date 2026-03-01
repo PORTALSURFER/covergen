@@ -12,17 +12,17 @@ use super::families;
 use super::grammar;
 use super::node_catalog::NodeCatalog;
 use super::subgraph_catalog::SubgraphCatalog;
-use super::touchdesigner;
-use super::touchdesigner_cascade;
-use super::touchdesigner_feedback_atlas;
-use super::touchdesigner_hyperweave;
-use super::touchdesigner_modular_network;
-use super::touchdesigner_multi_stage;
-use super::touchdesigner_orbit_forge;
-use super::touchdesigner_patchwork;
-use super::touchdesigner_router;
-use super::touchdesigner_signal_lab;
-use super::touchdesigner_sphere_noise_geo;
+use super::operator_graph;
+use super::operator_graph_cascade;
+use super::operator_graph_feedback_atlas;
+use super::operator_graph_hyperweave;
+use super::operator_graph_modular_network;
+use super::operator_graph_multi_stage;
+use super::operator_graph_orbit_forge;
+use super::operator_graph_patchwork;
+use super::operator_graph_router;
+use super::operator_graph_signal_lab;
+use super::operator_graph_sphere_noise_geo;
 
 /// Build context passed to preset builders.
 #[derive(Clone, Copy)]
@@ -149,68 +149,64 @@ fn register_builtin_presets(catalog: &mut PresetCatalog) -> Result<(), GraphBuil
         build: grammar::build_constrained_random_grammar,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-primitive-stage",
-        aliases: &["td", "touchdesigner"],
-        build: touchdesigner::build_td_primitive_stage,
+        key: "op-primitive-stage",
+        aliases: &["op", "primitive-stage"],
+        build: operator_graph::build_operator_primitive_stage,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-random-network",
-        aliases: &["td-random", "touchdesigner-random"],
-        build: touchdesigner::build_td_random_network,
+        key: "op-random-network",
+        aliases: &["op-random", "random-network"],
+        build: operator_graph::build_operator_random_network,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-cascade-lab",
-        aliases: &["td-cascade", "touchdesigner-cascade"],
-        build: touchdesigner_cascade::build_td_cascade_lab,
+        key: "op-cascade-lab",
+        aliases: &["op-cascade", "cascade-lab"],
+        build: operator_graph_cascade::build_operator_cascade_lab,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-feedback-atlas",
-        aliases: &["td-feedback", "touchdesigner-feedback"],
-        build: touchdesigner_feedback_atlas::build_td_feedback_atlas,
+        key: "op-feedback-atlas",
+        aliases: &["op-feedback", "feedback-atlas"],
+        build: operator_graph_feedback_atlas::build_operator_feedback_atlas,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-hyperweave",
-        aliases: &["td-hyper", "touchdesigner-hyperweave"],
-        build: touchdesigner_hyperweave::build_td_hyperweave,
+        key: "op-hyperweave",
+        aliases: &["op-hyper", "hyperweave"],
+        build: operator_graph_hyperweave::build_operator_hyperweave,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-patchwork",
-        aliases: &["td-patch", "touchdesigner-patchwork"],
-        build: touchdesigner_patchwork::build_td_patchwork,
+        key: "op-patchwork",
+        aliases: &["op-patch", "patchwork"],
+        build: operator_graph_patchwork::build_operator_patchwork,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-router",
-        aliases: &["td-route", "touchdesigner-router"],
-        build: touchdesigner_router::build_td_router,
+        key: "op-router",
+        aliases: &["op-route", "router"],
+        build: operator_graph_router::build_operator_router,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-signal-lab",
-        aliases: &["td-signal", "touchdesigner-signal"],
-        build: touchdesigner_signal_lab::build_td_signal_lab,
+        key: "op-signal-lab",
+        aliases: &["op-signal", "signal-lab"],
+        build: operator_graph_signal_lab::build_operator_signal_lab,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-orbit-forge",
-        aliases: &["td-orbit", "touchdesigner-orbit"],
-        build: touchdesigner_orbit_forge::build_td_orbit_forge,
+        key: "op-orbit-forge",
+        aliases: &["op-orbit", "orbit-forge"],
+        build: operator_graph_orbit_forge::build_operator_orbit_forge,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-modular-network",
-        aliases: &["td-modular", "touchdesigner-modular"],
-        build: touchdesigner_modular_network::build_td_modular_network,
+        key: "op-modular-network",
+        aliases: &["op-modular", "modular-network"],
+        build: operator_graph_modular_network::build_operator_modular_network,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-multi-stage",
-        aliases: &["td-stage", "touchdesigner-stage"],
-        build: touchdesigner_multi_stage::build_td_multi_stage,
+        key: "op-multi-stage",
+        aliases: &["op-stage", "multi-stage"],
+        build: operator_graph_multi_stage::build_operator_multi_stage,
     })?;
     catalog.register(PresetDescriptor {
-        key: "td-sphere-noise-geo",
-        aliases: &[
-            "td-geo-sphere",
-            "touchdesigner-sphere-noise-geo",
-            "sphere-noise-geo",
-        ],
-        build: touchdesigner_sphere_noise_geo::build_td_sphere_noise_geo,
+        key: "op-sphere-noise-geo",
+        aliases: &["op-geo-sphere", "sphere-noise-geo"],
+        build: operator_graph_sphere_noise_geo::build_operator_sphere_noise_geo,
     })?;
     Ok(())
 }

@@ -1,4 +1,4 @@
-//! Tests for the `td-patchwork` preset.
+//! Tests for the `op-hyperweave` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -13,7 +13,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 6,
         antialias: 1,
-        preset: "td-patchwork".to_string(),
+        preset: "op-hyperweave".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,11 +34,11 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_patchwork_is_seed_deterministic() {
+fn operator_hyperweave_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(1234);
+    let cfg = config(1122);
 
     let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
     let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
@@ -46,32 +46,32 @@ fn td_patchwork_is_seed_deterministic() {
 }
 
 #[test]
-fn td_patchwork_has_mixed_topology_and_taps() {
+fn operator_hyperweave_emits_rich_taps_and_ops() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(5678);
+    let cfg = config(3344);
 
     let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
         .expect("graph should build");
 
     let mut outputs = 0usize;
     let mut cameras = 0usize;
-    let mut generates = 0usize;
     let mut masks = 0usize;
+    let mut blends = 0usize;
 
     for node in &graph.nodes {
         match node.kind {
             NodeKind::Output(_) => outputs += 1,
             NodeKind::TopCameraRender(_) => cameras += 1,
-            NodeKind::GenerateLayer(_) => generates += 1,
             NodeKind::Mask(_) => masks += 1,
+            NodeKind::Blend(_) => blends += 1,
             _ => {}
         }
     }
 
-    assert!(outputs >= 3);
-    assert!(cameras >= 4);
-    assert!(generates >= 3);
-    assert!(masks >= 2);
+    assert!(outputs >= 4);
+    assert!(cameras >= 5);
+    assert!(masks >= 3);
+    assert!(blends >= 2);
 }

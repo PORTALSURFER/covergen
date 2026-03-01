@@ -1,4 +1,4 @@
-//! TouchDesigner-style patchwork preset with cross-wired stage composition.
+//! operator-family patchwork preset with cross-wired stage composition.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, NodeId};
@@ -11,7 +11,7 @@ use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest, ModuleResult};
-use super::touchdesigner_stage_primitives::{
+use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
 };
 
@@ -22,8 +22,8 @@ struct Controls {
     warp: NodeId,
 }
 
-/// Build a patchwork-style TD graph with cross-wired camera/layer/mask stages.
-pub(super) fn build_td_patchwork(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+/// Build a patchwork-style operator graph with cross-wired camera/layer/mask stages.
+pub(super) fn build_operator_patchwork(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x6114_A9FD);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x1F02_7D31);

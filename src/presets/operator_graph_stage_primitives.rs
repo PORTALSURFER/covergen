@@ -1,4 +1,4 @@
-//! Shared helper nodes for staged TouchDesigner-style preset builders.
+//! Shared helper nodes for staged operator-family preset builders.
 
 use crate::chop::{ChopLfoNode, ChopRemapNode, ChopWave};
 use crate::graph::{GraphBuildError, GraphBuilder, MaskNode, NodeId, SourceNoiseNode};
@@ -170,7 +170,7 @@ pub(super) fn pop_random(
 ) -> Result<NodeId, GraphBuildError> {
     if pool.is_empty() {
         return Err(GraphBuildError::new(
-            "touchdesigner multi-stage preset has no candidate nodes",
+            "operator multi-stage preset has no candidate nodes",
         ));
     }
     let index = (rng.next_u32() as usize) % pool.len();
@@ -189,7 +189,7 @@ pub(super) fn pop_optional(pool: &mut Vec<NodeId>, rng: &mut XorShift32) -> Opti
 pub(super) fn pick<T: Copy>(items: &[T], rng: &mut XorShift32) -> Result<T, GraphBuildError> {
     if items.is_empty() {
         return Err(GraphBuildError::new(
-            "touchdesigner multi-stage preset has empty selection pool",
+            "operator multi-stage preset has empty selection pool",
         ));
     }
     let index = (rng.next_u32() as usize) % items.len();

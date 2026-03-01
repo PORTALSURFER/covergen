@@ -119,7 +119,7 @@ Output low remap target.
 Output high remap target.
 
 ## Node `tex.feedback`
-Outputs delayed persistent history (TD-style feedback tap).
+Outputs delayed persistent history (feedback tap).
 Input pin writes the next history frame; displayed output is prior history.
 ### Param `accumulation_tex`
 Optional external history texture target for read/write delayed state.

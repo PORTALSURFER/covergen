@@ -1,4 +1,4 @@
-//! Tests for the `td-multi-stage` preset topology.
+//! Tests for the `op-multi-stage` preset topology.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -13,7 +13,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 6,
         antialias: 1,
-        preset: "td-multi-stage".to_string(),
+        preset: "op-multi-stage".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,7 +34,7 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_multi_stage_is_seed_deterministic() {
+fn operator_multi_stage_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
@@ -46,7 +46,7 @@ fn td_multi_stage_is_seed_deterministic() {
 }
 
 #[test]
-fn td_multi_stage_contains_structured_td_families() {
+fn operator_multi_stage_contains_structured_td_families() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");

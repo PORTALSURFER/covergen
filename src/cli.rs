@@ -73,11 +73,11 @@ mod tests {
     #[test]
     fn render_subcommand_is_parsed() {
         let cli =
-            CovergenCli::parse_from(["covergen", "render", "--preset", "td-sphere-noise-geo"]);
+            CovergenCli::parse_from(["covergen", "render", "--preset", "op-sphere-noise-geo"]);
         match cli.command {
             Some(CovergenCommand::Render(args)) => {
                 let config = V2Config::from_args(args.run).expect("render args should parse");
-                assert_eq!(config.preset, "td-sphere-noise-geo");
+                assert_eq!(config.preset, "op-sphere-noise-geo");
             }
             _ => panic!("expected render subcommand"),
         }
@@ -85,11 +85,11 @@ mod tests {
 
     #[test]
     fn gui_subcommand_is_parsed() {
-        let cli = CovergenCli::parse_from(["covergen", "gui", "--preset", "td-sphere-noise-geo"]);
+        let cli = CovergenCli::parse_from(["covergen", "gui", "--preset", "op-sphere-noise-geo"]);
         match cli.command {
             Some(CovergenCommand::Gui(args)) => {
                 let config = V2Config::from_args(args.run).expect("gui args should parse");
-                assert_eq!(config.preset, "td-sphere-noise-geo");
+                assert_eq!(config.preset, "op-sphere-noise-geo");
             }
             _ => panic!("expected gui subcommand"),
         }

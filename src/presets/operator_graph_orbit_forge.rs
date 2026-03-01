@@ -1,4 +1,4 @@
-//! TouchDesigner-style orbit-forge preset with geometry/material/gate lanes.
+//! operator-family orbit-forge preset with geometry/material/gate lanes.
 
 use crate::chop::{ChopMathMode, ChopMathNode, ChopWave};
 use crate::graph::{GpuGraph, GraphBuildError, GraphBuilder, MaskNode, NodeId};
@@ -11,7 +11,7 @@ use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest, ModuleResult};
-use super::touchdesigner_stage_primitives::{
+use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_noise_mask_pair, add_remap, add_sphere, pick,
 };
 
@@ -37,8 +37,8 @@ struct BuildCtx<'a, 'b> {
     rng: &'a mut XorShift32,
 }
 
-/// Build an orbit-focused TD preset with deterministic multi-lane signal flow.
-pub(super) fn build_td_orbit_forge(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+/// Build an orbit-focused operator preset with deterministic multi-lane signal flow.
+pub(super) fn build_operator_orbit_forge(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x61E7_8B39);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x4A20_17CF);

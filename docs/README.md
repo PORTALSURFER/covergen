@@ -24,7 +24,7 @@
 
 ## Example Graphs
 - `../examples/graphs/README.md`: loadable GUI graph examples and usage notes.
-- `../examples/graphs/circle_noise_feedback_trail.json`: circle + noise + TD-style feedback trail reference graph.
+- `../examples/graphs/circle_noise_feedback_trail.json`: circle + noise + delayed feedback trail reference graph.
 
 ## CI and Validation
 - Preflight entrypoint: `../scripts/run_agent_request.sh`

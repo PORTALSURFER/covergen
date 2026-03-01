@@ -1,4 +1,4 @@
-//! Tests for TouchDesigner-style presets and random graph constraints.
+//! Tests for the `op-patchwork` preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -11,9 +11,9 @@ fn config(seed: u32) -> V2Config {
         seed,
         count: 1,
         output: "test.png".to_string(),
-        layers: 5,
+        layers: 6,
         antialias: 1,
-        preset: "td-random-network".to_string(),
+        preset: "op-patchwork".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
@@ -34,11 +34,11 @@ fn config(seed: u32) -> V2Config {
 }
 
 #[test]
-fn td_random_network_is_seed_deterministic() {
+fn operator_patchwork_is_seed_deterministic() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(17);
+    let cfg = config(1234);
 
     let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
     let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
@@ -46,35 +46,32 @@ fn td_random_network_is_seed_deterministic() {
 }
 
 #[test]
-fn td_random_network_contains_chop_sop_camera_and_masking() {
+fn operator_patchwork_has_mixed_topology_and_taps() {
     let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
     let nodes = NodeCatalog::with_builtins().expect("node catalog");
     let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let cfg = config(33);
-    let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph");
+    let cfg = config(5678);
 
-    let mut has_chop = false;
-    let mut has_sop = false;
-    let mut has_camera = false;
-    let mut has_source_noise = false;
-    let mut has_mask = false;
+    let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
+        .expect("graph should build");
+
+    let mut outputs = 0usize;
+    let mut cameras = 0usize;
+    let mut generates = 0usize;
+    let mut masks = 0usize;
 
     for node in &graph.nodes {
         match node.kind {
-            NodeKind::ChopLfo(_) | NodeKind::ChopMath(_) | NodeKind::ChopRemap(_) => {
-                has_chop = true
-            }
-            NodeKind::SopCircle(_) | NodeKind::SopSphere(_) => has_sop = true,
-            NodeKind::TopCameraRender(_) => has_camera = true,
-            NodeKind::SourceNoise(_) => has_source_noise = true,
-            NodeKind::Mask(_) => has_mask = true,
+            NodeKind::Output(_) => outputs += 1,
+            NodeKind::TopCameraRender(_) => cameras += 1,
+            NodeKind::GenerateLayer(_) => generates += 1,
+            NodeKind::Mask(_) => masks += 1,
             _ => {}
         }
     }
 
-    assert!(has_chop);
-    assert!(has_sop);
-    assert!(has_camera);
-    assert!(has_source_noise);
-    assert!(has_mask);
+    assert!(outputs >= 3);
+    assert!(cameras >= 4);
+    assert!(generates >= 3);
+    assert!(masks >= 2);
 }

@@ -1,4 +1,4 @@
-//! Tests for the dedicated sphere-noise-geometry TouchDesigner preset.
+//! Tests for the dedicated sphere-noise-geometry operator-graph preset.
 
 use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
 use crate::graph::NodeKind;
@@ -14,7 +14,7 @@ fn config(seed: u32) -> V2Config {
         output: "test.png".to_string(),
         layers: 4,
         antialias: 1,
-        preset: "td-sphere-noise-geo".to_string(),
+        preset: "op-sphere-noise-geo".to_string(),
         profile: V2Profile::Quality,
         manifest_out: None,
         manifest_in: None,
