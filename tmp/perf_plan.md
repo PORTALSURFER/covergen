@@ -55,7 +55,7 @@ Date: 2026-03-01
     - `cargo test gui::interaction` and hit-test focused tests
     - On GPU/display host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Verify reduced `hit_test_scans_p95_max` pressure and lower `update_ms_p95`.
-  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
+  - Completed: 2026-03-01 (commit 5086610)
 
 - [ ] 3. Remove signal-scope cloning and tail-vector churn; render directly from cached slices
   - ROI: Very High
