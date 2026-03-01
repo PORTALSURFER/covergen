@@ -7,6 +7,7 @@
 
 use crate::gui::geometry::Rect;
 use crate::gui::project::NODE_GRID_PITCH;
+use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
 
@@ -28,6 +29,11 @@ const BEND_180_COST: i32 = 160;
 
 const START_DIR_INDEX: usize = 8;
 const DIR_STATE_COUNT: usize = 9;
+
+thread_local! {
+    static ROUTE_SEARCH_WORKSPACE: RefCell<RouteSearchWorkspace> =
+        RefCell::new(RouteSearchWorkspace::default());
+}
 
 /// One node obstacle in graph/world coordinates.
 #[derive(Clone, Copy, Debug)]
@@ -244,35 +250,40 @@ fn route_wire_path_internal(
     }
 
     let mut cells = None;
-    for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
-        let blocked_rects = collect_search_blocked_rects(
-            obstacle_map.blocked_rects.as_slice(),
-            start_point,
-            end_point,
-            window_cells,
-        );
-        let Some(mut grid) = SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
-        else {
-            continue;
-        };
-        grid.carve_corridor(start_point, start.corridor_dir);
-        grid.carve_corridor(end_point, end.corridor_dir);
-        let attempt = grid
-            .find_path_with_blocked_edges(start_point, end_point, blocked_edges)
-            .or_else(|| {
-                if blocked_edges.is_some() {
-                    // When overlap-avoidance edge blocking over-constrains the search,
-                    // retry without edge blocks so we still honor node obstacles.
-                    grid.find_path_with_blocked_edges(start_point, end_point, None)
-                } else {
-                    None
-                }
-            });
-        if let Some(found) = attempt {
-            cells = Some((found, grid));
-            break;
+    ROUTE_SEARCH_WORKSPACE.with(|workspace| {
+        let mut workspace = workspace.borrow_mut();
+        for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
+            let blocked_rects = collect_search_blocked_rects(
+                obstacle_map.blocked_rects.as_slice(),
+                start_point,
+                end_point,
+                window_cells,
+            );
+            let Some(mut grid) =
+                SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
+            else {
+                continue;
+            };
+            grid.carve_corridor(start_point, start.corridor_dir);
+            grid.carve_corridor(end_point, end.corridor_dir);
+            let mut attempt = grid.find_path_with_blocked_edges(
+                start_point,
+                end_point,
+                blocked_edges,
+                &mut workspace,
+            );
+            if attempt.is_none() && blocked_edges.is_some() {
+                // When overlap-avoidance edge blocking over-constrains the search,
+                // retry without edge blocks so we still honor node obstacles.
+                attempt =
+                    grid.find_path_with_blocked_edges(start_point, end_point, None, &mut workspace);
+            }
+            if let Some(found) = attempt {
+                cells = Some((found, grid));
+                break;
+            }
         }
-    }
+    });
     let Some((cells, grid)) = cells else {
         return fallback_octilinear(start_point, end_point);
     };
@@ -494,6 +505,27 @@ struct SearchGrid {
     blocked: Vec<bool>,
 }
 
+#[derive(Debug, Default)]
+struct RouteSearchWorkspace {
+    best_cost: Vec<i32>,
+    parent: Vec<usize>,
+    open: BinaryHeap<(Reverse<i32>, Reverse<i32>, usize)>,
+}
+
+impl RouteSearchWorkspace {
+    fn prepare(&mut self, state_len: usize) {
+        if self.best_cost.len() < state_len {
+            self.best_cost.resize(state_len, i32::MAX);
+        }
+        if self.parent.len() < state_len {
+            self.parent.resize(state_len, usize::MAX);
+        }
+        self.best_cost[..state_len].fill(i32::MAX);
+        self.parent[..state_len].fill(usize::MAX);
+        self.open.clear();
+    }
+}
+
 impl SearchGrid {
     fn build(blocked_rects: &[Rect], start: (i32, i32), end: (i32, i32)) -> Option<Self> {
         let mut min_x = start.0.min(end.0);
@@ -574,6 +606,7 @@ impl SearchGrid {
         start: (i32, i32),
         end: (i32, i32),
         blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+        workspace: &mut RouteSearchWorkspace,
     ) -> Option<Vec<Cell>> {
         let start_cell = self.point_to_cell(start);
         let end_cell = self.point_to_cell(end);
@@ -581,12 +614,13 @@ impl SearchGrid {
         let end_cell_index = self.cell_index(end_cell)?;
 
         let state_len = self.blocked.len().saturating_mul(DIR_STATE_COUNT);
-        let mut best_cost = vec![i32::MAX; state_len];
-        let mut parent = vec![usize::MAX; state_len];
+        workspace.prepare(state_len);
+        let best_cost = &mut workspace.best_cost[..state_len];
+        let parent = &mut workspace.parent[..state_len];
+        let open = &mut workspace.open;
         let start_key = state_key(start_cell_index, START_DIR_INDEX);
         best_cost[start_key] = 0;
 
-        let mut open = BinaryHeap::new();
         let h0 = octile_heuristic(start_cell, end_cell);
         open.push((Reverse(h0), Reverse(0), start_key));
 

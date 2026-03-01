@@ -100,7 +100,7 @@ Date: 2026-03-01
     - Compare `scene.edges_ms` and `bridge_intersection_tests` trends in traces.
   - Completed: 2026-03-01 (commit eae3820)
 
-- [ ] 5. Reuse A* pathfinding workspaces across route queries (best-cost/parent/open-set buffers)
+- [x] 5. Reuse A* pathfinding workspaces across route queries (best-cost/parent/open-set buffers)
   - ROI: High
   - Effort: M
   - Expected impact: frame time (wire rebuild), CPU, memory churn
@@ -118,6 +118,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test gui::scene::wire_route`
     - On GPU/display host: GUI trace compare for dense-graph drag scenarios.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 6. Cache tex-preview execution plans by op-signature and remove hot-path scans
   - ROI: High
