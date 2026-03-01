@@ -57,7 +57,7 @@ Date: 2026-03-01
     - Verify reduced `hit_test_scans_p95_max` pressure and lower `update_ms_p95`.
   - Completed: 2026-03-01 (commit 5086610)
 
-- [ ] 3. Remove signal-scope cloning and tail-vector churn; render directly from cached slices
+- [x] 3. Remove signal-scope cloning and tail-vector churn; render directly from cached slices
   - ROI: Very High
   - Effort: S
   - Expected impact: frame time (nodes layer), memory churn, CPU
@@ -77,6 +77,7 @@ Date: 2026-03-01
     - `cargo test gui::scene` signal-scope related tests
     - On GPU/display host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Confirm `signal_scope_eval_ms` and `scene.nodes_ms` p95 improvements.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 4. Replace O(cells * blocked_rects) route-grid blocking with direct rectangle rasterization
   - ROI: Very High

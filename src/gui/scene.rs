@@ -350,6 +350,7 @@ pub(crate) struct SceneBuilder {
     signal_sample_memo: SignalSampleMemo,
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
+    signal_scope_line_scratch: Vec<(i32, i32, i32, i32)>,
     bridge_new_segments_scratch: Vec<DrawnWireSegment>,
     bridge_candidate_indices_scratch: Vec<usize>,
     bridge_crossings_scratch: Vec<f32>,
@@ -751,18 +752,32 @@ impl SceneBuilder {
         let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
         let samples = (inner.w.max(16) as usize).min(SIGNAL_SCOPE_MAX_SAMPLES);
         let eval_start = Instant::now();
-        let values = self
-            .sample_signal_scope_values(
+        let mut signal_scope_line_scratch = std::mem::take(&mut self.signal_scope_line_scratch);
+        let (value_min, value_max) = {
+            signal_scope_line_scratch.clear();
+            let values = self.sample_signal_scope_values(
                 project,
                 node.id(),
                 time_now,
                 window_secs,
                 samples,
                 tex_eval_epoch,
-            )
-            .to_vec();
+            );
+            let (value_min, value_max) = signal_scope_range(values);
+            for step in 0..samples.saturating_sub(1) {
+                let t0 = step as f32 / samples.saturating_sub(1).max(1) as f32;
+                let t1 = (step + 1) as f32 / samples.saturating_sub(1).max(1) as f32;
+                let v0 = values[step];
+                let v1 = values[step + 1];
+                let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
+                let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
+                let y0 = signal_scope_y(v0, value_min, value_max, inner);
+                let y1 = signal_scope_y(v1, value_min, value_max, inner);
+                signal_scope_line_scratch.push((x0, y0, x1, y1));
+            }
+            (value_min, value_max)
+        };
         let eval_ms = eval_start.elapsed().as_secs_f64() * 1000.0;
-        let (value_min, value_max) = signal_scope_range(values.as_slice());
         let y_zero = signal_scope_y(0.0, value_min, value_max, inner);
         let y_one = signal_scope_y(1.0, value_min, value_max, inner);
         self.push_line(
@@ -779,17 +794,11 @@ impl SceneBuilder {
             y_one,
             NODE_SIGNAL_SCOPE_GUIDE_ONE,
         );
-        for step in 0..samples.saturating_sub(1) {
-            let t0 = step as f32 / samples.saturating_sub(1).max(1) as f32;
-            let t1 = (step + 1) as f32 / samples.saturating_sub(1).max(1) as f32;
-            let v0 = values[step];
-            let v1 = values[step + 1];
-            let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
-            let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
-            let y0 = signal_scope_y(v0, value_min, value_max, inner);
-            let y1 = signal_scope_y(v1, value_min, value_max, inner);
+        for (x0, y0, x1, y1) in signal_scope_line_scratch.iter().copied() {
             self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
         }
+        signal_scope_line_scratch.clear();
+        self.signal_scope_line_scratch = signal_scope_line_scratch;
         self.frame.signal_scope_eval_ms += eval_ms;
     }
 
@@ -916,17 +925,14 @@ impl SceneBuilder {
         }) else {
             return false;
         };
-        let mut tail_values = Vec::with_capacity(shift);
         for index in new_start_index..sample_count {
             let sample_t = start_time + step_secs * index as f32;
-            tail_values.push(self.sample_scope_value(project, node_id, sample_t.max(0.0)));
+            let value = self.sample_scope_value(project, node_id, sample_t.max(0.0));
             self.frame.signal_scope_samples = self.frame.signal_scope_samples.saturating_add(1);
-        }
-        let Some(entry) = self.signal_scope_cache.get_mut(&node_id) else {
-            return false;
-        };
-        for (offset, value) in tail_values.into_iter().enumerate() {
-            entry.values[new_start_index + offset] = value;
+            let Some(entry) = self.signal_scope_cache.get_mut(&node_id) else {
+                return false;
+            };
+            entry.values[index] = value;
         }
         true
     }
