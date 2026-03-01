@@ -54,7 +54,8 @@ pub async fn execute_compiled(
     low_res_explore: Option<(&V2Config, &CompiledGraph)>,
 ) -> Result<(), Box<dyn Error>> {
     telemetry::snapshot_memory("v2.run.start");
-    let mut renderer = create_renderer(config, compiled).await?;
+    let adapter = request_hardware_adapter().await?;
+    let mut renderer = create_renderer_with_adapter(&adapter, config, compiled).await?;
     let alias_start = Instant::now();
     renderer.ensure_node_alias_buffers(
         compiled.resource_plan.gpu_peak_luma_slots,
@@ -79,6 +80,7 @@ pub async fn execute_compiled(
                 &mut buffers,
                 low_res_config,
                 low_res_compiled,
+                Some(&adapter),
             )
             .await;
         }
@@ -209,6 +211,28 @@ pub(crate) async fn create_renderer(
     config: &V2Config,
     compiled: &CompiledGraph,
 ) -> Result<GpuLayerRenderer, Box<dyn Error>> {
+    let adapter = request_hardware_adapter().await?;
+    create_renderer_with_adapter(&adapter, config, compiled).await
+}
+
+/// Create a renderer from one already-selected hardware adapter.
+pub(crate) async fn create_renderer_with_adapter(
+    adapter: &wgpu::Adapter,
+    config: &V2Config,
+    compiled: &CompiledGraph,
+) -> Result<GpuLayerRenderer, Box<dyn Error>> {
+    GpuLayerRenderer::new_with_output(
+        adapter,
+        compiled.width,
+        compiled.height,
+        config.width,
+        config.height,
+    )
+    .await
+}
+
+/// Select one hardware adapter and reject unsupported software backends.
+async fn request_hardware_adapter() -> Result<wgpu::Adapter, Box<dyn Error>> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -232,14 +256,7 @@ pub(crate) async fn create_renderer(
         .into());
     }
 
-    GpuLayerRenderer::new_with_output(
-        &adapter,
-        compiled.width,
-        compiled.height,
-        config.width,
-        config.height,
-    )
-    .await
+    Ok(adapter)
 }
 
 /// Resolve indexed output path for multi-image runs.

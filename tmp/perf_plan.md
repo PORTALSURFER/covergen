@@ -163,7 +163,7 @@ Date: 2026-03-01
     - On GPU/display host: benchmark drag scenario and verify `scene.edges_ms` p95 reduction without visual regressions.
   - Completed: 2026-03-01 (commit ee7ef1c)
 
-- [ ] 8. Share GPU adapter/device context between full-res and low-res selection renderers (startup + responsiveness)
+- [x] 8. Share GPU adapter/device context between full-res and low-res selection renderers (startup + responsiveness)
   - ROI: High
   - Effort: L
   - Expected impact: startup latency, CPU, memory
@@ -180,6 +180,7 @@ Date: 2026-03-01
   - Validation plan:
     - `cargo test runtime_selection`
     - On GPU host: compare first-run still-selection startup timings and `v2.selection.low_res_resources.acquire` telemetry.
+  - Completed: 2026-03-01 (commit pending; hash added in follow-up metadata update)
 
 - [ ] 9. Reduce telemetry capture lock contention with per-thread staging buffers
   - ROI: Medium

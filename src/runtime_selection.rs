@@ -12,8 +12,9 @@ use std::time::Instant;
 use crate::compiler::CompiledGraph;
 use crate::gpu_render::GpuLayerRenderer;
 use crate::runtime::{
-    apply_motion_temporal_constraints, create_renderer, create_runtime_buffers,
-    finalize_luma_for_output, indexed_output, render_graph_frame, RuntimeBuffers,
+    apply_motion_temporal_constraints, create_renderer, create_renderer_with_adapter,
+    create_runtime_buffers, finalize_luma_for_output, indexed_output, render_graph_frame,
+    RuntimeBuffers,
 };
 use crate::runtime_config::{SelectionConfig, V2Config};
 use crate::selection::{score_candidate, top_k, CandidateScore};
@@ -127,9 +128,11 @@ pub(crate) async fn execute_still_with_selection(
     buffers: &mut RuntimeBuffers,
     low_res_config: &V2Config,
     low_res_compiled: &CompiledGraph,
+    shared_adapter: Option<&wgpu::Adapter>,
 ) -> Result<(), Box<dyn Error>> {
     let acquire_start = Instant::now();
-    let mut low_res_lease = acquire_low_res_resources(low_res_config, low_res_compiled).await?;
+    let mut low_res_lease =
+        acquire_low_res_resources(low_res_config, low_res_compiled, shared_adapter).await?;
     telemetry::record_timing(
         "v2.selection.low_res_resources.acquire",
         acquire_start.elapsed(),
@@ -241,6 +244,7 @@ pub(crate) async fn execute_still_with_selection(
 async fn acquire_low_res_resources(
     low_res_config: &V2Config,
     low_res_compiled: &CompiledGraph,
+    shared_adapter: Option<&wgpu::Adapter>,
 ) -> Result<LowResResourceLease, Box<dyn Error>> {
     let key = LowResResourceKey::for_run(low_res_config, low_res_compiled);
     if let Some(mut cached) = take_low_res_resources(key) {
@@ -248,7 +252,11 @@ async fn acquire_low_res_resources(
         return Ok(LowResResourceLease::new(key, cached));
     }
 
-    let mut renderer = create_renderer(low_res_config, low_res_compiled).await?;
+    let mut renderer = if let Some(adapter) = shared_adapter {
+        create_renderer_with_adapter(adapter, low_res_config, low_res_compiled).await?
+    } else {
+        create_renderer(low_res_config, low_res_compiled).await?
+    };
     renderer.ensure_node_alias_buffers(
         low_res_compiled.resource_plan.gpu_peak_luma_slots,
         low_res_compiled.resource_plan.gpu_peak_mask_slots,
