@@ -603,8 +603,7 @@ impl GuiRenderer {
         self.ensure_tex_preview_readback_buffer(buffer_size.max(1));
         let readback = self
             .tex_preview_readback_buffer
-            .as_ref()
-            .cloned()
+            .take()
             .ok_or("missing tex preview readback buffer")?;
         let mut encoder = self
             .device
@@ -694,17 +693,19 @@ impl GuiRenderer {
                     dst_row.copy_from_slice(src_row);
                 }
                 drop(data);
+                let width = pending.width;
+                let height = pending.height;
                 pending.readback.unmap();
-                Ok(Some((pending.width, pending.height)))
+                self.tex_preview_readback_buffer = Some(pending.readback);
+                Ok(Some((width, height)))
             }
             Ok(Err(err)) => {
                 let pending = self.pending_tex_preview_readback.take();
                 if let Some(pending) = pending {
+                    let waited = pending.requested_at.elapsed();
                     pending.readback.unmap();
-                    telemetry::record_timing(
-                        "gui.readback.map_wait",
-                        pending.requested_at.elapsed(),
-                    );
+                    self.tex_preview_readback_buffer = Some(pending.readback);
+                    telemetry::record_timing("gui.readback.map_wait", waited);
                 }
                 telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
                 Err(format!("failed to map tex preview readback: {err}").into())
@@ -715,15 +716,15 @@ impl GuiRenderer {
                         .pending_tex_preview_readback
                         .take()
                         .ok_or("missing pending tex preview readback timeout state")?;
+                    let waited = pending.requested_at.elapsed();
+                    let wait_budget_ms = pending.map_wait.as_millis();
                     pending.readback.unmap();
+                    self.tex_preview_readback_buffer = Some(pending.readback);
                     telemetry::record_counter_u64("gui.readback.map_wait_timeouts", 1);
-                    telemetry::record_timing(
-                        "gui.readback.map_wait",
-                        pending.requested_at.elapsed(),
-                    );
+                    telemetry::record_timing("gui.readback.map_wait", waited);
                     return Err(format!(
                         "timed out waiting for tex preview readback map after {} ms",
-                        pending.map_wait.as_millis()
+                        wait_budget_ms
                     )
                     .into());
                 }
@@ -732,11 +733,10 @@ impl GuiRenderer {
             Err(TryRecvError::Disconnected) => {
                 let pending = self.pending_tex_preview_readback.take();
                 if let Some(pending) = pending {
+                    let waited = pending.requested_at.elapsed();
                     pending.readback.unmap();
-                    telemetry::record_timing(
-                        "gui.readback.map_wait",
-                        pending.requested_at.elapsed(),
-                    );
+                    self.tex_preview_readback_buffer = Some(pending.readback);
+                    telemetry::record_timing("gui.readback.map_wait", waited);
                 }
                 telemetry::record_counter_u64("gui.readback.map_wait_failures", 1);
                 Err("failed to wait for tex preview readback: callback channel disconnected".into())

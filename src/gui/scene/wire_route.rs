@@ -929,8 +929,9 @@ fn step_point(point: (i32, i32), direction: RouteDirection, steps: i32) -> (i32,
 mod tests {
     use super::{
         route_param_path, route_wire_path, route_wire_path_internal, route_wire_path_with_map,
-        route_wire_path_with_tails_with_map, snap_endpoint_to_grid, NodeObstacle, RouteDirection,
-        RouteEdgeKey, RouteEndpoint, RouteObstacleMap, GRID_PITCH_PX, ROUTE_DIRECTIONS,
+        route_wire_path_with_tails_with_map, snap_endpoint_to_grid, BlockedEdgeSets, NodeObstacle,
+        RouteDirection, RouteEdgeKey, RouteEndpoint, RouteObstacleMap, GRID_PITCH_PX,
+        ROUTE_DIRECTIONS,
     };
     use crate::gui::geometry::Rect;
     use std::collections::HashSet;
