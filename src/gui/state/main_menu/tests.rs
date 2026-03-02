@@ -42,10 +42,7 @@ fn export_menu_output_path_adds_mp4_extension_when_missing() {
     let mut menu = ExportMenuState::closed();
     menu.directory = "./out".to_string();
     menu.file_name = "clip".to_string();
-    assert_eq!(
-        menu.output_path().to_string_lossy(),
-        "./out/clip.mp4".to_string()
-    );
+    assert_eq!(menu.output_path(), PathBuf::from("./out").join("clip.mp4"));
 }
 
 #[test]
