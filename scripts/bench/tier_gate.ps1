@@ -32,6 +32,18 @@ function Get-EnvOrDefault {
     return $value
 }
 
+function Test-PlaceholderThresholds {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    if (!(Test-Path -Path $Path)) {
+        return $false
+    }
+    $content = Get-Content -Path $Path -Raw
+    return ($content -match "0\.001000" -or $content -match "1000000\.000000")
+}
+
 $samples = Get-EnvOrDefault -Name "SAMPLES" -DefaultValue "8"
 $animationSamples = Get-EnvOrDefault -Name "ANIMATION_SAMPLES" -DefaultValue "4"
 $size = Get-EnvOrDefault -Name "SIZE" -DefaultValue "1024"
@@ -77,6 +89,13 @@ if ($Mode -eq "lock") {
     $args += @("--lock-thresholds", $thresholdFile)
 }
 else {
+    if (Test-PlaceholderThresholds -Path $thresholdFile) {
+        throw @"
+[bench] locked-threshold check failed for $thresholdFile
+Detected placeholder threshold values.
+Run: scripts/ci_local.ps1 lock $Tier
+"@
+    }
     $args += @("--thresholds", $thresholdFile)
 }
 
