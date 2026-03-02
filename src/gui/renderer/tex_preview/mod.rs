@@ -721,14 +721,19 @@ impl TexPreviewRenderer {
         cleared
     }
 
-    /// Return current viewer render target texture and size.
-    pub(in crate::gui::renderer) fn viewer_texture_and_size(
-        &self,
-    ) -> Option<(&wgpu::Texture, (u32, u32))> {
-        let texture = self.viewer_texture.as_ref()?;
-        if self.viewer_texture_size.0 == 0 || self.viewer_texture_size.1 == 0 {
+    /// Return current viewer render-target size when available.
+    pub(in crate::gui::renderer) fn viewer_texture_size(&self) -> Option<(u32, u32)> {
+        if self.viewer_texture.is_none()
+            || self.viewer_texture_size.0 == 0
+            || self.viewer_texture_size.1 == 0
+        {
             return None;
         }
-        Some((texture, self.viewer_texture_size))
+        Some(self.viewer_texture_size)
+    }
+
+    /// Return current viewer render target texture when available.
+    pub(in crate::gui::renderer) fn viewer_texture(&self) -> Option<&wgpu::Texture> {
+        self.viewer_texture.as_ref()
     }
 }

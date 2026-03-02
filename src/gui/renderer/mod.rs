@@ -589,7 +589,7 @@ impl GuiRenderer {
     }
 
     fn enqueue_tex_preview_readback(&mut self) -> Result<(), Box<dyn Error>> {
-        let Some((texture, (width, height))) = self.tex_preview.viewer_texture_and_size() else {
+        let Some((width, height)) = self.tex_preview.viewer_texture_size() else {
             return Ok(());
         };
         if width == 0 || height == 0 {
@@ -605,6 +605,10 @@ impl GuiRenderer {
             .tex_preview_readback_buffer
             .take()
             .ok_or("missing tex preview readback buffer")?;
+        let Some(texture) = self.tex_preview.viewer_texture() else {
+            self.tex_preview_readback_buffer = Some(readback);
+            return Ok(());
+        };
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
