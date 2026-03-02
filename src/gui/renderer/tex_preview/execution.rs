@@ -135,6 +135,7 @@ impl TexPreviewRenderer {
         upload_bytes
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn encode_gpu_ops(
         &mut self,
         device: &wgpu::Device,
@@ -165,6 +166,7 @@ impl TexPreviewRenderer {
     }
 
     /// Run staged tex-op dispatch: plan -> prepare targets -> encode passes -> finalize.
+    #[allow(clippy::too_many_arguments)]
     fn encode_gpu_ops_staged(
         &mut self,
         device: &wgpu::Device,
@@ -220,6 +222,7 @@ impl TexPreviewRenderer {
     }
 
     /// Build a render plan and allocate resources needed for this frame.
+    #[allow(clippy::too_many_arguments)]
     fn plan_gpu_dispatch(
         &mut self,
         device: &wgpu::Device,

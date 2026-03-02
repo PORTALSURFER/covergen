@@ -152,19 +152,12 @@ pub(crate) struct TimelineAudioPreview {
 #[cfg(windows)]
 impl Default for TimelineAudioPreview {
     fn default() -> Self {
-        #[cfg(windows)]
-        {
-            return Self {
-                backend: Box::new(RodioTimelineAudioBackend::default()),
-                player: None,
-                clip: None,
-                clip_path: None,
-                last_frame_index: None,
-            };
-        }
-        #[cfg(not(windows))]
-        {
-            Self {}
+        Self {
+            backend: Box::new(RodioTimelineAudioBackend::default()),
+            player: None,
+            clip: None,
+            clip_path: None,
+            last_frame_index: None,
         }
     }
 }

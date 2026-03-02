@@ -95,6 +95,7 @@ impl StreamFrameFormat {
 ///
 /// A future zero-copy GPU handoff mode is planned but not active yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum ExportDataPath {
     CpuReadback,
     CpuReadbackGpuUpload,
@@ -276,6 +277,7 @@ pub fn mux_wav_audio_into_mp4(video_path: &Path, wav_path: &Path) -> Result<(), 
     Ok(())
 }
 
+#[allow(clippy::large_enum_variant)]
 enum RawEncoderBackend {
     OpenH264 {
         encoder: Encoder,
