@@ -670,12 +670,7 @@ impl GuiRenderer {
                 for y in 0..pending.height as usize {
                     let src_row = &data[y * padded_row_bytes..y * padded_row_bytes + row_bytes];
                     let dst_row = &mut out_bgra[y * row_bytes..(y + 1) * row_bytes];
-                    for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
-                        dst[0] = src[2];
-                        dst[1] = src[1];
-                        dst[2] = src[0];
-                        dst[3] = src[3];
-                    }
+                    dst_row.copy_from_slice(src_row);
                 }
                 drop(data);
                 pending.readback.unmap();

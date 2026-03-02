@@ -30,6 +30,8 @@ pub(crate) struct TexViewerFrame<'a> {
     pub(crate) texture_width: u32,
     /// Backing GPU texture height used for tex evaluation.
     pub(crate) texture_height: u32,
+    /// Signature for operation/planning cache reuse in the tex-preview renderer.
+    pub(crate) ops_signature: u64,
     pub(crate) payload: TexViewerPayload<'a>,
 }
 
@@ -154,9 +156,27 @@ impl TexViewerGenerator {
                 .key
                 .map(|key| key.texture_height)
                 .unwrap_or(self.height.max(1)),
+            ops_signature: self.key.map(viewer_cache_key_signature).unwrap_or(0),
             payload: TexViewerPayload::GpuOps(self.ops.as_slice()),
         })
     }
+}
+
+fn viewer_cache_key_signature(key: ViewerCacheKey) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for value in [
+        key.panel_width as u64,
+        key.panel_height as u64,
+        key.view_width as u64,
+        key.view_height as u64,
+        key.texture_width as u64,
+        key.texture_height as u64,
+        key.tex_eval_epoch,
+        key.frame_index as u64,
+    ] {
+        hash = (hash ^ value).wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32) -> (u32, u32) {

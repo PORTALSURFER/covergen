@@ -133,6 +133,36 @@ impl RouteEdgeKey {
     }
 }
 
+#[derive(Clone, Copy)]
+struct BlockedEdgeSets<'a> {
+    primary: &'a HashSet<RouteEdgeKey>,
+    secondary: Option<&'a HashSet<RouteEdgeKey>>,
+}
+
+impl<'a> BlockedEdgeSets<'a> {
+    fn single(primary: &'a HashSet<RouteEdgeKey>) -> Self {
+        Self {
+            primary,
+            secondary: None,
+        }
+    }
+
+    fn dual(primary: &'a HashSet<RouteEdgeKey>, secondary: &'a HashSet<RouteEdgeKey>) -> Self {
+        Self {
+            primary,
+            secondary: Some(secondary),
+        }
+    }
+
+    fn contains(self, key: &RouteEdgeKey) -> bool {
+        self.primary.contains(key)
+            || self
+                .secondary
+                .map(|secondary| secondary.contains(key))
+                .unwrap_or(false)
+    }
+}
+
 /// Accumulated routed edges used to avoid direct wire overlap on reroutes.
 ///
 /// Only horizontal endpoint tail segments are excluded from overlap blocking.
@@ -241,7 +271,7 @@ fn route_wire_path_internal(
     start: RouteEndpoint,
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
-    blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+    blocked_edges: Option<BlockedEdgeSets<'_>>,
 ) -> Vec<(i32, i32)> {
     let start_point = snap_endpoint_to_grid(start);
     let end_point = snap_endpoint_to_grid(end);
@@ -335,7 +365,31 @@ pub(crate) fn route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
         start,
         end,
         obstacle_map,
-        Some(&occupied_edges.blocked),
+        Some(BlockedEdgeSets::single(&occupied_edges.blocked)),
+        start_tail_cells,
+        end_tail_cells,
+    )
+}
+
+/// Build one obstacle-avoiding path with per-endpoint horizontal-tail lengths
+/// while avoiding edges occupied by either primary or overlay routes.
+pub(crate) fn route_wire_path_with_tail_cells_avoiding_overlaps_with_dual_map(
+    start: RouteEndpoint,
+    end: RouteEndpoint,
+    obstacle_map: &RouteObstacleMap,
+    occupied_primary: &RouteOccupiedEdges,
+    occupied_overlay: &RouteOccupiedEdges,
+    start_tail_cells: i32,
+    end_tail_cells: i32,
+) -> Vec<(i32, i32)> {
+    route_wire_path_with_tails_internal(
+        start,
+        end,
+        obstacle_map,
+        Some(BlockedEdgeSets::dual(
+            &occupied_primary.blocked,
+            &occupied_overlay.blocked,
+        )),
         start_tail_cells,
         end_tail_cells,
     )
@@ -345,7 +399,7 @@ fn route_wire_path_with_tails_internal(
     start: RouteEndpoint,
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
-    blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+    blocked_edges: Option<BlockedEdgeSets<'_>>,
     start_tail_cells: i32,
     end_tail_cells: i32,
 ) -> Vec<(i32, i32)> {
@@ -605,7 +659,7 @@ impl SearchGrid {
         &self,
         start: (i32, i32),
         end: (i32, i32),
-        blocked_edges: Option<&HashSet<RouteEdgeKey>>,
+        blocked_edges: Option<BlockedEdgeSets<'_>>,
         workspace: &mut RouteSearchWorkspace,
     ) -> Option<Vec<Cell>> {
         let start_cell = self.point_to_cell(start);
@@ -1029,7 +1083,12 @@ mod tests {
             blocked_edges.insert(RouteEdgeKey::new(start_point, next));
         }
 
-        let path = route_wire_path_internal(start, end, &map, Some(&blocked_edges));
+        let path = route_wire_path_internal(
+            start,
+            end,
+            &map,
+            Some(BlockedEdgeSets::single(&blocked_edges)),
+        );
         assert_octilinear(path.as_slice());
         assert!(
             path.len() > 3,

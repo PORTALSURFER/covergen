@@ -3,6 +3,7 @@
 //! This module normalizes GUI node graphs into a deterministic, executable
 //! step list that can be evaluated directly into GPU preview operations.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -361,6 +362,13 @@ struct SceneMeshState {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GuiCompiledRuntime {
     steps: Vec<CompiledStep>,
+    external_feedback_history_sources: HashSet<u32>,
+}
+
+thread_local! {
+    /// Per-thread signal sample memo reused across one runtime evaluation pass.
+    static RUNTIME_SIGNAL_SAMPLE_MEMO: RefCell<crate::gui::project::SignalSampleMemo> =
+        RefCell::new(crate::gui::project::SignalSampleMemo::default());
 }
 
 #[derive(Debug, Default)]
@@ -385,7 +393,12 @@ impl GuiCompiledRuntime {
             if steps.is_empty() {
                 return None;
             }
-            Some(Self { steps })
+            let external_feedback_history_sources =
+                collect_external_feedback_history_sources(project, &steps);
+            Some(Self {
+                steps,
+                external_feedback_history_sources,
+            })
         })();
         telemetry::record_timing("gui.runtime.compile", compile_begin.elapsed());
         telemetry::record_counter_u64(
@@ -424,8 +437,7 @@ impl GuiCompiledRuntime {
     ) {
         out_ops.clear();
         eval_stack.clear_nodes();
-        let external_feedback_history_sources =
-            collect_external_feedback_history_sources(project, &self.steps);
+        RUNTIME_SIGNAL_SAMPLE_MEMO.with(|memo| memo.borrow_mut().clear());
         let mut mesh = None;
         let mut entity = None;
         let mut scene_ready = false;
@@ -1275,7 +1287,7 @@ impl GuiCompiledRuntime {
                 }
             }
             if step.kind != CompiledStepKind::StoreTexture
-                && external_feedback_history_sources.contains(&step.node_id)
+                && self.external_feedback_history_sources.contains(&step.node_id)
                 && out_ops.len() > out_len_before
             {
                 push_store_texture_op(out_ops, step.node_id);
@@ -1368,7 +1380,16 @@ fn compiled_param_value_opt(
     eval_stack: &mut SignalEvalStack,
 ) -> Option<f32> {
     let index = step.param_slots.get(param_slot).copied().flatten()?.0;
-    project.node_param_value_by_index(step.node_id, index, time_secs, eval_stack)
+    RUNTIME_SIGNAL_SAMPLE_MEMO.with(|memo| {
+        let mut borrow = memo.borrow_mut();
+        project.node_param_value_by_index_with_memo(
+            step.node_id,
+            index,
+            time_secs,
+            eval_stack,
+            &mut borrow,
+        )
+    })
 }
 
 fn compiled_texture_source_for_param(

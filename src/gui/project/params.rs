@@ -624,6 +624,22 @@ impl GuiProject {
         self.node_param_value_by_index_impl(node_id, param_index, time_secs, eval_stack, &mut memo)
     }
 
+    /// Return effective parameter value with a shared signal-sample memo cache.
+    ///
+    /// Runtime hot paths should prefer this variant while evaluating many
+    /// parameters within one frame to avoid repeated recursive signal sampling.
+    pub(crate) fn node_param_value_by_index_with_memo<S: SignalEvalPath>(
+        &self,
+        node_id: u32,
+        param_index: usize,
+        time_secs: f32,
+        eval_stack: &mut S,
+        memo: &mut SignalSampleMemo,
+    ) -> Option<f32> {
+        let mut memo = Some(memo);
+        self.node_param_value_by_index_impl(node_id, param_index, time_secs, eval_stack, &mut memo)
+    }
+
     fn node_param_value_by_index_impl<S: SignalEvalPath>(
         &self,
         node_id: u32,

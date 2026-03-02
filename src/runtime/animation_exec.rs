@@ -34,18 +34,18 @@ impl StreamEncodeWorker {
         }
     }
 
-    fn submit_gray(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_gray(&mut self, frame: &[u8]) -> Result<(), Box<dyn Error>> {
         if self.frame_format != StreamFrameFormat::Gray8 {
             return Err("stream worker expects BGRA frames, not grayscale".into());
         }
-        self.encoder.write_gray_frame(&frame)
+        self.encoder.write_gray_frame(frame)
     }
 
-    fn submit_bgra(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_bgra(&mut self, frame: &[u8]) -> Result<(), Box<dyn Error>> {
         if self.frame_format != StreamFrameFormat::Bgra8 {
             return Err("stream worker expects grayscale frames, not BGRA".into());
         }
-        self.encoder.write_bgra_frame(&frame)
+        self.encoder.write_bgra_frame(frame)
     }
 
     fn finish(self) -> Result<(), Box<dyn Error>> {
@@ -66,14 +66,14 @@ impl ClipEncodeWorker {
         }
     }
 
-    fn submit_gray(&mut self, frame_index: u32, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_gray(&mut self, frame_index: u32, frame: &[u8]) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.submit_gray(frame),
-            Self::FrameDir(worker) => worker.submit_gray(frame_index, frame),
+            Self::FrameDir(worker) => worker.submit_gray(frame_index, frame.to_vec()),
         }
     }
 
-    fn submit_bgra(&mut self, frame: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn submit_bgra(&mut self, frame: &[u8]) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.submit_bgra(frame),
             Self::FrameDir(_) => Err("frame-dir worker accepts grayscale frames only".into()),
@@ -128,6 +128,8 @@ pub(super) fn execute_animation(
             ClipEncodeWorker::Stream(Box::new(StreamEncodeWorker::spawn(encoder)))
         };
         let mut pending_frame_indices = VecDeque::with_capacity(readback_capacity + 1);
+        let mut gray_frame_scratch = vec![0u8; buffers.output_gray.len()];
+        let mut bgra_frame_scratch = vec![0u8; buffers.output_bgra.len()];
         let clip_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
@@ -162,8 +164,8 @@ pub(super) fn execute_animation(
                         renderer,
                         &mut encode_worker,
                         &mut pending_frame_indices,
-                        buffers.output_gray.len(),
-                        buffers.output_bgra.len(),
+                        &mut gray_frame_scratch,
+                        &mut bgra_frame_scratch,
                     )?;
                 }
                 let frame_elapsed = frame_start.elapsed();
@@ -182,8 +184,8 @@ pub(super) fn execute_animation(
                     renderer,
                     &mut encode_worker,
                     &mut pending_frame_indices,
-                    buffers.output_gray.len(),
-                    buffers.output_bgra.len(),
+                    &mut gray_frame_scratch,
+                    &mut bgra_frame_scratch,
                 )?;
             }
             if !pending_frame_indices.is_empty() {
@@ -241,8 +243,8 @@ fn drain_one_queued_export_frame(
     renderer: &mut GpuLayerRenderer,
     worker: &mut ClipEncodeWorker,
     pending_frame_indices: &mut VecDeque<u32>,
-    gray_bytes: usize,
-    bgra_bytes: usize,
+    gray_frame_scratch: &mut Vec<u8>,
+    bgra_frame_scratch: &mut Vec<u8>,
 ) -> Result<(), Box<dyn Error>> {
     let frame_index = pending_frame_indices
         .pop_front()
@@ -250,22 +252,20 @@ fn drain_one_queued_export_frame(
     let finalize_start = Instant::now();
     match worker.frame_format() {
         StreamFrameFormat::Gray8 => {
-            let mut frame = vec![0u8; gray_bytes];
-            renderer.collect_retained_output_gray_queued(&mut frame)?;
+            renderer.collect_retained_output_gray_queued(gray_frame_scratch.as_mut_slice())?;
             telemetry::record_timing(
                 "v2.gpu.node.finalize_retained_output",
                 finalize_start.elapsed(),
             );
-            worker.submit_gray(frame_index, frame)?;
+            worker.submit_gray(frame_index, gray_frame_scratch.as_slice())?;
         }
         StreamFrameFormat::Bgra8 => {
-            let mut frame = vec![0u8; bgra_bytes];
-            renderer.collect_retained_output_bgra_queued(&mut frame)?;
+            renderer.collect_retained_output_bgra_queued(bgra_frame_scratch.as_mut_slice())?;
             telemetry::record_timing(
                 "v2.gpu.node.finalize_retained_output",
                 finalize_start.elapsed(),
             );
-            worker.submit_bgra(frame)?;
+            worker.submit_bgra(bgra_frame_scratch.as_slice())?;
         }
     }
     Ok(())
@@ -314,7 +314,7 @@ mod tests {
         let mut worker = ClipEncodeWorker::FrameDir(FrameDirEncodeWorker::spawn(dir.clone(), 2, 2));
         std::fs::remove_dir_all(&dir).expect("test should remove output dir before finalize");
         worker
-            .submit_gray(0, vec![0, 85, 170, 255])
+            .submit_gray(0, &[0, 85, 170, 255])
             .expect("gray frame should enqueue");
         let err = complete_encode_worker(Err(IoError::other("work failed").into()), worker)
             .expect_err("combined work/finalize failure should be returned");

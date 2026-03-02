@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SendTimeoutError, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -199,7 +199,7 @@ pub(crate) fn submit_frame_dir_with_backpressure<T>(
     let mut retries = 0u32;
     let mut payload = payload;
     loop {
-        match sender.try_send(payload) {
+        match sender.send_timeout(payload, policy.retry_sleep) {
             Ok(()) => {
                 if retries > 0 {
                     let waited = submit_start.elapsed();
@@ -212,11 +212,11 @@ pub(crate) fn submit_frame_dir_with_backpressure<T>(
                 }
                 return Ok(());
             }
-            Err(TrySendError::Disconnected(_)) => {
+            Err(SendTimeoutError::Disconnected(_)) => {
                 telemetry::record_counter_u64("v2.export.frame_dir.submit_disconnected", 1);
                 return Err("frame-dir worker channel closed unexpectedly".into());
             }
-            Err(TrySendError::Full(returned)) => {
+            Err(SendTimeoutError::Timeout(returned)) => {
                 payload = returned;
                 retries = retries.saturating_add(1);
                 let waited = submit_start.elapsed();
@@ -235,7 +235,6 @@ pub(crate) fn submit_frame_dir_with_backpressure<T>(
                     )
                     .into());
                 }
-                thread::sleep(policy.retry_sleep);
             }
         }
     }

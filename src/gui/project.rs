@@ -1173,6 +1173,7 @@ pub(crate) struct GuiProject {
     /// Preview canvas height.
     pub(crate) preview_height: u32,
     nodes: Vec<ProjectNode>,
+    node_index_lookup: HashMap<u32, usize>,
     next_node_id: u32,
     edge_count: usize,
     hit_test_cache: RefCell<HitTestCache>,
@@ -1187,6 +1188,8 @@ pub(crate) struct GuiProject {
     wires_epoch: u64,
     tex_eval_epoch: u64,
     lfo_sync_bpm: f32,
+    has_signal_bindings_cached: bool,
+    has_temporal_nodes_cached: bool,
 }
 
 /// Project-scoped invalidation epochs consumed by GUI retained layers.

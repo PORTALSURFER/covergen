@@ -5,6 +5,7 @@ impl GuiProject {
         self.render_epoch = self.render_epoch.wrapping_add(1);
         self.bump_nodes_epoch();
         self.bump_tex_eval_epoch();
+        self.refresh_runtime_flags();
         self.render_signature_cache = self.compute_render_signature();
         self.graph_signature_cache =
             compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
@@ -90,9 +91,7 @@ impl GuiProject {
 
     /// Return true when at least one parameter has a live signal binding.
     pub(crate) fn has_signal_bindings(&self) -> bool {
-        self.nodes
-            .iter()
-            .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()))
+        self.has_signal_bindings_cached
     }
 
     /// Return true when the graph contains time-driven nodes.
@@ -101,24 +100,36 @@ impl GuiProject {
     /// signal bindings, such as feedback, post-process temporal categories,
     /// and buffer noise deformation.
     pub(crate) fn has_temporal_nodes(&self) -> bool {
-        self.nodes.iter().any(|node| {
-            matches!(
-                node.kind,
-                ProjectNodeKind::TexFeedback
-                    | ProjectNodeKind::TexReactionDiffusion
-                    | ProjectNodeKind::TexPostColorTone
-                    | ProjectNodeKind::TexPostEdgeStructure
-                    | ProjectNodeKind::TexPostBlurDiffusion
-                    | ProjectNodeKind::TexPostDistortion
-                    | ProjectNodeKind::TexPostTemporal
-                    | ProjectNodeKind::TexPostNoiseTexture
-                    | ProjectNodeKind::TexPostLighting
-                    | ProjectNodeKind::TexPostScreenSpace
-                    | ProjectNodeKind::TexPostExperimental
-                    | ProjectNodeKind::BufNoise
-            )
-        })
+        self.has_temporal_nodes_cached
     }
+
+    pub(super) fn refresh_runtime_flags(&mut self) {
+        self.has_signal_bindings_cached = self
+            .nodes
+            .iter()
+            .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()));
+        self.has_temporal_nodes_cached = self.nodes.iter().any(|node| {
+            is_temporal_node_kind(node.kind)
+        });
+    }
+}
+
+fn is_temporal_node_kind(kind: ProjectNodeKind) -> bool {
+    matches!(
+        kind,
+        ProjectNodeKind::TexFeedback
+            | ProjectNodeKind::TexReactionDiffusion
+            | ProjectNodeKind::TexPostColorTone
+            | ProjectNodeKind::TexPostEdgeStructure
+            | ProjectNodeKind::TexPostBlurDiffusion
+            | ProjectNodeKind::TexPostDistortion
+            | ProjectNodeKind::TexPostTemporal
+            | ProjectNodeKind::TexPostNoiseTexture
+            | ProjectNodeKind::TexPostLighting
+            | ProjectNodeKind::TexPostScreenSpace
+            | ProjectNodeKind::TexPostExperimental
+            | ProjectNodeKind::BufNoise
+    )
 }
 
 fn fnv1a_u64(hash: u64, data: u64) -> u64 {

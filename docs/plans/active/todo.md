@@ -7,7 +7,7 @@
 5. [ ] Advance Windows GPU export throughput path for H.264/image sequence workflows, sequencing NVENC first and AMF second, targeting zero-readback where feasible.
 6. [ ] Keep handoff docs synchronized (`AGENTS.md`, `MEMORY.md`, `docs/plans/active/todo.md`) whenever priorities or status change.
 
-Status notes (2026-02-27):
+Status notes (2026-03-02):
 - Mission focus is a Windows-first, GPU-only shader/video playground with node-graph authoring and real-time generative output.
 - Canonical design source is `docs/v2/engine-v1-playground.md`.
 - Architecture is engine-centric and uses `ResourceKind + ExecutionKind + ClockDomain`.
@@ -17,3 +17,4 @@ Status notes (2026-02-27):
 - Export scope is currently H.264 and image sequences via GPU-accelerated workflows.
 - H.264 rollout order is NVENC first, then AMF.
 - `scripts/run_agent_request.sh` is the mandatory preflight entrypoint for agent housekeeping requests.
+- Performance ROI cycle in `tmp/perf_plan.md` is implemented for items 1-10; hardware-tier threshold locking remains blocked until representative GPU hosts are available.

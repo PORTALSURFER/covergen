@@ -1912,7 +1912,7 @@ impl SceneBuilder {
         let mut live_route_keys = HashSet::new();
         let mut drawn_segments = Vec::new();
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
-        let mut occupied_edges = self.edge_route_occupied.clone();
+        let mut param_occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = HashMap::new();
         let mut route_panel = std::mem::take(&mut self.param_route_panel_scratch);
         for target in project.nodes() {
@@ -1958,11 +1958,12 @@ impl SceneBuilder {
                 live_route_keys.insert(route_key);
                 if !self.param_route_cache.contains_key(&route_key) {
                     let route =
-                        wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
+                        wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_dual_map(
                             start_endpoint,
                             end_endpoint,
                             &self.param_route_obstacle_map,
-                            &occupied_edges,
+                            &self.edge_route_occupied,
+                            &param_occupied_edges,
                             start_tail_cells,
                             end_tail_cells,
                         );
@@ -1984,7 +1985,7 @@ impl SceneBuilder {
                     &mut drawn_segment_hash,
                     state.zoom,
                 );
-                occupied_edges.record_path_non_tail(route.as_ref());
+                param_occupied_edges.record_path_non_tail(route.as_ref());
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }

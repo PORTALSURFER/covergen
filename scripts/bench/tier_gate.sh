@@ -21,6 +21,8 @@ Environment overrides:
   PRESET             default: mask-atlas
   PROFILE            default: performance
   OUTPUT_ROOT        default: target/bench
+  REQUIRE_LOCKED_THRESHOLDS
+                    default: 0 (set to 1 to fail validate mode on placeholder thresholds)
   COVERGEN_RUST_GPU_SPIRV_DIR
                      default: target/rust-gpu
 EOF
@@ -64,11 +66,27 @@ shader_root="${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
 
 threshold_file="docs/v2/benchmarks/${tier}.thresholds.ini"
 output_dir="${output_root}/${tier}"
+require_locked_thresholds="${REQUIRE_LOCKED_THRESHOLDS:-0}"
+
+check_placeholder_thresholds() {
+  local file="$1"
+  if grep -Eq "0\\.001000|1000000\\.000000" "${file}"; then
+    cat >&2 <<EOF
+[bench] locked-threshold check failed for ${file}
+Detected placeholder threshold values.
+Run: scripts/ci_local.sh lock ${tier}
+EOF
+    return 1
+  fi
+}
 
 if [[ "${mode}" == "lock" ]]; then
   threshold_arg=(--lock-thresholds "${threshold_file}")
 else
   threshold_arg=(--thresholds "${threshold_file}")
+  if [[ "${require_locked_thresholds}" == "1" ]]; then
+    check_placeholder_thresholds "${threshold_file}"
+  fi
 fi
 
 echo "[bench] ${mode} tier=${tier} output=${output_dir} thresholds=${threshold_file}"

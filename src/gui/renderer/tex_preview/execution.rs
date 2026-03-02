@@ -87,25 +87,33 @@ impl TexPreviewRenderer {
             tex_view.width as i32,
             tex_view.height as i32,
         );
-        let quad = viewer::quad_vertices(rect);
-        upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
-        queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
+        if self.cached_viewer_quad_rect != Some(rect) {
+            let quad = viewer::quad_vertices(rect);
+            upload_bytes = upload_bytes.saturating_add(std::mem::size_of_val(&quad) as u64);
+            queue.write_buffer(&self.viewer_quad_buffer, 0, bytemuck::cast_slice(&quad));
+            self.cached_viewer_quad_rect = Some(rect);
+        }
         if let Some(preview_rect) = export_preview_rect {
             if preview_rect.w > 1 && preview_rect.h > 1 {
-                let preview_quad = viewer::quad_vertices(preview_rect);
-                upload_bytes =
-                    upload_bytes.saturating_add(std::mem::size_of_val(&preview_quad) as u64);
-                queue.write_buffer(
-                    &self.export_preview_quad_buffer,
-                    0,
-                    bytemuck::cast_slice(&preview_quad),
-                );
+                if self.cached_export_preview_quad_rect != Some(preview_rect) {
+                    let preview_quad = viewer::quad_vertices(preview_rect);
+                    upload_bytes =
+                        upload_bytes.saturating_add(std::mem::size_of_val(&preview_quad) as u64);
+                    queue.write_buffer(
+                        &self.export_preview_quad_buffer,
+                        0,
+                        bytemuck::cast_slice(&preview_quad),
+                    );
+                    self.cached_export_preview_quad_rect = Some(preview_rect);
+                }
                 self.export_preview_visible = true;
             } else {
                 self.export_preview_visible = false;
+                self.cached_export_preview_quad_rect = None;
             }
         } else {
             self.export_preview_visible = false;
+            self.cached_export_preview_quad_rect = None;
         }
 
         let TexViewerPayload::GpuOps(ops) = tex_view.payload;
@@ -116,6 +124,7 @@ impl TexPreviewRenderer {
             ops,
             tex_view.texture_width,
             tex_view.texture_height,
+            tex_view.ops_signature,
         ) {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
@@ -133,12 +142,21 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
+        ops_signature: u64,
     ) -> Option<u64> {
         if ops.is_empty() {
             return None;
         }
         self.op_pass_timestamps.begin_frame();
-        let result = self.encode_gpu_ops_staged(device, queue, encoder, ops, width, height);
+        let result = self.encode_gpu_ops_staged(
+            device,
+            queue,
+            encoder,
+            ops,
+            width,
+            height,
+            ops_signature,
+        );
         self.op_pass_timestamps.resolve_and_reset(encoder);
         result
     }
@@ -152,8 +170,10 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
+        ops_signature: u64,
     ) -> Option<u64> {
-        let upload_bytes = self.plan_gpu_dispatch(device, queue, ops, width, height)?;
+        let upload_bytes =
+            self.plan_gpu_dispatch(device, queue, ops, width, height, ops_signature)?;
         let planned_steps = std::mem::take(&mut self.cached_plan_steps);
         let planned_render_ops = std::mem::take(&mut self.cached_plan_render_ops);
         let mut dispatch = DispatchContext {
@@ -196,11 +216,12 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
+        ops_signature: u64,
     ) -> Option<u64> {
         self.blend_source_aliases.clear();
         self.blend_alias_count_scratch_a = 0;
         self.blend_alias_count_scratch_b = 0;
-        if self.cached_plan_ops.as_slice() != ops {
+        if self.cached_plan_signature != Some(ops_signature) {
             self.cached_plan_ops.clear();
             self.cached_plan_ops.extend_from_slice(ops);
             self.cached_plan_steps.clear();
@@ -210,6 +231,8 @@ impl TexPreviewRenderer {
                 &mut self.cached_plan_steps,
                 &mut self.cached_plan_render_ops,
             );
+            self.cached_plan_signature = Some(ops_signature);
+            self.op_uniform_signature = None;
         }
         if self.cached_plan_render_ops.is_empty() {
             return None;
@@ -218,9 +241,15 @@ impl TexPreviewRenderer {
         self.ensure_dummy_bind_group(device);
         let render_op_count = self.cached_plan_render_ops.len();
         self.ensure_op_uniform_capacity(device, render_op_count);
-        let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
-        let upload_bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
-        self.cached_plan_render_ops = render_ops;
+        let upload_bytes = if self.op_uniform_signature != Some(ops_signature) {
+            let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
+            let bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
+            self.cached_plan_render_ops = render_ops;
+            self.op_uniform_signature = Some(ops_signature);
+            bytes
+        } else {
+            0
+        };
         if render_op_count > 1 {
             self.ensure_scratch_textures(device, width, height);
         }

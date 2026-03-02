@@ -17,6 +17,7 @@ impl GuiProject {
             preview_width,
             preview_height,
             nodes: Vec::new(),
+            node_index_lookup: HashMap::new(),
             next_node_id: 1,
             edge_count: 0,
             hit_test_cache: RefCell::new(HitTestCache::default()),
@@ -31,6 +32,8 @@ impl GuiProject {
             wires_epoch: 0,
             tex_eval_epoch: 0,
             lfo_sync_bpm: 120.0,
+            has_signal_bindings_cached: false,
+            has_temporal_nodes_cached: false,
         };
         project.render_signature_cache = project.compute_render_signature();
         project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
@@ -280,12 +283,7 @@ impl GuiProject {
     }
 
     pub(super) fn node_index(&self, node_id: u32) -> Option<usize> {
-        self.ensure_hit_test_cache();
-        self.hit_test_cache
-            .borrow()
-            .node_index_by_id
-            .get(&node_id)
-            .copied()
+        self.node_index_lookup.get(&node_id).copied()
     }
 
     pub(super) fn invalidate_hit_test_cache(&mut self) {
@@ -344,6 +342,8 @@ impl GuiProject {
             selected_param: 0,
             expanded: false,
         });
+        self.node_index_lookup
+            .insert(node_id, self.nodes.len().saturating_sub(1));
         self.invalidate_hit_test_cache();
         self.bump_render_epoch();
         node_id
@@ -548,6 +548,9 @@ impl GuiProject {
         self.nodes
             .retain(|node| !contains_sorted_id(removed_ids.as_slice(), node.id()));
         let removed_any = self.nodes.len() != before_len;
+        if removed_any {
+            self.rebuild_node_index_lookup();
+        }
         let output_kinds = collect_output_kinds(self.nodes.as_slice());
         let output_labels = collect_output_labels(self.nodes.as_slice());
         let mut links_changed = false;
@@ -640,6 +643,13 @@ impl GuiProject {
     pub(super) fn bump_hit_test_scan_count(&self, delta: u64) {
         let next = self.hit_test_scan_count.get().saturating_add(delta);
         self.hit_test_scan_count.set(next);
+    }
+
+    fn rebuild_node_index_lookup(&mut self) {
+        self.node_index_lookup.clear();
+        for (index, node) in self.nodes.iter().enumerate() {
+            self.node_index_lookup.insert(node.id(), index);
+        }
     }
 }
 

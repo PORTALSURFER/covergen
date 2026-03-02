@@ -24,7 +24,8 @@ const PREVIEW_BG: wgpu::Color = wgpu::Color {
     b: 0.0,
     a: 1.0,
 };
-pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
+    wgpu::TextureFormat::Bgra8Unorm;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -320,8 +321,10 @@ pub(super) struct TexPreviewRenderer {
     viewer_texture_size: (u32, u32),
     viewer_quad_buffer: wgpu::Buffer,
     viewer_visible: bool,
+    cached_viewer_quad_rect: Option<crate::gui::geometry::Rect>,
     export_preview_quad_buffer: wgpu::Buffer,
     export_preview_visible: bool,
+    cached_export_preview_quad_rect: Option<crate::gui::geometry::Rect>,
 
     op_uniform_layout: wgpu::BindGroupLayout,
     op_uniform_buffer: wgpu::Buffer,
@@ -332,6 +335,8 @@ pub(super) struct TexPreviewRenderer {
     cached_plan_ops: Vec<TexViewerOp>,
     cached_plan_steps: Vec<execution_plan::PlannedStep>,
     cached_plan_render_ops: Vec<execution_plan::PlannedRenderOp>,
+    cached_plan_signature: Option<u64>,
+    op_uniform_signature: Option<u64>,
     op_solid_pipeline: Option<wgpu::RenderPipeline>,
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
@@ -617,8 +622,10 @@ impl TexPreviewRenderer {
             viewer_texture_size: (0, 0),
             viewer_quad_buffer,
             viewer_visible: false,
+            cached_viewer_quad_rect: None,
             export_preview_quad_buffer,
             export_preview_visible: false,
+            cached_export_preview_quad_rect: None,
             op_uniform_layout,
             op_uniform_buffer,
             op_uniform_bind_group,
@@ -628,6 +635,8 @@ impl TexPreviewRenderer {
             cached_plan_ops: Vec::new(),
             cached_plan_steps: Vec::new(),
             cached_plan_render_ops: Vec::new(),
+            cached_plan_signature: None,
+            op_uniform_signature: None,
             op_solid_pipeline: None,
             op_circle_pipeline: None,
             op_sphere_pipeline: None,

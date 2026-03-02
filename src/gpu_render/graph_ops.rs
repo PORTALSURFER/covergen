@@ -13,6 +13,9 @@ use crate::shaders::{create_shader_module, ShaderProgram};
 mod layout;
 use layout::{create_decode_bind_group_layout, create_graph_bind_group_layout, create_pipeline};
 
+const GRAPH_BIND_GROUP_CACHE_SOFT_MAX: usize = 512;
+const DECODE_BIND_GROUP_CACHE_SOFT_MAX: usize = 128;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct GraphOpUniforms {
@@ -204,8 +207,14 @@ impl GpuGraphOps {
 
     /// Reset frame-scoped bind-group caches before a new graph frame begins.
     pub(super) fn begin_frame(&self) {
-        self.graph_bind_group_cache.borrow_mut().clear();
-        self.decode_bind_group_cache.borrow_mut().clear();
+        let graph_cache_len = self.graph_bind_group_cache.borrow().len();
+        if graph_cache_len > GRAPH_BIND_GROUP_CACHE_SOFT_MAX {
+            self.graph_bind_group_cache.borrow_mut().clear();
+        }
+        let decode_cache_len = self.decode_bind_group_cache.borrow().len();
+        if decode_cache_len > DECODE_BIND_GROUP_CACHE_SOFT_MAX {
+            self.decode_bind_group_cache.borrow_mut().clear();
+        }
         self.frame_bind_group_creates.set(0);
     }
 
