@@ -659,12 +659,13 @@ impl GuiRenderer {
         {
             return;
         }
-        self.tex_preview_readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gui-tex-preview-readback"),
-            size: min_size.max(1),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        }));
+        self.tex_preview_readback_buffer =
+            Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("gui-tex-preview-readback"),
+                size: min_size.max(1),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
         self.tex_preview_readback_buffer_size = min_size.max(1);
     }
 

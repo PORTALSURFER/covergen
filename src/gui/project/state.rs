@@ -415,8 +415,13 @@ impl GuiProject {
             let node = &mut self.nodes[index];
             let next_x = node.x.saturating_add(dx);
             let next_y = node.y.saturating_add(dy);
-            let (clamped_x, clamped_y) =
-                clamp_node_position(next_x, next_y, panel_width, panel_height, node.card_height());
+            let (clamped_x, clamped_y) = clamp_node_position(
+                next_x,
+                next_y,
+                panel_width,
+                panel_height,
+                node.card_height(),
+            );
             if node.x == clamped_x && node.y == clamped_y {
                 continue;
             }

@@ -6,14 +6,14 @@ use crate::model::{LayerBlendMode, XorShift32};
 use crate::node::{OutputNode, OutputRole};
 
 use super::node_catalog::NodePayload;
+use super::operator_graph_stage_primitives::{
+    add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
+};
 use super::preset_catalog::PresetContext;
 use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest, ModuleResult};
-use super::operator_graph_stage_primitives::{
-    add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
-};
 
 #[derive(Clone, Copy)]
 struct Controls {

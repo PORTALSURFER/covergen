@@ -6,12 +6,12 @@ use crate::model::{LayerBlendMode, XorShift32};
 use crate::runtime_config::V2Profile;
 
 use super::node_catalog::NodePayload;
-use super::preset_catalog::PresetContext;
-use super::primitives::{random_blend, random_tonemap, random_warp, render_size};
 use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_noise_mask_pair, add_outputs, add_remap, add_sphere, pick,
     pop_optional, pop_random, TextureFx,
 };
+use super::preset_catalog::PresetContext;
+use super::primitives::{random_blend, random_tonemap, random_warp, render_size};
 
 #[derive(Clone, Copy)]
 struct ControlBus {
@@ -22,7 +22,9 @@ struct ControlBus {
 }
 
 /// Build a deeper staged operator-family graph with structured branching.
-pub(super) fn build_operator_multi_stage(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+pub(super) fn build_operator_multi_stage(
+    ctx: PresetContext<'_>,
+) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0xC341_92D1);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x57A1_8B3D);

@@ -6,14 +6,14 @@ use crate::model::{LayerBlendMode, XorShift32};
 use crate::node::OutputNode;
 
 use super::node_catalog::NodePayload;
+use super::operator_graph_stage_primitives::{
+    add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
+};
 use super::preset_catalog::PresetContext;
 use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest, ModuleResult};
-use super::operator_graph_stage_primitives::{
-    add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
-};
 
 #[derive(Clone, Copy)]
 struct Controls {
@@ -23,7 +23,9 @@ struct Controls {
 }
 
 /// Build a patchwork-style operator graph with cross-wired camera/layer/mask stages.
-pub(super) fn build_operator_patchwork(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+pub(super) fn build_operator_patchwork(
+    ctx: PresetContext<'_>,
+) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x6114_A9FD);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x1F02_7D31);

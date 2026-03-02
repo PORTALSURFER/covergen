@@ -6,14 +6,14 @@ use crate::model::{LayerBlendMode, XorShift32};
 use crate::node::{MaskTemporal, OutputNode};
 
 use super::node_catalog::NodePayload;
+use super::operator_graph_stage_primitives::{
+    add_camera, add_circle, add_lfo, add_noise_mask_pair, add_remap, add_sphere, pick,
+};
 use super::preset_catalog::PresetContext;
 use super::primitives::{
     generate_layer_node, random_blend, random_tonemap, random_warp, render_size,
 };
 use super::subgraph_catalog::{ModuleBuildContext, ModuleRequest, ModuleResult};
-use super::operator_graph_stage_primitives::{
-    add_camera, add_circle, add_lfo, add_noise_mask_pair, add_remap, add_sphere, pick,
-};
 
 #[derive(Clone, Copy)]
 struct ControlBus {
@@ -38,7 +38,9 @@ struct BuildCtx<'a, 'b> {
 }
 
 /// Build an orbit-focused operator preset with deterministic multi-lane signal flow.
-pub(super) fn build_operator_orbit_forge(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+pub(super) fn build_operator_orbit_forge(
+    ctx: PresetContext<'_>,
+) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x61E7_8B39);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x4A20_17CF);

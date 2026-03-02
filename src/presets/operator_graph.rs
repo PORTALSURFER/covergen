@@ -78,7 +78,9 @@ pub(super) fn build_operator_primitive_stage(
 }
 
 /// Build a constrained random operator-family network with CHOP/SOP/tex branches.
-pub(super) fn build_operator_random_network(ctx: PresetContext<'_>) -> Result<GpuGraph, GraphBuildError> {
+pub(super) fn build_operator_random_network(
+    ctx: PresetContext<'_>,
+) -> Result<GpuGraph, GraphBuildError> {
     let (width, height) = render_size(ctx.config);
     let mut builder = GraphBuilder::new(width, height, ctx.config.seed ^ 0x58C3_1D27);
     let mut rng = XorShift32::new(ctx.config.seed ^ 0x9A27_5B41);

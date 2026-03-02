@@ -59,7 +59,8 @@ impl GuiProject {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn render_signature(&self) -> u64 {
         if self.render_signature_dirty.get() {
-            self.render_signature_cache.set(self.compute_render_signature());
+            self.render_signature_cache
+                .set(self.compute_render_signature());
             self.render_signature_dirty.set(false);
         }
         self.render_signature_cache.get()
@@ -89,7 +90,8 @@ impl GuiProject {
     #[allow(dead_code)]
     pub(crate) fn graph_signature(&self) -> u64 {
         if self.graph_signature_dirty.get() {
-            let signature = compose_graph_signature(self.render_signature(), self.ui_signature_cache);
+            let signature =
+                compose_graph_signature(self.render_signature(), self.ui_signature_cache);
             self.graph_signature_cache.set(signature);
             self.graph_signature_dirty.set(false);
         }

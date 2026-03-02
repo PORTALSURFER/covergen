@@ -6,12 +6,12 @@ use crate::model::XorShift32;
 use crate::node::OutputNode;
 
 use super::node_catalog::NodePayload;
-use super::preset_catalog::PresetContext;
-use super::primitives::{generate_layer_node, random_tonemap, render_size};
-use super::subgraph_catalog::{ModuleBuildContext, ModuleParams, ModuleRequest};
 use super::operator_graph_stage_primitives::{
     add_camera, add_circle, add_lfo, add_remap, add_sphere, pick,
 };
+use super::preset_catalog::PresetContext;
+use super::primitives::{generate_layer_node, random_tonemap, render_size};
+use super::subgraph_catalog::{ModuleBuildContext, ModuleParams, ModuleRequest};
 
 #[derive(Clone, Copy)]
 struct ControlBus {

@@ -1287,7 +1287,9 @@ impl GuiCompiledRuntime {
                 }
             }
             if step.kind != CompiledStepKind::StoreTexture
-                && self.external_feedback_history_sources.contains(&step.node_id)
+                && self
+                    .external_feedback_history_sources
+                    .contains(&step.node_id)
                 && out_ops.len() > out_len_before
             {
                 push_store_texture_op(out_ops, step.node_id);

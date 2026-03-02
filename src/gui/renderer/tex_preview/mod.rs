@@ -24,8 +24,7 @@ const PREVIEW_BG: wgpu::Color = wgpu::Color {
     b: 0.0,
     a: 1.0,
 };
-pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat =
-    wgpu::TextureFormat::Bgra8Unorm;
+pub(super) const TEX_PREVIEW_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
