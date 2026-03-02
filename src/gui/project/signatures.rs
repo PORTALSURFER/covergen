@@ -5,17 +5,15 @@ impl GuiProject {
         self.render_epoch = self.render_epoch.wrapping_add(1);
         self.bump_nodes_epoch();
         self.bump_tex_eval_epoch();
-        self.refresh_runtime_flags();
-        self.render_signature_cache = self.compute_render_signature();
-        self.graph_signature_cache =
-            compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
+        self.runtime_flags_dirty.set(true);
+        self.render_signature_dirty.set(true);
+        self.graph_signature_dirty.set(true);
     }
 
     pub(super) fn bump_ui_epoch(&mut self) {
         self.ui_epoch = self.ui_epoch.wrapping_add(1);
         self.ui_signature_cache = signature_from_ui_epoch(self.ui_epoch);
-        self.graph_signature_cache =
-            compose_graph_signature(self.render_signature_cache, self.ui_signature_cache);
+        self.graph_signature_dirty.set(true);
     }
 
     pub(super) fn bump_nodes_epoch(&mut self) {
@@ -60,7 +58,11 @@ impl GuiProject {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn render_signature(&self) -> u64 {
-        self.render_signature_cache
+        if self.render_signature_dirty.get() {
+            self.render_signature_cache.set(self.compute_render_signature());
+            self.render_signature_dirty.set(false);
+        }
+        self.render_signature_cache.get()
     }
 
     /// Return scoped project invalidation epochs for retained GUI subtrees.
@@ -86,12 +88,18 @@ impl GuiProject {
     /// Prefer [`Self::render_signature`] for tex/render invalidation.
     #[allow(dead_code)]
     pub(crate) fn graph_signature(&self) -> u64 {
-        self.graph_signature_cache
+        if self.graph_signature_dirty.get() {
+            let signature = compose_graph_signature(self.render_signature(), self.ui_signature_cache);
+            self.graph_signature_cache.set(signature);
+            self.graph_signature_dirty.set(false);
+        }
+        self.graph_signature_cache.get()
     }
 
     /// Return true when at least one parameter has a live signal binding.
     pub(crate) fn has_signal_bindings(&self) -> bool {
-        self.has_signal_bindings_cached
+        self.ensure_runtime_flags();
+        self.has_signal_bindings_cached.get()
     }
 
     /// Return true when the graph contains time-driven nodes.
@@ -100,17 +108,36 @@ impl GuiProject {
     /// signal bindings, such as feedback, post-process temporal categories,
     /// and buffer noise deformation.
     pub(crate) fn has_temporal_nodes(&self) -> bool {
-        self.has_temporal_nodes_cached
+        self.ensure_runtime_flags();
+        self.has_temporal_nodes_cached.get()
     }
 
-    pub(super) fn refresh_runtime_flags(&mut self) {
-        self.has_signal_bindings_cached = self
-            .nodes
-            .iter()
-            .any(|node| node.params.iter().any(|slot| slot.signal_source.is_some()));
-        self.has_temporal_nodes_cached = self.nodes.iter().any(|node| {
-            is_temporal_node_kind(node.kind)
-        });
+    pub(super) fn ensure_runtime_flags(&self) {
+        if !self.runtime_flags_dirty.get() {
+            return;
+        }
+        let mut has_signal_bindings = false;
+        let mut has_temporal_nodes = false;
+        let mut has_signal_preview_nodes = false;
+        for node in &self.nodes {
+            if !has_signal_bindings {
+                has_signal_bindings = node.params.iter().any(|slot| slot.signal_source.is_some());
+            }
+            if !has_temporal_nodes {
+                has_temporal_nodes = is_temporal_node_kind(node.kind);
+            }
+            if !has_signal_preview_nodes {
+                has_signal_preview_nodes = node.kind().shows_signal_preview();
+            }
+            if has_signal_bindings && has_temporal_nodes && has_signal_preview_nodes {
+                break;
+            }
+        }
+        self.has_signal_bindings_cached.set(has_signal_bindings);
+        self.has_temporal_nodes_cached.set(has_temporal_nodes);
+        self.has_signal_preview_nodes_cached
+            .set(has_signal_preview_nodes);
+        self.runtime_flags_dirty.set(false);
     }
 }
 

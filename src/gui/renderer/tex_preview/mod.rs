@@ -256,7 +256,7 @@ impl TexOpUniform {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum RenderTargetRef {
     Viewer,
     ScratchA,
@@ -361,8 +361,7 @@ pub(super) struct TexPreviewRenderer {
     feedback_history: HashMap<FeedbackHistoryKey, FeedbackHistorySlot>,
     blend_source_slots: HashMap<u32, CachedTextureSlot>,
     blend_source_aliases: HashMap<u32, RenderTargetRef>,
-    blend_alias_count_scratch_a: usize,
-    blend_alias_count_scratch_b: usize,
+    blend_source_aliases_by_target: HashMap<RenderTargetRef, Vec<u32>>,
     blend_alias_materialize_scratch: Vec<u32>,
     op_pass_timestamps: OptionalGpuTimestampQueries,
 }
@@ -659,8 +658,7 @@ impl TexPreviewRenderer {
             feedback_history: HashMap::new(),
             blend_source_slots: HashMap::new(),
             blend_source_aliases: HashMap::new(),
-            blend_alias_count_scratch_a: 0,
-            blend_alias_count_scratch_b: 0,
+            blend_source_aliases_by_target: HashMap::new(),
             blend_alias_materialize_scratch: Vec::new(),
             op_pass_timestamps,
         }

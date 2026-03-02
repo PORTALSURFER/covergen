@@ -45,10 +45,9 @@ pub(crate) fn score_candidate(
     height: u32,
     prior_histograms: &[[f32; 16]],
 ) -> ScoreBreakdown {
-    let histogram = histogram_16(primary);
-    let composition = composition_score(primary, width, height);
+    let (histogram, composition, stability) =
+        fused_primary_metrics(primary, temporal_probe, width, height);
     let novelty = novelty_score(&histogram, prior_histograms);
-    let stability = temporal_stability_score(primary, temporal_probe);
     let total = (composition * 0.45) + (novelty * 0.35) + (stability * 0.20);
     ScoreBreakdown {
         total,
@@ -73,36 +72,6 @@ fn compare_score_desc(a: CandidateScore, b: CandidateScore) -> Ordering {
         .then_with(|| a.candidate_index.cmp(&b.candidate_index))
 }
 
-fn histogram_16(frame: &[u8]) -> [f32; 16] {
-    if frame.is_empty() {
-        return [0.0; 16];
-    }
-    let mut hist = [0u32; 16];
-    for value in frame {
-        let bin = (*value as usize) / 16;
-        hist[bin.min(15)] += 1;
-    }
-    let denom = frame.len() as f32;
-    let mut normalized = [0.0f32; 16];
-    for (index, value) in hist.into_iter().enumerate() {
-        normalized[index] = value as f32 / denom;
-    }
-    normalized
-}
-
-fn composition_score(frame: &[u8], width: u32, height: u32) -> f32 {
-    if frame.is_empty() || width == 0 || height == 0 {
-        return 0.0;
-    }
-
-    let (mean, variance) = mean_variance(frame);
-    let stddev = variance.sqrt();
-    let contrast = (stddev / 80.0).clamp(0.0, 1.0);
-    let exposure = (1.0 - ((mean / 255.0) - 0.5).abs() * 2.0).clamp(0.0, 1.0);
-    let edge = edge_energy(frame, width as usize, height as usize);
-    (contrast * 0.5) + (edge * 0.3) + (exposure * 0.2)
-}
-
 fn novelty_score(histogram: &[f32; 16], prior_histograms: &[[f32; 16]]) -> f32 {
     if prior_histograms.is_empty() {
         return 0.5;
@@ -115,18 +84,6 @@ fn novelty_score(histogram: &[f32; 16], prior_histograms: &[[f32; 16]]) -> f32 {
     (average / 2.0).clamp(0.0, 1.0)
 }
 
-fn temporal_stability_score(primary: &[u8], temporal_probe: &[u8]) -> f32 {
-    if primary.is_empty() || primary.len() != temporal_probe.len() {
-        return 0.0;
-    }
-    let mut sum_abs_delta = 0.0f32;
-    for (a, b) in primary.iter().zip(temporal_probe.iter()) {
-        sum_abs_delta += (*a as f32 - *b as f32).abs();
-    }
-    let mean_delta = sum_abs_delta / primary.len() as f32;
-    (1.0 - (mean_delta / 255.0)).clamp(0.0, 1.0)
-}
-
 fn l1_distance(a: &[f32; 16], b: &[f32; 16]) -> f32 {
     let mut total = 0.0f32;
     for index in 0..16 {
@@ -135,44 +92,64 @@ fn l1_distance(a: &[f32; 16], b: &[f32; 16]) -> f32 {
     total
 }
 
-fn mean_variance(frame: &[u8]) -> (f32, f32) {
-    let len = frame.len() as f32;
-    if len <= 0.0 {
-        return (0.0, 0.0);
+fn fused_primary_metrics(
+    primary: &[u8],
+    temporal_probe: &[u8],
+    width: u32,
+    height: u32,
+) -> ([f32; 16], f32, f32) {
+    let width = width as usize;
+    let height = height as usize;
+    let expected = width.saturating_mul(height);
+    if expected == 0 || primary.len() < expected || temporal_probe.len() < expected {
+        return ([0.0; 16], 0.0, 0.0);
     }
-    let sum = frame.iter().map(|value| *value as f32).sum::<f32>();
-    let mean = sum / len;
-    let variance = frame
-        .iter()
-        .map(|value| {
-            let delta = *value as f32 - mean;
-            delta * delta
-        })
-        .sum::<f32>()
-        / len;
-    (mean, variance)
-}
 
-fn edge_energy(frame: &[u8], width: usize, height: usize) -> f32 {
-    if width < 2 || height < 2 {
-        return 0.0;
-    }
-    let mut total = 0.0f32;
-    let mut samples = 0usize;
-    for y in 0..(height - 1) {
-        for x in 0..(width - 1) {
-            let idx = y * width + x;
-            let dx = (frame[idx] as f32 - frame[idx + 1] as f32).abs();
-            let dy = (frame[idx] as f32 - frame[idx + width] as f32).abs();
-            total += (dx + dy) / 510.0;
-            samples += 1;
+    let mut hist = [0u32; 16];
+    let mut sum = 0.0f32;
+    let mut sum_sq = 0.0f32;
+    let mut sum_abs_delta = 0.0f32;
+    let mut edge_total = 0.0f32;
+    let mut edge_samples = 0usize;
+
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            let primary_value = primary[index] as f32;
+            let temporal_value = temporal_probe[index] as f32;
+            hist[((primary_value as usize) / 16).min(15)] += 1;
+            sum += primary_value;
+            sum_sq += primary_value * primary_value;
+            sum_abs_delta += (primary_value - temporal_value).abs();
+
+            if x + 1 < width && y + 1 < height {
+                let dx = (primary_value - primary[index + 1] as f32).abs();
+                let dy = (primary_value - primary[index + width] as f32).abs();
+                edge_total += (dx + dy) / 510.0;
+                edge_samples = edge_samples.saturating_add(1);
+            }
         }
     }
-    if samples == 0 {
+
+    let denom = expected as f32;
+    let mean = sum / denom;
+    let variance = (sum_sq / denom - mean * mean).max(0.0);
+    let stddev = variance.sqrt();
+    let contrast = (stddev / 80.0).clamp(0.0, 1.0);
+    let exposure = (1.0 - ((mean / 255.0) - 0.5).abs() * 2.0).clamp(0.0, 1.0);
+    let edge = if edge_samples == 0 {
         0.0
     } else {
-        (total / samples as f32).clamp(0.0, 1.0)
+        (edge_total / edge_samples as f32).clamp(0.0, 1.0)
+    };
+    let composition = (contrast * 0.5) + (edge * 0.3) + (exposure * 0.2);
+    let stability = (1.0 - (sum_abs_delta / denom / 255.0)).clamp(0.0, 1.0);
+
+    let mut histogram = [0.0f32; 16];
+    for (index, count) in hist.into_iter().enumerate() {
+        histogram[index] = count as f32 / denom;
     }
+    (histogram, composition, stability)
 }
 
 #[cfg(test)]

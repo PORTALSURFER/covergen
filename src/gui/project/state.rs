@@ -21,24 +21,34 @@ impl GuiProject {
             next_node_id: 1,
             edge_count: 0,
             hit_test_cache: RefCell::new(HitTestCache::default()),
+            hit_test_seen_scratch: RefCell::new(HashSet::new()),
+            hit_test_candidates_scratch: RefCell::new(Vec::new()),
             hit_test_dirty: Cell::new(false),
             hit_test_scan_count: Cell::new(0),
             render_epoch,
             ui_epoch,
-            render_signature_cache: 0,
+            render_signature_cache: Cell::new(0),
+            render_signature_dirty: Cell::new(false),
             ui_signature_cache: 0,
-            graph_signature_cache: 0,
+            graph_signature_cache: Cell::new(0),
+            graph_signature_dirty: Cell::new(false),
             nodes_epoch: 0,
             wires_epoch: 0,
             tex_eval_epoch: 0,
             lfo_sync_bpm: 120.0,
-            has_signal_bindings_cached: false,
-            has_temporal_nodes_cached: false,
+            has_signal_bindings_cached: Cell::new(false),
+            has_temporal_nodes_cached: Cell::new(false),
+            has_signal_preview_nodes_cached: Cell::new(false),
+            runtime_flags_dirty: Cell::new(false),
         };
-        project.render_signature_cache = project.compute_render_signature();
+        project
+            .render_signature_cache
+            .set(project.compute_render_signature());
         project.ui_signature_cache = signature_from_ui_epoch(project.ui_epoch);
-        project.graph_signature_cache =
-            compose_graph_signature(project.render_signature_cache, project.ui_signature_cache);
+        project.graph_signature_cache.set(compose_graph_signature(
+            project.render_signature_cache.get(),
+            project.ui_signature_cache,
+        ));
         project
     }
 
@@ -253,9 +263,8 @@ impl GuiProject {
 
     /// Return true when at least one node should render an animated signal scope.
     pub(crate) fn has_signal_preview_nodes(&self) -> bool {
-        self.nodes
-            .iter()
-            .any(|node| node.kind().shows_signal_preview())
+        self.ensure_runtime_flags();
+        self.has_signal_preview_nodes_cached.get()
     }
 
     /// Return and reset accumulated hit-test scan count since last call.
@@ -298,8 +307,7 @@ impl GuiProject {
             return;
         }
         let mut cache = HitTestCache::default();
-        for (index, node) in self.nodes.iter().enumerate() {
-            cache.node_index_by_id.insert(node.id(), index);
+        for node in &self.nodes {
             cache_node_rect_bins(
                 &mut cache.node_bins,
                 node.id(),
@@ -374,6 +382,48 @@ impl GuiProject {
                 true
             }
         };
+        if changed {
+            self.invalidate_hit_test_cache();
+        }
+        changed
+    }
+
+    /// Move multiple nodes by one shared graph-space delta and invalidate once.
+    ///
+    /// This is used by group-drag interactions to avoid N repeated invalidation
+    /// and hit-test rebuild signals when moving a selected set.
+    pub(crate) fn move_nodes_by_delta_excluding(
+        &mut self,
+        node_ids: &[u32],
+        exclude_node_id: Option<u32>,
+        dx: i32,
+        dy: i32,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> bool {
+        if (dx == 0 && dy == 0) || node_ids.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for node_id in node_ids.iter().copied() {
+            if exclude_node_id == Some(node_id) {
+                continue;
+            }
+            let Some(index) = self.node_index(node_id) else {
+                continue;
+            };
+            let node = &mut self.nodes[index];
+            let next_x = node.x.saturating_add(dx);
+            let next_y = node.y.saturating_add(dy);
+            let (clamped_x, clamped_y) =
+                clamp_node_position(next_x, next_y, panel_width, panel_height, node.card_height());
+            if node.x == clamped_x && node.y == clamped_y {
+                continue;
+            }
+            node.x = clamped_x;
+            node.y = clamped_y;
+            changed = true;
+        }
         if changed {
             self.invalidate_hit_test_cache();
         }

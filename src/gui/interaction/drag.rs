@@ -127,17 +127,14 @@ pub(super) fn move_drag_selection_by_anchor_delta(
     if dx == 0 && dy == 0 {
         return changed;
     }
-    for node_id in dragged_node_ids.iter().copied() {
-        if node_id == drag.node_id {
-            continue;
-        }
-        let Some(node) = project.node(node_id) else {
-            continue;
-        };
-        let next_x = node.x().saturating_add(dx);
-        let next_y = node.y().saturating_add(dy);
-        changed |= project.move_node(node_id, next_x, next_y, ctx.panel_width, ctx.panel_height);
-    }
+    changed |= project.move_nodes_by_delta_excluding(
+        dragged_node_ids,
+        Some(drag.node_id),
+        dx,
+        dy,
+        ctx.panel_width,
+        ctx.panel_height,
+    );
     changed
 }
 

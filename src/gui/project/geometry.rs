@@ -1,6 +1,5 @@
 use super::*;
 use crate::gui::geometry::Rect;
-use std::collections::HashSet;
 
 impl GuiProject {
     pub(crate) fn node_at(&self, x: i32, y: i32) -> Option<u32> {
@@ -10,7 +9,7 @@ impl GuiProject {
         let candidates = cache.node_bins.get(&key)?;
         for node_id in candidates.iter().rev() {
             self.bump_hit_test_scan_count(1);
-            let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
+            let Some(index) = self.node_index_lookup.get(node_id).copied() else {
                 continue;
             };
             let Some(node) = self.nodes.get(index) else {
@@ -71,8 +70,10 @@ impl GuiProject {
         };
         self.ensure_hit_test_cache();
         let cache = self.hit_test_cache.borrow();
-        let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
+        let mut seen = std::mem::take(&mut *self.hit_test_seen_scratch.borrow_mut());
+        let mut candidates = std::mem::take(&mut *self.hit_test_candidates_scratch.borrow_mut());
+        seen.clear();
+        candidates.clear();
         for by in hit_bin_coord(min_y)..=hit_bin_coord(max_y) {
             for bx in hit_bin_coord(min_x)..=hit_bin_coord(max_x) {
                 let Some(ids) = cache.node_bins.get(&hit_bin_key(bx, by)) else {
@@ -86,33 +87,34 @@ impl GuiProject {
                 }
             }
         }
-        if candidates.is_empty() {
-            return candidates;
+        if !candidates.is_empty() {
+            candidates.sort_unstable_by_key(|node_id| {
+                self.node_index_lookup
+                    .get(node_id)
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
         }
-        candidates.sort_unstable_by_key(|node_id| {
-            cache
-                .node_index_by_id
-                .get(node_id)
-                .copied()
-                .unwrap_or(usize::MAX)
-        });
 
-        let mut out = Vec::new();
-        for node_id in candidates {
-            let Some(index) = cache.node_index_by_id.get(&node_id).copied() else {
+        let mut out = Vec::with_capacity(candidates.len());
+        for node_id in candidates.iter().copied() {
+            let Some(index) = self.node_index_lookup.get(&node_id).copied() else {
                 continue;
             };
-            let Some(node) = self.nodes.get(index) else {
-                continue;
-            };
-            let nx0 = node.x();
-            let ny0 = node.y();
-            let nx1 = nx0.saturating_add(NODE_WIDTH);
-            let ny1 = ny0.saturating_add(node.card_height());
-            if min_x <= nx1 && max_x >= nx0 && min_y <= ny1 && max_y >= ny0 {
-                out.push(node_id);
+            if let Some(node) = self.nodes.get(index) {
+                let nx0 = node.x();
+                let ny0 = node.y();
+                let nx1 = nx0.saturating_add(NODE_WIDTH);
+                let ny1 = ny0.saturating_add(node.card_height());
+                if min_x <= nx1 && max_x >= nx0 && min_y <= ny1 && max_y >= ny0 {
+                    out.push(node_id);
+                }
             }
         }
+        candidates.clear();
+        seen.clear();
+        *self.hit_test_candidates_scratch.borrow_mut() = candidates;
+        *self.hit_test_seen_scratch.borrow_mut() = seen;
         out
     }
 
@@ -154,7 +156,8 @@ impl GuiProject {
         let max_x = x.saturating_add(radius_px);
         let min_y = y.saturating_sub(radius_px);
         let max_y = y.saturating_add(radius_px);
-        let mut seen = HashSet::new();
+        let mut seen = std::mem::take(&mut *self.hit_test_seen_scratch.borrow_mut());
+        seen.clear();
         let mut hit = None;
         let mut hit_z = 0_usize;
 
@@ -174,7 +177,7 @@ impl GuiProject {
                     if Some(*node_id) == disallow_source || !seen.insert(*node_id) {
                         continue;
                     }
-                    let Some(index) = cache.node_index_by_id.get(node_id).copied() else {
+                    let Some(index) = self.node_index_lookup.get(node_id).copied() else {
                         continue;
                     };
                     let Some(node) = self.nodes.get(index) else {
@@ -190,6 +193,8 @@ impl GuiProject {
                 }
             }
         }
+        seen.clear();
+        *self.hit_test_seen_scratch.borrow_mut() = seen;
         hit
     }
 }

@@ -1177,19 +1177,25 @@ pub(crate) struct GuiProject {
     next_node_id: u32,
     edge_count: usize,
     hit_test_cache: RefCell<HitTestCache>,
+    hit_test_seen_scratch: RefCell<HashSet<u32>>,
+    hit_test_candidates_scratch: RefCell<Vec<u32>>,
     hit_test_dirty: Cell<bool>,
     hit_test_scan_count: Cell<u64>,
     render_epoch: u64,
     ui_epoch: u64,
-    render_signature_cache: u64,
+    render_signature_cache: Cell<u64>,
+    render_signature_dirty: Cell<bool>,
     ui_signature_cache: u64,
-    graph_signature_cache: u64,
+    graph_signature_cache: Cell<u64>,
+    graph_signature_dirty: Cell<bool>,
     nodes_epoch: u64,
     wires_epoch: u64,
     tex_eval_epoch: u64,
     lfo_sync_bpm: f32,
-    has_signal_bindings_cached: bool,
-    has_temporal_nodes_cached: bool,
+    has_signal_bindings_cached: Cell<bool>,
+    has_temporal_nodes_cached: Cell<bool>,
+    has_signal_preview_nodes_cached: Cell<bool>,
+    runtime_flags_dirty: Cell<bool>,
 }
 
 /// Project-scoped invalidation epochs consumed by GUI retained layers.
@@ -1203,7 +1209,6 @@ pub(crate) struct GuiProjectInvalidation {
 /// Cached spatial/index structures for fast graph hit-testing.
 #[derive(Clone, Debug, Default)]
 struct HitTestCache {
-    node_index_by_id: HashMap<u32, usize>,
     node_bins: HashMap<i64, Vec<u32>>,
     output_pin_bins: HashMap<i64, Vec<u32>>,
     input_pin_bins: HashMap<i64, Vec<u32>>,

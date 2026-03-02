@@ -362,9 +362,19 @@ pub(crate) struct SceneBuilder {
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
     signal_scope_line_scratch: Vec<(i32, i32, i32, i32)>,
+    selected_nodes_lookup_scratch: HashSet<u32>,
+    edge_live_route_keys_scratch: HashSet<EdgeRouteCacheKey>,
+    edge_drawn_segments_scratch: Vec<DrawnWireSegment>,
+    edge_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
+    edge_route_panel_scratch: Vec<(i32, i32)>,
+    param_live_route_keys_scratch: HashSet<ParamRouteCacheKey>,
+    param_drawn_segments_scratch: Vec<DrawnWireSegment>,
+    param_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
     bridge_new_segments_scratch: Vec<DrawnWireSegment>,
     bridge_candidate_indices_scratch: Vec<usize>,
     bridge_crossings_scratch: Vec<f32>,
+    bridge_clusters_scratch: Vec<(f32, f32)>,
+    bridge_points_scratch: Vec<(i32, i32)>,
     frame_alloc_bytes: u64,
     was_dragging: bool,
 }
@@ -602,12 +612,16 @@ impl SceneBuilder {
                 wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
         }
         let active_epoch = self.edge_route_cache_epoch.unwrap_or(obstacle_epoch);
-        let mut live_route_keys = HashSet::new();
-        let mut drawn_segments = Vec::new();
+        let mut live_route_keys = std::mem::take(&mut self.edge_live_route_keys_scratch);
+        let mut drawn_segments = std::mem::take(&mut self.edge_drawn_segments_scratch);
+        live_route_keys.clear();
+        drawn_segments.clear();
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
-        let mut tail_slots = HashMap::new();
-        let mut route_panel = Vec::new();
+        let mut tail_slots = std::mem::take(&mut self.edge_tail_slots_scratch);
+        tail_slots.clear();
+        let mut route_panel = std::mem::take(&mut self.edge_route_panel_scratch);
+        route_panel.clear();
         for target in project.nodes() {
             let Some((default_to_x_graph, default_to_y_graph)) = input_pin_center(target) else {
                 continue;
@@ -694,6 +708,14 @@ impl SceneBuilder {
         self.edge_route_occupied = occupied_edges;
         self.edge_route_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
+        route_panel.clear();
+        tail_slots.clear();
+        drawn_segments.clear();
+        live_route_keys.clear();
+        self.edge_route_panel_scratch = route_panel;
+        self.edge_tail_slots_scratch = tail_slots;
+        self.edge_drawn_segments_scratch = drawn_segments;
+        self.edge_live_route_keys_scratch = live_route_keys;
     }
 
     fn push_nodes(
@@ -703,6 +725,9 @@ impl SceneBuilder {
         timeline_fps: u32,
         tex_eval_epoch: u64,
     ) {
+        let mut selected_nodes_lookup = std::mem::take(&mut self.selected_nodes_lookup_scratch);
+        selected_nodes_lookup.clear();
+        selected_nodes_lookup.extend(state.selected_nodes.iter().copied());
         for node in project.nodes() {
             let rect = node_rect(node, state);
             self.push_rect(rect, NODE_BODY);
@@ -715,7 +740,7 @@ impl SceneBuilder {
                 NODE_DRAG
             } else if state.hover_node == Some(node.id()) {
                 NODE_HOVER
-            } else if state.selected_nodes.contains(&node.id()) {
+            } else if selected_nodes_lookup.contains(&node.id()) {
                 NODE_SELECTED
             } else {
                 BORDER_COLOR
@@ -734,6 +759,8 @@ impl SceneBuilder {
             }
             self.push_pins(node, state);
         }
+        selected_nodes_lookup.clear();
+        self.selected_nodes_lookup_scratch = selected_nodes_lookup;
     }
 
     fn push_signal_scope(
@@ -1909,12 +1936,16 @@ impl SceneBuilder {
                 wire_route::RouteObstacleMap::from_obstacles(&obstacles);
         }
         let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
-        let mut live_route_keys = HashSet::new();
-        let mut drawn_segments = Vec::new();
+        let mut live_route_keys = std::mem::take(&mut self.param_live_route_keys_scratch);
+        let mut drawn_segments = std::mem::take(&mut self.param_drawn_segments_scratch);
+        live_route_keys.clear();
+        drawn_segments.clear();
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut param_occupied_edges = wire_route::RouteOccupiedEdges::default();
-        let mut tail_slots = HashMap::new();
+        let mut tail_slots = std::mem::take(&mut self.param_tail_slots_scratch);
+        tail_slots.clear();
         let mut route_panel = std::mem::take(&mut self.param_route_panel_scratch);
+        route_panel.clear();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
                 let Some((source_id, _resource_kind)) =
@@ -1989,9 +2020,16 @@ impl SceneBuilder {
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
-        self.param_route_panel_scratch = route_panel;
         self.param_route_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
+        route_panel.clear();
+        tail_slots.clear();
+        drawn_segments.clear();
+        live_route_keys.clear();
+        self.param_route_panel_scratch = route_panel;
+        self.param_tail_slots_scratch = tail_slots;
+        self.param_drawn_segments_scratch = drawn_segments;
+        self.param_live_route_keys_scratch = live_route_keys;
     }
 
     fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
@@ -2020,9 +2058,13 @@ impl SceneBuilder {
         let mut new_segments = std::mem::take(&mut self.bridge_new_segments_scratch);
         let mut candidate_indices = std::mem::take(&mut self.bridge_candidate_indices_scratch);
         let mut crossings = std::mem::take(&mut self.bridge_crossings_scratch);
+        let mut bridge_clusters = std::mem::take(&mut self.bridge_clusters_scratch);
+        let mut bridge_points = std::mem::take(&mut self.bridge_points_scratch);
         new_segments.clear();
         candidate_indices.clear();
         crossings.clear();
+        bridge_clusters.clear();
+        bridge_points.clear();
         let total_segments = points.len().saturating_sub(1);
         let mut bridge_intersection_tests = 0u64;
         for (segment_index, pair) in points.windows(2).enumerate() {
@@ -2057,11 +2099,21 @@ impl SceneBuilder {
                 crossings.push(distance);
             }
             crossings.sort_by(|a, b| a.total_cmp(b));
-            let bridge_clusters =
-                cluster_bridge_ranges(crossings.as_slice(), segment_len, bridge_scale);
-            let bridged_points =
-                bridged_segment_points(segment, bridge_clusters.as_slice(), bridge_scale);
-            self.push_path_lines(bridged_points.as_slice(), color);
+            bridge_clusters.clear();
+            cluster_bridge_ranges_into(
+                crossings.as_slice(),
+                segment_len,
+                bridge_scale,
+                &mut bridge_clusters,
+            );
+            bridge_points.clear();
+            bridged_segment_points_into(
+                segment,
+                bridge_clusters.as_slice(),
+                bridge_scale,
+                &mut bridge_points,
+            );
+            self.push_path_lines(bridge_points.as_slice(), color);
             new_segments.push(segment);
         }
         for segment in new_segments.iter().copied() {
@@ -2072,9 +2124,13 @@ impl SceneBuilder {
         new_segments.clear();
         candidate_indices.clear();
         crossings.clear();
+        bridge_clusters.clear();
+        bridge_points.clear();
         self.bridge_new_segments_scratch = new_segments;
         self.bridge_candidate_indices_scratch = candidate_indices;
         self.bridge_crossings_scratch = crossings;
+        self.bridge_clusters_scratch = bridge_clusters;
+        self.bridge_points_scratch = bridge_points;
         self.frame.bridge_intersection_tests = self
             .frame
             .bridge_intersection_tests
@@ -2610,16 +2666,17 @@ fn bridge_distance_allowed(
     distance > min_distance && distance < max_distance
 }
 
-fn cluster_bridge_ranges(
+fn cluster_bridge_ranges_into(
     crossings: &[f32],
     segment_len: f32,
     bridge_scale: f32,
-) -> Vec<(f32, f32)> {
+    out: &mut Vec<(f32, f32)>,
+) {
+    out.clear();
     if crossings.is_empty() {
-        return Vec::new();
+        return;
     }
     let half_span = WIRE_BRIDGE_SPAN_PX * 0.5 * bridge_scale;
-    let mut clusters = Vec::new();
     let mut start = (crossings[0] - half_span).max(0.0);
     let mut end = (crossings[0] + half_span).min(segment_len);
     for &distance in crossings.iter().skip(1) {
@@ -2629,32 +2686,35 @@ fn cluster_bridge_ranges(
             end = end.max(next_end);
         } else {
             if end > start {
-                clusters.push((start, end));
+                out.push((start, end));
             }
             start = next_start;
             end = next_end;
         }
     }
     if end > start {
-        clusters.push((start, end));
+        out.push((start, end));
     }
-    clusters
 }
 
-fn bridged_segment_points(
+fn bridged_segment_points_into(
     segment: DrawnWireSegment,
     bridges: &[(f32, f32)],
     bridge_scale: f32,
-) -> Vec<(i32, i32)> {
+    out: &mut Vec<(i32, i32)>,
+) {
+    out.clear();
     let segment_len = segment_length(segment.from, segment.to);
     if segment_len <= 0.0 {
-        return vec![segment.from];
+        out.push(segment.from);
+        return;
     }
     if bridges.is_empty() {
-        return vec![segment.from, segment.to];
+        out.push(segment.from);
+        out.push(segment.to);
+        return;
     }
-    let mut points = Vec::new();
-    points.push(segment.from);
+    out.push(segment.from);
     let mut cursor = 0.0_f32;
     for &(start, end) in bridges {
         let start = start.clamp(0.0, segment_len);
@@ -2664,8 +2724,8 @@ fn bridged_segment_points(
         }
         if start > cursor {
             let point = point_along_segment(segment, start);
-            if points.last().copied() != Some(point) {
-                points.push(point);
+            if out.last().copied() != Some(point) {
+                out.push(point);
             }
         }
         for step in 1..=WIRE_BRIDGE_STEPS {
@@ -2673,21 +2733,20 @@ fn bridged_segment_points(
             let distance = start + (end - start) * t;
             let lift = (std::f32::consts::PI * t).sin() * WIRE_BRIDGE_HEIGHT_PX * bridge_scale;
             let point = offset_point_from_segment(segment, distance, lift);
-            if points.last().copied() != Some(point) {
-                points.push(point);
+            if out.last().copied() != Some(point) {
+                out.push(point);
             }
         }
         let exit = point_along_segment(segment, end);
-        if points.last().copied() != Some(exit) {
-            points.push(exit);
+        if out.last().copied() != Some(exit) {
+            out.push(exit);
         }
         cursor = end;
     }
-    if points.last().copied() != Some(segment.to) {
-        points.push(segment.to);
+    if out.last().copied() != Some(segment.to) {
+        out.push(segment.to);
     }
-    dedupe_adjacent_points(&mut points);
-    points
+    dedupe_adjacent_points(out);
 }
 
 fn point_along_segment(segment: DrawnWireSegment, distance: f32) -> (i32, i32) {

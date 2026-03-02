@@ -73,6 +73,17 @@ impl ClipEncodeWorker {
         }
     }
 
+    fn submit_gray_owned(
+        &mut self,
+        frame_index: u32,
+        frame: Vec<u8>,
+    ) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Stream(worker) => worker.submit_gray(frame.as_slice()),
+            Self::FrameDir(worker) => worker.submit_gray(frame_index, frame),
+        }
+    }
+
     fn submit_bgra(&mut self, frame: &[u8]) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.submit_bgra(frame),
@@ -252,6 +263,16 @@ fn drain_one_queued_export_frame(
     let finalize_start = Instant::now();
     match worker.frame_format() {
         StreamFrameFormat::Gray8 => {
+            if matches!(worker, ClipEncodeWorker::FrameDir(_)) {
+                let mut owned_frame = vec![0u8; gray_frame_scratch.len()];
+                renderer.collect_retained_output_gray_queued(owned_frame.as_mut_slice())?;
+                telemetry::record_timing(
+                    "v2.gpu.node.finalize_retained_output",
+                    finalize_start.elapsed(),
+                );
+                worker.submit_gray_owned(frame_index, owned_frame)?;
+                return Ok(());
+            }
             renderer.collect_retained_output_gray_queued(gray_frame_scratch.as_mut_slice())?;
             telemetry::record_timing(
                 "v2.gpu.node.finalize_retained_output",

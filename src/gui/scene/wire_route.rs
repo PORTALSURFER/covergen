@@ -563,6 +563,9 @@ struct SearchGrid {
 struct RouteSearchWorkspace {
     best_cost: Vec<i32>,
     parent: Vec<usize>,
+    state_generation: Vec<u32>,
+    current_generation: u32,
+    touched_states: Vec<usize>,
     open: BinaryHeap<(Reverse<i32>, Reverse<i32>, usize)>,
 }
 
@@ -574,9 +577,41 @@ impl RouteSearchWorkspace {
         if self.parent.len() < state_len {
             self.parent.resize(state_len, usize::MAX);
         }
-        self.best_cost[..state_len].fill(i32::MAX);
-        self.parent[..state_len].fill(usize::MAX);
+        if self.state_generation.len() < state_len {
+            self.state_generation.resize(state_len, 0);
+        }
+        self.current_generation = self.current_generation.wrapping_add(1);
+        if self.current_generation == 0 {
+            self.state_generation.fill(0);
+            self.current_generation = 1;
+        }
+        self.touched_states.clear();
         self.open.clear();
+    }
+
+    fn best_cost(&self, key: usize) -> i32 {
+        if self.state_generation.get(key).copied() == Some(self.current_generation) {
+            self.best_cost[key]
+        } else {
+            i32::MAX
+        }
+    }
+
+    fn parent(&self, key: usize) -> usize {
+        if self.state_generation.get(key).copied() == Some(self.current_generation) {
+            self.parent[key]
+        } else {
+            usize::MAX
+        }
+    }
+
+    fn set_state(&mut self, key: usize, cost: i32, parent: usize) {
+        if self.state_generation[key] != self.current_generation {
+            self.state_generation[key] = self.current_generation;
+            self.touched_states.push(key);
+        }
+        self.best_cost[key] = cost;
+        self.parent[key] = parent;
     }
 }
 
@@ -669,18 +704,15 @@ impl SearchGrid {
 
         let state_len = self.blocked.len().saturating_mul(DIR_STATE_COUNT);
         workspace.prepare(state_len);
-        let best_cost = &mut workspace.best_cost[..state_len];
-        let parent = &mut workspace.parent[..state_len];
-        let open = &mut workspace.open;
         let start_key = state_key(start_cell_index, START_DIR_INDEX);
-        best_cost[start_key] = 0;
+        workspace.set_state(start_key, 0, usize::MAX);
 
         let h0 = octile_heuristic(start_cell, end_cell);
-        open.push((Reverse(h0), Reverse(0), start_key));
+        workspace.open.push((Reverse(h0), Reverse(0), start_key));
 
         let mut goal_key = None;
-        while let Some((Reverse(_f), Reverse(g), key)) = open.pop() {
-            if g > best_cost[key] {
+        while let Some((Reverse(_f), Reverse(g), key)) = workspace.open.pop() {
+            if g > workspace.best_cost(key) {
                 continue;
             }
             let (cell_index, dir_index) = decode_state_key(key);
@@ -721,14 +753,15 @@ impl SearchGrid {
                 let bend_cost = bend_penalty(dir_index, next_dir_index);
                 let next_cost = g.saturating_add(step_cost).saturating_add(bend_cost);
                 let next_key = state_key(next_cell_index, next_dir_index);
-                if next_cost >= best_cost[next_key] {
+                if next_cost >= workspace.best_cost(next_key) {
                     continue;
                 }
-                best_cost[next_key] = next_cost;
-                parent[next_key] = key;
+                workspace.set_state(next_key, next_cost, key);
                 let heuristic = octile_heuristic(next, end_cell);
                 let next_f = next_cost.saturating_add(heuristic);
-                open.push((Reverse(next_f), Reverse(next_cost), next_key));
+                workspace
+                    .open
+                    .push((Reverse(next_f), Reverse(next_cost), next_key));
             }
         }
 
@@ -741,7 +774,7 @@ impl SearchGrid {
             if cursor == start_key {
                 break;
             }
-            let next = parent[cursor];
+            let next = workspace.parent(cursor);
             if next == usize::MAX {
                 return None;
             }

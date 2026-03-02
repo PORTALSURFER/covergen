@@ -124,7 +124,8 @@ impl TexPreviewRenderer {
             ops,
             tex_view.texture_width,
             tex_view.texture_height,
-            tex_view.ops_signature,
+            tex_view.ops_plan_signature,
+            tex_view.ops_uniform_signature,
         ) {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
@@ -142,7 +143,8 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
-        ops_signature: u64,
+        plan_signature: u64,
+        uniform_signature: u64,
     ) -> Option<u64> {
         if ops.is_empty() {
             return None;
@@ -155,7 +157,8 @@ impl TexPreviewRenderer {
             ops,
             width,
             height,
-            ops_signature,
+            plan_signature,
+            uniform_signature,
         );
         self.op_pass_timestamps.resolve_and_reset(encoder);
         result
@@ -170,10 +173,18 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
-        ops_signature: u64,
+        plan_signature: u64,
+        uniform_signature: u64,
     ) -> Option<u64> {
-        let upload_bytes =
-            self.plan_gpu_dispatch(device, queue, ops, width, height, ops_signature)?;
+        let upload_bytes = self.plan_gpu_dispatch(
+            device,
+            queue,
+            ops,
+            width,
+            height,
+            plan_signature,
+            uniform_signature,
+        )?;
         let planned_steps = std::mem::take(&mut self.cached_plan_steps);
         let planned_render_ops = std::mem::take(&mut self.cached_plan_render_ops);
         let mut dispatch = DispatchContext {
@@ -216,12 +227,12 @@ impl TexPreviewRenderer {
         ops: &[TexViewerOp],
         width: u32,
         height: u32,
-        ops_signature: u64,
+        plan_signature: u64,
+        uniform_signature: u64,
     ) -> Option<u64> {
         self.blend_source_aliases.clear();
-        self.blend_alias_count_scratch_a = 0;
-        self.blend_alias_count_scratch_b = 0;
-        if self.cached_plan_signature != Some(ops_signature) {
+        self.blend_source_aliases_by_target.clear();
+        if self.cached_plan_signature != Some(plan_signature) {
             self.cached_plan_ops.clear();
             self.cached_plan_ops.extend_from_slice(ops);
             self.cached_plan_steps.clear();
@@ -231,7 +242,7 @@ impl TexPreviewRenderer {
                 &mut self.cached_plan_steps,
                 &mut self.cached_plan_render_ops,
             );
-            self.cached_plan_signature = Some(ops_signature);
+            self.cached_plan_signature = Some(plan_signature);
             self.op_uniform_signature = None;
         }
         if self.cached_plan_render_ops.is_empty() {
@@ -241,11 +252,11 @@ impl TexPreviewRenderer {
         self.ensure_dummy_bind_group(device);
         let render_op_count = self.cached_plan_render_ops.len();
         self.ensure_op_uniform_capacity(device, render_op_count);
-        let upload_bytes = if self.op_uniform_signature != Some(ops_signature) {
+        let upload_bytes = if self.op_uniform_signature != Some(uniform_signature) {
             let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
             let bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
             self.cached_plan_render_ops = render_ops;
-            self.op_uniform_signature = Some(ops_signature);
+            self.op_uniform_signature = Some(uniform_signature);
             bytes
         } else {
             0
@@ -727,22 +738,20 @@ impl TexPreviewRenderer {
     }
 
     fn has_blend_alias_target(&self, target: RenderTargetRef) -> bool {
-        match target {
-            RenderTargetRef::ScratchA => self.blend_alias_count_scratch_a > 0,
-            RenderTargetRef::ScratchB => self.blend_alias_count_scratch_b > 0,
-            _ => self
-                .blend_source_aliases
-                .values()
-                .copied()
-                .any(|alias| alias == target),
-        }
+        self.blend_source_aliases_by_target
+            .get(&target)
+            .map(|source_ids| !source_ids.is_empty())
+            .unwrap_or(false)
     }
 
     fn bind_blend_source_alias(&mut self, texture_node_id: u32, target: RenderTargetRef) {
         if let Some(previous) = self.blend_source_aliases.insert(texture_node_id, target) {
-            self.decrement_blend_alias_target_count(previous);
+            self.remove_blend_alias_from_target(previous, texture_node_id);
         }
-        self.increment_blend_alias_target_count(target);
+        self.blend_source_aliases_by_target
+            .entry(target)
+            .or_default()
+            .push(texture_node_id);
     }
 
     fn materialize_blend_source_aliases_for_target(
@@ -755,47 +764,28 @@ impl TexPreviewRenderer {
     ) {
         let mut materialize = std::mem::take(&mut self.blend_alias_materialize_scratch);
         materialize.clear();
-        for (&texture_node_id, &alias_target) in self.blend_source_aliases.iter() {
-            if alias_target == target {
-                materialize.push(texture_node_id);
-            }
+        if let Some(source_ids) = self.blend_source_aliases_by_target.get_mut(&target) {
+            materialize.extend(source_ids.iter().copied());
+            source_ids.clear();
         }
         for texture_node_id in materialize.iter().copied() {
             self.ensure_blend_source_slot(device, encoder, texture_node_id, width, height);
             self.copy_target_to_blend_source(encoder, target, texture_node_id, width, height);
-            if let Some(alias_target) = self.blend_source_aliases.remove(&texture_node_id) {
-                self.decrement_blend_alias_target_count(alias_target);
-            }
+            let _ = self.blend_source_aliases.remove(&texture_node_id);
         }
         materialize.clear();
         self.blend_alias_materialize_scratch = materialize;
     }
 
-    fn increment_blend_alias_target_count(&mut self, target: RenderTargetRef) {
-        match target {
-            RenderTargetRef::ScratchA => {
-                self.blend_alias_count_scratch_a =
-                    self.blend_alias_count_scratch_a.saturating_add(1);
-            }
-            RenderTargetRef::ScratchB => {
-                self.blend_alias_count_scratch_b =
-                    self.blend_alias_count_scratch_b.saturating_add(1);
-            }
-            _ => {}
-        }
-    }
-
-    fn decrement_blend_alias_target_count(&mut self, target: RenderTargetRef) {
-        match target {
-            RenderTargetRef::ScratchA => {
-                self.blend_alias_count_scratch_a =
-                    self.blend_alias_count_scratch_a.saturating_sub(1);
-            }
-            RenderTargetRef::ScratchB => {
-                self.blend_alias_count_scratch_b =
-                    self.blend_alias_count_scratch_b.saturating_sub(1);
-            }
-            _ => {}
+    fn remove_blend_alias_from_target(&mut self, target: RenderTargetRef, texture_node_id: u32) {
+        let Some(source_ids) = self.blend_source_aliases_by_target.get_mut(&target) else {
+            return;
+        };
+        if let Some(index) = source_ids
+            .iter()
+            .position(|existing| *existing == texture_node_id)
+        {
+            source_ids.swap_remove(index);
         }
     }
 

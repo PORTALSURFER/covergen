@@ -328,6 +328,8 @@ pub(crate) struct GuiRenderer {
     camera_pan_y_bits: u32,
     camera_zoom_bits: u32,
     frame_perf: GuiRenderPerfCounters,
+    tex_preview_readback_buffer: Option<wgpu::Buffer>,
+    tex_preview_readback_buffer_size: u64,
     pending_tex_preview_readback: Option<PendingTexPreviewReadback>,
 }
 
@@ -444,6 +446,8 @@ impl GuiRenderer {
             camera_pan_y_bits: 0f32.to_bits(),
             camera_zoom_bits: 1f32.to_bits(),
             frame_perf: GuiRenderPerfCounters::default(),
+            tex_preview_readback_buffer: None,
+            tex_preview_readback_buffer_size: 0,
             pending_tex_preview_readback: None,
         })
     }
@@ -596,12 +600,12 @@ impl GuiRenderer {
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align).saturating_mul(align);
         let buffer_size = padded_bytes_per_row as u64 * height as u64;
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gui-tex-preview-readback"),
-            size: buffer_size.max(1),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        self.ensure_tex_preview_readback_buffer(buffer_size.max(1));
+        let readback = self
+            .tex_preview_readback_buffer
+            .as_ref()
+            .cloned()
+            .ok_or("missing tex preview readback buffer")?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -646,6 +650,22 @@ impl GuiRenderer {
             map_result_rx: rx,
         });
         Ok(())
+    }
+
+    /// Ensure tex-preview capture has one reusable GPU readback buffer.
+    fn ensure_tex_preview_readback_buffer(&mut self, min_size: u64) {
+        if self.tex_preview_readback_buffer_size >= min_size
+            && self.tex_preview_readback_buffer.is_some()
+        {
+            return;
+        }
+        self.tex_preview_readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gui-tex-preview-readback"),
+            size: min_size.max(1),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+        self.tex_preview_readback_buffer_size = min_size.max(1);
     }
 
     fn try_collect_pending_tex_preview_readback(
