@@ -29,7 +29,11 @@ function Invoke-CheckedCommand {
         [scriptblock]$Command
     )
     Write-Host "[ci_local] $Label"
+    $global:LASTEXITCODE = 0
     & $Command
+    if (-not $?) {
+        throw "$Label failed"
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE"
     }
@@ -49,7 +53,11 @@ if ([string]::IsNullOrWhiteSpace($shaderRoot)) {
 
 Write-Host "[ci_local] ensuring rust-gpu artifacts in $shaderRoot"
 try {
+    $global:LASTEXITCODE = 0
     & $validateShaderScript -Root $shaderRoot
+    if (-not $?) {
+        throw "validate_rust_gpu_artifacts failed"
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "validate_rust_gpu_artifacts returned $LASTEXITCODE"
     }
