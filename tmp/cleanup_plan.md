@@ -49,7 +49,7 @@ Date: 2026-03-03
     - `cargo test -q gui::runtime::tests`
     - `cargo test -q visual_regression_gpu`
 
-- [ ] 3. Remove remaining high-risk `dead_code` suppressions from core runtime paths
+- [x] 3. Remove remaining high-risk `dead_code` suppressions from core runtime paths _(done 2026-03-03, commit a750f65)_
   - ROI: High
   - Effort: M
   - Why it matters:
