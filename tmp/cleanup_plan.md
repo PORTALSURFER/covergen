@@ -89,7 +89,7 @@ Date: 2026-03-03
     - `cargo test -q gui::renderer::tex_preview::execution`
     - `cargo test -q visual_regression_gpu`
 
-- [ ] 5. Remove blanket `dead_code` suppressions by isolating/removing stale paths
+- [x] 5. Remove blanket `dead_code` suppressions by isolating/removing stale paths _(done 2026-03-03, commit 2a17935)_
   - ROI: High
   - Effort: M
   - Why it matters:
