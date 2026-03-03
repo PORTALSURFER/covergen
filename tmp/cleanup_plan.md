@@ -135,7 +135,9 @@ Date: 2026-03-03
     - `cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available`
     - `scripts/ci_local.sh validate laptop_integrated` on hardware host
 
-- [ ] 6. Split `gui::scene` into focused submodules (style, layout emitters, retained caches)
+- [x] 6. Split `gui::scene` into focused submodules (style, layout emitters, retained caches)
+  - Completed: 2026-03-03 (`50bb7e9`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: Medium
   - Effort: L
   - Why it matters:
