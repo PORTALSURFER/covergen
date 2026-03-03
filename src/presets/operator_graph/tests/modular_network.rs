@@ -1,6 +1,8 @@
 //! Tests for the `op-modular-network` preset.
 
-use super::operator_graph_test_support::{assert_seed_deterministic, build_graph, preset_test_config};
+use super::operator_graph_test_support::{
+    assert_seed_deterministic, build_graph, preset_test_config,
+};
 use crate::graph::NodeKind;
 use crate::runtime_config::V2Config;
 
