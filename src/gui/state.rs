@@ -201,7 +201,7 @@ pub(crate) struct ParamEditState {
 pub(crate) struct ParamScrubState {
     pub(crate) node_id: u32,
     pub(crate) param_index: usize,
-    pub(crate) last_mouse_x: i32,
+    pub(crate) last_mouse_y: i32,
     pub(crate) pixel_remainder: f32,
 }
 

@@ -369,7 +369,7 @@ fn alt_drag_over_param_value_scrubs_parameter_value() {
     let drag = InputSnapshot {
         alt_down: true,
         left_down: true,
-        mouse_pos: Some((value_rect.x + 40, value_rect.y + value_rect.h / 2)),
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2 - 40)),
         ..InputSnapshot::default()
     };
     let (changed_drag, consumed_drag) =
@@ -387,7 +387,7 @@ fn alt_drag_over_param_value_scrubs_parameter_value() {
     let release = InputSnapshot {
         alt_down: true,
         left_down: false,
-        mouse_pos: Some((value_rect.x + 40, value_rect.y + value_rect.h / 2)),
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2 - 40)),
         ..InputSnapshot::default()
     };
     let (_changed_release, consumed_release) =

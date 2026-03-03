@@ -857,9 +857,10 @@ fn handle_alt_param_drag(
             return (false, true);
         }
         let mut changed = false;
-        let dx = mx - scrub.last_mouse_x;
-        scrub.last_mouse_x = mx;
-        scrub.pixel_remainder += dx as f32;
+        // Vertical scrub: dragging up increases, dragging down decreases.
+        let dy = scrub.last_mouse_y - my;
+        scrub.last_mouse_y = my;
+        scrub.pixel_remainder += dy as f32;
         let step_delta = (scrub.pixel_remainder / PARAM_SCRUB_PX_PER_STEP).trunc();
         if step_delta.abs() >= 1.0 {
             scrub.pixel_remainder -= step_delta * PARAM_SCRUB_PX_PER_STEP;
@@ -882,13 +883,13 @@ fn handle_alt_param_drag(
     else {
         return (false, false);
     };
-    let Some((mx, _my)) = input.mouse_pos else {
+    let Some((_mx, my)) = input.mouse_pos else {
         return (false, false);
     };
     state.param_scrub = Some(super::state::ParamScrubState {
         node_id: target.node_id,
         param_index: target.param_index,
-        last_mouse_x: mx,
+        last_mouse_y: my,
         pixel_remainder: 0.0,
     });
     state.active_node = Some(target.node_id);
