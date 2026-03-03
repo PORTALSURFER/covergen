@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The manifest is intentionally staged in buckets so CI can ratchet enforcement
+# without forcing one large documentation migration in a single change.
 manifest_path="${1:-${repo_root}/scripts/lint/private_docs_subset_files.txt}"
 
 if [[ ! -f "${manifest_path}" ]]; then

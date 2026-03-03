@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "../..")
+# The manifest is intentionally staged in buckets so CI can ratchet enforcement
+# without forcing one large documentation migration in a single change.
 $manifestPath = Join-Path $repoRoot $Manifest
 
 if (-not (Test-Path $manifestPath)) {

@@ -1,5 +1,14 @@
+# Stage 1: core domain + renderer foundations
 src/model.rs
 src/proc_graph.rs
 src/image_ops.rs
 src/gpu_render.rs
 src/gui/renderer/tex_preview/execution.rs
+
+# Stage 2: runtime/evaluator surfaces with complete private docs
+src/gpu_retained/mod.rs
+src/runtime_gpu.rs
+src/runtime_progress.rs
+src/runtime_selection.rs
+src/selection.rs
+src/shaders.rs
