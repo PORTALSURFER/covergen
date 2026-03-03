@@ -218,7 +218,7 @@ Date: 2026-03-03
     - `scripts/lint/private_docs_subset.sh`
     - Spot-check rustdoc output.
 
-- [ ] 12. Resolve remaining legacy CPU helper drift (`proc_graph`/`image_ops`) with explicit ownership
+- [x] 12. Resolve remaining legacy CPU helper drift (`proc_graph`/`image_ops`) with explicit ownership _(done 2026-03-03, commit 7039b6e)_
   - ROI: Low
   - Effort: S
   - Why it matters:
