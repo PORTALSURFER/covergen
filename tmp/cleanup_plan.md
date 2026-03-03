@@ -130,7 +130,7 @@ Date: 2026-03-03
     - `cargo test -q` (full)
     - targeted module test filters for each new test cluster.
 
-- [ ] 7. Decompose `animation.rs` by responsibility (naming + backend + muxing + IO)
+- [x] 7. Decompose `animation.rs` by responsibility (naming + backend + muxing + IO) _(done 2026-03-03, commit aaaa6ff)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
