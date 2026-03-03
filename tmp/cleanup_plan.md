@@ -49,7 +49,7 @@ Date: 2026-03-03
     - `cargo test -q gui::interaction::tests --bin covergen`
     - Manual GUI smoke: pause, resume after stall, verify no long hitch.
 
-- [ ] 3. Add automatic tex-preview cache pruning for feedback/blend texture maps
+- [x] 3. Add automatic tex-preview cache pruning for feedback/blend texture maps _(done 2026-03-03, commit 353176c)_
   - ROI: High
   - Effort: M
   - Why it matters:
