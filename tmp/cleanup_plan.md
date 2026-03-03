@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 implementation in progress.
+Status: Phase 2 implementation complete.
 Date: 2026-03-03
 
 ## Context Snapshot
@@ -250,7 +250,9 @@ Date: 2026-03-03
     - `cargo test gui::runtime`
     - `cargo test gui::scene`
 
-- [ ] 11. Refactor runtime-config parser into smaller focused units
+- [x] 11. Refactor runtime-config parser into smaller focused units
+  - Completed: 2026-03-03 (`bee760b`)
+  - Validation: Structural refactor only; full runtime-config test validation remains blocked in this environment (`cargo` missing).
   - ROI: Low
   - Effort: M
   - Why it matters:
