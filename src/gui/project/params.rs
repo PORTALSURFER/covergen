@@ -948,13 +948,62 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::TexCircle => vec![
-            param(param_schema::circle::CENTER_X, "center_x", 0.5, 0.0, 1.0, 0.01),
-            param(param_schema::circle::CENTER_Y, "center_y", 0.5, 0.0, 1.0, 0.01),
-            param(param_schema::circle::RADIUS, "radius", 0.24, 0.02, 0.5, 0.005),
-            param(param_schema::circle::FEATHER, "feather", 0.06, 0.0, 0.25, 0.005),
-            param(param_schema::circle::COLOR_R, "color_r", 0.9, 0.0, 1.0, 0.01),
-            param(param_schema::circle::COLOR_G, "color_g", 0.9, 0.0, 1.0, 0.01),
-            param(param_schema::circle::COLOR_B, "color_b", 0.9, 0.0, 1.0, 0.01),
+            param(
+                param_schema::circle::CENTER_X,
+                "center_x",
+                0.5,
+                0.0,
+                1.0,
+                0.01,
+            ),
+            param(
+                param_schema::circle::CENTER_Y,
+                "center_y",
+                0.5,
+                0.0,
+                1.0,
+                0.01,
+            ),
+            param(
+                param_schema::circle::RADIUS,
+                "radius",
+                0.24,
+                0.02,
+                0.5,
+                0.005,
+            ),
+            param(
+                param_schema::circle::FEATHER,
+                "feather",
+                0.06,
+                0.0,
+                0.25,
+                0.005,
+            ),
+            param(
+                param_schema::circle::COLOR_R,
+                "color_r",
+                0.9,
+                0.0,
+                1.0,
+                0.01,
+            ),
+            param(
+                param_schema::circle::COLOR_G,
+                "color_g",
+                0.9,
+                0.0,
+                1.0,
+                0.01,
+            ),
+            param(
+                param_schema::circle::COLOR_B,
+                "color_b",
+                0.9,
+                0.0,
+                1.0,
+                0.01,
+            ),
             param(param_schema::circle::ALPHA, "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::BufSphere => vec![
@@ -997,9 +1046,30 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
                 64.0,
                 0.1,
             ),
-            param(param_schema::transform_2d::GAIN_R, "gain_r", 1.0, 0.0, 64.0, 0.1),
-            param(param_schema::transform_2d::GAIN_G, "gain_g", 1.0, 0.0, 64.0, 0.1),
-            param(param_schema::transform_2d::GAIN_B, "gain_b", 1.0, 0.0, 64.0, 0.1),
+            param(
+                param_schema::transform_2d::GAIN_R,
+                "gain_r",
+                1.0,
+                0.0,
+                64.0,
+                0.1,
+            ),
+            param(
+                param_schema::transform_2d::GAIN_G,
+                "gain_g",
+                1.0,
+                0.0,
+                64.0,
+                0.1,
+            ),
+            param(
+                param_schema::transform_2d::GAIN_B,
+                "gain_b",
+                1.0,
+                0.0,
+                64.0,
+                0.1,
+            ),
             param(
                 param_schema::transform_2d::ALPHA_MUL,
                 "alpha_mul",
@@ -1143,7 +1213,14 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
                 0.25,
                 0.005,
             ),
-            param(param_schema::render_scene_pass::LIGHT_X, "light_x", 0.4, -1.0, 1.0, 0.02),
+            param(
+                param_schema::render_scene_pass::LIGHT_X,
+                "light_x",
+                0.4,
+                -1.0,
+                1.0,
+                0.02,
+            ),
             param(
                 param_schema::render_scene_pass::LIGHT_Y,
                 "light_y",
@@ -1152,10 +1229,24 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
                 1.0,
                 0.02,
             ),
-            param(param_schema::render_scene_pass::LIGHT_Z, "light_z", 1.0, 0.0, 2.0, 0.02),
+            param(
+                param_schema::render_scene_pass::LIGHT_Z,
+                "light_z",
+                1.0,
+                0.0,
+                2.0,
+                0.02,
+            ),
         ],
         ProjectNodeKind::CtlLfo => vec![
-            param(param_schema::ctl_lfo::RATE_HZ, "rate_hz", 0.4, 0.0, 8.0, 0.05),
+            param(
+                param_schema::ctl_lfo::RATE_HZ,
+                "rate_hz",
+                0.4,
+                0.0,
+                8.0,
+                0.05,
+            ),
             param(
                 param_schema::ctl_lfo::AMPLITUDE,
                 "amplitude",
@@ -1180,7 +1271,12 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
                 32.0,
                 0.125,
             ),
-            param_dropdown(param_schema::ctl_lfo::LFO_TYPE, "type", 0, &LFO_TYPE_OPTIONS),
+            param_dropdown(
+                param_schema::ctl_lfo::LFO_TYPE,
+                "type",
+                0,
+                &LFO_TYPE_OPTIONS,
+            ),
             param(param_schema::ctl_lfo::SHAPE, "shape", 0.0, -1.0, 1.0, 0.02),
         ],
         ProjectNodeKind::IoWindowOut => Vec::new(),
@@ -1486,5 +1582,84 @@ pub(super) fn rebuild_node_inputs(node: &mut ProjectNode) {
         if seen_inputs.insert(signal_source) {
             node.inputs.push(signal_source);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tex_feedback_inputs_exclude_history_binding_sources() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let primary = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 640, 480);
+        let history = project.add_node(ProjectNodeKind::TexCircle, 180, 40, 640, 480);
+        let feedback = project.add_node(ProjectNodeKind::TexFeedback, 340, 40, 640, 480);
+
+        assert!(project.connect_image_link(primary, feedback));
+        assert!(project.connect_texture_link_to_param(history, feedback, 0));
+
+        let feedback_node = project.node(feedback).expect("feedback node should exist");
+        assert!(
+            feedback_node.inputs().contains(&primary),
+            "primary texture source should remain part of topology inputs"
+        );
+        assert!(
+            !feedback_node.inputs().contains(&history),
+            "history binding source should not be treated as graph topology input"
+        );
+    }
+
+    #[test]
+    fn dropdown_set_param_value_snaps_to_nearest_option_label() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let blend = project.add_node(ProjectNodeKind::TexBlend, 20, 40, 640, 480);
+        let mode_index = project
+            .node_param_slot_index(blend, param_schema::blend::MODE)
+            .expect("blend mode param index should exist");
+
+        assert!(
+            project.set_param_value(blend, mode_index, 2.4),
+            "setting a dropdown param should update to the nearest option"
+        );
+
+        let blend_node = project.node(blend).expect("blend node should exist");
+        let mode = blend_node
+            .param_view(mode_index)
+            .expect("blend mode param should exist");
+        assert_eq!(mode.value_text, "subtract");
+    }
+
+    #[test]
+    fn dropdown_adjust_selected_param_steps_directionally() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let blend = project.add_node(ProjectNodeKind::TexBlend, 20, 40, 640, 480);
+        let mode_index = project
+            .node_param_slot_index(blend, param_schema::blend::MODE)
+            .expect("blend mode param index should exist");
+        assert!(
+            project.select_param(blend, mode_index),
+            "blend mode dropdown should become selected"
+        );
+
+        assert!(
+            project.adjust_selected_param(blend, 1.0),
+            "positive adjustment should advance dropdown to next option"
+        );
+        let blend_node = project.node(blend).expect("blend node should exist");
+        let mode = blend_node
+            .param_view(mode_index)
+            .expect("blend mode param should exist");
+        assert_eq!(mode.value_text, "add");
+
+        assert!(
+            project.adjust_selected_param(blend, -1.0),
+            "negative adjustment should move dropdown back to previous option"
+        );
+        let blend_node = project.node(blend).expect("blend node should exist");
+        let mode = blend_node
+            .param_view(mode_index)
+            .expect("blend mode param should exist");
+        assert_eq!(mode.value_text, "normal");
     }
 }
