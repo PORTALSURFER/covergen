@@ -110,7 +110,7 @@ Date: 2026-03-03
     - `scripts/lint/private_docs_subset.sh`
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
 
-- [ ] 6. Add targeted tests for large logic-heavy modules with weak direct coverage
+- [x] 6. Add targeted tests for large logic-heavy modules with weak direct coverage _(done 2026-03-03, commit 934d0dc)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
