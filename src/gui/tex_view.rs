@@ -45,6 +45,7 @@ struct ViewerCacheKey {
     view_height: u32,
     texture_width: u32,
     texture_height: u32,
+    render_signature: u64,
     tex_eval_epoch: u64,
     frame_index: u32,
 }
@@ -58,6 +59,7 @@ pub(crate) struct TexViewerGenerator {
     x: i32,
     y: i32,
     compiled_epoch: Option<u64>,
+    compiled_render_signature: Option<u64>,
     compiled_runtime: Option<GuiCompiledRuntime>,
     ops: Vec<TexViewerOp>,
     eval_stack: SignalEvalStack,
@@ -85,6 +87,7 @@ pub(crate) struct TexViewerUpdate {
 impl TexViewerGenerator {
     /// Update cached viewer payload for current panel split and graph state.
     pub(crate) fn update(&mut self, project: &GuiProject, update: TexViewerUpdate) {
+        let render_signature = project.render_signature();
         let panel_w = update.viewport_width.saturating_sub(update.panel_width) as u32;
         let panel_h = editor_panel_height(update.viewport_height) as u32;
         let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
@@ -92,9 +95,12 @@ impl TexViewerGenerator {
         } else {
             0
         };
-        if self.compiled_epoch != Some(update.tex_eval_epoch) {
+        if self.compiled_epoch != Some(update.tex_eval_epoch)
+            || self.compiled_render_signature != Some(render_signature)
+        {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
             self.compiled_epoch = Some(update.tex_eval_epoch);
+            self.compiled_render_signature = Some(render_signature);
         }
         let time_secs = update.frame_index as f32 / update.timeline_fps.max(1) as f32;
         let (texture_width, texture_height) = self
@@ -113,6 +119,7 @@ impl TexViewerGenerator {
             view_height,
             texture_width,
             texture_height,
+            render_signature,
             tex_eval_epoch: update.tex_eval_epoch,
             frame_index: dynamic_frame,
         };
@@ -961,6 +968,56 @@ mod tests {
             },
         );
         assert_eq!(viewer.key, base_key);
+    }
+
+    #[test]
+    fn project_swap_with_same_tex_eval_epoch_rebuilds_cached_runtime() {
+        let mut project_a = GuiProject::new_empty(640, 480);
+        let solid = project_a.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+        let out_a = project_a.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project_a.connect_image_link(solid, out_a));
+
+        let mut project_b = GuiProject::new_empty(640, 480);
+        let circle = project_b.add_node(ProjectNodeKind::TexCircle, 60, 80, 420, 480);
+        let out_b = project_b.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+        assert!(project_b.connect_image_link(circle, out_b));
+
+        assert_eq!(
+            project_a.invalidation().tex_eval,
+            project_b.invalidation().tex_eval
+        );
+
+        let mut viewer = TexViewerGenerator::default();
+        let update = TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project_a.invalidation().tex_eval,
+        };
+        viewer.update(&project_a, update);
+        let frame_a = viewer.frame().expect("first frame should exist");
+        let ops_a = match frame_a.payload {
+            TexViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops_a.len(), 1);
+        assert!(matches!(ops_a[0], TexViewerOp::Solid { .. }));
+
+        viewer.update(
+            &project_b,
+            TexViewerUpdate {
+                tex_eval_epoch: project_b.invalidation().tex_eval,
+                ..update
+            },
+        );
+        let frame_b = viewer.frame().expect("second frame should exist");
+        let ops_b = match frame_b.payload {
+            TexViewerPayload::GpuOps(ops) => ops,
+        };
+        assert_eq!(ops_b.len(), 1);
+        assert!(matches!(ops_b[0], TexViewerOp::Circle { .. }));
     }
 
     #[test]
