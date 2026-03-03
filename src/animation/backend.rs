@@ -2,7 +2,7 @@
 
 use std::error::Error;
 #[cfg(windows)]
-use std::panic::{self, AssertUnwindSafe};
+use std::panic;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
@@ -26,8 +26,7 @@ use nvenc::input_buffer::InputBuffer as NvencInputBuffer;
 use nvenc::session::{InitParams as NvencInitParams, NeedsConfig as NvencNeedsConfig, Session};
 #[cfg(windows)]
 use nvenc::sys::enums::{
-    NVencBufferFormat, NVencMemoryHeap, NVencParamsRcMode, NVencPicStruct, NVencPicType,
-    NVencTuningInfo,
+    NVencBufferFormat, NVencMemoryHeap, NVencParamsRcMode, NVencTuningInfo,
 };
 #[cfg(windows)]
 use nvenc::sys::guids::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P4_GUID};
