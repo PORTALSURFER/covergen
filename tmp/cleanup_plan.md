@@ -116,7 +116,7 @@ Date: 2026-03-03
     - `cargo test -q gui::runtime::tests --bin covergen`
     - `cargo test -q visual_regression_gpu --bin covergen`
 
-- [ ] 7. Split `gui::project::params` by responsibility and deduplicate slot-mutation transactions
+- [x] 7. Split `gui::project::params` by responsibility and deduplicate slot-mutation transactions _(done 2026-03-03, commit 0b58760)_
   - ROI: High
   - Effort: M
   - Why it matters:
