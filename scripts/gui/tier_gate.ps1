@@ -114,13 +114,26 @@ if ($LASTEXITCODE -ne 0) {
 if (!(Test-Path -Path $traceFile)) {
     throw "missing trace file: $traceFile"
 }
-
-$rows = Import-Csv -Path $traceFile | Where-Object { [int64]$_.frame -ge $warmupFrames }
-if ($rows.Count -eq 0) {
-    throw "no samples remained after warmup=$warmupFrames"
+$allRows = @(Import-Csv -Path $traceFile)
+if ($allRows.Count -eq 0) {
+    throw "trace file has no data rows: $traceFile"
 }
-if (!($rows[0].PSObject.Properties.Name -contains "bridge_intersection_tests")) {
+if (!($allRows[0].PSObject.Properties.Name -contains "bridge_intersection_tests")) {
     throw "trace missing required column bridge_intersection_tests: $traceFile"
+}
+$effectiveWarmupFrames = [Math]::Min($warmupFrames, [Math]::Max(0, $allRows.Count - 1))
+if ($effectiveWarmupFrames -ne $warmupFrames) {
+    Write-Host "[gui-bench] warning: clamped warmup frames from $warmupFrames to $effectiveWarmupFrames because trace has only $($allRows.Count) samples"
+}
+$rows = @(
+    for ($idx = 0; $idx -lt $allRows.Count; $idx++) {
+        if ($idx -ge $effectiveWarmupFrames) {
+            $allRows[$idx]
+        }
+    }
+)
+if ($rows.Count -eq 0) {
+    throw "no samples remained after warmup=$effectiveWarmupFrames (trace_samples=$($allRows.Count))"
 }
 
 $updateP95 = Get-P95 -Values ($rows | ForEach-Object { [double]$_.update_ms })
@@ -135,7 +148,7 @@ $metricLines = @(
     "tier=$Tier",
     "trace_file=$traceFile",
     "trace_frames=$traceFrames",
-    "warmup_frames=$warmupFrames",
+    "warmup_frames=$effectiveWarmupFrames",
     "sample_count=$($rows.Count)",
     ("update_ms_p95={0:F4}" -f $updateP95),
     ("scene_ms_p95={0:F4}" -f $sceneP95),
@@ -152,7 +165,7 @@ if ($Mode -eq "lock") {
         "version=1",
         "tier=$Tier",
         "trace_frames=$traceFrames",
-        "warmup_frames=$warmupFrames",
+        "warmup_frames=$effectiveWarmupFrames",
         ("update_ms_p95_max={0:F4}" -f ($updateP95 * $msMargin)),
         ("scene_ms_p95_max={0:F4}" -f ($sceneP95 * $msMargin)),
         ("render_ms_p95_max={0:F4}" -f ($renderP95 * $msMargin)),

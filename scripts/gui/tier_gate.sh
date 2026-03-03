@@ -91,6 +91,17 @@ if ! head -n 1 "${trace_file}" | tr ',' '\n' | grep -Fxq "bridge_intersection_te
   exit 1
 fi
 
+total_samples=$(( $(wc -l < "${trace_file}") - 1 ))
+if (( total_samples <= 0 )); then
+  echo "[gui-bench] trace has no data rows: ${trace_file}" >&2
+  exit 1
+fi
+effective_warmup="${warmup_frames}"
+if (( effective_warmup > total_samples - 1 )); then
+  effective_warmup=$(( total_samples - 1 ))
+  echo "[gui-bench] warning: clamped warmup frames from ${warmup_frames} to ${effective_warmup} because trace has only ${total_samples} samples"
+fi
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
@@ -100,15 +111,15 @@ render_file="${tmp_dir}/render_ms.txt"
 hit_file="${tmp_dir}/hit_test_scans.txt"
 bridge_file="${tmp_dir}/bridge_intersection_tests.txt"
 
-awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $3 }' "${trace_file}" > "${update_file}"
-awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $4 }' "${trace_file}" > "${scene_file}"
-awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $5 }' "${trace_file}" > "${render_file}"
-awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $9 }' "${trace_file}" > "${hit_file}"
-awk -F, -v warmup="${warmup_frames}" 'NR > 1 && $1+0 >= warmup { print $10 }' "${trace_file}" > "${bridge_file}"
+awk -F, -v warmup="${effective_warmup}" 'NR > 1 { row = NR - 2; if (row >= warmup) print $3 }' "${trace_file}" > "${update_file}"
+awk -F, -v warmup="${effective_warmup}" 'NR > 1 { row = NR - 2; if (row >= warmup) print $4 }' "${trace_file}" > "${scene_file}"
+awk -F, -v warmup="${effective_warmup}" 'NR > 1 { row = NR - 2; if (row >= warmup) print $5 }' "${trace_file}" > "${render_file}"
+awk -F, -v warmup="${effective_warmup}" 'NR > 1 { row = NR - 2; if (row >= warmup) print $9 }' "${trace_file}" > "${hit_file}"
+awk -F, -v warmup="${effective_warmup}" 'NR > 1 { row = NR - 2; if (row >= warmup) print $10 }' "${trace_file}" > "${bridge_file}"
 
 sample_count="$(wc -l < "${update_file}")"
 if [[ "${sample_count}" -eq 0 ]]; then
-  echo "[gui-bench] no samples remained after warmup=${warmup_frames}" >&2
+  echo "[gui-bench] no samples remained after warmup=${effective_warmup} (trace_samples=${total_samples})" >&2
   exit 1
 fi
 
@@ -137,7 +148,7 @@ version=1
 tier=${tier}
 trace_file=${trace_file}
 trace_frames=${trace_frames}
-warmup_frames=${warmup_frames}
+warmup_frames=${effective_warmup}
 sample_count=${sample_count}
 update_ms_p95=$(format_float "${update_p95}")
 scene_ms_p95=$(format_float "${scene_p95}")
@@ -159,7 +170,7 @@ if [[ "${mode}" == "lock" ]]; then
 version=1
 tier=${tier}
 trace_frames=${trace_frames}
-warmup_frames=${warmup_frames}
+warmup_frames=${effective_warmup}
 update_ms_p95_max=${update_limit}
 scene_ms_p95_max=${scene_limit}
 render_ms_p95_max=${render_limit}
