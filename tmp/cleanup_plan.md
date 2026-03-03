@@ -88,7 +88,7 @@ Date: 2026-03-03
     - `cargo check -q`
     - `cargo test -q` targeted to touched modules.
 
-- [ ] 5. Expand private-doc enforcement beyond the current 5-file subset
+- [x] 5. Expand private-doc enforcement beyond the current 5-file subset _(done 2026-03-03, commit 04511d2)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
