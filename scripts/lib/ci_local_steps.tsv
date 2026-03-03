@@ -1,0 +1,10 @@
+# label|bash_command|powershell_command
+rustfmt check|cargo fmt --check|& cargo fmt --check
+clippy (warnings denied; private-doc lint reported separately)|cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items|& cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
+private-doc subset lint|scripts/lint/private_docs_subset.sh|& (Join-Path $repoRoot 'scripts/lint/private_docs_subset.ps1')
+full test suite|cargo test -q|& cargo test -q
+still snapshot regression|cargo test v2_still_fixed_seed_snapshots_match|& cargo test v2_still_fixed_seed_snapshots_match
+animation snapshot regression|cargo test v2_animation_fixed_seed_sampled_frames_match|& cargo test v2_animation_fixed_seed_sampled_frames_match
+animation movie-quality regression|cargo test v2_animation_movie_quality_metrics_within_bounds|& cargo test v2_animation_movie_quality_metrics_within_bounds
+gpu still confidence regression|cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available|& cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
+gpu animation confidence regression|cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available|& cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available

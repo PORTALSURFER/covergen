@@ -46,6 +46,19 @@ missing_linux_display() {
   is_linux_host && [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]
 }
 
+run_common_ci_steps() {
+  local steps_file="${repo_root}/scripts/lib/ci_local_steps.tsv"
+  if [[ ! -f "${steps_file}" ]]; then
+    echo "missing shared CI steps file: ${steps_file}" >&2
+    exit 1
+  fi
+  while IFS='|' read -r label bash_command _pwsh_command; do
+    [[ -z "${label}" || "${label}" =~ ^[[:space:]]*# ]] && continue
+    echo "[ci_local] ${label}"
+    eval "${bash_command}"
+  done < "${steps_file}"
+}
+
 allow_missing_gpu=0
 if [[ $# -eq 0 ]]; then
   mode="validate"
@@ -106,32 +119,7 @@ else
   scripts/shaders/build_rust_gpu_artifacts.sh "${shader_root}"
 fi
 
-echo "[ci_local] rustfmt check"
-cargo fmt --check
-
-echo "[ci_local] clippy (warnings denied; private-doc lint reported separately)"
-cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
-
-echo "[ci_local] private-doc subset lint"
-scripts/lint/private_docs_subset.sh
-
-echo "[ci_local] full test suite"
-cargo test -q
-
-echo "[ci_local] still snapshot regression"
-cargo test v2_still_fixed_seed_snapshots_match
-
-echo "[ci_local] animation snapshot regression"
-cargo test v2_animation_fixed_seed_sampled_frames_match
-
-echo "[ci_local] animation movie-quality regression"
-cargo test v2_animation_movie_quality_metrics_within_bounds
-
-echo "[ci_local] gpu still confidence regression"
-cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
-
-echo "[ci_local] gpu animation confidence regression"
-cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available
+run_common_ci_steps
 
 echo "[ci_local] benchmark thresholds (${mode}) for tier=${tier}"
 if [[ "${allow_missing_gpu}" -eq 1 ]] && missing_linux_dri; then

@@ -39,12 +39,37 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Invoke-CommonCiSteps {
+    param(
+        [string]$StepsFile
+    )
+
+    if (-not (Test-Path $StepsFile)) {
+        throw "missing shared CI steps file: $StepsFile"
+    }
+
+    foreach ($rawLine in Get-Content -Path $StepsFile) {
+        $line = $rawLine.Trim()
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) {
+            continue
+        }
+        $parts = $line.Split("|", 3)
+        if ($parts.Length -lt 3) {
+            throw "invalid ci step line: $line"
+        }
+        $label = $parts[0].Trim()
+        $pwshCommand = $parts[2].Trim()
+        Invoke-CheckedCommand -Label $label -Command ([scriptblock]::Create($pwshCommand))
+    }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $validateShaderScript = Join-Path $repoRoot "scripts/shaders/validate_rust_gpu_artifacts.ps1"
 $buildShaderScript = Join-Path $repoRoot "scripts/shaders/build_rust_gpu_artifacts.ps1"
 $tierGateScript = Join-Path $repoRoot "scripts/bench/tier_gate.ps1"
 $guiTierGateScript = Join-Path $repoRoot "scripts/gui/tier_gate.ps1"
 $handoffScript = Join-Path $repoRoot "scripts/bench/store_handoff_artifacts.ps1"
+$commonStepsFile = Join-Path $repoRoot "scripts/lib/ci_local_steps.tsv"
 
 $shaderRoot = [Environment]::GetEnvironmentVariable("COVERGEN_RUST_GPU_SPIRV_DIR")
 if ([string]::IsNullOrWhiteSpace($shaderRoot)) {
@@ -69,29 +94,7 @@ catch {
         & $buildShaderScript -ArtifactsDir $shaderRoot
     }
 }
-Invoke-CheckedCommand -Label "rustfmt check" -Command { & cargo fmt --check }
-Invoke-CheckedCommand -Label "clippy (warnings denied; private-doc lint reported separately)" -Command {
-    & cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
-}
-Invoke-CheckedCommand -Label "private-doc subset lint" -Command {
-    & (Join-Path $repoRoot "scripts/lint/private_docs_subset.ps1")
-}
-Invoke-CheckedCommand -Label "full test suite" -Command { & cargo test -q }
-Invoke-CheckedCommand -Label "still snapshot regression" -Command {
-    & cargo test v2_still_fixed_seed_snapshots_match
-}
-Invoke-CheckedCommand -Label "animation snapshot regression" -Command {
-    & cargo test v2_animation_fixed_seed_sampled_frames_match
-}
-Invoke-CheckedCommand -Label "animation movie-quality regression" -Command {
-    & cargo test v2_animation_movie_quality_metrics_within_bounds
-}
-Invoke-CheckedCommand -Label "gpu still confidence regression" -Command {
-    & cargo test v2_gpu_still_fixed_seed_is_deterministic_when_hardware_available
-}
-Invoke-CheckedCommand -Label "gpu animation confidence regression" -Command {
-    & cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available
-}
+Invoke-CommonCiSteps -StepsFile $commonStepsFile
 Invoke-CheckedCommand -Label "benchmark thresholds ($Mode) for tier=$Tier" -Command {
     & $tierGateScript -Mode $Mode -Tier $Tier
 }
