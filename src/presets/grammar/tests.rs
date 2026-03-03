@@ -1,5 +1,8 @@
 use super::*;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use crate::graph::NodeKind;
 use crate::presets::node_catalog::NodeCatalog;
 use crate::presets::subgraph_catalog::SubgraphCatalog;
@@ -48,7 +51,7 @@ fn grammar_builder_is_seed_deterministic() {
 
     let first = build_constrained_random_grammar(context).expect("first graph");
     let second = build_constrained_random_grammar(context).expect("second graph");
-    assert_eq!(format!("{first:?}"), format!("{second:?}"));
+    assert_eq!(graph_fingerprint(&first), graph_fingerprint(&second));
 }
 
 #[test]
@@ -112,4 +115,12 @@ fn grammar_builder_can_emit_stateful_feedback_nodes() {
         found_feedback,
         "expected at least one seed to emit stateful feedback node"
     );
+}
+
+/// Return a stable deterministic fingerprint for one generated grammar graph.
+fn graph_fingerprint(graph: &crate::graph::GpuGraph) -> u64 {
+    let payload = serde_json::to_vec(graph).expect("grammar graph should serialize");
+    let mut hasher = DefaultHasher::new();
+    payload.hash(&mut hasher);
+    hasher.finish()
 }

@@ -45,6 +45,8 @@ mod operator_graph_sphere_noise_geo;
 mod operator_graph_sphere_noise_geo_tests;
 mod operator_graph_stage_primitives;
 #[cfg(test)]
+mod operator_graph_test_support;
+#[cfg(test)]
 mod operator_graph_tests;
 pub mod preset_catalog;
 mod primitives;

@@ -1,47 +1,17 @@
 //! Tests for the dedicated sphere-noise-geometry operator-graph preset.
 
-use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
+use super::operator_graph_test_support::{build_graph, preset_test_config};
 use crate::graph::NodeKind;
 use crate::node::PortType;
-use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
+use crate::runtime_config::V2Config;
 
 fn config(seed: u32) -> V2Config {
-    V2Config {
-        width: 640,
-        height: 640,
-        seed,
-        count: 1,
-        output: "test.png".to_string(),
-        layers: 4,
-        antialias: 1,
-        preset: "op-sphere-noise-geo".to_string(),
-        profile: V2Profile::Quality,
-        manifest_out: None,
-        manifest_in: None,
-        art_direction: crate::art_direction::ArtDirectionConfig::default(),
-        animation: AnimationConfig {
-            enabled: false,
-            seconds: 30,
-            fps: 30,
-            keep_frames: false,
-            motion: AnimationMotion::Normal,
-        },
-        selection: crate::runtime_config::SelectionConfig {
-            explore_candidates: 0,
-            explore_size: 320,
-            novelty_window: 0,
-        },
-        gui: crate::runtime_config::GuiConfig::default(),
-    }
+    preset_test_config(seed, "op-sphere-noise-geo", 4, 640, 640)
 }
 
 #[test]
 fn preset_contains_sop_geometry_chain() {
-    let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
-    let nodes = NodeCatalog::with_builtins().expect("node catalog");
-    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
-    let graph =
-        build_preset_graph_with_catalogs(&config(123), &presets, &nodes, &modules).expect("graph");
+    let graph = build_graph(&config(123));
 
     let mut sphere = None;
     let mut noise = None;

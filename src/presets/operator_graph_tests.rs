@@ -1,58 +1,23 @@
 //! Tests for operator-family presets and random graph constraints.
 
-use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
+use super::operator_graph_test_support::{assert_seed_deterministic, build_graph, preset_test_config};
 use crate::graph::NodeKind;
-use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
+use crate::runtime_config::V2Config;
 
 fn config(seed: u32) -> V2Config {
-    V2Config {
-        width: 512,
-        height: 512,
-        seed,
-        count: 1,
-        output: "test.png".to_string(),
-        layers: 5,
-        antialias: 1,
-        preset: "op-random-network".to_string(),
-        profile: V2Profile::Quality,
-        manifest_out: None,
-        manifest_in: None,
-        art_direction: crate::art_direction::ArtDirectionConfig::default(),
-        animation: AnimationConfig {
-            enabled: false,
-            seconds: 30,
-            fps: 30,
-            keep_frames: false,
-            motion: AnimationMotion::Normal,
-        },
-        selection: crate::runtime_config::SelectionConfig {
-            explore_candidates: 0,
-            explore_size: 320,
-            novelty_window: 0,
-        },
-        gui: crate::runtime_config::GuiConfig::default(),
-    }
+    preset_test_config(seed, "op-random-network", 5, 512, 512)
 }
 
 #[test]
 fn operator_random_network_is_seed_deterministic() {
-    let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
-    let nodes = NodeCatalog::with_builtins().expect("node catalog");
-    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
     let cfg = config(17);
-
-    let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
-    let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
-    assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    assert_seed_deterministic(&cfg);
 }
 
 #[test]
 fn operator_random_network_contains_chop_sop_camera_and_masking() {
-    let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
-    let nodes = NodeCatalog::with_builtins().expect("node catalog");
-    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
     let cfg = config(33);
-    let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph");
+    let graph = build_graph(&cfg);
 
     let mut has_chop = false;
     let mut has_sop = false;

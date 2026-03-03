@@ -1,60 +1,24 @@
 //! Tests for the `op-signal-lab` preset.
 
-use super::{build_preset_graph_with_catalogs, NodeCatalog, SubgraphCatalog};
+use super::operator_graph_test_support::{assert_seed_deterministic, build_graph, preset_test_config};
 use crate::graph::NodeKind;
-use crate::runtime_config::{AnimationConfig, AnimationMotion, V2Config, V2Profile};
+use crate::runtime_config::V2Config;
 
 fn config(seed: u32) -> V2Config {
-    V2Config {
-        width: 512,
-        height: 512,
-        seed,
-        count: 1,
-        output: "test.png".to_string(),
-        layers: 6,
-        antialias: 1,
-        preset: "op-signal-lab".to_string(),
-        profile: V2Profile::Quality,
-        manifest_out: None,
-        manifest_in: None,
-        art_direction: crate::art_direction::ArtDirectionConfig::default(),
-        animation: AnimationConfig {
-            enabled: false,
-            seconds: 30,
-            fps: 30,
-            keep_frames: false,
-            motion: AnimationMotion::Normal,
-        },
-        selection: crate::runtime_config::SelectionConfig {
-            explore_candidates: 0,
-            explore_size: 320,
-            novelty_window: 0,
-        },
-        gui: crate::runtime_config::GuiConfig::default(),
-    }
+    preset_test_config(seed, "op-signal-lab", 6, 512, 512)
 }
 
 #[test]
 fn operator_signal_lab_is_seed_deterministic() {
-    let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
-    let nodes = NodeCatalog::with_builtins().expect("node catalog");
-    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
     let cfg = config(6451);
-
-    let a = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph a");
-    let b = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules).expect("graph b");
-    assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    assert_seed_deterministic(&cfg);
 }
 
 #[test]
 fn operator_signal_lab_exposes_sop_top_chop_flow() {
-    let presets = super::preset_catalog::PresetCatalog::with_builtins().expect("preset catalog");
-    let nodes = NodeCatalog::with_builtins().expect("node catalog");
-    let modules = SubgraphCatalog::with_builtins().expect("module catalog");
     let cfg = config(9412);
 
-    let graph = build_preset_graph_with_catalogs(&cfg, &presets, &nodes, &modules)
-        .expect("graph should build");
+    let graph = build_graph(&cfg);
 
     let mut outputs = 0usize;
     let mut cameras = 0usize;
