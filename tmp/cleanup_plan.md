@@ -10,7 +10,7 @@ Date: 2026-03-03
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Consolidate `ProjectNodeKind` metadata into one descriptor table
+- [x] 1. Consolidate `ProjectNodeKind` metadata into one descriptor table _(done 2026-03-03, commit 9d6f16f)_
   - ROI: High
   - Effort: M
   - Why it matters:
