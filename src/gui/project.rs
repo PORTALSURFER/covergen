@@ -45,7 +45,8 @@ const PERSISTED_GUI_PROJECT_VERSION: u32 = 1;
 const TEXTURE_TARGET_PLACEHOLDER: &str = "none";
 /// Stable parameter key for feedback accumulation history texture binding.
 pub(crate) const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
-const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
+/// Legacy persisted feedback-history key kept for backward-compatible loads.
+pub(crate) const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
 const FEEDBACK_HISTORY_PARAM_LABEL: &str = "accum_tex";
 /// Stable parameter key for feedback history write decimation interval.
 ///
@@ -56,7 +57,8 @@ const FEEDBACK_FRAME_GAP_PARAM_LABEL: &str = "frame_gap";
 /// Stable parameter key for the feedback history reset action button.
 pub(crate) const FEEDBACK_RESET_PARAM_KEY: &str = "reset";
 const FEEDBACK_RESET_PARAM_LABEL: &str = "reset";
-const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
+/// Stable parameter key for `tex.blend` secondary texture input.
+pub(crate) const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
 const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
 
@@ -1222,6 +1224,7 @@ enum PinHitKind {
 
 mod geometry;
 mod params;
+pub(crate) mod param_schema;
 mod signatures;
 mod state;
 #[cfg(test)]

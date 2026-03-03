@@ -1,3 +1,4 @@
+use super::param_schema;
 use super::state::clamp_node_position;
 use super::*;
 
@@ -800,14 +801,14 @@ impl GuiProject {
             return None;
         }
         eval_stack.push_node(node_id);
-        const LFO_RATE_INDEX: usize = 0;
-        const LFO_AMPLITUDE_INDEX: usize = 1;
-        const LFO_PHASE_INDEX: usize = 2;
-        const LFO_BIAS_INDEX: usize = 3;
-        const LFO_SYNC_MODE_INDEX: usize = 4;
-        const LFO_BEAT_MUL_INDEX: usize = 5;
-        const LFO_TYPE_INDEX: usize = 6;
-        const LFO_SHAPE_INDEX: usize = 7;
+        const LFO_RATE_INDEX: usize = param_schema::ctl_lfo::RATE_HZ_INDEX;
+        const LFO_AMPLITUDE_INDEX: usize = param_schema::ctl_lfo::AMPLITUDE_INDEX;
+        const LFO_PHASE_INDEX: usize = param_schema::ctl_lfo::PHASE_INDEX;
+        const LFO_BIAS_INDEX: usize = param_schema::ctl_lfo::BIAS_INDEX;
+        const LFO_SYNC_MODE_INDEX: usize = param_schema::ctl_lfo::SYNC_MODE_INDEX;
+        const LFO_BEAT_MUL_INDEX: usize = param_schema::ctl_lfo::BEAT_MUL_INDEX;
+        const LFO_TYPE_INDEX: usize = param_schema::ctl_lfo::LFO_TYPE_INDEX;
+        const LFO_SHAPE_INDEX: usize = param_schema::ctl_lfo::SHAPE_INDEX;
         let rate = self
             .node_param_value_by_index_impl(node_id, LFO_RATE_INDEX, time_secs, eval_stack, memo)
             .unwrap_or(0.4);
@@ -947,14 +948,14 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::TexCircle => vec![
-            param("center_x", "center_x", 0.5, 0.0, 1.0, 0.01),
-            param("center_y", "center_y", 0.5, 0.0, 1.0, 0.01),
-            param("radius", "radius", 0.24, 0.02, 0.5, 0.005),
-            param("feather", "feather", 0.06, 0.0, 0.25, 0.005),
-            param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
-            param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
-            param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
-            param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+            param(param_schema::circle::CENTER_X, "center_x", 0.5, 0.0, 1.0, 0.01),
+            param(param_schema::circle::CENTER_Y, "center_y", 0.5, 0.0, 1.0, 0.01),
+            param(param_schema::circle::RADIUS, "radius", 0.24, 0.02, 0.5, 0.005),
+            param(param_schema::circle::FEATHER, "feather", 0.06, 0.0, 0.25, 0.005),
+            param(param_schema::circle::COLOR_R, "color_r", 0.9, 0.0, 1.0, 0.01),
+            param(param_schema::circle::COLOR_G, "color_g", 0.9, 0.0, 1.0, 0.01),
+            param(param_schema::circle::COLOR_B, "color_b", 0.9, 0.0, 1.0, 0.01),
+            param(param_schema::circle::ALPHA, "alpha", 1.0, 0.0, 1.0, 0.01),
         ],
         ProjectNodeKind::BufSphere => vec![
             param("radius", "radius", 0.28, 0.02, 0.5, 0.005),
@@ -988,11 +989,25 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
         ProjectNodeKind::TexTransform2D => vec![
             // Keep transform as identity by default so inserting this node
             // never changes output until the user edits parameters.
-            param("brightness", "brightness", 1.0, 0.0, 64.0, 0.1),
-            param("gain_r", "gain_r", 1.0, 0.0, 64.0, 0.1),
-            param("gain_g", "gain_g", 1.0, 0.0, 64.0, 0.1),
-            param("gain_b", "gain_b", 1.0, 0.0, 64.0, 0.1),
-            param("alpha_mul", "alpha_mul", 1.0, 0.0, 64.0, 0.1),
+            param(
+                param_schema::transform_2d::BRIGHTNESS,
+                "brightness",
+                1.0,
+                0.0,
+                64.0,
+                0.1,
+            ),
+            param(param_schema::transform_2d::GAIN_R, "gain_r", 1.0, 0.0, 64.0, 0.1),
+            param(param_schema::transform_2d::GAIN_G, "gain_g", 1.0, 0.0, 64.0, 0.1),
+            param(param_schema::transform_2d::GAIN_B, "gain_b", 1.0, 0.0, 64.0, 0.1),
+            param(
+                param_schema::transform_2d::ALPHA_MUL,
+                "alpha_mul",
+                1.0,
+                0.0,
+                64.0,
+                0.1,
+            ),
         ],
         ProjectNodeKind::TexLevel => vec![
             // Keep level as identity by default so inserting this node
@@ -1007,7 +1022,7 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
             // Optional external accumulation-history binding for feedback.
             param_texture_target(FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_HISTORY_PARAM_LABEL),
             // History output gain for delayed feedback (`history * feedback`).
-            param("feedback", "feedback", 1.0, 0.0, 1.0, 0.01),
+            param(param_schema::feedback::MIX, "feedback", 1.0, 0.0, 1.0, 0.01),
             // Number of skipped history-write frames between updates.
             // `0` keeps classic one-frame feedback behavior.
             param(
@@ -1095,26 +1110,78 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
         }
         ProjectNodeKind::RenderScenePass => vec![
             // `0` keeps project preview resolution.
-            param("res_width", "res_width", 0.0, 0.0, 8192.0, 1.0),
+            param(
+                param_schema::render_scene_pass::RES_WIDTH,
+                "res_width",
+                0.0,
+                0.0,
+                8192.0,
+                1.0,
+            ),
             // `0` keeps project preview resolution.
-            param("res_height", "res_height", 0.0, 0.0, 8192.0, 1.0),
+            param(
+                param_schema::render_scene_pass::RES_HEIGHT,
+                "res_height",
+                0.0,
+                0.0,
+                8192.0,
+                1.0,
+            ),
             // `with_bg` preserves the preview background clear; `alpha_clip`
             // clears transparent so only rendered scene objects remain.
-            param_dropdown("bg_mode", "bg_mode", 0, &SCENE_PASS_BG_MODE_OPTIONS),
-            param("edge_softness", "edge_soft", 0.01, 0.0, 0.25, 0.005),
-            param("light_x", "light_x", 0.4, -1.0, 1.0, 0.02),
-            param("light_y", "light_y", -0.5, -1.0, 1.0, 0.02),
-            param("light_z", "light_z", 1.0, 0.0, 2.0, 0.02),
+            param_dropdown(
+                param_schema::render_scene_pass::BG_MODE,
+                "bg_mode",
+                0,
+                &SCENE_PASS_BG_MODE_OPTIONS,
+            ),
+            param(
+                param_schema::render_scene_pass::EDGE_SOFTNESS,
+                "edge_soft",
+                0.01,
+                0.0,
+                0.25,
+                0.005,
+            ),
+            param(param_schema::render_scene_pass::LIGHT_X, "light_x", 0.4, -1.0, 1.0, 0.02),
+            param(
+                param_schema::render_scene_pass::LIGHT_Y,
+                "light_y",
+                -0.5,
+                -1.0,
+                1.0,
+                0.02,
+            ),
+            param(param_schema::render_scene_pass::LIGHT_Z, "light_z", 1.0, 0.0, 2.0, 0.02),
         ],
         ProjectNodeKind::CtlLfo => vec![
-            param("rate_hz", "rate_hz", 0.4, 0.0, 8.0, 0.05),
-            param("amplitude", "amplitude", 0.5, 0.0, 64.0, 0.1),
-            param("phase", "phase", 0.0, -1.0, 1.0, 0.02),
-            param("bias", "bias", 0.5, -1.0, 1.0, 0.02),
-            param_dropdown("sync_mode", "sync_mode", 0, &LFO_SYNC_MODE_OPTIONS),
-            param("beat_mul", "beat_mul", 1.0, 0.125, 32.0, 0.125),
-            param_dropdown("lfo_type", "type", 0, &LFO_TYPE_OPTIONS),
-            param("shape", "shape", 0.0, -1.0, 1.0, 0.02),
+            param(param_schema::ctl_lfo::RATE_HZ, "rate_hz", 0.4, 0.0, 8.0, 0.05),
+            param(
+                param_schema::ctl_lfo::AMPLITUDE,
+                "amplitude",
+                0.5,
+                0.0,
+                64.0,
+                0.1,
+            ),
+            param(param_schema::ctl_lfo::PHASE, "phase", 0.0, -1.0, 1.0, 0.02),
+            param(param_schema::ctl_lfo::BIAS, "bias", 0.5, -1.0, 1.0, 0.02),
+            param_dropdown(
+                param_schema::ctl_lfo::SYNC_MODE,
+                "sync_mode",
+                0,
+                &LFO_SYNC_MODE_OPTIONS,
+            ),
+            param(
+                param_schema::ctl_lfo::BEAT_MUL,
+                "beat_mul",
+                1.0,
+                0.125,
+                32.0,
+                0.125,
+            ),
+            param_dropdown(param_schema::ctl_lfo::LFO_TYPE, "type", 0, &LFO_TYPE_OPTIONS),
+            param(param_schema::ctl_lfo::SHAPE, "shape", 0.0, -1.0, 1.0, 0.02),
         ],
         ProjectNodeKind::IoWindowOut => Vec::new(),
     }

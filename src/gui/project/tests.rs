@@ -1,7 +1,7 @@
 use super::{
     input_pin_center, node_expand_toggle_rect, node_param_value_rect, output_pin_center,
-    GraphBounds, GuiProject, PersistedGuiParam, PersistedGuiProject, ProjectNodeKind, ResourceKind,
-    SignalSampleMemo, NODE_HEIGHT, PARAM_LABEL_MAX_LEN,
+    param_schema, GraphBounds, GuiProject, PersistedGuiParam, PersistedGuiProject, ProjectNodeKind,
+    ResourceKind, SignalSampleMemo, NODE_HEIGHT, PARAM_LABEL_MAX_LEN,
 };
 
 #[test]
@@ -741,6 +741,62 @@ fn post_color_tone_effect_uses_dropdown_options() {
     assert_eq!(project.node_param_raw_text(post, 0), Some("bloom"));
     assert!(project.set_param_dropdown_index(post, 0, 9));
     assert_eq!(project.node_param_raw_text(post, 0), Some("duotone"));
+}
+
+#[test]
+fn runtime_param_schema_matches_default_editor_param_order() {
+    fn assert_kind_keys(
+        project: &GuiProject,
+        node_id: u32,
+        expected: &[&'static str],
+        kind: ProjectNodeKind,
+    ) {
+        let node = project.node(node_id).expect("node should exist");
+        let keys: Vec<&str> = node.params.iter().map(|slot| slot.key).collect();
+        assert_eq!(
+            keys.as_slice(),
+            expected,
+            "default param order drifted for {}",
+            kind.stable_id()
+        );
+    }
+
+    let mut project = GuiProject::new_empty(640, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 40, 40, 420, 480);
+    let transform = project.add_node(ProjectNodeKind::TexTransform2D, 220, 40, 420, 480);
+    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 400, 40, 420, 480);
+    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 580, 40, 420, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 760, 40, 420, 480);
+    assert_kind_keys(
+        &project,
+        circle,
+        &param_schema::circle::KEYS,
+        ProjectNodeKind::TexCircle,
+    );
+    assert_kind_keys(
+        &project,
+        transform,
+        &param_schema::transform_2d::KEYS,
+        ProjectNodeKind::TexTransform2D,
+    );
+    assert_kind_keys(
+        &project,
+        feedback,
+        &param_schema::feedback::KEYS,
+        ProjectNodeKind::TexFeedback,
+    );
+    assert_kind_keys(
+        &project,
+        scene_pass,
+        &param_schema::render_scene_pass::KEYS,
+        ProjectNodeKind::RenderScenePass,
+    );
+    assert_kind_keys(
+        &project,
+        lfo,
+        &param_schema::ctl_lfo::KEYS,
+        ProjectNodeKind::CtlLfo,
+    );
 }
 
 #[test]

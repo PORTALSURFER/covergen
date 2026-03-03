@@ -7,22 +7,19 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use super::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
+use super::project::{
+    param_schema, GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack,
+    BLEND_LAYER_PARAM_KEY, FEEDBACK_FRAME_GAP_PARAM_KEY,
+};
 use crate::telemetry;
 
-const FEEDBACK_HISTORY_PARAM_KEY: &str = "accumulation_tex";
-const LEGACY_FEEDBACK_HISTORY_PARAM_KEY: &str = "target_tex";
-const FEEDBACK_FRAME_GAP_PARAM_KEY: &str = "frame_gap";
-const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const DEFAULT_LOOP_FPS: u32 = 60;
-const SOLID_PARAM_KEYS: [&str; 4] = ["color_r", "color_g", "color_b", "alpha"];
+const SOLID_PARAM_KEYS: [&str; 4] = param_schema::solid::KEYS;
 const SOLID_COLOR_R_SLOT: usize = 0;
 const SOLID_COLOR_G_SLOT: usize = 1;
 const SOLID_COLOR_B_SLOT: usize = 2;
 const SOLID_ALPHA_SLOT: usize = 3;
-const CIRCLE_PARAM_KEYS: [&str; 8] = [
-    "center_x", "center_y", "radius", "feather", "color_r", "color_g", "color_b", "alpha",
-];
+const CIRCLE_PARAM_KEYS: [&str; 8] = param_schema::circle::KEYS;
 const CIRCLE_CENTER_X_SLOT: usize = 0;
 const CIRCLE_CENTER_Y_SLOT: usize = 1;
 const CIRCLE_RADIUS_SLOT: usize = 2;
@@ -31,17 +28,9 @@ const CIRCLE_COLOR_R_SLOT: usize = 4;
 const CIRCLE_COLOR_G_SLOT: usize = 5;
 const CIRCLE_COLOR_B_SLOT: usize = 6;
 const CIRCLE_ALPHA_SLOT: usize = 7;
-const SPHERE_BUFFER_PARAM_KEYS: [&str; 1] = ["radius"];
+const SPHERE_BUFFER_PARAM_KEYS: [&str; 1] = param_schema::sphere_buffer::KEYS;
 const SPHERE_BUFFER_RADIUS_SLOT: usize = 0;
-const CIRCLE_NURBS_BUFFER_PARAM_KEYS: [&str; 7] = [
-    "radius",
-    "arc_start",
-    "arc_end",
-    "line_width",
-    "order",
-    "divisions",
-    "arc_style",
-];
+const CIRCLE_NURBS_BUFFER_PARAM_KEYS: [&str; 7] = param_schema::circle_nurbs_buffer::KEYS;
 const CIRCLE_NURBS_BUFFER_RADIUS_SLOT: usize = 0;
 const CIRCLE_NURBS_BUFFER_ARC_START_SLOT: usize = 1;
 const CIRCLE_NURBS_BUFFER_ARC_END_SLOT: usize = 2;
@@ -49,17 +38,7 @@ const CIRCLE_NURBS_BUFFER_LINE_WIDTH_SLOT: usize = 3;
 const CIRCLE_NURBS_BUFFER_ORDER_SLOT: usize = 4;
 const CIRCLE_NURBS_BUFFER_DIVISIONS_SLOT: usize = 5;
 const CIRCLE_NURBS_BUFFER_ARC_STYLE_SLOT: usize = 6;
-const BUFFER_NOISE_PARAM_KEYS: [&str; 9] = [
-    "amplitude",
-    "frequency",
-    "speed_hz",
-    "phase",
-    "seed",
-    "twist",
-    "stretch",
-    "loop_cyc",
-    "loop_mode",
-];
+const BUFFER_NOISE_PARAM_KEYS: [&str; 9] = param_schema::buffer_noise::KEYS;
 const BUFFER_NOISE_AMPLITUDE_SLOT: usize = 0;
 const BUFFER_NOISE_FREQUENCY_SLOT: usize = 1;
 const BUFFER_NOISE_SPEED_HZ_SLOT: usize = 2;
@@ -69,9 +48,7 @@ const BUFFER_NOISE_TWIST_SLOT: usize = 5;
 const BUFFER_NOISE_STRETCH_SLOT: usize = 6;
 const BUFFER_NOISE_LOOP_CYC_SLOT: usize = 7;
 const BUFFER_NOISE_LOOP_MODE_SLOT: usize = 8;
-const SCENE_ENTITY_PARAM_KEYS: [&str; 8] = [
-    "pos_x", "pos_y", "scale", "ambient", "color_r", "color_g", "color_b", "alpha",
-];
+const SCENE_ENTITY_PARAM_KEYS: [&str; 8] = param_schema::scene_entity::KEYS;
 const SCENE_ENTITY_POS_X_SLOT: usize = 0;
 const SCENE_ENTITY_POS_Y_SLOT: usize = 1;
 const SCENE_ENTITY_SCALE_SLOT: usize = 2;
@@ -80,17 +57,9 @@ const SCENE_ENTITY_COLOR_R_SLOT: usize = 4;
 const SCENE_ENTITY_COLOR_G_SLOT: usize = 5;
 const SCENE_ENTITY_COLOR_B_SLOT: usize = 6;
 const SCENE_ENTITY_ALPHA_SLOT: usize = 7;
-const CAMERA_PARAM_KEYS: [&str; 1] = ["zoom"];
+const CAMERA_PARAM_KEYS: [&str; 1] = param_schema::render_camera::KEYS;
 const CAMERA_ZOOM_SLOT: usize = 0;
-const SCENE_PASS_PARAM_KEYS: [&str; 7] = [
-    "res_width",
-    "res_height",
-    "bg_mode",
-    "edge_softness",
-    "light_x",
-    "light_y",
-    "light_z",
-];
+const SCENE_PASS_PARAM_KEYS: [&str; 7] = param_schema::render_scene_pass::KEYS;
 const SCENE_PASS_RES_WIDTH_SLOT: usize = 0;
 const SCENE_PASS_RES_HEIGHT_SLOT: usize = 1;
 const SCENE_PASS_BG_MODE_SLOT: usize = 2;
@@ -98,43 +67,37 @@ const SCENE_PASS_EDGE_SOFTNESS_SLOT: usize = 3;
 const SCENE_PASS_LIGHT_X_SLOT: usize = 4;
 const SCENE_PASS_LIGHT_Y_SLOT: usize = 5;
 const SCENE_PASS_LIGHT_Z_SLOT: usize = 6;
-const TRANSFORM_PARAM_KEYS: [&str; 5] = ["brightness", "gain_r", "gain_g", "gain_b", "alpha_mul"];
+const TRANSFORM_PARAM_KEYS: [&str; 5] = param_schema::transform_2d::KEYS;
 const TRANSFORM_BRIGHTNESS_SLOT: usize = 0;
 const TRANSFORM_GAIN_R_SLOT: usize = 1;
 const TRANSFORM_GAIN_G_SLOT: usize = 2;
 const TRANSFORM_GAIN_B_SLOT: usize = 3;
 const TRANSFORM_ALPHA_MUL_SLOT: usize = 4;
-const LEVEL_PARAM_KEYS: [&str; 5] = ["in_low", "in_high", "gamma", "out_low", "out_high"];
+const LEVEL_PARAM_KEYS: [&str; 5] = param_schema::level::KEYS;
 const LEVEL_IN_LOW_SLOT: usize = 0;
 const LEVEL_IN_HIGH_SLOT: usize = 1;
 const LEVEL_GAMMA_SLOT: usize = 2;
 const LEVEL_OUT_LOW_SLOT: usize = 3;
 const LEVEL_OUT_HIGH_SLOT: usize = 4;
-const FEEDBACK_PARAM_KEYS: [&str; 4] = [
-    "feedback",
-    FEEDBACK_HISTORY_PARAM_KEY,
-    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
-    FEEDBACK_FRAME_GAP_PARAM_KEY,
-];
+const FEEDBACK_PARAM_KEYS: [&str; 4] = param_schema::feedback::KEYS;
 const FEEDBACK_MIX_SLOT: usize = 0;
 const FEEDBACK_HISTORY_SLOT: usize = 1;
 const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
 const FEEDBACK_FRAME_GAP_SLOT: usize = 3;
-const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] =
-    ["diff_a", "diff_b", "feed", "kill", "dt", "seed_mix"];
+const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] = param_schema::reaction_diffusion::KEYS;
 const REACTION_DIFFUSION_DIFF_A_SLOT: usize = 0;
 const REACTION_DIFFUSION_DIFF_B_SLOT: usize = 1;
 const REACTION_DIFFUSION_FEED_SLOT: usize = 2;
 const REACTION_DIFFUSION_KILL_SLOT: usize = 3;
 const REACTION_DIFFUSION_DT_SLOT: usize = 4;
 const REACTION_DIFFUSION_SEED_MIX_SLOT: usize = 5;
-const POST_PROCESS_PARAM_KEYS: [&str; 5] = ["effect", "amount", "scale", "thresh", "speed"];
+const POST_PROCESS_PARAM_KEYS: [&str; 5] = param_schema::post_process::KEYS;
 const POST_PROCESS_EFFECT_SLOT: usize = 0;
 const POST_PROCESS_AMOUNT_SLOT: usize = 1;
 const POST_PROCESS_SCALE_SLOT: usize = 2;
 const POST_PROCESS_THRESH_SLOT: usize = 3;
 const POST_PROCESS_SPEED_SLOT: usize = 4;
-const BLEND_PARAM_KEYS: [&str; 6] = ["blend_mode", "opacity", "bg_r", "bg_g", "bg_b", "bg_a"];
+const BLEND_PARAM_KEYS: [&str; 6] = param_schema::blend::KEYS;
 const BLEND_MODE_SLOT: usize = 0;
 const BLEND_OPACITY_SLOT: usize = 1;
 const BLEND_BG_R_SLOT: usize = 2;
