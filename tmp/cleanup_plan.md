@@ -216,7 +216,7 @@ Date: 2026-03-03
   - Suggested validation:
     - `cargo test -q gui::project::tests::from_persisted_maps_legacy_feedback_target_tex_key`
 
-- [ ] 12. Add lightweight CI guardrail checks for structure drift
+- [x] 12. Add lightweight CI guardrail checks for structure drift _(done 2026-03-03, commit 723bf98)_
   - ROI: Low
   - Effort: S
   - Why it matters:
