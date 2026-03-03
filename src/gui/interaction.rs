@@ -15,6 +15,7 @@ use self::param_edit::{
     backspace_param_text, can_append_param_char, insert_param_char, move_param_cursor_left,
     move_param_cursor_right,
 };
+use self::drag::hover_insert_link_at_cursor;
 
 use crate::runtime_config::V2Config;
 use std::time::Duration;

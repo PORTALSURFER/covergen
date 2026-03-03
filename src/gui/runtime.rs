@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use super::project::{
     param_schema, GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack,
-    BLEND_LAYER_PARAM_KEY, FEEDBACK_FRAME_GAP_PARAM_KEY,
+    BLEND_LAYER_PARAM_KEY,
 };
 use crate::telemetry;
 
