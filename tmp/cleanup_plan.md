@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 1 audit complete; awaiting user approval for Phase 2 implementation.
+Status: Phase 2 implementation in progress.
 Date: 2026-03-03
 
 ## Context Snapshot
@@ -9,7 +9,9 @@ Date: 2026-03-03
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Decompose `gui::interaction` and remove dead-code shim surface
+- [x] 1. Decompose `gui::interaction` and remove dead-code shim surface
+  - Completed: 2026-03-03 (`e8f36c5`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: High
   - Effort: M
   - Why it matters:
