@@ -186,7 +186,7 @@ Date: 2026-03-03
     - `cargo test -q gui::scene::wire_route::tests`
     - GUI interactive wire-drag smoke tests.
 
-- [ ] 10. Promote structure-drift report from informational to soft gate thresholds
+- [x] 10. Promote structure-drift report from informational to soft gate thresholds _(done 2026-03-03, commit 464ac30)_
   - ROI: Low
   - Effort: S
   - Why it matters:
