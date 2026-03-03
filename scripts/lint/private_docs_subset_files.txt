@@ -2,3 +2,4 @@ src/model.rs
 src/proc_graph.rs
 src/image_ops.rs
 src/gpu_render.rs
+src/gui/renderer/tex_preview/execution.rs
