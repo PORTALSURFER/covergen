@@ -203,7 +203,9 @@ Date: 2026-03-03
   - Suggested validation:
     - `cargo clippy --all-targets --all-features -- -D warnings -D clippy::missing_docs_in_private_items` (on staged modules first)
 
-- [ ] 9. Normalize local CI workflow orchestration between Bash and PowerShell
+- [x] 9. Normalize local CI workflow orchestration between Bash and PowerShell
+  - Completed: 2026-03-03 (`2f5e96a`)
+  - Validation: Bash syntax and subset-doc lint pass locally; PowerShell runtime validation remains blocked in this environment (`pwsh` unavailable).
   - ROI: Medium
   - Effort: M
   - Why it matters:
