@@ -6,8 +6,11 @@ use crate::model::Params;
 use crate::proc_graph::SopPrimitive;
 use crate::sop::TopCameraRenderNode;
 
-use super::graph_ops::{DecodeBuffers, GraphBuffers, GraphOpUniforms};
-use super::{GpuLayerRenderer, GraphFrameContext, GraphSubmitStats};
+use super::graph_ops::{DecodeBuffers, DecodeLayerDispatch, GraphBuffers, GraphOpUniforms};
+use super::{
+    BlendAliasDispatch, GenerateLayerAliasDispatch, GpuLayerRenderer, GraphFrameContext,
+    GraphSubmitStats, SourceNoiseAliasDispatch,
+};
 
 impl GpuLayerRenderer {
     /// Start one frame-scoped graph execution context.
@@ -129,16 +132,11 @@ impl GpuLayerRenderer {
     }
 
     /// Dispatch one fractal layer and write normalized luma into an alias output slot.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_generate_layer_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,
         params: &Params,
-        input_base_slot: Option<usize>,
-        output_slot: usize,
-        opacity: f32,
-        blend_mode: u32,
-        contrast: f32,
+        dispatch: GenerateLayerAliasDispatch,
     ) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
 
@@ -148,7 +146,6 @@ impl GpuLayerRenderer {
             .upload_bytes
             .saturating_add(std::mem::size_of::<Params>() as u64);
         self.dispatch_main_pass(&mut frame.encoder, params);
-        let output = self.alias_luma(output_slot)?;
         let decode_buffers = DecodeBuffers {
             src_u32: &self.out_buffer,
             dst: &self.node_layer_temp_buffer,
@@ -159,23 +156,25 @@ impl GpuLayerRenderer {
                 &self.device,
                 &self.queue,
                 &mut frame.encoder,
-                decode_buffers,
-                self.width,
-                self.height,
-                contrast,
+                DecodeLayerDispatch {
+                    buffers: decode_buffers,
+                    width: self.width,
+                    height: self.height,
+                    contrast: dispatch.contrast,
+                },
             ));
 
-        if let Some(base_slot) = input_base_slot {
+        if let Some(base_slot) = dispatch.input_base_slot {
             let base = self.alias_luma(base_slot)?;
             let blend_buffers = GraphBuffers {
                 src0: base,
                 src1: &self.node_layer_temp_buffer,
                 src2: &self.node_layer_temp_buffer,
-                dst: output,
+                dst: self.alias_luma(dispatch.output_slot)?,
             };
             let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
-            uniforms.mode = blend_mode % 10;
-            uniforms.p0 = opacity.clamp(0.0, 1.0);
+            uniforms.mode = dispatch.blend_mode % 10;
+            uniforms.p0 = dispatch.opacity.clamp(0.0, 1.0);
             frame.upload_bytes = frame
                 .upload_bytes
                 .saturating_add(self.graph_ops.encode_blend(
@@ -190,7 +189,7 @@ impl GpuLayerRenderer {
                 src0: &self.node_layer_temp_buffer,
                 src1: &self.node_layer_temp_buffer,
                 src2: &self.node_layer_temp_buffer,
-                dst: output,
+                dst: self.alias_luma(dispatch.output_slot)?,
             };
             frame.upload_bytes = frame
                 .upload_bytes
@@ -209,21 +208,15 @@ impl GpuLayerRenderer {
     }
 
     /// Render a deterministic value-noise source map into an alias slot.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_source_noise_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,
-        output_mask: bool,
-        output_slot: usize,
-        seed: u32,
-        scale: f32,
-        octaves: u32,
-        amplitude: f32,
+        dispatch: SourceNoiseAliasDispatch,
     ) -> Result<(), Box<dyn Error>> {
-        let output = if output_mask {
-            self.alias_mask(output_slot)?
+        let output = if dispatch.output_mask {
+            self.alias_mask(dispatch.output_slot)?
         } else {
-            self.alias_luma(output_slot)?
+            self.alias_luma(dispatch.output_slot)?
         };
         // `source_noise` writes only `dst`, but the shared bind layout also exposes
         // read-only sources. Keep those bindings on a distinct scratch buffer so
@@ -235,10 +228,10 @@ impl GpuLayerRenderer {
             dst: output,
         };
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
-        uniforms.seed = seed;
-        uniforms.octaves = octaves.clamp(1, 8);
-        uniforms.p0 = scale;
-        uniforms.p1 = amplitude;
+        uniforms.seed = dispatch.seed;
+        uniforms.octaves = dispatch.octaves.clamp(1, 8);
+        uniforms.p0 = dispatch.scale;
+        uniforms.p1 = dispatch.amplitude;
         frame.upload_bytes = frame
             .upload_bytes
             .saturating_add(self.graph_ops.encode_source_noise(
@@ -288,24 +281,18 @@ impl GpuLayerRenderer {
     }
 
     /// Blend two luma alias inputs into a destination luma alias output.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_blend_to_alias(
         &mut self,
         frame: &mut GraphFrameContext,
-        base_slot: usize,
-        top_slot: usize,
-        mask_slot: Option<usize>,
-        output_slot: usize,
-        mode: u32,
-        opacity: f32,
+        dispatch: BlendAliasDispatch,
     ) -> Result<(), Box<dyn Error>> {
-        let base = self.alias_luma(base_slot)?;
-        let top = self.alias_luma(top_slot)?;
-        let mask = match mask_slot {
+        let base = self.alias_luma(dispatch.base_slot)?;
+        let top = self.alias_luma(dispatch.top_slot)?;
+        let mask = match dispatch.mask_slot {
             Some(slot) => self.alias_mask(slot)?,
             None => top,
         };
-        let out = self.alias_luma(output_slot)?;
+        let out = self.alias_luma(dispatch.output_slot)?;
         let buffers = GraphBuffers {
             src0: base,
             src1: top,
@@ -313,9 +300,9 @@ impl GpuLayerRenderer {
             dst: out,
         };
         let mut uniforms = GraphOpUniforms::sized(self.width, self.height);
-        uniforms.mode = mode % 10;
-        uniforms.flags = u32::from(mask_slot.is_some());
-        uniforms.p0 = opacity;
+        uniforms.mode = dispatch.mode % 10;
+        uniforms.flags = u32::from(dispatch.mask_slot.is_some());
+        uniforms.p0 = dispatch.opacity;
         frame.upload_bytes = frame
             .upload_bytes
             .saturating_add(self.graph_ops.encode_blend(

@@ -88,6 +88,18 @@ pub(super) struct DecodeBuffers<'a> {
     pub(super) dst: &'a wgpu::Buffer,
 }
 
+/// Inputs for one decode-layer compute dispatch.
+pub(super) struct DecodeLayerDispatch<'a> {
+    /// Source/destination buffers for decode pass.
+    pub(super) buffers: DecodeBuffers<'a>,
+    /// Dispatch width.
+    pub(super) width: u32,
+    /// Dispatch height.
+    pub(super) height: u32,
+    /// Post-decode contrast scale.
+    pub(super) contrast: f32,
+}
+
 /// Cache key for graph-op bind groups that share the same storage bindings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct GraphBindGroupKey {
@@ -242,20 +254,16 @@ impl GpuGraphOps {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn encode_decode_layer(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        buffers: DecodeBuffers<'_>,
-        width: u32,
-        height: u32,
-        contrast: f32,
+        dispatch: DecodeLayerDispatch<'_>,
     ) -> u64 {
-        let mut uniforms = GraphOpUniforms::sized(width, height);
-        uniforms.p0 = contrast;
-        self.encode_decode_pass(device, queue, encoder, buffers, uniforms)
+        let mut uniforms = GraphOpUniforms::sized(dispatch.width, dispatch.height);
+        uniforms.p0 = dispatch.contrast;
+        self.encode_decode_pass(device, queue, encoder, dispatch.buffers, uniforms)
     }
 
     pub(super) fn encode_source_noise(

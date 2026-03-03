@@ -3,7 +3,9 @@
 use std::error::Error;
 use std::time::Instant;
 
-use crate::gpu_render::GpuLayerRenderer;
+use crate::gpu_render::{
+    BlendAliasDispatch, GenerateLayerAliasDispatch, GpuLayerRenderer, SourceNoiseAliasDispatch,
+};
 use crate::proc_graph::{
     apply_sop_geometry, eval_chop_lfo, eval_chop_math, eval_chop_remap, eval_source_noise_scalar,
     SopPrimitive,
@@ -39,11 +41,13 @@ pub(crate) fn render_graph_luma_gpu(
                 renderer.render_generate_layer_to_alias(
                     &mut frame,
                     &params,
-                    input,
-                    output,
-                    effective.opacity,
-                    effective.blend_mode.as_u32(),
-                    effective.contrast,
+                    GenerateLayerAliasDispatch {
+                        input_base_slot: input,
+                        output_slot: output,
+                        opacity: effective.opacity,
+                        blend_mode: effective.blend_mode.as_u32(),
+                        contrast: effective.contrast,
+                    },
                 )?;
                 telemetry::record_timing(
                     "v2.gpu.node.generate_layer.retained",
@@ -63,12 +67,14 @@ pub(crate) fn render_graph_luma_gpu(
                         };
                         renderer.render_source_noise_to_alias(
                             &mut frame,
-                            output_mask,
-                            output,
-                            effective_seed,
-                            effective.scale,
-                            effective.octaves,
-                            effective.amplitude,
+                            SourceNoiseAliasDispatch {
+                                output_mask,
+                                output_slot: output,
+                                seed: effective_seed,
+                                scale: effective.scale,
+                                octaves: effective.octaves,
+                                amplitude: effective.amplitude,
+                            },
                         )?;
                     }
                     PortType::ChannelScalar => {
@@ -114,12 +120,14 @@ pub(crate) fn render_graph_luma_gpu(
                 let output = output_luma_slot(compiled, step.node_id)?;
                 renderer.render_blend_to_alias(
                     &mut frame,
-                    base,
-                    top,
-                    mask,
-                    output,
-                    effective.mode.as_u32(),
-                    effective.opacity,
+                    BlendAliasDispatch {
+                        base_slot: base,
+                        top_slot: top,
+                        mask_slot: mask,
+                        output_slot: output,
+                        mode: effective.mode.as_u32(),
+                        opacity: effective.opacity,
+                    },
                 )?;
             }
             CompiledOp::ToneMap(spec) => {

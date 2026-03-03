@@ -91,6 +91,55 @@ pub(crate) struct GraphSubmitStats {
     pub(crate) bind_group_creates: u64,
 }
 
+/// Parameters for one generate-layer alias render dispatch.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GenerateLayerAliasDispatch {
+    /// Optional base luma alias slot for blending.
+    pub(crate) input_base_slot: Option<usize>,
+    /// Destination luma alias slot.
+    pub(crate) output_slot: usize,
+    /// Layer opacity in `[0, 1]`.
+    pub(crate) opacity: f32,
+    /// Blend mode encoded as runtime numeric id.
+    pub(crate) blend_mode: u32,
+    /// Decode contrast multiplier.
+    pub(crate) contrast: f32,
+}
+
+/// Parameters for one source-noise alias dispatch.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SourceNoiseAliasDispatch {
+    /// Output resource kind selector.
+    pub(crate) output_mask: bool,
+    /// Destination alias slot in the selected output kind.
+    pub(crate) output_slot: usize,
+    /// Deterministic RNG seed.
+    pub(crate) seed: u32,
+    /// Base noise scale.
+    pub(crate) scale: f32,
+    /// Fractal octave count.
+    pub(crate) octaves: u32,
+    /// Output amplitude.
+    pub(crate) amplitude: f32,
+}
+
+/// Parameters for one blend alias dispatch.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BlendAliasDispatch {
+    /// Base luma alias slot.
+    pub(crate) base_slot: usize,
+    /// Top luma alias slot.
+    pub(crate) top_slot: usize,
+    /// Optional mask alias slot.
+    pub(crate) mask_slot: Option<usize>,
+    /// Destination luma alias slot.
+    pub(crate) output_slot: usize,
+    /// Blend mode encoded as runtime numeric id.
+    pub(crate) mode: u32,
+    /// Blend opacity in `[0, 1]`.
+    pub(crate) opacity: f32,
+}
+
 impl GpuLayerRenderer {
     /// Build a compute renderer with an explicit output size for retained finalization.
     pub(crate) async fn new_with_output(
