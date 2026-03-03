@@ -32,7 +32,7 @@ Date: 2026-03-03
     - `cargo test -q gui::project::tests`
     - `cargo test -q gui::runtime::tests`
 
-- [ ] 2. Refactor `apply_preview_actions` into explicit interaction phases
+- [x] 2. Refactor `apply_preview_actions` into explicit interaction phases _(done 2026-03-03, commit 3eaa245)_
   - ROI: High
   - Effort: M
   - Why it matters:
