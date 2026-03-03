@@ -8,13 +8,13 @@ validation, formatting/tests, visual regression checks, GPU confidence tests,
 then tier threshold lock/validation including deterministic GUI interaction gates.
 #>
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
+    [Parameter(Position = 0)]
     [ValidateSet("validate", "lock")]
-    [string]$Mode,
+    [string]$Mode = "validate",
 
-    [Parameter(Mandatory = $true, Position = 1)]
+    [Parameter(Position = 1)]
     [ValidateSet("desktop_mid", "laptop_integrated")]
-    [string]$Tier,
+    [string]$Tier = "laptop_integrated",
 
     [switch]$CaptureHandoff,
 
@@ -22,6 +22,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Show-Usage {
+    @"
+Usage:
+  scripts/ci_local.ps1 <validate|lock> <desktop_mid|laptop_integrated>
+  scripts/ci_local.ps1
+
+Description:
+  Runs the full local CI gate for one hardware tier host.
+  - validate: checks against existing locked thresholds
+  - lock: regenerates and locks thresholds from this host's measurements
+  - validates deterministic GUI interaction trace thresholds
+  - with no args: defaults to validate laptop_integrated
+"@
+}
 
 function Invoke-CheckedCommand {
     param(
@@ -37,6 +52,17 @@ function Invoke-CheckedCommand {
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE"
     }
+}
+
+$modeBound = $PSBoundParameters.ContainsKey("Mode")
+$tierBound = $PSBoundParameters.ContainsKey("Tier")
+if ($modeBound -xor $tierBound) {
+    Write-Error "expected either zero positional args or both Mode and Tier."
+    Show-Usage | Write-Host
+    exit 1
+}
+if (-not $modeBound -and -not $tierBound) {
+    Write-Host "[ci_local] no args provided; defaulting to mode=$Mode tier=$Tier"
 }
 
 function Invoke-CommonCiSteps {
