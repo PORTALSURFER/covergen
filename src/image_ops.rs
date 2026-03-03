@@ -19,10 +19,12 @@ pub(crate) const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 /// Minimum allowed output dimension used when shrinking oversized outputs.
 pub(crate) const MIN_IMAGE_DIMENSION: u32 = 64;
 
+/// Clamp a normalized scalar to the `[0, 1]` range.
 pub(crate) fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
+/// Quantize one normalized scalar into the requested posterization band count.
 pub(crate) fn apply_posterize(mut value: f32, bands: u32) -> f32 {
     if bands <= 1 {
         return clamp01(value);
@@ -32,6 +34,7 @@ pub(crate) fn apply_posterize(mut value: f32, bands: u32) -> f32 {
     (value.floor() / levels).min(1.0)
 }
 
+/// Posterize an entire grayscale buffer in place.
 pub(crate) fn apply_posterize_buffer(src: &mut [f32], bands: u32) {
     for value in src.iter_mut() {
         *value = apply_posterize(*value, bands);
@@ -48,6 +51,7 @@ pub(crate) fn apply_posterize_and_contrast(src: &mut [f32], bands: u32, strength
     }
 }
 
+/// Decode BGRA bytes into normalized luma values using the blue channel.
 pub(crate) fn decode_luma(raw: &[u8], out: &mut [f32]) {
     debug_assert_eq!(out.len() * 4, raw.len());
 
@@ -56,6 +60,7 @@ pub(crate) fn decode_luma(raw: &[u8], out: &mut [f32]) {
     }
 }
 
+/// Encode normalized luma values into grayscale bytes.
 pub(crate) fn encode_gray(dst: &mut [u8], luma: &[f32]) {
     debug_assert_eq!(luma.len(), dst.len());
 
@@ -64,6 +69,7 @@ pub(crate) fn encode_gray(dst: &mut [u8], luma: &[f32]) {
     }
 }
 
+/// Downsample one luma buffer and reuse caller-owned scratch allocations.
 pub(crate) fn downsample_luma<'a>(
     source: &[f32],
     source_width: u32,
@@ -122,6 +128,7 @@ pub(crate) fn downsample_luma<'a>(
     Ok(&output[..target_len])
 }
 
+/// Stretch in-place values to percentile-selected low/high anchors.
 pub(crate) fn stretch_to_percentile(
     src: &mut [f32],
     scratch: &mut [f32],
@@ -171,6 +178,7 @@ pub(crate) fn stretch_to_percentile(
     }
 }
 
+/// Blend a source layer into the destination buffer with the selected blend mode.
 pub(crate) fn blend_layer_stack(
     dst: &mut [f32],
     layer: &[f32],
@@ -206,6 +214,7 @@ pub(crate) fn blend_layer_stack(
         });
 }
 
+/// Apply a centered linear contrast curve in place.
 pub(crate) fn apply_contrast(src: &mut [f32], strength: f32) {
     let clamped = strength.clamp(1.0, 3.0);
     let midpoint = 0.5;
@@ -214,6 +223,7 @@ pub(crate) fn apply_contrast(src: &mut [f32], strength: f32) {
     }
 }
 
+/// Return a unique output path by appending an incrementing suffix when needed.
 pub(crate) fn resolve_output_path(output: &str) -> std::path::PathBuf {
     let base_path = Path::new(output);
     if !base_path.exists() {
@@ -252,6 +262,7 @@ pub(crate) fn resolve_output_path(output: &str) -> std::path::PathBuf {
     }
 }
 
+/// Encode one grayscale image payload to PNG bytes at the requested compression level.
 pub(crate) fn encode_png_bytes(
     width: u32,
     height: u32,
@@ -290,6 +301,7 @@ fn resize_gray_frame(
     Ok(resized.into_raw())
 }
 
+/// Persist a grayscale frame as PNG, shrinking dimensions until the output fits under 10MB.
 pub(crate) fn save_png_under_10mb(
     output: &Path,
     mut width: u32,

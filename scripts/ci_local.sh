@@ -112,6 +112,9 @@ cargo fmt --check
 echo "[ci_local] clippy (warnings denied; private-doc lint reported separately)"
 cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
 
+echo "[ci_local] private-doc subset lint"
+scripts/lint/private_docs_subset.sh
+
 echo "[ci_local] full test suite"
 cargo test -q
 

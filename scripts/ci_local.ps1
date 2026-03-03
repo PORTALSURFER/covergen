@@ -73,6 +73,9 @@ Invoke-CheckedCommand -Label "rustfmt check" -Command { & cargo fmt --check }
 Invoke-CheckedCommand -Label "clippy (warnings denied; private-doc lint reported separately)" -Command {
     & cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
 }
+Invoke-CheckedCommand -Label "private-doc subset lint" -Command {
+    & (Join-Path $repoRoot "scripts/lint/private_docs_subset.ps1")
+}
 Invoke-CheckedCommand -Label "full test suite" -Command { & cargo test -q }
 Invoke-CheckedCommand -Label "still snapshot regression" -Command {
     & cargo test v2_still_fixed_seed_snapshots_match

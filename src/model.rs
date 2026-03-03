@@ -130,6 +130,7 @@ pub(crate) enum SymmetryStyle {
 }
 
 impl SymmetryStyle {
+    /// Convert a numeric value into a stable symmetry style variant.
     pub(crate) fn from_u32(value: u32) -> Self {
         match value % 8 {
             0 => Self::None,
@@ -143,6 +144,7 @@ impl SymmetryStyle {
         }
     }
 
+    /// Numeric representation used by manifest serialization and runtime uniforms.
     pub(crate) fn as_u32(self) -> u32 {
         match self {
             Self::None => 0,
@@ -172,6 +174,7 @@ pub(crate) enum LayerBlendMode {
 }
 
 impl LayerBlendMode {
+    /// Convert a numeric value into a stable blend-mode variant.
     pub(crate) fn from_u32(value: u32) -> Self {
         match value % 10 {
             0 => Self::Normal,
@@ -211,6 +214,7 @@ pub(crate) struct XorShift32 {
 }
 
 impl XorShift32 {
+    /// Build a deterministic RNG state, remapping a zero seed to a non-zero constant.
     pub(crate) fn new(seed: u32) -> Self {
         let state = if seed == 0 { 0x9e3779b9 } else { seed };
         Self { state }
