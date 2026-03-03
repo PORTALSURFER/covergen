@@ -113,7 +113,9 @@ Date: 2026-03-03
   - Suggested validation:
     - `cargo test presets`
 
-- [ ] 5. Stabilize flaky GPU temporal-variation confidence test
+- [x] 5. Stabilize flaky GPU temporal-variation confidence test
+  - Completed: 2026-03-03 (`3f5fc91`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: High
   - Effort: M
   - Why it matters:
