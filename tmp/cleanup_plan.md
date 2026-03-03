@@ -67,7 +67,7 @@ Date: 2026-03-03
     - `cargo test -q gui::renderer::tex_preview::tests --bin covergen`
     - `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 4. Decompose `gui::scene` into focused layer modules with explicit boundaries
+- [x] 4. Decompose `gui::scene` into focused layer modules with explicit boundaries _(done 2026-03-03, commit d278f9c)_
   - ROI: High
   - Effort: L
   - Why it matters:
