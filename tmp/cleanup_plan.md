@@ -126,7 +126,7 @@ Date: 2026-03-03
       - `scripts/ci_local.sh`
       - `pwsh -File scripts/ci_local.ps1`
 
-- [ ] 7. Expand documentation enforcement beyond the 4-file private-doc subset
+- [x] 7. Expand documentation enforcement beyond the 4-file private-doc subset _(done 2026-03-03, commit 69c1944)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
