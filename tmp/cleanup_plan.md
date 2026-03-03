@@ -11,7 +11,7 @@ Date: 2026-03-03
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Fix tex-preview stale evaluation/memo lifecycle and add direct regression tests
+- [x] 1. Fix tex-preview stale evaluation/memo lifecycle and add direct regression tests _(done 2026-03-03, commit 2f6abec)_
   - ROI: High
   - Effort: M
   - Why it matters:
