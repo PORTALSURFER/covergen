@@ -84,7 +84,7 @@ Date: 2026-03-03
     - `cargo test -q gui::scene::wire_route::tests --bin covergen`
     - Manual GUI smoke: wire drag, marquee, timeline, selection.
 
-- [ ] 5. Decompose `gui::interaction` into state-machine transitions and input handlers
+- [x] 5. Decompose `gui::interaction` into state-machine transitions and input handlers _(done 2026-03-03, commit 73b8ea1)_
   - ROI: High
   - Effort: L
   - Why it matters:
