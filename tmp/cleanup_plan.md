@@ -159,7 +159,9 @@ Date: 2026-03-03
     - `cargo test gui::scene`
     - `cargo test gui::scene::wire_route`
 
-- [ ] 7. Remove blanket dead-code suppressions and prune stale APIs
+- [x] 7. Remove blanket dead-code suppressions and prune stale APIs
+  - Completed: 2026-03-03 (`b0c6be8`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: Medium
   - Effort: M
   - Why it matters:
