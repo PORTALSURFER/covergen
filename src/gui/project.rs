@@ -598,213 +598,314 @@ pub(crate) enum ProjectNodeKind {
     IoWindowOut,
 }
 
+/// Metadata descriptor for one `ProjectNodeKind`.
+#[derive(Clone, Copy, Debug)]
+struct ProjectNodeKindDescriptor {
+    kind: ProjectNodeKind,
+    stable_id: &'static str,
+    execution_kind: ExecutionKind,
+    input_resource_kind: Option<ResourceKind>,
+    output_resource_kind: Option<ResourceKind>,
+    accepts_signal_bindings: bool,
+    shows_signal_preview: bool,
+}
+
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexSolid,
+        stable_id: "tex.solid",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexCircle,
+        stable_id: "tex.circle",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::BufSphere,
+        stable_id: "buf.sphere",
+        execution_kind: ExecutionKind::Cpu,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Buffer),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::BufCircleNurbs,
+        stable_id: "buf.circle_nurbs",
+        execution_kind: ExecutionKind::Cpu,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Buffer),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::BufNoise,
+        stable_id: "buf.noise",
+        execution_kind: ExecutionKind::Cpu,
+        input_resource_kind: Some(ResourceKind::Buffer),
+        output_resource_kind: Some(ResourceKind::Buffer),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexTransform2D,
+        stable_id: "tex.transform_2d",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexLevel,
+        stable_id: "tex.level",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexFeedback,
+        stable_id: "tex.feedback",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexReactionDiffusion,
+        stable_id: "tex.reaction_diffusion",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostColorTone,
+        stable_id: "tex.post_color_tone",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostEdgeStructure,
+        stable_id: "tex.post_edge_structure",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostBlurDiffusion,
+        stable_id: "tex.post_blur_diffusion",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostDistortion,
+        stable_id: "tex.post_distortion",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostTemporal,
+        stable_id: "tex.post_temporal",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostNoiseTexture,
+        stable_id: "tex.post_noise_texture",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostLighting,
+        stable_id: "tex.post_lighting",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostScreenSpace,
+        stable_id: "tex.post_screen_space",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexPostExperimental,
+        stable_id: "tex.post_experimental",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexBlend,
+        stable_id: "tex.blend",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::SceneEntity,
+        stable_id: "scene.entity",
+        execution_kind: ExecutionKind::Control,
+        input_resource_kind: Some(ResourceKind::Buffer),
+        output_resource_kind: Some(ResourceKind::Entity),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::SceneBuild,
+        stable_id: "scene.build",
+        execution_kind: ExecutionKind::Control,
+        input_resource_kind: Some(ResourceKind::Entity),
+        output_resource_kind: Some(ResourceKind::Scene),
+        accepts_signal_bindings: false,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::RenderCamera,
+        stable_id: "render.camera",
+        execution_kind: ExecutionKind::Control,
+        input_resource_kind: Some(ResourceKind::Scene),
+        output_resource_kind: Some(ResourceKind::Scene),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::RenderScenePass,
+        stable_id: "render.scene_pass",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Scene),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::CtlLfo,
+        stable_id: "ctl.lfo",
+        execution_kind: ExecutionKind::Control,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Signal),
+        accepts_signal_bindings: true,
+        shows_signal_preview: true,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::IoWindowOut,
+        stable_id: "io.window_out",
+        execution_kind: ExecutionKind::Io,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: None,
+        accepts_signal_bindings: false,
+        shows_signal_preview: false,
+    },
+];
+
 impl ProjectNodeKind {
+    fn descriptor(self) -> &'static ProjectNodeKindDescriptor {
+        PROJECT_NODE_KIND_DESCRIPTORS
+            .iter()
+            .find(|descriptor| descriptor.kind == self)
+            .expect("project node kind descriptor missing")
+    }
+
     /// Return stable registry id used by UI labels and serialization.
-    pub(crate) const fn stable_id(self) -> &'static str {
-        match self {
-            Self::TexSolid => "tex.solid",
-            Self::TexCircle => "tex.circle",
-            Self::BufSphere => "buf.sphere",
-            Self::BufCircleNurbs => "buf.circle_nurbs",
-            Self::BufNoise => "buf.noise",
-            Self::TexTransform2D => "tex.transform_2d",
-            Self::TexLevel => "tex.level",
-            Self::TexFeedback => "tex.feedback",
-            Self::TexReactionDiffusion => "tex.reaction_diffusion",
-            Self::TexPostColorTone => "tex.post_color_tone",
-            Self::TexPostEdgeStructure => "tex.post_edge_structure",
-            Self::TexPostBlurDiffusion => "tex.post_blur_diffusion",
-            Self::TexPostDistortion => "tex.post_distortion",
-            Self::TexPostTemporal => "tex.post_temporal",
-            Self::TexPostNoiseTexture => "tex.post_noise_texture",
-            Self::TexPostLighting => "tex.post_lighting",
-            Self::TexPostScreenSpace => "tex.post_screen_space",
-            Self::TexPostExperimental => "tex.post_experimental",
-            Self::TexBlend => "tex.blend",
-            Self::SceneEntity => "scene.entity",
-            Self::SceneBuild => "scene.build",
-            Self::RenderCamera => "render.camera",
-            Self::RenderScenePass => "render.scene_pass",
-            Self::CtlLfo => "ctl.lfo",
-            Self::IoWindowOut => "io.window_out",
-        }
+    pub(crate) fn stable_id(self) -> &'static str {
+        self.descriptor().stable_id
     }
 
     /// Parse node kind from a stable node id.
     pub(crate) fn from_stable_id(id: &str) -> Option<Self> {
-        match id {
-            "tex.solid" => Some(Self::TexSolid),
-            "tex.circle" => Some(Self::TexCircle),
-            "buf.sphere" => Some(Self::BufSphere),
-            "buf.circle_nurbs" => Some(Self::BufCircleNurbs),
-            "buf.noise" => Some(Self::BufNoise),
-            "tex.transform_2d" => Some(Self::TexTransform2D),
-            "tex.level" => Some(Self::TexLevel),
-            "tex.feedback" => Some(Self::TexFeedback),
-            "tex.reaction_diffusion" => Some(Self::TexReactionDiffusion),
-            "tex.post_color_tone" => Some(Self::TexPostColorTone),
-            "tex.post_edge_structure" => Some(Self::TexPostEdgeStructure),
-            "tex.post_blur_diffusion" => Some(Self::TexPostBlurDiffusion),
-            "tex.post_distortion" => Some(Self::TexPostDistortion),
-            "tex.post_temporal" => Some(Self::TexPostTemporal),
-            "tex.post_noise_texture" => Some(Self::TexPostNoiseTexture),
-            "tex.post_lighting" => Some(Self::TexPostLighting),
-            "tex.post_screen_space" => Some(Self::TexPostScreenSpace),
-            "tex.post_experimental" => Some(Self::TexPostExperimental),
-            "tex.blend" => Some(Self::TexBlend),
-            "scene.entity" => Some(Self::SceneEntity),
-            "scene.build" => Some(Self::SceneBuild),
-            "render.camera" => Some(Self::RenderCamera),
-            "render.scene_pass" => Some(Self::RenderScenePass),
-            "ctl.lfo" => Some(Self::CtlLfo),
-            "io.window_out" => Some(Self::IoWindowOut),
-            _ => None,
-        }
+        PROJECT_NODE_KIND_DESCRIPTORS
+            .iter()
+            .find(|descriptor| descriptor.stable_id == id)
+            .map(|descriptor| descriptor.kind)
     }
 
     /// Return execution kind for this node.
     #[allow(dead_code)]
-    pub(crate) const fn execution_kind(self) -> ExecutionKind {
-        match self {
-            Self::TexSolid => ExecutionKind::Render,
-            Self::TexCircle => ExecutionKind::Render,
-            Self::BufSphere => ExecutionKind::Cpu,
-            Self::BufCircleNurbs => ExecutionKind::Cpu,
-            Self::BufNoise => ExecutionKind::Cpu,
-            Self::TexTransform2D => ExecutionKind::Render,
-            Self::TexLevel => ExecutionKind::Render,
-            Self::TexFeedback => ExecutionKind::Render,
-            Self::TexReactionDiffusion => ExecutionKind::Render,
-            Self::TexPostColorTone => ExecutionKind::Render,
-            Self::TexPostEdgeStructure => ExecutionKind::Render,
-            Self::TexPostBlurDiffusion => ExecutionKind::Render,
-            Self::TexPostDistortion => ExecutionKind::Render,
-            Self::TexPostTemporal => ExecutionKind::Render,
-            Self::TexPostNoiseTexture => ExecutionKind::Render,
-            Self::TexPostLighting => ExecutionKind::Render,
-            Self::TexPostScreenSpace => ExecutionKind::Render,
-            Self::TexPostExperimental => ExecutionKind::Render,
-            Self::TexBlend => ExecutionKind::Render,
-            Self::SceneEntity => ExecutionKind::Control,
-            Self::SceneBuild => ExecutionKind::Control,
-            Self::RenderCamera => ExecutionKind::Control,
-            Self::RenderScenePass => ExecutionKind::Render,
-            Self::CtlLfo => ExecutionKind::Control,
-            Self::IoWindowOut => ExecutionKind::Io,
-        }
+    pub(crate) fn execution_kind(self) -> ExecutionKind {
+        self.descriptor().execution_kind
     }
 
     /// Return short display label used by node and menu UI.
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         self.stable_id()
     }
 
     /// Return required primary input resource kind for this node, if any.
-    pub(crate) const fn input_resource_kind(self) -> Option<ResourceKind> {
-        match self {
-            Self::TexTransform2D
-            | Self::TexLevel
-            | Self::TexFeedback
-            | Self::TexReactionDiffusion
-            | Self::TexPostColorTone
-            | Self::TexPostEdgeStructure
-            | Self::TexPostBlurDiffusion
-            | Self::TexPostDistortion
-            | Self::TexPostTemporal
-            | Self::TexPostNoiseTexture
-            | Self::TexPostLighting
-            | Self::TexPostScreenSpace
-            | Self::TexPostExperimental
-            | Self::TexBlend
-            | Self::IoWindowOut => Some(ResourceKind::Texture2D),
-            Self::BufNoise => Some(ResourceKind::Buffer),
-            Self::SceneEntity => Some(ResourceKind::Buffer),
-            Self::SceneBuild => Some(ResourceKind::Entity),
-            Self::RenderCamera => Some(ResourceKind::Scene),
-            Self::RenderScenePass => Some(ResourceKind::Scene),
-            _ => None,
-        }
+    pub(crate) fn input_resource_kind(self) -> Option<ResourceKind> {
+        self.descriptor().input_resource_kind
     }
 
     /// Return true when this node kind can bind scalar signal parameters.
-    pub(crate) const fn accepts_signal_bindings(self) -> bool {
-        matches!(
-            self,
-            Self::TexSolid
-                | Self::TexCircle
-                | Self::BufSphere
-                | Self::BufCircleNurbs
-                | Self::BufNoise
-                | Self::TexTransform2D
-                | Self::TexLevel
-                | Self::TexFeedback
-                | Self::TexReactionDiffusion
-                | Self::TexPostColorTone
-                | Self::TexPostEdgeStructure
-                | Self::TexPostBlurDiffusion
-                | Self::TexPostDistortion
-                | Self::TexPostTemporal
-                | Self::TexPostNoiseTexture
-                | Self::TexPostLighting
-                | Self::TexPostScreenSpace
-                | Self::TexPostExperimental
-                | Self::TexBlend
-                | Self::SceneEntity
-                | Self::RenderCamera
-                | Self::RenderScenePass
-                | Self::CtlLfo
-        )
+    pub(crate) fn accepts_signal_bindings(self) -> bool {
+        self.descriptor().accepts_signal_bindings
     }
 
     /// Return true when this node kind has a scalar signal output pin.
-    pub(crate) const fn produces_signal_output(self) -> bool {
-        matches!(self, Self::CtlLfo)
+    pub(crate) fn produces_signal_output(self) -> bool {
+        self.output_resource_kind() == Some(ResourceKind::Signal)
     }
 
     /// Return whether this node should render the inline data-signal preview field.
     ///
     /// The preview field is reserved for data-signal producers (for example
     /// `ctl.lfo`) and should stay hidden on texture/buffer/scene/output nodes.
-    pub(crate) const fn shows_signal_preview(self) -> bool {
-        self.produces_signal_output()
+    pub(crate) fn shows_signal_preview(self) -> bool {
+        self.descriptor().shows_signal_preview
     }
 
     /// Return true when this node kind has a typed graph input pin.
-    pub(crate) const fn has_input_pin(self) -> bool {
+    pub(crate) fn has_input_pin(self) -> bool {
         self.input_resource_kind().is_some()
     }
 
     /// Return true when this node kind has any output pin.
-    pub(crate) const fn has_output_pin(self) -> bool {
+    pub(crate) fn has_output_pin(self) -> bool {
         self.output_resource_kind().is_some()
     }
 
     /// Return output resource kind when this node publishes one.
-    pub(crate) const fn output_resource_kind(self) -> Option<ResourceKind> {
-        match self {
-            Self::BufSphere | Self::BufCircleNurbs | Self::BufNoise => Some(ResourceKind::Buffer),
-            Self::SceneEntity => Some(ResourceKind::Entity),
-            Self::SceneBuild | Self::RenderCamera => Some(ResourceKind::Scene),
-            Self::TexSolid
-            | Self::TexCircle
-            | Self::TexTransform2D
-            | Self::TexLevel
-            | Self::TexFeedback
-            | Self::TexReactionDiffusion
-            | Self::TexPostColorTone
-            | Self::TexPostEdgeStructure
-            | Self::TexPostBlurDiffusion
-            | Self::TexPostDistortion
-            | Self::TexPostTemporal
-            | Self::TexPostNoiseTexture
-            | Self::TexPostLighting
-            | Self::TexPostScreenSpace
-            | Self::TexPostExperimental
-            | Self::TexBlend
-            | Self::RenderScenePass => Some(ResourceKind::Texture2D),
-            Self::CtlLfo => Some(ResourceKind::Signal),
-            Self::IoWindowOut => None,
-        }
+    pub(crate) fn output_resource_kind(self) -> Option<ResourceKind> {
+        self.descriptor().output_resource_kind
     }
 }
 
@@ -1223,8 +1324,8 @@ enum PinHitKind {
 }
 
 mod geometry;
-mod params;
 pub(crate) mod param_schema;
+mod params;
 mod signatures;
 mod state;
 #[cfg(test)]

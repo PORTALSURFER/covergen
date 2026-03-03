@@ -49,7 +49,7 @@ pub(crate) struct AddNodeOption {
 
 impl AddNodeOption {
     /// Return menu label for this option.
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         self.kind.label()
     }
 }
