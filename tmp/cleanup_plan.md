@@ -168,7 +168,7 @@ Date: 2026-03-03
     - `cargo test -q presets::operator_graph_tests`
     - `cargo test -q presets`
 
-- [ ] 9. Reduce coupling between scene wire routing and scene rendering orchestration
+- [x] 9. Reduce coupling between scene wire routing and scene rendering orchestration _(done 2026-03-03, commit 320bc8e)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
