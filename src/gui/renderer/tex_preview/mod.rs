@@ -737,3 +737,90 @@ impl TexPreviewRenderer {
         self.viewer_texture.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{FeedbackHistoryKey, TexOpUniform};
+    use crate::gui::runtime::{TexRuntimeFeedbackHistoryBinding, TexRuntimeOp};
+
+    #[test]
+    fn feedback_history_key_maps_internal_and_external_bindings() {
+        let internal =
+            FeedbackHistoryKey::from_binding(TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 42,
+            });
+        let external =
+            FeedbackHistoryKey::from_binding(TexRuntimeFeedbackHistoryBinding::External {
+                texture_node_id: 7,
+            });
+        assert_eq!(
+            internal,
+            FeedbackHistoryKey::Internal {
+                feedback_node_id: 42
+            }
+        );
+        assert_eq!(
+            external,
+            FeedbackHistoryKey::External { texture_node_id: 7 }
+        );
+    }
+
+    #[test]
+    fn circle_uniform_maps_center_radius_and_color_fields() {
+        let uniform = TexOpUniform::circle(TexRuntimeOp::Circle {
+            center_x: 0.15,
+            center_y: 0.65,
+            radius: 0.33,
+            feather: 0.12,
+            line_width: 0.08,
+            noise_amount: 0.45,
+            noise_freq: 3.0,
+            noise_phase: 0.5,
+            noise_twist: 0.35,
+            noise_stretch: 0.2,
+            arc_start_deg: 15.0,
+            arc_end_deg: 290.0,
+            segment_count: 7.0,
+            arc_open: 1.0,
+            color_r: 0.2,
+            color_g: 0.4,
+            color_b: 0.9,
+            alpha: 0.75,
+            alpha_clip: false,
+        });
+        assert_eq!(uniform.p0, [0.15, 0.65, 0.33, 0.12]);
+        assert_eq!(uniform.p1, [0.2, 0.4, 0.9, 0.75]);
+        assert_eq!(uniform.p2, [15.0, 290.0, 7.0, 1.0]);
+        assert_eq!(uniform.p3, [0.08, 0.45, 3.0, 0.5]);
+        assert_eq!(uniform.p4, [0.35, 0.2, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn sphere_uniform_maps_light_and_noise_fields() {
+        let uniform = TexOpUniform::sphere(TexRuntimeOp::Sphere {
+            center_x: 0.3,
+            center_y: 0.4,
+            radius: 0.5,
+            edge_softness: 0.25,
+            noise_amount: 0.6,
+            noise_freq: 2.5,
+            noise_phase: 0.8,
+            noise_twist: 0.45,
+            noise_stretch: 0.35,
+            light_x: -0.2,
+            light_y: 0.15,
+            light_z: 0.9,
+            ambient: 0.3,
+            color_r: 0.7,
+            color_g: 0.1,
+            color_b: 0.5,
+            alpha: 0.85,
+            alpha_clip: true,
+        });
+        assert_eq!(uniform.p0, [0.3, 0.4, 0.5, 0.25]);
+        assert_eq!(uniform.p1, [-0.2, 0.15, 0.9, 0.3]);
+        assert_eq!(uniform.p2, [0.7, 0.1, 0.5, 0.85]);
+        assert_eq!(uniform.p3, [0.6, 2.5, 0.8, 0.45]);
+        assert_eq!(uniform.p4, [0.35, 0.0, 0.0, 0.0]);
+    }
+}

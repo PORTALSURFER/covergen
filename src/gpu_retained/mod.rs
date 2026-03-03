@@ -49,6 +49,26 @@ pub(crate) struct FinalReadbackSettings {
     pub(crate) fast_mode: bool,
 }
 
+/// Build finalized readback uniforms with validated user settings.
+fn finalize_params_for_readback(
+    src_width: u32,
+    src_height: u32,
+    dst_width: u32,
+    dst_height: u32,
+    settings: FinalReadbackSettings,
+) -> RetainedFinalizeParams {
+    RetainedFinalizeParams {
+        src_width,
+        src_height,
+        dst_width,
+        dst_height,
+        contrast: settings.contrast.clamp(1.0, 3.0),
+        low_pct: settings.low_pct.clamp(0.0, 1.0),
+        high_pct: settings.high_pct.clamp(0.0, 1.0),
+        fast_mode: u32::from(settings.fast_mode),
+    }
+}
+
 /// GPU resources used to retain and finalize layer output without intermediate readbacks.
 #[derive(Debug)]
 pub(crate) struct RetainedGpuPost {
@@ -227,16 +247,13 @@ impl RetainedGpuPost {
         staging_buffer: &wgpu::Buffer,
         settings: FinalReadbackSettings,
     ) -> Receiver<Result<(), wgpu::BufferAsyncError>> {
-        let finalize = RetainedFinalizeParams {
-            src_width: self.width,
-            src_height: self.height,
-            dst_width: self.output_width,
-            dst_height: self.output_height,
-            contrast: settings.contrast.clamp(1.0, 3.0),
-            low_pct: settings.low_pct.clamp(0.0, 1.0),
-            high_pct: settings.high_pct.clamp(0.0, 1.0),
-            fast_mode: u32::from(settings.fast_mode),
-        };
+        let finalize = finalize_params_for_readback(
+            self.width,
+            self.height,
+            self.output_width,
+            self.output_height,
+            settings,
+        );
         queue.write_buffer(&self.finalize_uniform, 0, bytemuck::bytes_of(&finalize));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -406,5 +423,54 @@ impl RetainedGpuPost {
             0,
             (self.expected_pixels() * std::mem::size_of::<f32>()) as u64,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{finalize_params_for_readback, FinalReadbackSettings};
+
+    #[test]
+    fn finalize_params_clamp_settings_to_supported_ranges() {
+        let params = finalize_params_for_readback(
+            1024,
+            768,
+            640,
+            360,
+            FinalReadbackSettings {
+                contrast: 9.0,
+                low_pct: -0.25,
+                high_pct: 1.5,
+                fast_mode: false,
+            },
+        );
+        assert_eq!(params.contrast, 3.0);
+        assert_eq!(params.low_pct, 0.0);
+        assert_eq!(params.high_pct, 1.0);
+        assert_eq!(params.fast_mode, 0);
+    }
+
+    #[test]
+    fn finalize_params_preserve_dimensions_and_fast_mode_flag() {
+        let params = finalize_params_for_readback(
+            3840,
+            2160,
+            1920,
+            1080,
+            FinalReadbackSettings {
+                contrast: 2.2,
+                low_pct: 0.03,
+                high_pct: 0.94,
+                fast_mode: true,
+            },
+        );
+        assert_eq!(params.src_width, 3840);
+        assert_eq!(params.src_height, 2160);
+        assert_eq!(params.dst_width, 1920);
+        assert_eq!(params.dst_height, 1080);
+        assert_eq!(params.contrast, 2.2);
+        assert_eq!(params.low_pct, 0.03);
+        assert_eq!(params.high_pct, 0.94);
+        assert_eq!(params.fast_mode, 1);
     }
 }

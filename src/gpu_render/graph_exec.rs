@@ -585,3 +585,45 @@ fn compositor_tap_opacity(index: usize, tap_slot: u8) -> f32 {
     let slot_bias = (tap_slot % 3) as f32 * 0.02;
     (order_decay + slot_bias).clamp(0.08, 0.28)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::compositor_tap_opacity;
+
+    #[test]
+    fn compositor_tap_opacity_stays_in_clamp_range() {
+        for index in [0usize, 1, 2, 8, 32, 256, 2048] {
+            for slot in 0u8..=8 {
+                let value = compositor_tap_opacity(index, slot);
+                assert!(
+                    (0.08..=0.28).contains(&value),
+                    "opacity should stay clamped: index={index} slot={slot} value={value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compositor_tap_opacity_decays_with_tap_order() {
+        let first = compositor_tap_opacity(0, 0);
+        let later = compositor_tap_opacity(9, 0);
+        let far_later = compositor_tap_opacity(999, 0);
+        assert!(
+            first > later,
+            "expected first tap to have higher opacity: first={first} later={later}"
+        );
+        assert!(
+            later >= far_later,
+            "expected opacity to be non-increasing with order: later={later} far_later={far_later}"
+        );
+        assert!((far_later - 0.08).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compositor_tap_opacity_slot_bias_matches_expected_steps() {
+        let base = compositor_tap_opacity(0, 0);
+        let biased = compositor_tap_opacity(0, 2);
+        assert!((base - 0.20).abs() < 1e-6);
+        assert!((biased - 0.24).abs() < 1e-6);
+    }
+}
