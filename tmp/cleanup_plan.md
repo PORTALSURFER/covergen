@@ -1,274 +1,231 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 implementation complete.
+Status: Phase 1 complete (audit + planning). Phase 2 pending explicit user approval.
 Date: 2026-03-03
 
 ## Context Snapshot
-- Canonical local CI command: `scripts/ci_local.sh validate laptop_integrated` (PowerShell: `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`).
-- Current tree shape: Rust codebase with heavy GUI/runtime concentration (`src/gui/*`) and paired Bash/PowerShell CI scripts.
+- Language/tooling: Rust (`cargo`), GPU runtime via `wgpu`, mixed Bash/PowerShell automation.
+- Canonical local CI command: `scripts/ci_local.sh validate laptop_integrated`.
+- Windows equivalent: `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`.
 
 ## ROI-Ordered Backlog
 
-- [x] 1. Decompose `gui::interaction` and remove dead-code shim surface
-  - Completed: 2026-03-03 (`e8f36c5`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
+- [ ] 1. Consolidate `ProjectNodeKind` metadata into one descriptor table
   - ROI: High
   - Effort: M
   - Why it matters:
-    - `src/gui/interaction.rs` is a very large orchestration file that now doubles as a test shim layer.
-    - The shim layer increases cognitive load, obscures production entry points, and forces widespread `#[allow(dead_code)]`.
+    - Core node metadata is duplicated across many large `match` blocks, so adding/changing a node kind requires synchronized edits in multiple places.
+    - This is a high-risk drift vector for behavior, serialization IDs, and port contracts.
   - Evidence:
-    - File size hotspot: `src/gui/interaction.rs` (~2356 LOC).
-    - Wrapper-heavy block with dead-code suppression: `src/gui/interaction.rs:1439-1662`, `src/gui/interaction.rs:1995-2189`.
-    - Tests import wrappers from parent module instead of submodules: `src/gui/interaction/tests.rs:1-8`.
+    - `src/gui/project.rs:603` (`stable_id`)
+    - `src/gui/project.rs:634` (`from_stable_id`)
+    - `src/gui/project.rs:660` (`execution_kind`)
+    - `src/gui/project.rs:688` (`input_resource_kind`)
+    - `src/gui/project.rs:730` (`accepts_signal_bindings`)
+    - `src/gui/project.rs:773` (`output_resource_kind`)
   - Recommended change:
-    - Promote test-targeted helpers directly from submodules (`drag`, `hover`, `marquee`, `param_edit`, `wire`) using narrow `pub(super)`/`cfg(test)` exports.
-    - Delete wrapper shims in `interaction.rs` once tests are rewired.
-    - Keep `interaction.rs` as orchestration only.
+    - Introduce a static descriptor registry (`NodeKindDescriptor`) and derive lookups from it.
+    - Keep one compatibility parser for legacy IDs, but drive all current behavior from registry data.
   - Risk/tradeoffs:
-    - Broad test touch points; easy to break imports while refactoring.
+    - Refactor touches serialization and runtime behavior paths; requires strong regression tests.
   - Suggested validation:
-    - `cargo test gui::interaction`
-    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test -q gui::project::tests`
+    - `cargo test -q gui::runtime::tests`
 
-- [x] 2. Centralize transient UI state-reset transitions in GUI input flow
-  - Completed: 2026-03-03 (`898f7ca`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
+- [ ] 2. Refactor `apply_preview_actions` into explicit interaction phases
   - ROI: High
   - Effort: M
   - Why it matters:
-    - Repeated manual resets create drift risk between paths (drag, timeline, menus, edit mode).
-    - Bugs in this area appear as sticky/frozen UI modes and hard-to-reproduce interaction regressions.
+    - One very large orchestration function coordinates unrelated modes (timeline, menus, drag, wiring, param editing, help), increasing control-flow fragility.
+    - Recent regressions around dropdown state confirm state-transition coupling risk.
   - Evidence:
-    - High repetition in one file:
-      - `state.drag = None;` appears many times (`src/gui/interaction.rs` e.g. 113, 170, 189, 207, 227, 249, 269, 310, 412, 1023, 1060, 1410, 1690).
-      - Similar repeated lines for `wire_drag`, `hover_param_target`, `param_edit`, `param_dropdown`.
+    - `src/gui/interaction.rs:145` (`apply_preview_actions` entry)
+    - Repeated imperative state resets in same file (`clear_*`, `cancel_*` paths around `src/gui/interaction.rs:81-122` and across the function body).
+    - File size hotspot: `src/gui/interaction.rs` is 1926 LOC.
   - Recommended change:
-    - Add explicit state-transition helpers (example: `cancel_node_interactions`, `cancel_param_editing`, `cancel_wire_modes`) and replace repeated inline resets.
-    - Keep transitions semantic (why) rather than field-by-field (how).
+    - Split into phase handlers (input normalization, modal gates, timeline, node interactions, commit/cleanup) with typed transition outcomes.
+    - Reduce direct field mutation outside dedicated transition helpers.
   - Risk/tradeoffs:
-    - Over-abstracting transitions can hide intent if helpers are too generic.
+    - High-touch around UI behavior; temporary regressions likely without test-first migration.
   - Suggested validation:
-    - `cargo test gui::interaction`
-    - Manual smoke on drag/wire/menu/timeline interactions in GUI mode
+    - `cargo test -q gui::interaction::tests`
+    - Manual GUI smoke for menu/timeline/drag/dropdown workflows.
 
-- [x] 3. Unify GUI parameter schema and runtime slot mapping into one source of truth
-  - Completed: 2026-03-03 (`abc74eb`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
-  - ROI: High
-  - Effort: L
-  - Why it matters:
-    - Param keys and slot indices are duplicated across editor schema and runtime compiler, making drift easy and expensive to detect.
-    - A mismatch can silently produce wrong GPU parameter wiring.
-  - Evidence:
-    - Editor parameter declarations:
-      - `src/gui/project/params.rs:949` (`TexCircle`)
-      - `src/gui/project/params.rs:988` (`TexTransform2D`)
-      - `src/gui/project/params.rs:1006` (`TexFeedback`)
-      - `src/gui/project/params.rs:1096` (`RenderScenePass`)
-      - `src/gui/project/params.rs:1109` (`CtlLfo`)
-    - Runtime duplicated key arrays/slot constants:
-      - `src/gui/runtime.rs:23` (`CIRCLE_PARAM_KEYS`)
-      - `src/gui/runtime.rs:101` (`TRANSFORM_PARAM_KEYS`)
-      - `src/gui/runtime.rs:113` (`FEEDBACK_PARAM_KEYS`)
-      - `src/gui/runtime.rs:85` (`SCENE_PASS_PARAM_KEYS`)
-  - Recommended change:
-    - Introduce a typed parameter descriptor registry shared by both GUI schema builder and runtime compile/eval.
-    - Generate slot lookups from descriptors instead of manual constants per module.
-  - Risk/tradeoffs:
-    - Large refactor touching many runtime tests; needs staged rollout.
-  - Suggested validation:
-    - `cargo test gui::project`
-    - `cargo test gui::runtime`
-    - `cargo test gui::tex_view`
-
-- [x] 4. Consolidate duplicated preset-test scaffolding with shared fixture helpers/macros
-  - Completed: 2026-03-03 (`3a3700e`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
+- [ ] 3. Remove GUI runtime parameter-slot duplication with generated slot descriptors
   - ROI: High
   - Effort: M
   - Why it matters:
-    - Nearly identical per-preset test files increase maintenance cost and encourage inconsistent assertions.
-    - Duplicate setup code makes future config/API changes noisy.
+    - Runtime slot arrays/constants are duplicated and manually aligned with editor schema; this has already produced drift failures.
   - Evidence:
-    - Repeated `fn config(seed: u32) -> V2Config` in many files:
-      - `src/presets/operator_graph_tests.rs:7`
-      - `src/presets/operator_graph_cascade_tests.rs:7`
-      - `src/presets/operator_graph_feedback_atlas_tests.rs:7`
-      - `src/presets/operator_graph_hyperweave_tests.rs:7`
-      - `src/presets/operator_graph_modular_network_tests.rs:7`
-      - `src/presets/operator_graph_multi_stage_tests.rs:7`
-      - `src/presets/operator_graph_orbit_forge_tests.rs:7`
-      - `src/presets/operator_graph_patchwork_tests.rs:7`
-      - `src/presets/operator_graph_router_tests.rs:7`
-      - `src/presets/operator_graph_signal_lab_tests.rs:7`
-      - `src/presets/operator_graph_sphere_noise_geo_tests.rs:8`
-    - Repeated determinism assertions via debug-string formatting:
-      - `src/presets/operator_graph_*_tests.rs:46` and `src/presets/grammar/tests.rs:51`
+    - Runtime constant cluster: `src/gui/runtime.rs:16-115`.
+    - Schema source: `src/gui/project/param_schema.rs`.
+    - Param declaration source: `src/gui/project/params.rs` (`ProjectNodeKind` parameter builders).
   - Recommended change:
-    - Add shared preset test fixture builder and macro for common determinism + topology checks.
-    - Replace debug-string equality with stable graph fingerprint helper.
+    - Generate `ParamSlot` metadata from schema descriptors and consume in runtime compile/eval.
+    - Keep one tested adapter for legacy feedback key aliases.
   - Risk/tradeoffs:
-    - Macro-heavy tests can be harder to debug if error messages are poor.
+    - Medium refactor blast radius in compile/eval tests.
   - Suggested validation:
-    - `cargo test presets`
+    - `cargo test -q gui::runtime::tests`
+    - `cargo test -q gui::project::tests::runtime_param_schema_matches_default_editor_param_order`
 
-- [x] 5. Stabilize flaky GPU temporal-variation confidence test
-  - Completed: 2026-03-03 (`3f5fc91`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
+- [ ] 4. Decompose tex-preview execution staging into smaller typed units
   - ROI: High
   - Effort: M
   - Why it matters:
-    - Intermittent GPU animation-confidence failures block local CI and reduce trust in gate results.
+    - The frame dispatch pipeline mixes planning, uniform upload, target routing, render-pass binding, and feedback history writeback in one large module.
+    - This complexity is currently hidden behind lint suppressions.
   - Evidence:
-    - Strict fail path when sampled hashes are static:
-      - `src/visual_regression_gpu.rs:104-144` (`v2_gpu_animation_sampled_frames_change_when_hardware_available`).
-    - Current adapter exception list is narrow and hardware-name based:
-      - `src/visual_regression_gpu.rs:249-257` (`adapter_may_flatten_temporal_variation`).
+    - `src/gui/renderer/tex_preview/execution.rs:138` (`encode_gpu_ops`, `too_many_arguments` allow)
+    - `src/gui/renderer/tex_preview/execution.rs:169` (`encode_gpu_ops_staged`)
+    - `src/gui/renderer/tex_preview/execution.rs:225` (`plan_gpu_dispatch`)
+    - File size hotspot: 1333 LOC.
   - Recommended change:
-    - Use a dedicated fixture graph with guaranteed temporal dynamics independent of adapter quirks.
-    - Promote a measured metric threshold (for example pixel delta aggregate) instead of unique-hash cardinality alone.
-    - Keep strictness in CI but reduce false positives on known-good adapters.
+    - Introduce focused structs (`PlanStage`, `DispatchStage`, `FeedbackStage`) with narrower APIs.
+    - Replace argument lists with context structs.
   - Risk/tradeoffs:
-    - Loosening too far can hide real regressions.
+    - Medium risk of GPU behavior regressions if stage boundaries are incorrect.
   - Suggested validation:
-    - `cargo test v2_gpu_animation_sampled_frames_change_when_hardware_available`
-    - `scripts/ci_local.sh validate laptop_integrated` on hardware host
+    - `cargo test -q gui::renderer::tex_preview::execution`
+    - `cargo test -q visual_regression_gpu`
 
-- [x] 6. Split `gui::scene` into focused submodules (style, layout emitters, retained caches)
-  - Completed: 2026-03-03 (`50bb7e9`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
-  - ROI: Medium
-  - Effort: L
-  - Why it matters:
-    - `scene.rs` currently carries many responsibilities: palette constants, retained-layer dirtiness, route usage, text fitting, geometry emission, and large tests.
-    - Large file size slows navigation and raises regression risk in routine edits.
-  - Evidence:
-    - File size hotspot: `src/gui/scene.rs` (~3511 LOC).
-    - Large constant/style block near top: `src/gui/scene.rs:31-140`.
-  - Recommended change:
-    - Extract by responsibility:
-      - style/theme constants
-      - retained-layer emitters
-      - wire/bridge rendering helpers
-      - scope/timeline overlays
-    - Keep `SceneBuilder` as the cohesive public façade.
-  - Risk/tradeoffs:
-    - High churn; merge conflicts likely with active GUI work.
-  - Suggested validation:
-    - `cargo test gui::scene`
-    - `cargo test gui::scene::wire_route`
-
-- [x] 7. Remove blanket dead-code suppressions and prune stale APIs
-  - Completed: 2026-03-03 (`b0c6be8`)
-  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
-  - ROI: Medium
+- [ ] 5. Remove blanket `dead_code` suppressions by isolating/removing stale paths
+  - ROI: High
   - Effort: M
   - Why it matters:
-    - Blanket `#![allow(dead_code)]` and broad allowances hide drift and make cleanup difficult.
+    - Blanket suppressions mask genuine dead API drift and make cleanup work expensive.
+    - Some modules appear retained primarily for historical CPU paths.
   - Evidence:
-    - File-level allowances:
-      - `src/model.rs:2`
-      - `src/proc_graph.rs:2`
-      - `src/image_ops.rs:2`
-    - Additional dead-code allowances in core renderer:
-      - `src/gpu_render.rs:32`, `src/gpu_render.rs:40`, `src/gpu_render.rs:55`, etc.
+    - File-level suppression: `src/image_ops.rs:2`, `src/model.rs:2`, `src/proc_graph.rs:2`.
+    - Additional targeted suppressions in core renderer paths: `src/gpu_render.rs` (`cfg_attr(not(test), allow(dead_code))` annotations).
   - Recommended change:
-    - Audit each allowed symbol; remove genuinely dead code.
-    - Replace blanket allowances with narrow `cfg(test)` where needed.
+    - Classify each suppressed symbol as `active`, `test-only`, or `stale`.
+    - Move test-only symbols behind `#[cfg(test)]`; delete or feature-gate stale ones.
   - Risk/tradeoffs:
-    - Some symbols may be intentionally retained for upcoming phases; requires careful triage.
+    - Removing code too aggressively can break planned near-term work if ownership assumptions are wrong.
   - Suggested validation:
     - `cargo clippy --all-targets --all-features -- -D warnings`
-    - Full `scripts/ci_local.sh validate laptop_integrated`
+    - `cargo test -q`
 
-- [x] 8. Reintroduce private-item doc enforcement incrementally
-  - Completed: 2026-03-03 (`715fe76`)
-  - Validation: `scripts/lint/private_docs_subset.sh` passes; full `scripts/ci_local.sh validate laptop_integrated` remains blocked in current environment (`cargo` missing).
-  - ROI: Medium
-  - Effort: L
-  - Why it matters:
-    - Documentation debt remains large, and current CI masks it.
-    - Existing team guidance requires clear docs for public-facing and important internal objects.
-  - Evidence:
-    - Lint configured but muted in CI:
-      - `Cargo.toml` (`missing_docs_in_private_items = "warn"`)
-      - `scripts/ci_local.sh` clippy invocation includes `-A clippy::missing_docs_in_private_items`
-      - `scripts/ci_local.ps1` same suppression
-  - Recommended change:
-    - Add module-by-module doc debt burn-down with temporary allowlists scoped by module.
-    - Remove global CI suppression once debt is below threshold.
-  - Risk/tradeoffs:
-    - High touch count; could become noisy without staged limits.
-  - Suggested validation:
-    - `cargo clippy --all-targets --all-features -- -D warnings -D clippy::missing_docs_in_private_items` (on staged modules first)
-
-- [x] 9. Normalize local CI workflow orchestration between Bash and PowerShell
-  - Completed: 2026-03-03 (`2f5e96a`)
-  - Validation: Bash syntax and subset-doc lint pass locally; PowerShell runtime validation remains blocked in this environment (`pwsh` unavailable).
-  - ROI: Medium
-  - Effort: M
-  - Why it matters:
-    - Two independently maintained orchestration scripts increase behavior drift risk across Windows/Linux.
-    - Drift already surfaced in practice around workflow ergonomics and script behavior differences.
-  - Evidence:
-    - Separate duplicated orchestration trees:
-      - `scripts/ci_local.sh`
-      - `scripts/ci_local.ps1`
-      - `scripts/gui/tier_gate.sh`
-      - `scripts/gui/tier_gate.ps1`
-  - Recommended change:
-    - Move command matrix to shared declarative step list (for example per-step config + thin shell adapters).
-    - Keep host-specific logic minimal and centralized.
-  - Risk/tradeoffs:
-    - Refactor can temporarily complicate script debugging.
-  - Suggested validation:
-    - Run both paths on representative hosts:
-      - `scripts/ci_local.sh validate laptop_integrated`
-      - `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`
-
-- [x] 10. Separate production modules from heavy inline test blocks
-  - Completed: 2026-03-03 (`cfcf6b4`)
-  - Validation: Structural refactor only; full suite validation remains blocked in this environment (`cargo` missing).
+- [ ] 6. Unify Bash/PowerShell CI ergonomics and behavior defaults
   - ROI: Medium
   - Effort: S
   - Why it matters:
-    - Large inline `#[cfg(test)]` sections bloat production files and obscure runtime logic.
-    - Externalized tests improve readability and reduce accidental coupling to private internals.
+    - Daily dev friction and error-prone divergence remain between shell entrypoints.
+    - Bash defaults no-arg mode; PowerShell requires interactive mandatory parameters.
   - Evidence:
-    - Large production files with substantial inline tests:
-      - `src/gui/tex_view.rs` (~1071 LOC; test module starts around `:458`)
-      - `src/gui/runtime.rs` (~2589 LOC; large test block in lower half)
-      - `src/gui/scene.rs` (~3511 LOC; extensive tests near end)
+    - Bash default no-arg path: `scripts/ci_local.sh` (`if [[ $# -eq 0 ]]; then mode="validate" tier="laptop_integrated"`).
+    - PowerShell mandatory parameters: `scripts/ci_local.ps1` (`[Parameter(Mandatory = $true)]` for `Mode`/`Tier`).
   - Recommended change:
-    - Move large test blocks into sibling test modules/files while preserving coverage.
-    - Keep only minimal smoke tests inline when private access is essential.
+    - Make PowerShell entrypoint mirror Bash defaults and usage text.
+    - Keep one shared behavior contract doc and parity tests.
   - Risk/tradeoffs:
-    - Some tests may require adjusted visibility.
+    - Small; mainly script compatibility and docs updates.
   - Suggested validation:
-    - `cargo test gui::tex_view`
-    - `cargo test gui::runtime`
-    - `cargo test gui::scene`
+    - Run both:
+      - `scripts/ci_local.sh`
+      - `pwsh -File scripts/ci_local.ps1`
 
-- [x] 11. Refactor runtime-config parser into smaller focused units
-  - Completed: 2026-03-03 (`bee760b`)
-  - Validation: Structural refactor only; full runtime-config test validation remains blocked in this environment (`cargo` missing).
-  - ROI: Low
+- [ ] 7. Expand documentation enforcement beyond the 4-file private-doc subset
+  - ROI: Medium
   - Effort: M
   - Why it matters:
-    - Parsing, normalization, seeding, and validation are currently concentrated in one file.
-    - Splitting improves maintainability and testability for future flag additions.
+    - Current policy requires clear docs for public-facing objects, but enforced scope is intentionally narrow.
+    - Clippy without suppression currently fails immediately on missing docs in large modules.
   - Evidence:
-    - Single-file concentration in `src/runtime_config.rs` (~399 LOC):
-      - parser type: `src/runtime_config.rs:228`
-      - parse function: `src/runtime_config.rs:338`
-      - validation function: `src/runtime_config.rs:344`
-      - seed helper: `src/runtime_config.rs:394`
+    - CI suppression in shared steps: `scripts/lib/ci_local_steps.tsv` includes `-A clippy::missing_docs_in_private_items`.
+    - Subset manifest contains only 4 files: `scripts/lint/private_docs_subset_files.txt`.
+    - `cargo clippy --all-targets --all-features -- -D warnings` fails immediately on `src/animation.rs` missing-doc items (first errors at `src/animation.rs:62+`).
   - Recommended change:
-    - Extract `args_parse`, `normalization`, and `validation` modules.
-    - Centralize defaults and reuse builders in tests.
+    - Expand `private_docs_subset_files.txt` in phases (start with `src/animation.rs`, `src/gui/runtime.rs`, `src/gui/interaction.rs`).
+    - Keep staged enforcement to avoid productivity collapse.
   - Risk/tradeoffs:
-    - Churn in widely imported config structures.
+    - Medium churn and potentially noisy diffs if done in one shot.
   - Suggested validation:
-    - `cargo test runtime_config_tests`
-    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `scripts/lint/private_docs_subset.sh`
+    - staged `cargo clippy ... -D warnings` dry runs.
+
+- [ ] 8. Add tests for large, currently untested high-complexity modules
+  - ROI: Medium
+  - Effort: M
+  - Why it matters:
+    - Several large modules with non-trivial logic have no direct tests, making refactors risky.
+  - Evidence:
+    - Large files without in-file tests:
+      - `src/gui/project/params.rs` (1490 LOC)
+      - `src/gui/project/state.rs` (864 LOC)
+      - `src/gui/renderer/tex_preview/mod.rs` (739 LOC)
+      - `src/gui/renderer/tex_preview/pipeline.rs` (651 LOC)
+      - `src/gpu_render/graph_exec.rs` (600 LOC)
+      - `src/gpu_retained/mod.rs` (449 LOC)
+  - Recommended change:
+    - Add focused unit tests for pure logic seams (parameter mapping, pipeline/slot allocation, feedback-history transitions, route caching invariants).
+  - Risk/tradeoffs:
+    - Medium effort to create stable test seams around GPU-heavy code.
+  - Suggested validation:
+    - `cargo test -q`
+    - targeted module tests as introduced.
+
+- [ ] 9. Continue module decomposition for oversized files violating project limits
+  - ROI: Medium
+  - Effort: L
+  - Why it matters:
+    - Project guidance targets <=400 LOC (prefer <=200), but many hotspots exceed this by large margins.
+    - Large files increase onboarding and merge conflict cost.
+  - Evidence:
+    - `src/gui/scene.rs` (3337 LOC)
+    - `src/gui/runtime.rs` (2558 LOC)
+    - `src/gui/project.rs` (1237 LOC)
+    - `src/gui/renderer/mod.rs` (1133 LOC)
+  - Recommended change:
+    - Extract by responsibility with clear module trees (scene overlays, route cache, nodes layer, timeline layer; runtime compile vs eval vs op construction).
+  - Risk/tradeoffs:
+    - High churn and potential short-term merge conflicts.
+  - Suggested validation:
+    - `cargo test -q gui::scene`
+    - `cargo test -q gui::runtime`
+
+- [ ] 10. Reorganize preset module naming/layout to reduce concatenated-file sprawl
+  - ROI: Medium
+  - Effort: M
+  - Why it matters:
+    - Preset files follow long concatenated naming (`operator_graph_*`) that makes navigation and ownership less clear.
+    - This conflicts with current repository guidance favoring hierarchical decomposition.
+  - Evidence:
+    - `src/presets/operator_graph_*.rs` cluster (cascade, feedback_atlas, hyperweave, modular_network, multi_stage, orbit_forge, patchwork, router, signal_lab, sphere_noise_geo).
+  - Recommended change:
+    - Move to submodule tree by responsibility/variant (for example `src/presets/operator_graph/<variant>.rs` + shared `tests/`).
+  - Risk/tradeoffs:
+    - Medium churn in module imports and test paths.
+  - Suggested validation:
+    - `cargo test -q presets`
+
+- [ ] 11. Clarify feedback parameter naming and legacy-key migration boundaries
+  - ROI: Low
+  - Effort: S
+  - Why it matters:
+    - Feedback uses both current and legacy keys (`accumulation_tex` and `target_tex`) plus mixed UI labels (`accum_tex`), which is easy to misread during maintenance.
+  - Evidence:
+    - Key constants in `src/gui/project.rs:47-60`.
+    - Schema key list in `src/gui/project/param_schema.rs:110+`.
+    - Runtime explicit alias handling in `src/gui/runtime.rs:85-95`.
+  - Recommended change:
+    - Document one canonical active key contract and isolate legacy migration logic to load-time adapters.
+  - Risk/tradeoffs:
+    - Small compatibility risk if migration mapping is changed incorrectly.
+  - Suggested validation:
+    - `cargo test -q gui::project::tests::from_persisted_maps_legacy_feedback_target_tex_key`
+
+- [ ] 12. Add lightweight CI guardrail checks for structure drift
+  - ROI: Low
+  - Effort: S
+  - Why it matters:
+    - Current constraints (max file size, narrow APIs, minimized suppressions) are policy-only and can regress silently.
+  - Evidence:
+    - Multiple files far above 400 LOC and repeated suppressions are currently accepted in CI.
+  - Recommended change:
+    - Add a non-blocking report step first (file-size report, `allow(dead_code)` inventory, `too_many_arguments` inventory), then promote to gating over time.
+  - Risk/tradeoffs:
+    - Overly rigid thresholds can block pragmatic delivery if applied too aggressively.
+  - Suggested validation:
+    - New reporting script output in `scripts/ci_local.sh` and `scripts/ci_local.ps1`.
