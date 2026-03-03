@@ -512,6 +512,53 @@ fn ui_only_state_changes_do_not_invalidate_preview_cache_key() {
 }
 
 #[test]
+fn param_edit_updates_preview_ops_without_frame_advance() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 60, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+    assert!(project.connect_image_link(circle, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    let update = TexViewerUpdate {
+        viewport_width: 960,
+        viewport_height: 540,
+        panel_width: 420,
+        frame_index: 0,
+        timeline_total_frames: 1_800,
+        timeline_fps: 60,
+        tex_eval_epoch: project.invalidation().tex_eval,
+    };
+    viewer.update(&project, update);
+    let baseline = viewer.frame().expect("baseline frame should exist");
+    let baseline_center_x = match baseline.payload {
+        TexViewerPayload::GpuOps(ops) => match ops[0] {
+            TexViewerOp::Circle { center_x, .. } => center_x,
+            _ => panic!("expected circle op"),
+        },
+    };
+    let baseline_sig = baseline.ops_uniform_signature;
+
+    assert!(project.set_param_value(circle, 0, 0.2));
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            tex_eval_epoch: project.invalidation().tex_eval,
+            ..update
+        },
+    );
+    let updated = viewer.frame().expect("updated frame should exist");
+    let updated_center_x = match updated.payload {
+        TexViewerPayload::GpuOps(ops) => match ops[0] {
+            TexViewerOp::Circle { center_x, .. } => center_x,
+            _ => panic!("expected circle op"),
+        },
+    };
+
+    assert_ne!(baseline_center_x, updated_center_x);
+    assert_ne!(baseline_sig, updated.ops_uniform_signature);
+}
+
+#[test]
 fn project_swap_with_same_tex_eval_epoch_rebuilds_cached_runtime() {
     let mut project_a = GuiProject::new_empty(640, 480);
     let solid = project_a.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);

@@ -25,9 +25,7 @@ use nvenc::input_buffer::InputBuffer as NvencInputBuffer;
 #[cfg(windows)]
 use nvenc::session::{InitParams as NvencInitParams, NeedsConfig as NvencNeedsConfig, Session};
 #[cfg(windows)]
-use nvenc::sys::enums::{
-    NVencBufferFormat, NVencMemoryHeap, NVencParamsRcMode, NVencTuningInfo,
-};
+use nvenc::sys::enums::{NVencBufferFormat, NVencMemoryHeap, NVencParamsRcMode, NVencTuningInfo};
 #[cfg(windows)]
 use nvenc::sys::guids::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P4_GUID};
 #[cfg(windows)]
