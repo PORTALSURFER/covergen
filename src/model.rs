@@ -1,5 +1,4 @@
 //! Core data types shared across GPU/CUDA renderers and strategy selection.
-#![allow(dead_code)]
 
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
@@ -118,6 +117,7 @@ impl ArtStyle {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SymmetryStyle {
     None,
@@ -132,6 +132,7 @@ pub(crate) enum SymmetryStyle {
 
 impl SymmetryStyle {
     /// Convert a numeric value into a stable symmetry style variant.
+    #[allow(dead_code)]
     pub(crate) fn from_u32(value: u32) -> Self {
         match value % 8 {
             0 => Self::None,

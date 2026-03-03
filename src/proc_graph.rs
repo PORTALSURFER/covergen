@@ -1,5 +1,4 @@
 //! Shared procedural helpers for CHOP/SOP/tex-camera graph nodes.
-#![allow(dead_code)]
 
 use crate::chop::{ChopLfoNode, ChopMathMode, ChopMathNode, ChopRemapNode, ChopWave};
 use crate::node::GraphTimeInput;
@@ -111,6 +110,7 @@ pub fn eval_chop_remap(node: ChopRemapNode, value: f32) -> f32 {
 }
 
 /// Render one SOP primitive through a simple camera model into `out`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn render_top_camera(
     primitive: SopPrimitive,
     node: TopCameraRenderNode,
@@ -153,6 +153,7 @@ pub fn render_top_camera(
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn sample_circle(circle: SopCircleNode, x: f32, y: f32) -> f32 {
     let dx = x - circle.center_x;
     let dy = y - circle.center_y;
@@ -165,6 +166,7 @@ fn sample_circle(circle: SopCircleNode, x: f32, y: f32) -> f32 {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn sample_sphere(sphere: SopSphereNode, x: f32, y: f32) -> f32 {
     let dx = x - sphere.center_x;
     let dy = y - sphere.center_y;
