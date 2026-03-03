@@ -1412,7 +1412,7 @@ pub(super) fn persisted_param_key_matches(
 }
 
 pub(super) fn is_feedback_history_param_key(slot_key: &str) -> bool {
-    slot_key == FEEDBACK_HISTORY_PARAM_KEY || slot_key == LEGACY_FEEDBACK_HISTORY_PARAM_KEY
+    param_schema::feedback::is_history_key(slot_key)
 }
 
 fn assert_param_label_fits(label: &'static str) {

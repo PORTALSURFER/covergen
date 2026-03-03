@@ -202,7 +202,10 @@ pub(crate) mod feedback {
         LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
     };
 
+    /// Canonical persisted key for explicit external history source bindings.
     pub(crate) const HISTORY: &str = FEEDBACK_HISTORY_PARAM_KEY;
+    /// Legacy persisted key accepted only for backward-compatible loads.
+    pub(crate) const LEGACY_HISTORY: &str = LEGACY_FEEDBACK_HISTORY_PARAM_KEY;
     pub(crate) const MIX: &str = "feedback";
     pub(crate) const FRAME_GAP: &str = FEEDBACK_FRAME_GAP_PARAM_KEY;
     pub(crate) const RESET: &str = FEEDBACK_RESET_PARAM_KEY;
@@ -210,12 +213,24 @@ pub(crate) mod feedback {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const KEYS: [&str; 4] = [HISTORY, MIX, FRAME_GAP, RESET];
 
-    pub(crate) const RUNTIME_KEYS: [&str; 4] =
-        [MIX, HISTORY, LEGACY_FEEDBACK_HISTORY_PARAM_KEY, FRAME_GAP];
+    /// Runtime-compiled slot order for `tex.feedback`.
+    ///
+    /// The canonical `HISTORY` key is evaluated first and the legacy
+    /// `LEGACY_HISTORY` key is retained only as fallback compatibility.
+    pub(crate) const RUNTIME_KEYS: [&str; 4] = [MIX, HISTORY, LEGACY_HISTORY, FRAME_GAP];
     pub(crate) const RUNTIME_MIX_INDEX: usize = 0;
     pub(crate) const RUNTIME_HISTORY_INDEX: usize = 1;
     pub(crate) const RUNTIME_LEGACY_HISTORY_INDEX: usize = 2;
     pub(crate) const RUNTIME_FRAME_GAP_INDEX: usize = 3;
+
+    /// History-binding slot resolution order (canonical first, legacy second).
+    pub(crate) const RUNTIME_HISTORY_INDEX_FALLBACK: [usize; 2] =
+        [RUNTIME_HISTORY_INDEX, RUNTIME_LEGACY_HISTORY_INDEX];
+
+    /// Return true when one key identifies feedback-history binding state.
+    pub(crate) fn is_history_key(key: &str) -> bool {
+        key == HISTORY || key == LEGACY_HISTORY
+    }
 }
 
 /// Canonical keys for `tex.reaction_diffusion`.

@@ -946,19 +946,7 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::Feedback => {
-                    let history = compiled_texture_source_for_param(
-                        project,
-                        step,
-                        param_schema::feedback::RUNTIME_HISTORY_INDEX,
-                    )
-                    .or_else(|| {
-                        compiled_texture_source_for_param(
-                            project,
-                            step,
-                            param_schema::feedback::RUNTIME_LEGACY_HISTORY_INDEX,
-                        )
-                    })
-                    .map_or(
+                    let history = compiled_feedback_history_source(project, step).map_or(
                         TexRuntimeFeedbackHistoryBinding::Internal {
                             feedback_node_id: step.node_id,
                         },
@@ -1293,6 +1281,17 @@ fn compiled_texture_source_for_param(
     project.texture_source_for_param(step.node_id, index)
 }
 
+/// Resolve explicit feedback-history source with canonical/legacy fallback.
+fn compiled_feedback_history_source(project: &GuiProject, step: &CompiledStep) -> Option<u32> {
+    for slot_index in param_schema::feedback::RUNTIME_HISTORY_INDEX_FALLBACK {
+        if let Some(texture_node_id) = compiled_texture_source_for_param(project, step, slot_index)
+        {
+            return Some(texture_node_id);
+        }
+    }
+    None
+}
+
 fn collect_external_feedback_history_sources(
     project: &GuiProject,
     steps: &[CompiledStep],
@@ -1302,18 +1301,7 @@ fn collect_external_feedback_history_sources(
         if step.kind != CompiledStepKind::Feedback {
             continue;
         }
-        if let Some(texture_node_id) = compiled_texture_source_for_param(
-            project,
-            step,
-            param_schema::feedback::RUNTIME_HISTORY_INDEX,
-        )
-        .or_else(|| {
-            compiled_texture_source_for_param(
-                project,
-                step,
-                param_schema::feedback::RUNTIME_LEGACY_HISTORY_INDEX,
-            )
-        }) {
+        if let Some(texture_node_id) = compiled_feedback_history_source(project, step) {
             sources.insert(texture_node_id);
         }
     }
