@@ -185,7 +185,7 @@ Date: 2026-03-03
     - `cargo test -q gui::scene`
     - `cargo test -q gui::runtime`
 
-- [ ] 10. Reorganize preset module naming/layout to reduce concatenated-file sprawl
+- [x] 10. Reorganize preset module naming/layout to reduce concatenated-file sprawl _(done 2026-03-03, commit b18f1ef)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
