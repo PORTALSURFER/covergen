@@ -6,6 +6,16 @@ mod marquee;
 mod param_edit;
 mod wire;
 
+#[cfg(test)]
+use self::drag::point_to_segment_distance_sq;
+#[cfg(test)]
+use self::marquee::{marquee_moved, rects_overlap};
+#[cfg(test)]
+use self::param_edit::{
+    backspace_param_text, can_append_param_char, insert_param_char, move_param_cursor_left,
+    move_param_cursor_right,
+};
+
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
@@ -1436,31 +1446,6 @@ fn handle_right_selection(
     )
 }
 
-#[allow(dead_code)]
-fn marquee_moved(marquee: RightMarqueeState) -> bool {
-    marquee::marquee_moved(marquee)
-}
-
-#[allow(dead_code)]
-fn collect_marquee_nodes(
-    project: &GuiProject,
-    state: &PreviewState,
-    marquee: RightMarqueeState,
-) -> Vec<u32> {
-    marquee::collect_marquee_nodes(project, state, marquee)
-}
-
-#[allow(dead_code)]
-fn screen_rect_to_graph_rect(
-    sx0: i32,
-    sy0: i32,
-    sx1: i32,
-    sy1: i32,
-    state: &PreviewState,
-) -> (i32, i32, i32, i32) {
-    marquee::screen_rect_to_graph_rect(sx0, sy0, sx1, sy1, state)
-}
-
 /// Convert current editor panel bounds to one graph-space rectangle.
 fn panel_graph_rect(
     panel_width: usize,
@@ -1471,36 +1456,6 @@ fn panel_graph_rect(
         InteractionPanelContext::new(panel_width, panel_height),
         state,
     )
-}
-
-#[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
-fn rects_overlap(
-    ax0: i32,
-    ay0: i32,
-    ax1: i32,
-    ay1: i32,
-    bx0: i32,
-    by0: i32,
-    bx1: i32,
-    by1: i32,
-) -> bool {
-    marquee::rects_overlap(ax0, ay0, ax1, ay1, bx0, by0, bx1, by1)
-}
-
-#[allow(dead_code)]
-fn set_single_selection(state: &mut PreviewState, node_id: u32) -> bool {
-    marquee::set_single_selection(state, node_id)
-}
-
-#[allow(dead_code)]
-fn set_multi_selection(state: &mut PreviewState, nodes: Vec<u32>) -> bool {
-    marquee::set_multi_selection(state, nodes)
-}
-
-#[allow(dead_code)]
-fn clear_selection(state: &mut PreviewState) -> bool {
-    marquee::clear_selection(state)
 }
 
 fn handle_param_edit_input(
@@ -1516,152 +1471,6 @@ fn handle_param_edit_input(
         InteractionPanelContext::new(panel_width, panel_height),
         state,
     )
-}
-
-#[allow(dead_code)]
-fn apply_param_text_edits(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    state: &mut PreviewState,
-) -> bool {
-    param_edit::apply_param_text_edits(input, project, state)
-}
-
-#[allow(dead_code)]
-fn handle_param_click(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-) -> bool {
-    param_edit::handle_param_click(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-    )
-}
-
-#[allow(dead_code)]
-fn handle_dropdown_click(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-) -> bool {
-    param_edit::handle_dropdown_click(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-    )
-}
-
-#[allow(dead_code)]
-fn dropdown_option_at_cursor(
-    project: &GuiProject,
-    state: &PreviewState,
-    mx: i32,
-    my: i32,
-) -> Option<usize> {
-    param_edit::dropdown_option_at_cursor(project, state, mx, my)
-}
-
-#[allow(dead_code)]
-fn start_param_edit(
-    project: &GuiProject,
-    state: &mut PreviewState,
-    node_id: u32,
-    param_index: usize,
-) -> bool {
-    param_edit::start_param_edit(project, state, node_id, param_index)
-}
-
-#[allow(dead_code)]
-fn finish_param_edit(project: &mut GuiProject, state: &mut PreviewState) -> bool {
-    param_edit::finish_param_edit(project, state)
-}
-
-#[allow(dead_code)]
-fn commit_param_edit(project: &mut GuiProject, edit: &mut ParamEditState) -> bool {
-    param_edit::commit_param_edit(project, edit)
-}
-
-#[allow(dead_code)]
-fn can_append_param_char(current: &str, ch: char) -> bool {
-    param_edit::can_append_param_char(current, ch)
-}
-
-#[allow(dead_code)]
-fn is_valid_param_buffer(buffer: &str) -> bool {
-    param_edit::is_valid_param_buffer(buffer)
-}
-
-#[allow(dead_code)]
-fn clamp_param_edit_indices(edit: &mut ParamEditState) {
-    param_edit::clamp_param_edit_indices(edit)
-}
-
-#[allow(dead_code)]
-fn has_param_selection(edit: &ParamEditState) -> bool {
-    param_edit::has_param_selection(edit)
-}
-
-#[allow(dead_code)]
-fn param_selection_bounds(edit: &ParamEditState) -> (usize, usize) {
-    param_edit::param_selection_bounds(edit)
-}
-
-#[allow(dead_code)]
-fn collapse_param_selection(edit: &mut ParamEditState, at: usize) {
-    param_edit::collapse_param_selection(edit, at)
-}
-
-#[allow(dead_code)]
-fn select_all_param_text(edit: &mut ParamEditState) -> bool {
-    param_edit::select_all_param_text(edit)
-}
-
-#[allow(dead_code)]
-fn delete_param_selection(edit: &mut ParamEditState) -> bool {
-    param_edit::delete_param_selection(edit)
-}
-
-#[allow(dead_code)]
-fn backspace_param_text(edit: &mut ParamEditState) -> bool {
-    param_edit::backspace_param_text(edit)
-}
-
-#[allow(dead_code)]
-fn delete_param_text(edit: &mut ParamEditState) -> bool {
-    param_edit::delete_param_text(edit)
-}
-
-#[allow(dead_code)]
-fn insert_param_char(edit: &mut ParamEditState, ch: char) -> bool {
-    param_edit::insert_param_char(edit, ch)
-}
-
-#[allow(dead_code)]
-fn move_param_cursor_left(edit: &mut ParamEditState, extend_selection: bool) -> bool {
-    param_edit::move_param_cursor_left(edit, extend_selection)
-}
-
-#[allow(dead_code)]
-fn move_param_cursor_right(edit: &mut ParamEditState, extend_selection: bool) -> bool {
-    param_edit::move_param_cursor_right(edit, extend_selection)
-}
-
-#[allow(dead_code)]
-fn prev_char_boundary(text: &str, index: usize) -> usize {
-    param_edit::prev_char_boundary(text, index)
-}
-
-#[allow(dead_code)]
-fn next_char_boundary(text: &str, index: usize) -> usize {
-    param_edit::next_char_boundary(text, index)
 }
 
 fn handle_link_cut(
@@ -1988,39 +1797,6 @@ fn handle_drag_input(
     )
 }
 
-/// Return drag group ids for one anchor node.
-///
-/// Multi-node dragging is enabled only when the anchor node is part of the
-/// current selection and at least two nodes are selected.
-#[allow(dead_code)]
-fn drag_selection_node_ids(state: &PreviewState, anchor_node_id: u32) -> Vec<u32> {
-    drag::drag_selection_node_ids(state, anchor_node_id)
-}
-
-/// Move selected drag nodes by the anchor node cursor delta.
-///
-/// The anchor node follows the cursor first; the resolved delta is then applied
-/// to the remaining selected nodes to keep group movement coherent.
-#[allow(dead_code)]
-fn move_drag_selection_by_anchor_delta(
-    project: &mut GuiProject,
-    drag: super::state::DragState,
-    dragged_node_ids: &[u32],
-    graph_x: i32,
-    graph_y: i32,
-    panel_width: usize,
-    panel_height: usize,
-) -> bool {
-    drag::move_drag_selection_by_anchor_delta(
-        project,
-        drag,
-        dragged_node_ids,
-        graph_x,
-        graph_y,
-        InteractionPanelContext::new(panel_width, panel_height),
-    )
-}
-
 fn handle_wire_input(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -2034,138 +1810,6 @@ fn handle_wire_input(
         InteractionPanelContext::new(panel_width, panel_height),
         state,
     )
-}
-
-/// Resolve texture-parameter drop target on release.
-///
-/// This confirms the release cursor against parameter hit-testing so texture
-/// binds stay reliable even if hover state did not update on the same frame.
-#[allow(dead_code)]
-fn resolve_texture_param_target_on_release(
-    input: &InputSnapshot,
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &PreviewState,
-    wire: WireDragState,
-) -> Option<HoverParamTarget> {
-    wire::resolve_texture_param_target_on_release(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-        wire,
-    )
-}
-
-#[allow(dead_code)]
-fn begin_wire_drag_if_pin_hit(
-    input: &InputSnapshot,
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-) -> bool {
-    wire::begin_wire_drag_if_pin_hit(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-    )
-}
-
-#[allow(dead_code)]
-fn begin_drag_if_node_hit(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-) -> bool {
-    drag::begin_drag_if_node_hit(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-    )
-}
-
-/// Snap one dragged node beside an overlapped node using drag origin side.
-#[allow(dead_code)]
-fn snap_dragged_node_out_of_overlap(
-    project: &mut GuiProject,
-    drag: super::state::DragState,
-    panel_width: usize,
-    panel_height: usize,
-) -> bool {
-    drag::snap_dragged_node_out_of_overlap(
-        project,
-        drag,
-        InteractionPanelContext::new(panel_width, panel_height),
-    )
-}
-
-/// Return true when two rectangles overlap with positive area.
-#[allow(dead_code)]
-fn rects_overlap_strict(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
-    drag::rects_overlap_strict(a, b)
-}
-
-/// Resolve one hovered wire insertion candidate at cursor position.
-#[allow(dead_code)]
-fn hover_insert_link_at_cursor(
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &PreviewState,
-    cursor_x: i32,
-    cursor_y: i32,
-    dragged_node_id: u32,
-) -> Option<HoverInsertLink> {
-    drag::hover_insert_link_at_cursor(
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-        cursor_x,
-        cursor_y,
-        dragged_node_id,
-    )
-}
-
-/// Return true when `dragged_node_id` can be inserted on `source -> target`.
-#[allow(dead_code)]
-fn can_insert_dragged_node_on_link(
-    project: &GuiProject,
-    dragged_node_id: u32,
-    source_id: u32,
-    target_id: u32,
-) -> bool {
-    drag::can_insert_dragged_node_on_link(project, dragged_node_id, source_id, target_id)
-}
-
-/// Resolve insertion candidate on drag release from hover cache or hit-test.
-#[allow(dead_code)]
-fn resolve_insert_link_on_release(
-    input: &InputSnapshot,
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &PreviewState,
-    dragged_node_id: u32,
-) -> Option<HoverInsertLink> {
-    drag::resolve_insert_link_on_release(
-        input,
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-        dragged_node_id,
-    )
-}
-
-/// Return squared distance from point `p` to line segment `ab`.
-#[allow(dead_code)]
-fn point_to_segment_distance_sq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
-    drag::point_to_segment_distance_sq(px, py, ax, ay, bx, by)
 }
 
 fn inside_panel(x: i32, y: i32, panel_width: usize, panel_height: usize) -> bool {
@@ -2183,22 +1827,6 @@ fn collapse_auto_expanded_binding_nodes(
         project,
         InteractionPanelContext::new(panel_width, panel_height),
         state,
-    )
-}
-
-#[allow(dead_code)]
-fn collapse_auto_expanded_binding_nodes_except(
-    project: &mut GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-    keep_node_id: Option<u32>,
-) -> bool {
-    hover::collapse_auto_expanded_binding_nodes_except(
-        project,
-        InteractionPanelContext::new(panel_width, panel_height),
-        state,
-        keep_node_id,
     )
 }
 
