@@ -31,7 +31,7 @@ Date: 2026-03-03
     - `cargo test -q gui::scene::wire_route::tests`
     - Manual GUI smoke: node move, wire drag, marquee, timeline scrub.
 
-- [ ] 2. Split `gui::runtime` into compile/eval/postprocess stages with typed boundaries
+- [x] 2. Split `gui::runtime` into compile/eval/postprocess stages with typed boundaries _(done 2026-03-03, commit 244e214)_
   - ROI: High
   - Effort: L
   - Why it matters:
