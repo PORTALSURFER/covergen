@@ -52,7 +52,9 @@ Date: 2026-03-03
     - `cargo test gui::interaction`
     - Manual smoke on drag/wire/menu/timeline interactions in GUI mode
 
-- [ ] 3. Unify GUI parameter schema and runtime slot mapping into one source of truth
+- [x] 3. Unify GUI parameter schema and runtime slot mapping into one source of truth
+  - Completed: 2026-03-03 (`abc74eb`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: High
   - Effort: L
   - Why it matters:
