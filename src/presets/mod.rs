@@ -12,39 +12,52 @@ mod grammar;
 mod graph_art_direction;
 mod module_invocation;
 pub mod node_catalog;
+#[path = "operator_graph/core.rs"]
 mod operator_graph;
+#[path = "operator_graph/cascade.rs"]
 mod operator_graph_cascade;
 #[cfg(test)]
 mod operator_graph_cascade_tests;
+#[path = "operator_graph/feedback_atlas.rs"]
 mod operator_graph_feedback_atlas;
 #[cfg(test)]
 mod operator_graph_feedback_atlas_tests;
+#[path = "operator_graph/hyperweave.rs"]
 mod operator_graph_hyperweave;
 #[cfg(test)]
 mod operator_graph_hyperweave_tests;
+#[path = "operator_graph/modular_network.rs"]
 mod operator_graph_modular_network;
 #[cfg(test)]
 mod operator_graph_modular_network_tests;
+#[path = "operator_graph/multi_stage.rs"]
 mod operator_graph_multi_stage;
 #[cfg(test)]
 mod operator_graph_multi_stage_tests;
+#[path = "operator_graph/orbit_forge.rs"]
 mod operator_graph_orbit_forge;
 #[cfg(test)]
 mod operator_graph_orbit_forge_tests;
+#[path = "operator_graph/patchwork.rs"]
 mod operator_graph_patchwork;
 #[cfg(test)]
 mod operator_graph_patchwork_tests;
+#[path = "operator_graph/router.rs"]
 mod operator_graph_router;
 #[cfg(test)]
 mod operator_graph_router_tests;
+#[path = "operator_graph/signal_lab.rs"]
 mod operator_graph_signal_lab;
 #[cfg(test)]
 mod operator_graph_signal_lab_tests;
+#[path = "operator_graph/sphere_noise_geo.rs"]
 mod operator_graph_sphere_noise_geo;
 #[cfg(test)]
 mod operator_graph_sphere_noise_geo_tests;
+#[path = "operator_graph/stage_primitives.rs"]
 mod operator_graph_stage_primitives;
 #[cfg(test)]
+#[path = "operator_graph/test_support.rs"]
 mod operator_graph_test_support;
 #[cfg(test)]
 mod operator_graph_tests;
