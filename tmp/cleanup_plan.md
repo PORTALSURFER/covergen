@@ -82,7 +82,9 @@ Date: 2026-03-03
     - `cargo test gui::runtime`
     - `cargo test gui::tex_view`
 
-- [ ] 4. Consolidate duplicated preset-test scaffolding with shared fixture helpers/macros
+- [x] 4. Consolidate duplicated preset-test scaffolding with shared fixture helpers/macros
+  - Completed: 2026-03-03 (`3a3700e`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: High
   - Effort: M
   - Why it matters:
