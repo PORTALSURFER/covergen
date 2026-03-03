@@ -45,6 +45,12 @@ impl GuiApp {
         println!(
             "[gui] controls: Esc=quit, F11=fullscreen, Space=play/pause, Shift+A=add node menu, `=main menu, Tab=open node, F1=context help, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, timeline(play/pause + scrub)"
         );
+        if let Some(limit) = benchmark_frame_limit {
+            println!(
+                "[gui-bench] benchmark mode active; auto-exit after {} frames",
+                limit
+            );
+        }
         Ok(Self {
             config,
             panel_width,

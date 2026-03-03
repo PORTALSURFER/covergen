@@ -248,11 +248,31 @@ impl GuiApp {
         self.update_loop_policy();
         self.update_title(frame_start);
         self.needs_redraw = false;
-        self.frame_counter = self.frame_counter.wrapping_add(1);
+        let next_frame_counter = self.frame_counter.wrapping_add(1);
+        if let Some(limit) = self.benchmark_frame_limit {
+            let should_log_progress = next_frame_counter == 1
+                || next_frame_counter % GUI_LOCKED_FPS as u64 == 0
+                || next_frame_counter >= limit;
+            if should_log_progress {
+                let completed = next_frame_counter.min(limit);
+                let percent = ((completed as f64 * 100.0) / limit.max(1) as f64).min(100.0);
+                println!(
+                    "[gui-bench] progress frame {}/{} ({:.1}%) avg_fps={:.1}",
+                    completed, limit, percent, self.state.avg_fps
+                );
+            }
+        }
+        self.frame_counter = next_frame_counter;
         if self
             .benchmark_frame_limit
             .is_some_and(|limit| self.frame_counter >= limit)
         {
+            if !self.close_requested {
+                println!(
+                    "[gui-bench] reached frame limit ({}); closing",
+                    self.frame_counter
+                );
+            }
             self.close_requested = true;
         }
         Ok(())
