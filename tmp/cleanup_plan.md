@@ -107,7 +107,7 @@ Date: 2026-03-03
     - `cargo clippy --all-targets --all-features -- -D warnings`
     - `cargo test -q`
 
-- [ ] 6. Unify Bash/PowerShell CI ergonomics and behavior defaults
+- [x] 6. Unify Bash/PowerShell CI ergonomics and behavior defaults _(done 2026-03-03, commit fade641)_
   - ROI: Medium
   - Effort: S
   - Why it matters:
