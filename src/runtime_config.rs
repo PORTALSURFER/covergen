@@ -19,9 +19,11 @@ const DEFAULT_ANIMATION_FPS: u32 = 60;
 /// Runtime profile used by graph execution and preset generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum V2Profile {
+    /// Favor highest visual quality and stability.
     #[default]
     #[value(alias = "q")]
     Quality,
+    /// Favor throughput and interaction responsiveness.
     #[value(alias = "perf", alias = "p")]
     Performance,
 }
@@ -177,20 +179,30 @@ pub struct V2Args {
 /// Animation settings for clip generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnimationConfig {
+    /// Enable animated clip rendering when true.
     pub enabled: bool,
+    /// Clip duration in seconds.
     pub seconds: u32,
+    /// Clip frame rate.
     pub fps: u32,
+    /// Preserve intermediate frame images when true.
     pub keep_frames: bool,
+    /// Motion profile controlling temporal modulation intensity.
     pub motion: AnimationMotion,
 }
 
 /// GUI runtime tuning and telemetry settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiConfig {
+    /// Target interactive GUI refresh rate.
     pub target_fps: u32,
+    /// Present-mode policy for swapchain presentation.
     pub vsync: GuiVsync,
+    /// Optional CSV path for per-frame GUI timing trace.
     pub perf_trace: Option<String>,
+    /// Enable deterministic synthetic drag benchmark mode.
     pub benchmark_drag: bool,
+    /// Auto-exit benchmark frame limit (`0` disables auto-exit).
     pub benchmark_frames: u32,
 }
 
@@ -209,20 +221,35 @@ impl Default for GuiConfig {
 /// Parsed command-line configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V2Config {
+    /// Output width in pixels.
     pub width: u32,
+    /// Output height in pixels.
     pub height: u32,
+    /// Deterministic generation seed.
     pub seed: u32,
+    /// Number of images/clips to generate.
     pub count: u32,
+    /// Output file path or base path.
     pub output: String,
+    /// Layer budget used by preset generation.
     pub layers: u32,
+    /// Supersampling antialias factor.
     pub antialias: u32,
+    /// Selected preset identifier.
     pub preset: String,
+    /// Runtime quality/performance profile.
     pub profile: V2Profile,
+    /// Optional path to write replay manifest JSON.
     pub manifest_out: Option<String>,
+    /// Optional path to read replay manifest JSON.
     pub manifest_in: Option<String>,
+    /// High-level art-direction steering parameters.
     pub art_direction: ArtDirectionConfig,
+    /// Animation settings for clip rendering.
     pub animation: AnimationConfig,
+    /// Candidate exploration and ranking settings.
     pub selection: SelectionConfig,
+    /// GUI runtime tuning and telemetry settings.
     #[serde(default)]
     pub gui: GuiConfig,
 }

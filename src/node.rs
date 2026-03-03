@@ -14,44 +14,73 @@ pub use super::temporal::{
 /// Operator families used for graph authoring semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatorFamily {
+    /// Texture/image operators and post-processing nodes.
     Top,
+    /// Channel/scalar operators.
     Chop,
+    /// Geometry/shape operators.
     Sop,
+    /// Terminal output contract nodes.
     Output,
 }
 
 /// Port categories supported by the V2 graph IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PortType {
+    /// Single-channel luma texture payload.
     LumaTexture,
+    /// Single-channel mask texture payload.
     MaskTexture,
+    /// Scalar channel value payload.
     ChannelScalar,
+    /// Signed-distance/geometry primitive payload.
     SopPrimitive,
 }
 
 /// GPU layer generation node parameters.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct GenerateLayerNode {
+    /// Symmetry repetition count.
     pub symmetry: u32,
+    /// Symmetry style selector.
     pub symmetry_style: u32,
+    /// Fractal iteration count.
     pub iterations: u32,
+    /// Deterministic random seed.
     pub seed: u32,
+    /// Fill scale multiplier.
     pub fill_scale: f32,
+    /// Fractal zoom multiplier.
     pub fractal_zoom: f32,
+    /// Primary art-style selector.
     pub art_style: u32,
+    /// Secondary art-style selector.
     pub art_style_secondary: u32,
+    /// Blend amount between primary and secondary art styles.
     pub art_style_mix: f32,
+    /// Bend/distortion strength.
     pub bend_strength: f32,
+    /// Warp distortion strength.
     pub warp_strength: f32,
+    /// Warp noise frequency.
     pub warp_frequency: f32,
+    /// Tile scaling factor.
     pub tile_scale: f32,
+    /// Tile phase offset.
     pub tile_phase: f32,
+    /// Horizontal center offset in normalized graph space.
     pub center_x: f32,
+    /// Vertical center offset in normalized graph space.
     pub center_y: f32,
+    /// Shader-side layer count budget.
     pub shader_layer_count: u32,
+    /// Layer blend mode in compositing stages.
     pub blend_mode: LayerBlendMode,
+    /// Layer opacity multiplier.
     pub opacity: f32,
+    /// Contrast multiplier.
     pub contrast: f32,
+    /// Time-varying modulation controls.
     pub temporal: GenerateLayerTemporal,
 }
 
@@ -139,11 +168,17 @@ impl GenerateLayerNode {
 /// Procedural source-node generating reusable noise maps.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SourceNoiseNode {
+    /// Deterministic random seed.
     pub seed: u32,
+    /// Spatial scale multiplier.
     pub scale: f32,
+    /// Octave count for multi-octave noise.
     pub octaves: u32,
+    /// Output amplitude multiplier.
     pub amplitude: f32,
+    /// Output port type produced by this node.
     pub output_port: PortType,
+    /// Time-varying modulation controls.
     pub temporal: SourceNoiseTemporal,
 }
 
@@ -161,9 +196,13 @@ impl SourceNoiseNode {
 /// Mask extraction node converting luma into a soft threshold mask.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct MaskNode {
+    /// Base threshold in `[0, 1]`.
     pub threshold: f32,
+    /// Softness amount in `[0, 1]`.
     pub softness: f32,
+    /// Invert mask output when true.
     pub invert: bool,
+    /// Time-varying modulation controls.
     pub temporal: MaskTemporal,
 }
 
@@ -181,8 +220,11 @@ impl MaskNode {
 /// Explicit blend/composite node with optional mask input.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct BlendNode {
+    /// Blend mode operator.
     pub mode: LayerBlendMode,
+    /// Blend opacity in `[0, 1]`.
     pub opacity: f32,
+    /// Time-varying modulation controls.
     pub temporal: BlendTemporal,
 }
 
@@ -199,9 +241,13 @@ impl BlendNode {
 /// Tone-map node for post contrast/stretch style adjustments.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ToneMapNode {
+    /// Contrast multiplier.
     pub contrast: f32,
+    /// Lower percentile clamp.
     pub low_pct: f32,
+    /// Upper percentile clamp.
     pub high_pct: f32,
+    /// Time-varying modulation controls.
     pub temporal: ToneMapTemporal,
 }
 
@@ -228,9 +274,13 @@ impl ToneMapNode {
 /// Warp/transform node for lightweight geometric modulation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct WarpTransformNode {
+    /// Warp strength multiplier.
     pub strength: f32,
+    /// Warp frequency multiplier.
     pub frequency: f32,
+    /// Base phase offset.
     pub phase: f32,
+    /// Time-varying modulation controls.
     pub temporal: WarpTransformTemporal,
 }
 
@@ -302,20 +352,35 @@ impl OutputNode {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum NodeKind {
+    /// Layer-generation operator.
     GenerateLayer(GenerateLayerNode),
+    /// Procedural noise source operator.
     SourceNoise(SourceNoiseNode),
+    /// Threshold/soft-mask operator.
     Mask(MaskNode),
+    /// Blend/composite operator.
     Blend(BlendNode),
+    /// Tone-map/contrast operator.
     ToneMap(ToneMapNode),
+    /// Warp/transform operator.
     WarpTransform(WarpTransformNode),
+    /// Stateful feedback operator.
     StatefulFeedback(StatefulFeedbackNode),
+    /// LFO scalar generator.
     ChopLfo(ChopLfoNode),
+    /// Scalar math operator.
     ChopMath(ChopMathNode),
+    /// Scalar remap operator.
     ChopRemap(ChopRemapNode),
+    /// Circle SOP primitive generator.
     SopCircle(SopCircleNode),
+    /// Sphere SOP primitive generator.
     SopSphere(SopSphereNode),
+    /// SOP geometry assembler.
     SopGeometry(SopGeometryNode),
+    /// Camera render operator for SOP primitives.
     TopCameraRender(TopCameraRenderNode),
+    /// Output contract node.
     Output(OutputNode),
 }
 
