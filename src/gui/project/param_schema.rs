@@ -114,6 +114,7 @@ pub(crate) mod feedback {
 
     pub(crate) const MIX: &str = "feedback";
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const KEYS: [&str; 4] = [
         FEEDBACK_HISTORY_PARAM_KEY,
         MIX,
