@@ -1,3 +1,8 @@
+mod mutation;
+mod signal_eval;
+
+use self::mutation::{adjust_slot_value, apply_dropdown_value, dropdown_selected_index};
+use self::signal_eval::{lfo_wave_sample, sample_time_bucket};
 use super::param_schema;
 use super::state::clamp_node_position;
 use super::*;
@@ -349,33 +354,18 @@ impl GuiProject {
     ///
     /// Manual edits detach an existing signal binding on the selected row.
     pub(crate) fn adjust_selected_param(&mut self, node_id: u32, direction: f32) -> bool {
-        let mut changed = false;
-        let mut binding_changed = false;
-        {
-            let Some(node) = self.node_mut(node_id) else {
-                return false;
-            };
+        let Some(index) = self.node(node_id).and_then(|node| {
             if node.params.is_empty() {
-                return false;
+                None
+            } else {
+                Some(node.selected_param.min(node.params.len().saturating_sub(1)))
             }
-            let index = node.selected_param.min(node.params.len().saturating_sub(1));
-            let slot = &mut node.params[index];
-            if slot.signal_source.take().is_some() {
-                binding_changed = true;
-                changed = true;
-            }
-            changed |= adjust_slot_value(slot, direction);
-            if binding_changed {
-                rebuild_node_inputs(node);
-            }
-        }
-        if changed {
-            if binding_changed {
-                self.recount_edges();
-            }
-            self.bump_render_epoch();
-        }
-        changed
+        }) else {
+            return false;
+        };
+        self.mutate_param_slot_with_signal_detach(node_id, index, |slot| {
+            adjust_slot_value(slot, direction)
+        })
     }
 
     /// Adjust one parameter value by `steps * slot.step` after clamping.
@@ -384,33 +374,12 @@ impl GuiProject {
     ///
     /// Returns `true` when the parameter value changed.
     pub(crate) fn adjust_param(&mut self, node_id: u32, param_index: usize, steps: f32) -> bool {
-        let mut changed = false;
-        let mut binding_changed = false;
-        {
-            let Some(node) = self.node_mut(node_id) else {
-                return false;
-            };
-            if node.params.is_empty() || !steps.is_finite() {
-                return false;
-            }
-            let index = param_index.min(node.params.len().saturating_sub(1));
-            let slot = &mut node.params[index];
-            if slot.signal_source.take().is_some() {
-                binding_changed = true;
-                changed = true;
-            }
-            changed |= adjust_slot_value(slot, steps);
-            if binding_changed {
-                rebuild_node_inputs(node);
-            }
+        if !steps.is_finite() {
+            return false;
         }
-        if changed {
-            if binding_changed {
-                self.recount_edges();
-            }
-            self.bump_render_epoch();
-        }
-        changed
+        self.mutate_param_slot_with_signal_detach(node_id, param_index, |slot| {
+            adjust_slot_value(slot, steps)
+        })
     }
 
     /// Return raw parameter value at one index for one node.
@@ -428,33 +397,9 @@ impl GuiProject {
     ///
     /// Manual edits detach an existing signal binding on the target row.
     pub(crate) fn set_param_value(&mut self, node_id: u32, param_index: usize, value: f32) -> bool {
-        let mut changed = false;
-        let mut binding_changed = false;
-        {
-            let Some(node) = self.node_mut(node_id) else {
-                return false;
-            };
-            if node.params.is_empty() {
-                return false;
-            }
-            let index = param_index.min(node.params.len().saturating_sub(1));
-            let slot = &mut node.params[index];
-            if slot.signal_source.take().is_some() {
-                binding_changed = true;
-                changed = true;
-            }
-            changed |= set_slot_value(slot, value);
-            if binding_changed {
-                rebuild_node_inputs(node);
-            }
-        }
-        if changed {
-            if binding_changed {
-                self.recount_edges();
-            }
-            self.bump_render_epoch();
-        }
-        changed
+        self.mutate_param_slot_with_signal_detach(node_id, param_index, |slot| {
+            set_slot_value(slot, value)
+        })
     }
 
     /// Return true when a parameter row is rendered as dropdown.
@@ -563,16 +508,7 @@ impl GuiProject {
         param_index: usize,
         option_index: usize,
     ) -> bool {
-        let mut changed = false;
-        let mut binding_changed = false;
-        {
-            let Some(node) = self.node_mut(node_id) else {
-                return false;
-            };
-            let index = param_index.min(node.params.len().saturating_sub(1));
-            let Some(slot) = node.params.get_mut(index) else {
-                return false;
-            };
+        self.mutate_param_slot_with_signal_detach(node_id, param_index, |slot| {
             let Some(options) = slot.widget.dropdown_options() else {
                 return false;
             };
@@ -580,11 +516,37 @@ impl GuiProject {
                 return false;
             }
             let next_index = option_index.min(options.len().saturating_sub(1));
+            apply_dropdown_value(slot, options, next_index)
+        })
+    }
+
+    /// Mutate one parameter row, detaching signal bindings before manual edits.
+    ///
+    /// This centralizes the shared transaction: detach signal source, rebuild
+    /// node inputs, recount edges when bindings changed, and bump render epoch
+    /// when the slot value or binding changed.
+    fn mutate_param_slot_with_signal_detach(
+        &mut self,
+        node_id: u32,
+        param_index: usize,
+        mutator: impl FnOnce(&mut NodeParamSlot) -> bool,
+    ) -> bool {
+        let mut changed = false;
+        let mut binding_changed = false;
+        {
+            let Some(node) = self.node_mut(node_id) else {
+                return false;
+            };
+            if node.params.is_empty() {
+                return false;
+            }
+            let index = param_index.min(node.params.len().saturating_sub(1));
+            let slot = &mut node.params[index];
             if slot.signal_source.take().is_some() {
                 binding_changed = true;
                 changed = true;
             }
-            changed |= apply_dropdown_value(slot, options, next_index);
+            changed |= mutator(slot);
             if binding_changed {
                 rebuild_node_inputs(node);
             }
@@ -780,7 +742,7 @@ impl GuiProject {
         eval_stack: &mut S,
         memo: &mut Option<&mut SignalSampleMemo>,
     ) -> Option<f32> {
-        let bucket = sample_time_bucket(time_secs);
+        let bucket = sample_time_bucket(time_secs, SIGNAL_SAMPLE_TIME_BUCKETS_PER_SEC);
         if let Some(cached) = memo
             .as_deref()
             .and_then(|map| map.get(&(node_id, bucket)).copied())
@@ -870,72 +832,6 @@ impl GuiProject {
             map.insert((node_id, bucket), sampled);
         }
         sampled
-    }
-}
-
-fn sample_time_bucket(time_secs: f32) -> i32 {
-    let clamped = time_secs.max(0.0);
-    let bucket = (clamped * SIGNAL_SAMPLE_TIME_BUCKETS_PER_SEC).round();
-    bucket.clamp(i32::MIN as f32, i32::MAX as f32) as i32
-}
-
-fn lfo_wave_sample(cycle: f32, phase_time: f32, lfo_type: usize, shape: f32) -> f32 {
-    let cycle = cycle.rem_euclid(1.0);
-    let shaped_cycle = apply_cycle_shape(cycle, shape);
-    match lfo_type {
-        1 => (2.0 * shaped_cycle) - 1.0,
-        2 => 1.0 - (4.0 * (shaped_cycle - 0.5).abs()),
-        3 => {
-            let width = ((shape + 1.0) * 0.5).mul_add(0.8, 0.1);
-            if cycle < width {
-                1.0
-            } else {
-                -1.0
-            }
-        }
-        4 => {
-            // Drift is intentionally soft and slowly moving, using smooth 1D
-            // value-noise layers over unwrapped phase time.
-            let roughness = ((shape + 1.0) * 0.5).clamp(0.0, 1.0);
-            let base = phase_time * (0.42 + roughness * 0.48);
-            let low = smooth_value_noise(base * 0.65, 7.13);
-            let mid = smooth_value_noise(base * 1.20, 19.71);
-            let hi = smooth_value_noise(base * 2.30, 43.09);
-            let blend = low * 0.72 + mid * 0.23 + hi * (0.05 + roughness * 0.12);
-            let neighbor = smooth_value_noise((base - 0.35) * 0.65, 7.13);
-            (blend * 0.78 + neighbor * 0.22).clamp(-1.0, 1.0)
-        }
-        _ => {
-            let base = (shaped_cycle * std::f32::consts::TAU).sin();
-            let harmonic = (shaped_cycle * std::f32::consts::TAU * 2.0).sin() * shape * 0.35;
-            (base + harmonic).clamp(-1.0, 1.0)
-        }
-    }
-}
-
-fn smooth_value_noise(t: f32, offset: f32) -> f32 {
-    let x = t + offset;
-    let i0 = x.floor() as i32;
-    let frac = x - i0 as f32;
-    let v0 = hash01(i0);
-    let v1 = hash01(i0 + 1);
-    let smooth = frac * frac * (3.0 - 2.0 * frac);
-    ((v0 + (v1 - v0) * smooth) * 2.0) - 1.0
-}
-
-fn hash01(index: i32) -> f32 {
-    let value = ((index as f32 + 1.0) * 12.9898).sin() * 43_758.547;
-    value - value.floor()
-}
-
-fn apply_cycle_shape(cycle: f32, shape: f32) -> f32 {
-    if shape.abs() < f32::EPSILON {
-        return cycle;
-    }
-    if shape > 0.0 {
-        cycle.powf(1.0 + shape * 3.0)
-    } else {
-        1.0 - (1.0 - cycle).powf(1.0 + (-shape) * 3.0)
     }
 }
 
@@ -1449,98 +1345,7 @@ pub(super) fn texture_source_display_label(source: &ProjectNode) -> String {
 
 /// Set one slot value while respecting widget semantics.
 pub(super) fn set_slot_value(slot: &mut NodeParamSlot, value: f32) -> bool {
-    if slot.widget.is_texture_target() || slot.widget.is_action_button() {
-        return false;
-    }
-    if let Some(options) = slot.widget.dropdown_options() {
-        if options.is_empty() {
-            return false;
-        }
-        let next_index = nearest_dropdown_index(options, value);
-        return apply_dropdown_value(slot, options, next_index);
-    }
-    let clamped = value.clamp(slot.min, slot.max);
-    if (slot.value - clamped).abs() < 1e-6 {
-        return false;
-    }
-    slot.value = clamped;
-    slot.value_text = format_param_value_text(clamped);
-    true
-}
-
-/// Adjust one slot by step count while respecting widget semantics.
-fn adjust_slot_value(slot: &mut NodeParamSlot, steps: f32) -> bool {
-    if !steps.is_finite() || steps.abs() <= f32::EPSILON {
-        return false;
-    }
-    if slot.widget.is_texture_target() || slot.widget.is_action_button() {
-        return false;
-    }
-    if let Some(options) = slot.widget.dropdown_options() {
-        if options.is_empty() {
-            return false;
-        }
-        let direction = if steps.is_sign_positive() { 1 } else { -1 };
-        let current = dropdown_selected_index(slot)
-            .unwrap_or_else(|| nearest_dropdown_index(options, slot.value));
-        let next = if direction > 0 {
-            (current + 1).min(options.len().saturating_sub(1))
-        } else {
-            current.saturating_sub(1)
-        };
-        return apply_dropdown_value(slot, options, next);
-    }
-    let next = (slot.value + slot.step * steps).clamp(slot.min, slot.max);
-    if (next - slot.value).abs() < 1e-6 {
-        return false;
-    }
-    slot.value = next;
-    slot.value_text = format_param_value_text(next);
-    true
-}
-
-/// Return selected dropdown index for one slot, if any.
-fn dropdown_selected_index(slot: &NodeParamSlot) -> Option<usize> {
-    let options = slot.widget.dropdown_options()?;
-    if options.is_empty() {
-        return None;
-    }
-    let by_value = options
-        .iter()
-        .position(|option| (option.value - slot.value).abs() < 1e-6);
-    Some(by_value.unwrap_or_else(|| nearest_dropdown_index(options, slot.value)))
-}
-
-/// Return nearest option index for one dropdown value.
-fn nearest_dropdown_index(options: &[NodeParamOption], value: f32) -> usize {
-    let mut best_index = 0usize;
-    let mut best_dist = f32::MAX;
-    for (index, option) in options.iter().enumerate() {
-        let dist = (option.value - value).abs();
-        if dist < best_dist {
-            best_dist = dist;
-            best_index = index;
-        }
-    }
-    best_index
-}
-
-/// Apply one dropdown option index to a slot value/text.
-fn apply_dropdown_value(
-    slot: &mut NodeParamSlot,
-    options: &[NodeParamOption],
-    option_index: usize,
-) -> bool {
-    let Some(option) = options.get(option_index).copied() else {
-        return false;
-    };
-    if (slot.value - option.value).abs() < 1e-6 && slot.value_text == option.label {
-        return false;
-    }
-    slot.value = option.value;
-    slot.value_text.clear();
-    slot.value_text.push_str(option.label);
-    true
+    mutation::set_slot_value(slot, value)
 }
 
 /// Set one node primary input source and rebuild cached input list.
