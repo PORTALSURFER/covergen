@@ -9,107 +9,25 @@ use std::time::Instant;
 
 use super::project::{
     param_schema, GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack,
-    BLEND_LAYER_PARAM_KEY, FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_PARAM_KEY,
-    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+    BLEND_LAYER_PARAM_KEY,
 };
 use crate::telemetry;
 
 const DEFAULT_LOOP_FPS: u32 = 60;
 const SOLID_PARAM_KEYS: [&str; 4] = param_schema::solid::KEYS;
-const SOLID_COLOR_R_SLOT: usize = 0;
-const SOLID_COLOR_G_SLOT: usize = 1;
-const SOLID_COLOR_B_SLOT: usize = 2;
-const SOLID_ALPHA_SLOT: usize = 3;
 const CIRCLE_PARAM_KEYS: [&str; 8] = param_schema::circle::KEYS;
-const CIRCLE_CENTER_X_SLOT: usize = 0;
-const CIRCLE_CENTER_Y_SLOT: usize = 1;
-const CIRCLE_RADIUS_SLOT: usize = 2;
-const CIRCLE_FEATHER_SLOT: usize = 3;
-const CIRCLE_COLOR_R_SLOT: usize = 4;
-const CIRCLE_COLOR_G_SLOT: usize = 5;
-const CIRCLE_COLOR_B_SLOT: usize = 6;
-const CIRCLE_ALPHA_SLOT: usize = 7;
 const SPHERE_BUFFER_PARAM_KEYS: [&str; 1] = param_schema::sphere_buffer::KEYS;
-const SPHERE_BUFFER_RADIUS_SLOT: usize = 0;
 const CIRCLE_NURBS_BUFFER_PARAM_KEYS: [&str; 7] = param_schema::circle_nurbs_buffer::KEYS;
-const CIRCLE_NURBS_BUFFER_RADIUS_SLOT: usize = 0;
-const CIRCLE_NURBS_BUFFER_ARC_START_SLOT: usize = 1;
-const CIRCLE_NURBS_BUFFER_ARC_END_SLOT: usize = 2;
-const CIRCLE_NURBS_BUFFER_LINE_WIDTH_SLOT: usize = 3;
-const CIRCLE_NURBS_BUFFER_ORDER_SLOT: usize = 4;
-const CIRCLE_NURBS_BUFFER_DIVISIONS_SLOT: usize = 5;
-const CIRCLE_NURBS_BUFFER_ARC_STYLE_SLOT: usize = 6;
 const BUFFER_NOISE_PARAM_KEYS: [&str; 9] = param_schema::buffer_noise::KEYS;
-const BUFFER_NOISE_AMPLITUDE_SLOT: usize = 0;
-const BUFFER_NOISE_FREQUENCY_SLOT: usize = 1;
-const BUFFER_NOISE_SPEED_HZ_SLOT: usize = 2;
-const BUFFER_NOISE_PHASE_SLOT: usize = 3;
-const BUFFER_NOISE_SEED_SLOT: usize = 4;
-const BUFFER_NOISE_TWIST_SLOT: usize = 5;
-const BUFFER_NOISE_STRETCH_SLOT: usize = 6;
-const BUFFER_NOISE_LOOP_CYC_SLOT: usize = 7;
-const BUFFER_NOISE_LOOP_MODE_SLOT: usize = 8;
 const SCENE_ENTITY_PARAM_KEYS: [&str; 8] = param_schema::scene_entity::KEYS;
-const SCENE_ENTITY_POS_X_SLOT: usize = 0;
-const SCENE_ENTITY_POS_Y_SLOT: usize = 1;
-const SCENE_ENTITY_SCALE_SLOT: usize = 2;
-const SCENE_ENTITY_AMBIENT_SLOT: usize = 3;
-const SCENE_ENTITY_COLOR_R_SLOT: usize = 4;
-const SCENE_ENTITY_COLOR_G_SLOT: usize = 5;
-const SCENE_ENTITY_COLOR_B_SLOT: usize = 6;
-const SCENE_ENTITY_ALPHA_SLOT: usize = 7;
 const CAMERA_PARAM_KEYS: [&str; 1] = param_schema::render_camera::KEYS;
-const CAMERA_ZOOM_SLOT: usize = 0;
 const SCENE_PASS_PARAM_KEYS: [&str; 7] = param_schema::render_scene_pass::KEYS;
-const SCENE_PASS_RES_WIDTH_SLOT: usize = 0;
-const SCENE_PASS_RES_HEIGHT_SLOT: usize = 1;
-const SCENE_PASS_BG_MODE_SLOT: usize = 2;
-const SCENE_PASS_EDGE_SOFTNESS_SLOT: usize = 3;
-const SCENE_PASS_LIGHT_X_SLOT: usize = 4;
-const SCENE_PASS_LIGHT_Y_SLOT: usize = 5;
-const SCENE_PASS_LIGHT_Z_SLOT: usize = 6;
 const TRANSFORM_PARAM_KEYS: [&str; 5] = param_schema::transform_2d::KEYS;
-const TRANSFORM_BRIGHTNESS_SLOT: usize = 0;
-const TRANSFORM_GAIN_R_SLOT: usize = 1;
-const TRANSFORM_GAIN_G_SLOT: usize = 2;
-const TRANSFORM_GAIN_B_SLOT: usize = 3;
-const TRANSFORM_ALPHA_MUL_SLOT: usize = 4;
 const LEVEL_PARAM_KEYS: [&str; 5] = param_schema::level::KEYS;
-const LEVEL_IN_LOW_SLOT: usize = 0;
-const LEVEL_IN_HIGH_SLOT: usize = 1;
-const LEVEL_GAMMA_SLOT: usize = 2;
-const LEVEL_OUT_LOW_SLOT: usize = 3;
-const LEVEL_OUT_HIGH_SLOT: usize = 4;
-const FEEDBACK_PARAM_KEYS: [&str; 4] = [
-    param_schema::feedback::MIX,
-    FEEDBACK_HISTORY_PARAM_KEY,
-    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
-    FEEDBACK_FRAME_GAP_PARAM_KEY,
-];
-const FEEDBACK_MIX_SLOT: usize = 0;
-const FEEDBACK_HISTORY_SLOT: usize = 1;
-const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
-const FEEDBACK_FRAME_GAP_SLOT: usize = 3;
+const FEEDBACK_PARAM_KEYS: [&str; 4] = param_schema::feedback::RUNTIME_KEYS;
 const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] = param_schema::reaction_diffusion::KEYS;
-const REACTION_DIFFUSION_DIFF_A_SLOT: usize = 0;
-const REACTION_DIFFUSION_DIFF_B_SLOT: usize = 1;
-const REACTION_DIFFUSION_FEED_SLOT: usize = 2;
-const REACTION_DIFFUSION_KILL_SLOT: usize = 3;
-const REACTION_DIFFUSION_DT_SLOT: usize = 4;
-const REACTION_DIFFUSION_SEED_MIX_SLOT: usize = 5;
 const POST_PROCESS_PARAM_KEYS: [&str; 5] = param_schema::post_process::KEYS;
-const POST_PROCESS_EFFECT_SLOT: usize = 0;
-const POST_PROCESS_AMOUNT_SLOT: usize = 1;
-const POST_PROCESS_SCALE_SLOT: usize = 2;
-const POST_PROCESS_THRESH_SLOT: usize = 3;
-const POST_PROCESS_SPEED_SLOT: usize = 4;
 const BLEND_PARAM_KEYS: [&str; 6] = param_schema::blend::KEYS;
-const BLEND_MODE_SLOT: usize = 0;
-const BLEND_OPACITY_SLOT: usize = 1;
-const BLEND_BG_R_SLOT: usize = 2;
-const BLEND_BG_G_SLOT: usize = 3;
-const BLEND_BG_B_SLOT: usize = 4;
-const BLEND_BG_A_SLOT: usize = 5;
 
 /// Compile-time resolved parameter slot index for one node parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -419,7 +337,7 @@ impl GuiCompiledRuntime {
                         color_r: compiled_param_value_opt(
                             project,
                             step,
-                            SOLID_COLOR_R_SLOT,
+                            param_schema::solid::COLOR_R_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -427,7 +345,7 @@ impl GuiCompiledRuntime {
                         color_g: compiled_param_value_opt(
                             project,
                             step,
-                            SOLID_COLOR_G_SLOT,
+                            param_schema::solid::COLOR_G_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -435,7 +353,7 @@ impl GuiCompiledRuntime {
                         color_b: compiled_param_value_opt(
                             project,
                             step,
-                            SOLID_COLOR_B_SLOT,
+                            param_schema::solid::COLOR_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -443,7 +361,7 @@ impl GuiCompiledRuntime {
                         alpha: compiled_param_value_opt(
                             project,
                             step,
-                            SOLID_ALPHA_SLOT,
+                            param_schema::solid::ALPHA_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -455,7 +373,7 @@ impl GuiCompiledRuntime {
                         center_x: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_CENTER_X_SLOT,
+                            param_schema::circle::CENTER_X_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -463,7 +381,7 @@ impl GuiCompiledRuntime {
                         center_y: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_CENTER_Y_SLOT,
+                            param_schema::circle::CENTER_Y_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -471,7 +389,7 @@ impl GuiCompiledRuntime {
                         radius: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_RADIUS_SLOT,
+                            param_schema::circle::RADIUS_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -479,7 +397,7 @@ impl GuiCompiledRuntime {
                         feather: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_FEATHER_SLOT,
+                            param_schema::circle::FEATHER_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -497,7 +415,7 @@ impl GuiCompiledRuntime {
                         color_r: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_COLOR_R_SLOT,
+                            param_schema::circle::COLOR_R_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -505,7 +423,7 @@ impl GuiCompiledRuntime {
                         color_g: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_COLOR_G_SLOT,
+                            param_schema::circle::COLOR_G_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -513,7 +431,7 @@ impl GuiCompiledRuntime {
                         color_b: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_COLOR_B_SLOT,
+                            param_schema::circle::COLOR_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -521,7 +439,7 @@ impl GuiCompiledRuntime {
                         alpha: compiled_param_value_opt(
                             project,
                             step,
-                            CIRCLE_ALPHA_SLOT,
+                            param_schema::circle::ALPHA_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -533,7 +451,7 @@ impl GuiCompiledRuntime {
                     let radius = compiled_param_value_opt(
                         project,
                         step,
-                        SPHERE_BUFFER_RADIUS_SLOT,
+                        param_schema::sphere_buffer::RADIUS_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -560,7 +478,7 @@ impl GuiCompiledRuntime {
                     let radius = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_RADIUS_SLOT,
+                        param_schema::circle_nurbs_buffer::RADIUS_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -569,7 +487,7 @@ impl GuiCompiledRuntime {
                     let arc_start_deg = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_ARC_START_SLOT,
+                        param_schema::circle_nurbs_buffer::ARC_START_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -578,7 +496,7 @@ impl GuiCompiledRuntime {
                     let arc_end_deg = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_ARC_END_SLOT,
+                        param_schema::circle_nurbs_buffer::ARC_END_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -587,7 +505,7 @@ impl GuiCompiledRuntime {
                     let line_width = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_LINE_WIDTH_SLOT,
+                        param_schema::circle_nurbs_buffer::LINE_WIDTH_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -596,7 +514,7 @@ impl GuiCompiledRuntime {
                     let order = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_ORDER_SLOT,
+                        param_schema::circle_nurbs_buffer::ORDER_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -605,7 +523,7 @@ impl GuiCompiledRuntime {
                     let segment_count = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_DIVISIONS_SLOT,
+                        param_schema::circle_nurbs_buffer::DIVISIONS_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -614,7 +532,7 @@ impl GuiCompiledRuntime {
                     let arc_open = compiled_param_value_opt(
                         project,
                         step,
-                        CIRCLE_NURBS_BUFFER_ARC_STYLE_SLOT,
+                        param_schema::circle_nurbs_buffer::ARC_STYLE_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -644,7 +562,7 @@ impl GuiCompiledRuntime {
                     let amplitude = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_AMPLITUDE_SLOT,
+                        param_schema::buffer_noise::AMPLITUDE_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -653,7 +571,7 @@ impl GuiCompiledRuntime {
                     let frequency = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_FREQUENCY_SLOT,
+                        param_schema::buffer_noise::FREQUENCY_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -662,7 +580,7 @@ impl GuiCompiledRuntime {
                     let speed_hz = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_SPEED_HZ_SLOT,
+                        param_schema::buffer_noise::SPEED_HZ_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -671,7 +589,7 @@ impl GuiCompiledRuntime {
                     let phase = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_PHASE_SLOT,
+                        param_schema::buffer_noise::PHASE_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -679,7 +597,7 @@ impl GuiCompiledRuntime {
                     let seed = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_SEED_SLOT,
+                        param_schema::buffer_noise::SEED_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -687,7 +605,7 @@ impl GuiCompiledRuntime {
                     let twist = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_TWIST_SLOT,
+                        param_schema::buffer_noise::TWIST_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -696,7 +614,7 @@ impl GuiCompiledRuntime {
                     let stretch = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_STRETCH_SLOT,
+                        param_schema::buffer_noise::STRETCH_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -705,7 +623,7 @@ impl GuiCompiledRuntime {
                     let loop_cycles = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_LOOP_CYC_SLOT,
+                        param_schema::buffer_noise::LOOP_CYC_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -714,7 +632,7 @@ impl GuiCompiledRuntime {
                     let loop_mode = compiled_param_value_opt(
                         project,
                         step,
-                        BUFFER_NOISE_LOOP_MODE_SLOT,
+                        param_schema::buffer_noise::LOOP_MODE_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -759,7 +677,7 @@ impl GuiCompiledRuntime {
                         pos_x: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_POS_X_SLOT,
+                            param_schema::scene_entity::POS_X_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -767,7 +685,7 @@ impl GuiCompiledRuntime {
                         pos_y: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_POS_Y_SLOT,
+                            param_schema::scene_entity::POS_Y_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -775,7 +693,7 @@ impl GuiCompiledRuntime {
                         scale: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_SCALE_SLOT,
+                            param_schema::scene_entity::SCALE_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -784,7 +702,7 @@ impl GuiCompiledRuntime {
                         ambient: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_AMBIENT_SLOT,
+                            param_schema::scene_entity::AMBIENT_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -792,7 +710,7 @@ impl GuiCompiledRuntime {
                         color_r: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_COLOR_R_SLOT,
+                            param_schema::scene_entity::COLOR_R_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -800,7 +718,7 @@ impl GuiCompiledRuntime {
                         color_g: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_COLOR_G_SLOT,
+                            param_schema::scene_entity::COLOR_G_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -808,7 +726,7 @@ impl GuiCompiledRuntime {
                         color_b: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_COLOR_B_SLOT,
+                            param_schema::scene_entity::COLOR_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -816,7 +734,7 @@ impl GuiCompiledRuntime {
                         alpha: compiled_param_value_opt(
                             project,
                             step,
-                            SCENE_ENTITY_ALPHA_SLOT,
+                            param_schema::scene_entity::ALPHA_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -831,7 +749,7 @@ impl GuiCompiledRuntime {
                     camera_zoom = compiled_param_value_opt(
                         project,
                         step,
-                        CAMERA_ZOOM_SLOT,
+                        param_schema::render_camera::ZOOM_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -848,7 +766,7 @@ impl GuiCompiledRuntime {
                     let alpha_clip = compiled_param_value_opt(
                         project,
                         step,
-                        SCENE_PASS_BG_MODE_SLOT,
+                        param_schema::render_scene_pass::BG_MODE_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -860,7 +778,7 @@ impl GuiCompiledRuntime {
                     let edge_softness = compiled_param_value_opt(
                         project,
                         step,
-                        SCENE_PASS_EDGE_SOFTNESS_SLOT,
+                        param_schema::render_scene_pass::EDGE_SOFTNESS_INDEX,
                         time_secs,
                         eval_stack,
                     )
@@ -880,7 +798,7 @@ impl GuiCompiledRuntime {
                             light_x: compiled_param_value_opt(
                                 project,
                                 step,
-                                SCENE_PASS_LIGHT_X_SLOT,
+                                param_schema::render_scene_pass::LIGHT_X_INDEX,
                                 time_secs,
                                 eval_stack,
                             )
@@ -888,7 +806,7 @@ impl GuiCompiledRuntime {
                             light_y: compiled_param_value_opt(
                                 project,
                                 step,
-                                SCENE_PASS_LIGHT_Y_SLOT,
+                                param_schema::render_scene_pass::LIGHT_Y_INDEX,
                                 time_secs,
                                 eval_stack,
                             )
@@ -896,7 +814,7 @@ impl GuiCompiledRuntime {
                             light_z: compiled_param_value_opt(
                                 project,
                                 step,
-                                SCENE_PASS_LIGHT_Z_SLOT,
+                                param_schema::render_scene_pass::LIGHT_Z_INDEX,
                                 time_secs,
                                 eval_stack,
                             )
@@ -939,7 +857,7 @@ impl GuiCompiledRuntime {
                         brightness: compiled_param_value_opt(
                             project,
                             step,
-                            TRANSFORM_BRIGHTNESS_SLOT,
+                            param_schema::transform_2d::BRIGHTNESS_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -947,7 +865,7 @@ impl GuiCompiledRuntime {
                         gain_r: compiled_param_value_opt(
                             project,
                             step,
-                            TRANSFORM_GAIN_R_SLOT,
+                            param_schema::transform_2d::GAIN_R_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -955,7 +873,7 @@ impl GuiCompiledRuntime {
                         gain_g: compiled_param_value_opt(
                             project,
                             step,
-                            TRANSFORM_GAIN_G_SLOT,
+                            param_schema::transform_2d::GAIN_G_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -963,7 +881,7 @@ impl GuiCompiledRuntime {
                         gain_b: compiled_param_value_opt(
                             project,
                             step,
-                            TRANSFORM_GAIN_B_SLOT,
+                            param_schema::transform_2d::GAIN_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -971,7 +889,7 @@ impl GuiCompiledRuntime {
                         alpha_mul: compiled_param_value_opt(
                             project,
                             step,
-                            TRANSFORM_ALPHA_MUL_SLOT,
+                            param_schema::transform_2d::ALPHA_MUL_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -983,7 +901,7 @@ impl GuiCompiledRuntime {
                         in_low: compiled_param_value_opt(
                             project,
                             step,
-                            LEVEL_IN_LOW_SLOT,
+                            param_schema::level::IN_LOW_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -992,7 +910,7 @@ impl GuiCompiledRuntime {
                         in_high: compiled_param_value_opt(
                             project,
                             step,
-                            LEVEL_IN_HIGH_SLOT,
+                            param_schema::level::IN_HIGH_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1001,7 +919,7 @@ impl GuiCompiledRuntime {
                         gamma: compiled_param_value_opt(
                             project,
                             step,
-                            LEVEL_GAMMA_SLOT,
+                            param_schema::level::GAMMA_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1010,7 +928,7 @@ impl GuiCompiledRuntime {
                         out_low: compiled_param_value_opt(
                             project,
                             step,
-                            LEVEL_OUT_LOW_SLOT,
+                            param_schema::level::OUT_LOW_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1019,7 +937,7 @@ impl GuiCompiledRuntime {
                         out_high: compiled_param_value_opt(
                             project,
                             step,
-                            LEVEL_OUT_HIGH_SLOT,
+                            param_schema::level::OUT_HIGH_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1028,28 +946,31 @@ impl GuiCompiledRuntime {
                     });
                 }
                 CompiledStepKind::Feedback => {
-                    let history =
-                        compiled_texture_source_for_param(project, step, FEEDBACK_HISTORY_SLOT)
-                            .or_else(|| {
-                                compiled_texture_source_for_param(
-                                    project,
-                                    step,
-                                    FEEDBACK_LEGACY_HISTORY_SLOT,
-                                )
-                            })
-                            .map_or(
-                                TexRuntimeFeedbackHistoryBinding::Internal {
-                                    feedback_node_id: step.node_id,
-                                },
-                                |texture_node_id| TexRuntimeFeedbackHistoryBinding::External {
-                                    texture_node_id,
-                                },
-                            );
+                    let history = compiled_texture_source_for_param(
+                        project,
+                        step,
+                        param_schema::feedback::RUNTIME_HISTORY_INDEX,
+                    )
+                    .or_else(|| {
+                        compiled_texture_source_for_param(
+                            project,
+                            step,
+                            param_schema::feedback::RUNTIME_LEGACY_HISTORY_INDEX,
+                        )
+                    })
+                    .map_or(
+                        TexRuntimeFeedbackHistoryBinding::Internal {
+                            feedback_node_id: step.node_id,
+                        },
+                        |texture_node_id| TexRuntimeFeedbackHistoryBinding::External {
+                            texture_node_id,
+                        },
+                    );
                     out_ops.push(TexRuntimeOp::Feedback {
                         mix: compiled_param_value_opt(
                             project,
                             step,
-                            FEEDBACK_MIX_SLOT,
+                            param_schema::feedback::RUNTIME_MIX_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1058,7 +979,7 @@ impl GuiCompiledRuntime {
                         frame_gap: compiled_param_value_opt(
                             project,
                             step,
-                            FEEDBACK_FRAME_GAP_SLOT,
+                            param_schema::feedback::RUNTIME_FRAME_GAP_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1073,7 +994,7 @@ impl GuiCompiledRuntime {
                         diffusion_a: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_DIFF_A_SLOT,
+                            param_schema::reaction_diffusion::DIFF_A_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1082,7 +1003,7 @@ impl GuiCompiledRuntime {
                         diffusion_b: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_DIFF_B_SLOT,
+                            param_schema::reaction_diffusion::DIFF_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1091,7 +1012,7 @@ impl GuiCompiledRuntime {
                         feed: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_FEED_SLOT,
+                            param_schema::reaction_diffusion::FEED_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1100,7 +1021,7 @@ impl GuiCompiledRuntime {
                         kill: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_KILL_SLOT,
+                            param_schema::reaction_diffusion::KILL_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1109,7 +1030,7 @@ impl GuiCompiledRuntime {
                         dt: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_DT_SLOT,
+                            param_schema::reaction_diffusion::DT_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1118,7 +1039,7 @@ impl GuiCompiledRuntime {
                         seed_mix: compiled_param_value_opt(
                             project,
                             step,
-                            REACTION_DIFFUSION_SEED_MIX_SLOT,
+                            param_schema::reaction_diffusion::SEED_MIX_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1142,7 +1063,7 @@ impl GuiCompiledRuntime {
                         effect: compiled_param_value_opt(
                             project,
                             step,
-                            POST_PROCESS_EFFECT_SLOT,
+                            param_schema::post_process::EFFECT_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1150,7 +1071,7 @@ impl GuiCompiledRuntime {
                         amount: compiled_param_value_opt(
                             project,
                             step,
-                            POST_PROCESS_AMOUNT_SLOT,
+                            param_schema::post_process::AMOUNT_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1159,7 +1080,7 @@ impl GuiCompiledRuntime {
                         scale: compiled_param_value_opt(
                             project,
                             step,
-                            POST_PROCESS_SCALE_SLOT,
+                            param_schema::post_process::SCALE_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1168,7 +1089,7 @@ impl GuiCompiledRuntime {
                         threshold: compiled_param_value_opt(
                             project,
                             step,
-                            POST_PROCESS_THRESH_SLOT,
+                            param_schema::post_process::THRESH_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1177,7 +1098,7 @@ impl GuiCompiledRuntime {
                         speed: compiled_param_value_opt(
                             project,
                             step,
-                            POST_PROCESS_SPEED_SLOT,
+                            param_schema::post_process::SPEED_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1198,7 +1119,7 @@ impl GuiCompiledRuntime {
                         mode: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_MODE_SLOT,
+                            param_schema::blend::MODE_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1208,7 +1129,7 @@ impl GuiCompiledRuntime {
                         opacity: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_OPACITY_SLOT,
+                            param_schema::blend::OPACITY_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1217,7 +1138,7 @@ impl GuiCompiledRuntime {
                         bg_r: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_BG_R_SLOT,
+                            param_schema::blend::BG_R_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1226,7 +1147,7 @@ impl GuiCompiledRuntime {
                         bg_g: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_BG_G_SLOT,
+                            param_schema::blend::BG_G_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1235,7 +1156,7 @@ impl GuiCompiledRuntime {
                         bg_b: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_BG_B_SLOT,
+                            param_schema::blend::BG_B_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1244,7 +1165,7 @@ impl GuiCompiledRuntime {
                         bg_a: compiled_param_value_opt(
                             project,
                             step,
-                            BLEND_BG_A_SLOT,
+                            param_schema::blend::BG_A_INDEX,
                             time_secs,
                             eval_stack,
                         )
@@ -1286,7 +1207,7 @@ impl GuiCompiledRuntime {
             let raw_w = compiled_param_value_opt(
                 project,
                 step,
-                SCENE_PASS_RES_WIDTH_SLOT,
+                param_schema::render_scene_pass::RES_WIDTH_INDEX,
                 time_secs,
                 eval_stack,
             )
@@ -1294,7 +1215,7 @@ impl GuiCompiledRuntime {
             let raw_h = compiled_param_value_opt(
                 project,
                 step,
-                SCENE_PASS_RES_HEIGHT_SLOT,
+                param_schema::render_scene_pass::RES_HEIGHT_INDEX,
                 time_secs,
                 eval_stack,
             )
@@ -1381,11 +1302,18 @@ fn collect_external_feedback_history_sources(
         if step.kind != CompiledStepKind::Feedback {
             continue;
         }
-        if let Some(texture_node_id) =
-            compiled_texture_source_for_param(project, step, FEEDBACK_HISTORY_SLOT).or_else(|| {
-                compiled_texture_source_for_param(project, step, FEEDBACK_LEGACY_HISTORY_SLOT)
-            })
-        {
+        if let Some(texture_node_id) = compiled_texture_source_for_param(
+            project,
+            step,
+            param_schema::feedback::RUNTIME_HISTORY_INDEX,
+        )
+        .or_else(|| {
+            compiled_texture_source_for_param(
+                project,
+                step,
+                param_schema::feedback::RUNTIME_LEGACY_HISTORY_INDEX,
+            )
+        }) {
             sources.insert(texture_node_id);
         }
     }
@@ -1854,10 +1782,10 @@ fn normalized_loop_progress(frame_index: u32, frame_total: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
+        compiled_param_value_opt, compiled_step, compiled_texture_source_for_param, param_schema,
         CompiledStepKind, GuiCompiledRuntime, PostProcessCategory,
         TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext, TexRuntimeOp,
-        FEEDBACK_FRAME_GAP_SLOT, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
+        FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
 
@@ -1897,7 +1825,11 @@ mod tests {
             &FEEDBACK_PARAM_KEYS,
         );
         assert_eq!(
-            compiled_texture_source_for_param(&project, &step, FEEDBACK_HISTORY_SLOT),
+            compiled_texture_source_for_param(
+                &project,
+                &step,
+                param_schema::feedback::RUNTIME_HISTORY_INDEX
+            ),
             Some(solid)
         );
     }
@@ -2150,7 +2082,10 @@ mod tests {
         assert!(project.connect_image_link(solid, feedback));
         assert!(project.connect_image_link(feedback, out));
         let frame_gap_slot = project
-            .node_param_slot_index(feedback, FEEDBACK_PARAM_KEYS[FEEDBACK_FRAME_GAP_SLOT])
+            .node_param_slot_index(
+                feedback,
+                FEEDBACK_PARAM_KEYS[param_schema::feedback::RUNTIME_FRAME_GAP_INDEX],
+            )
             .expect("feedback frame_gap slot should exist");
         assert!(project.set_param_value(feedback, frame_gap_slot, 3.7));
 
