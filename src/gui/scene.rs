@@ -6,6 +6,8 @@
 //! reused.
 
 pub(super) mod wire_route;
+mod layout;
+mod style;
 
 use std::fmt::Write as _;
 use std::{collections::HashMap, collections::HashSet, path::Path, sync::Arc, time::Instant};
@@ -14,88 +16,21 @@ use super::geometry::Rect;
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
-    pin_rect, GuiProject, ProjectNode, ProjectNodeKind, ResourceKind, SignalEvalPath,
-    SignalEvalStack, SignalSampleMemo, NODE_WIDTH,
+    pin_rect, GuiProject, ProjectNode, ResourceKind, SignalEvalPath, SignalEvalStack,
+    SignalSampleMemo, NODE_WIDTH,
 };
 use super::state::{
-    AddNodeCategory, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState,
-    RightMarqueeState, TimelineBpmEditState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
+    AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState, TimelineBpmEditState,
+    ADD_NODE_OPTIONS, MENU_BLOCK_GAP, MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
-use super::theme::AGIO;
 use super::timeline::{
     editor_panel_height, end_frame, pause_button_rect, play_button_rect, timeline_control_layout,
     timeline_rect, track_rect, track_x_for_frame, TIMELINE_START_FRAME,
 };
+use layout::*;
+use style::*;
 
-const PREVIEW_BG: Color = Color::argb(AGIO.preview_bg);
-const PANEL_BG: Color = Color::argb(AGIO.panel_bg);
-const BORDER_COLOR: Color = Color::argb(AGIO.border);
-const EDGE_COLOR: Color = Color::argb(AGIO.highlight_accent);
-const EDGE_INSERT_HOVER: Color = Color::argb(AGIO.highlight_focus);
-const PARAM_EDGE_COLOR: Color = Color::argb(AGIO.highlight_error);
-const NODE_BODY: Color = Color::argb(AGIO.node_body);
-const NODE_DRAG: Color = Color::argb(AGIO.highlight_warning);
-const NODE_HOVER: Color = Color::argb(AGIO.highlight_focus);
-const NODE_SELECTED: Color = Color::argb(AGIO.highlight_selection);
-const MENU_BG: Color = Color::argb(AGIO.menu_bg);
-const MENU_SELECTED: Color = Color::argb(AGIO.highlight_selection);
-const MENU_BORDER: Color = Color::argb(AGIO.border);
-const HEADER_BG: Color = Color::argb(AGIO.header_bg);
-const HEADER_TEXT: Color = Color::argb(AGIO.header_text);
-const NODE_TEXT: Color = Color::argb(AGIO.node_text);
-const MENU_TEXT: Color = Color::argb(AGIO.menu_text);
-const MENU_CATEGORY_TEXT: Color = Color::argb(0xFFBEBEBE);
-const MENU_CATEGORY_CHIP_TEXT: Color = Color::argb(0xFF111111);
-const MENU_CATEGORY_CHIP_BORDER: Color = Color::argb(0xFF0A0A0A);
-const MENU_SEARCH_BG: Color = Color::argb(0xFF121212);
-const HELP_BACKDROP: Color = Color::argb(0x88000000);
-const HELP_PANEL_BG: Color = Color::argb(0xFF111111);
-const HELP_TITLE: Color = Color::argb(0xFFEAEAEA);
-const HELP_TEXT: Color = Color::argb(0xFFD0D0D0);
-const HELP_HINT: Color = Color::argb(0xFFA7A7A7);
-const PIN_BODY: Color = Color::argb(AGIO.highlight_selection);
-const PIN_HOVER: Color = Color::argb(AGIO.highlight_focus);
-const PARAM_SELECTED: Color = Color::argb(0x33262F3A);
-const PARAM_BIND_HOVER: Color = Color::argb(0x3342A5F5);
-const PARAM_SOFT_HOVER: Color = Color::argb(0x1A79AEE3);
-const TOGGLE_BG: Color = Color::argb(0xFF121212);
-const TOGGLE_BORDER: Color = Color::argb(AGIO.border);
-const TOGGLE_ACTIVE_BG: Color = Color::argb(0x663B82F6);
-const TOGGLE_ICON: Color = Color::argb(AGIO.menu_text);
-const PARAM_VALUE_BG: Color = Color::argb(0xFF101010);
-const PARAM_VALUE_BORDER: Color = Color::argb(AGIO.border);
-const PARAM_VALUE_ACTIVE: Color = Color::argb(AGIO.highlight_focus);
-const PARAM_VALUE_SOFT_HOVER: Color = Color::argb(0x166AA7D8);
-const PARAM_VALUE_SOFT_BORDER: Color = Color::argb(0xFF4D6175);
-const PARAM_VALUE_ALT_HOVER: Color = Color::argb(0x3342A5F5);
-const PARAM_ACTION_BG: Color = Color::argb(0xFF152029);
-const PARAM_ACTION_BG_HOVER: Color = Color::argb(0xFF1E3140);
-const PARAM_VALUE_SELECTION: Color = Color::argb(0x664A88D9);
-const PARAM_VALUE_CARET: Color = Color::argb(0xFFE2E2E2);
-const PARAM_DROPDOWN_BG: Color = Color::argb(0xFF0E0E0E);
-const PARAM_DROPDOWN_SELECTED: Color = Color::argb(0x663B82F6);
-const PARAM_DROPDOWN_HOVER: Color = Color::argb(0x3342A5F5);
-const NODE_SIGNAL_SCOPE_BG: Color = Color::argb(0x1A4A88D9);
-const NODE_SIGNAL_SCOPE_BORDER: Color = Color::argb(0x664A88D9);
-const NODE_SIGNAL_SCOPE_GUIDE_ZERO: Color = Color::argb(0x4466A2D9);
-const NODE_SIGNAL_SCOPE_GUIDE_ONE: Color = Color::argb(0x3381C784);
-const NODE_SIGNAL_SCOPE_WAVE: Color = Color::argb(0xFF9ED0FF);
-const CUT_EDGE_COLOR: Color = Color::argb(AGIO.highlight_warning);
-const CUT_LINE_COLOR: Color = Color::argb(AGIO.highlight_warning);
-const MARQUEE_FILL: Color = Color::argb(0x223B82F6);
-const MARQUEE_BORDER: Color = Color::argb(AGIO.highlight_selection);
-const TIMELINE_BG: Color = Color::argb(0xFF101010);
-const TIMELINE_BORDER: Color = Color::argb(AGIO.border);
-const TIMELINE_TRACK_BG: Color = Color::argb(0xFF171717);
-const TIMELINE_TRACK_FILL: Color = Color::argb(AGIO.highlight_selection);
-const TIMELINE_BTN_ACTIVE: Color = Color::argb(0x553B82F6);
-const TIMELINE_BTN_IDLE: Color = Color::argb(0xFF171717);
-const TIMELINE_TEXT: Color = Color::argb(0xFFD5D5D5);
-const TIMELINE_TEXT_MUTED: Color = Color::argb(0xFF8D8D8D);
-const TIMELINE_TRACK_BG_MUTED: Color = Color::argb(0xFF131313);
-const TIMELINE_BEAT_ON: Color = Color::argb(0xFF63E06C);
-const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
 const PARAM_BIND_TARGET_RADIUS_PX: i32 = 3;
 const PARAM_WIRE_EXIT_TAIL_PX: i32 = 18;
@@ -111,8 +46,6 @@ const WIRE_BRIDGE_LINK_THRESHOLD_PX: f32 = 14.0;
 const WIRE_BRIDGE_CORNER_GUARD_PX: f32 = 10.0;
 const WIRE_BRIDGE_STEPS: usize = 6;
 const WIRE_BRIDGE_HASH_CELL_PX: i32 = 64;
-// Keep wire bridge geometry anchored to fully zoomed-out layout.
-const WIRE_LAYOUT_BASE_ZOOM: f32 = 0.35;
 const WIRE_TAIL_STAGGER_STEP_CELLS: i32 = 1;
 const WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS: i32 = 8;
 const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
@@ -2433,13 +2366,6 @@ impl SceneBuilder {
     }
 }
 
-fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
-    graph_rect_to_panel(
-        Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
-        state,
-    )
-}
-
 fn collect_graph_node_obstacles(project: &GuiProject) -> Vec<wire_route::NodeObstacle> {
     let mut out = Vec::new();
     for node in project.nodes() {
@@ -2462,38 +2388,6 @@ fn next_staggered_tail_cells(
         .min(WIRE_TAIL_STAGGER_MAX_EXTRA_CELLS);
     *slot = slot.saturating_add(1);
     wire_route::DEFAULT_ENDPOINT_TAIL_CELLS + extra_cells
-}
-
-fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
-    let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
-    let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
-    let w = (rect.w as f32 * state.zoom).round().max(1.0) as i32;
-    let h = (rect.h as f32 * state.zoom).round().max(1.0) as i32;
-    Rect::new(x, y, w, h)
-}
-
-fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
-    let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
-    let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
-    (sx, sy)
-}
-
-fn wire_layout_scale(zoom: f32) -> f32 {
-    (zoom / WIRE_LAYOUT_BASE_ZOOM).max(0.001)
-}
-
-fn map_graph_path_to_panel_into(
-    points: &[(i32, i32)],
-    state: &PreviewState,
-    panel_points: &mut Vec<(i32, i32)>,
-) {
-    panel_points.clear();
-    panel_points.extend(
-        points
-            .iter()
-            .copied()
-            .map(|(x, y)| graph_point_to_panel(x, y, state)),
-    );
 }
 
 fn active_scene_layer_mut(frame: &mut SceneFrame, layer: ActiveLayer) -> &mut SceneLayer {
@@ -2538,74 +2432,6 @@ fn wire_drag_source_kind(
 ) -> Option<ResourceKind> {
     let source = project.node(wire.source_node_id)?;
     source.kind().output_resource_kind()
-}
-
-fn marquee_panel_rect(marquee: RightMarqueeState) -> Option<Rect> {
-    let x0 = marquee.start_x.min(marquee.cursor_x);
-    let y0 = marquee.start_y.min(marquee.cursor_y);
-    let x1 = marquee.start_x.max(marquee.cursor_x);
-    let y1 = marquee.start_y.max(marquee.cursor_y);
-    let w = x1 - x0;
-    let h = y1 - y0;
-    if w <= 4 || h <= 4 {
-        return None;
-    }
-    Some(Rect::new(x0, y0, w, h))
-}
-
-fn node_top_color(kind: ProjectNodeKind) -> Color {
-    match kind {
-        ProjectNodeKind::TexSolid => Color::argb(AGIO.node_header_tex_solid),
-        ProjectNodeKind::TexCircle => Color::argb(AGIO.node_header_tex_circle),
-        ProjectNodeKind::BufSphere => Color::argb(AGIO.node_header_buf_sphere),
-        ProjectNodeKind::BufCircleNurbs => Color::argb(AGIO.node_header_buf_circle_nurbs),
-        ProjectNodeKind::BufNoise => Color::argb(AGIO.node_header_buf_noise),
-        ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
-        ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
-        ProjectNodeKind::TexFeedback => Color::argb(AGIO.node_header_tex_feedback),
-        ProjectNodeKind::TexReactionDiffusion => {
-            Color::argb(AGIO.node_header_tex_reaction_diffusion)
-        }
-        ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
-        ProjectNodeKind::TexPostEdgeStructure => {
-            Color::argb(AGIO.node_header_tex_post_edge_structure)
-        }
-        ProjectNodeKind::TexPostBlurDiffusion => {
-            Color::argb(AGIO.node_header_tex_post_blur_diffusion)
-        }
-        ProjectNodeKind::TexPostDistortion => Color::argb(AGIO.node_header_tex_post_distortion),
-        ProjectNodeKind::TexPostTemporal => Color::argb(AGIO.node_header_tex_post_temporal),
-        ProjectNodeKind::TexPostNoiseTexture => {
-            Color::argb(AGIO.node_header_tex_post_noise_texture)
-        }
-        ProjectNodeKind::TexPostLighting => Color::argb(AGIO.node_header_tex_post_lighting),
-        ProjectNodeKind::TexPostScreenSpace => Color::argb(AGIO.node_header_tex_post_screen_space),
-        ProjectNodeKind::TexPostExperimental => Color::argb(AGIO.node_header_tex_post_experimental),
-        ProjectNodeKind::TexBlend => Color::argb(AGIO.node_header_tex_blend),
-        ProjectNodeKind::SceneEntity => Color::argb(AGIO.node_header_scene_entity),
-        ProjectNodeKind::SceneBuild => Color::argb(AGIO.node_header_scene_build),
-        ProjectNodeKind::RenderCamera => Color::argb(AGIO.node_header_render_camera),
-        ProjectNodeKind::RenderScenePass => Color::argb(AGIO.node_header_render_scene_pass),
-        ProjectNodeKind::CtlLfo => Color::argb(AGIO.node_header_ctl_lfo),
-        ProjectNodeKind::IoWindowOut => Color::argb(AGIO.node_header_io_window_out),
-    }
-}
-
-fn category_menu_color(category: AddNodeCategory) -> Color {
-    match category {
-        AddNodeCategory::Texture => Color::argb(AGIO.node_header_tex_solid),
-        AddNodeCategory::Buffer => Color::argb(AGIO.node_header_buf_sphere),
-        AddNodeCategory::Scene => Color::argb(AGIO.node_header_scene_entity),
-        AddNodeCategory::Render => Color::argb(AGIO.node_header_render_scene_pass),
-        AddNodeCategory::Control => Color::argb(AGIO.node_header_ctl_lfo),
-        AddNodeCategory::Io => Color::argb(AGIO.node_header_io_window_out),
-    }
-}
-
-fn category_chip_rect(item: Rect) -> Rect {
-    let chip_w = (item.w - 12).max(58);
-    let chip_h = (item.h - 2).max(16);
-    Rect::new(item.x + 6, item.y + ((item.h - chip_h) / 2), chip_w, chip_h)
 }
 
 fn segment_length(from: (i32, i32), to: (i32, i32)) -> f32 {
