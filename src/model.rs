@@ -1,5 +1,4 @@
 //! Core data types shared across GPU/CUDA renderers and strategy selection.
-#![allow(dead_code)]
 
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
@@ -46,35 +45,6 @@ pub(crate) struct Params {
     pub(crate) center_y: f32,
     /// Number of shader layers blended within a single layer.
     pub(crate) layer_count: u32,
-}
-
-/// Runtime filter kernels used by post-processing.
-#[derive(Clone, Copy)]
-pub(crate) enum FilterMode {
-    Motion,
-    Gaussian,
-    Median,
-    Bilateral,
-}
-
-impl FilterMode {
-    pub(crate) fn from_u32(value: u32) -> Self {
-        match value % 4 {
-            0 => Self::Motion,
-            1 => Self::Gaussian,
-            2 => Self::Median,
-            _ => Self::Bilateral,
-        }
-    }
-
-    pub(crate) fn label(&self) -> &'static str {
-        match self {
-            Self::Motion => "motion",
-            Self::Gaussian => "gaussian",
-            Self::Median => "median",
-            Self::Bilateral => "bilateral",
-        }
-    }
 }
 
 /// Available style families for layered shader rendering.
@@ -145,104 +115,6 @@ impl ArtStyle {
             Self::AttractorHybrid => 16,
         }
     }
-
-    /// Human-readable logging label.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Hybrid => "hybrid",
-            Self::Julia => "julia",
-            Self::BurningShip => "burning",
-            Self::Tricorn => "tricorn",
-            Self::Phoenix => "phoenix",
-            Self::OrbitTrap => "orbit",
-            Self::Field => "field",
-            Self::Mandelbrot => "mandelbrot",
-            Self::Nova => "nova",
-            Self::Vortex => "vortex",
-            Self::Dragon => "dragon",
-            Self::Ifs => "ifs",
-            Self::Moire => "moire",
-            Self::Knot => "knot",
-            Self::RadialWave => "radial-wave",
-            Self::RecursiveFold => "recursive-fold",
-            Self::AttractorHybrid => "attractor-hybrid",
-        }
-    }
-
-    /// Number of registered styles.
-    pub(crate) const fn total() -> u32 {
-        17
-    }
-
-    /// Styles that usually produce periodic tiles.
-    pub(crate) fn is_tiling_like(self) -> bool {
-        matches!(
-            self,
-            Self::Field | Self::RadialWave | Self::Knot | Self::RecursiveFold | Self::Moire
-        )
-    }
-
-    /// Pick a style avoiding the most tile-like families when possible.
-    pub(crate) fn next_non_tiling_from(rng: &mut XorShift32) -> Self {
-        let mut candidate = Self::from_u32(rng.next_u32());
-        if !candidate.is_tiling_like() {
-            return candidate;
-        }
-
-        // Keep trying until we hit a non-tiling style.
-        for _ in 0..Self::total() {
-            candidate = Self::from_u32(candidate.as_u32() + 1);
-            if !candidate.is_tiling_like() {
-                break;
-            }
-        }
-
-        candidate
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum GradientMode {
-    Linear,
-    Contrast,
-    Gamma,
-    Sine,
-    Sigmoid,
-    Posterize,
-}
-
-impl GradientMode {
-    pub(crate) fn from_u32(value: u32) -> Self {
-        match value % 6 {
-            0 => Self::Linear,
-            1 => Self::Contrast,
-            2 => Self::Gamma,
-            3 => Self::Sine,
-            4 => Self::Sigmoid,
-            _ => Self::Posterize,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct BlurConfig {
-    pub(crate) mode: FilterMode,
-    pub(crate) max_radius: u32,
-    pub(crate) axis_x: i32,
-    pub(crate) axis_y: i32,
-    pub(crate) softness: u32,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct GradientConfig {
-    pub(crate) mode: GradientMode,
-    pub(crate) gamma: f32,
-    pub(crate) contrast: f32,
-    pub(crate) pivot: f32,
-    pub(crate) invert: bool,
-    pub(crate) frequency: f32,
-    pub(crate) phase: f32,
-    pub(crate) bands: u32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -283,19 +155,6 @@ impl SymmetryStyle {
             Self::Grid => 7,
         }
     }
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Radial => "radial",
-            Self::Mirror => "mirror",
-            Self::MirrorX => "mirror-x",
-            Self::MirrorY => "mirror-y",
-            Self::MirrorDiagonal => "mirror-diagonal",
-            Self::MirrorCross => "mirror-cross",
-            Self::Grid => "grid",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -325,21 +184,6 @@ impl LayerBlendMode {
             7 => Self::Darken,
             8 => Self::Glow,
             _ => Self::Shadow,
-        }
-    }
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Add => "add",
-            Self::Multiply => "multiply",
-            Self::Screen => "screen",
-            Self::Overlay => "overlay",
-            Self::Difference => "difference",
-            Self::Lighten => "lighten",
-            Self::Darken => "darken",
-            Self::Glow => "glow",
-            Self::Shadow => "shadow",
         }
     }
 
