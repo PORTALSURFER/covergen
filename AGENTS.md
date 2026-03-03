@@ -19,6 +19,7 @@ Build a Windows-first, GPU-only node-graph shader/video playground with high-per
 - Plan map: `docs/plans/index.md`
 - Architecture and subsystem docs: `docs/README.md`
 - Performance ROI backlog (temporary): `tmp/perf_plan.md`
+- Cleanup ROI backlog (temporary): `tmp/cleanup_plan.md`
 
 ## Update Rules
 - Keep this file short; no implementation detail.

@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-03-02 11:47:21 UTC
+Last Updated: 2026-03-03 09:02:24 UTC
 
 ## Current Mission
 Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
@@ -26,10 +26,12 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
 - Deep performance audit execution is complete for ROI items 1-10; item 11 (locked real-hardware thresholds) remains blocked on access to representative tier hosts. See `tmp/perf_plan.md`.
+- Deep cleanup audit backlog is documented and ROI-ranked in `tmp/cleanup_plan.md`; implementation is pending user approval.
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
 Performance execution status and remaining hardware-blocked threshold lock work are in `tmp/perf_plan.md`.
+Cleanup execution backlog is in `tmp/cleanup_plan.md`.
 
 ## Current Risks
 - Node-editor and tex-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.
