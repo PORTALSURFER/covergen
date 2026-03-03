@@ -9,6 +9,7 @@ use crate::shaders::{create_shader_module, ShaderProgram};
 /// All retained resources created together so `mod.rs` can stay focused on behavior.
 pub(super) struct RetainedSetup {
     pub(super) clear_pipeline: wgpu::ComputePipeline,
+    #[cfg(test)]
     pub(super) blend_pipeline: wgpu::ComputePipeline,
     pub(super) clear_hist_pipeline: wgpu::ComputePipeline,
     pub(super) histogram_pipeline: wgpu::ComputePipeline,
@@ -19,7 +20,6 @@ pub(super) struct RetainedSetup {
     pub(super) post_uniform: wgpu::Buffer,
     pub(super) finalize_uniform: wgpu::Buffer,
     pub(super) final_output_buffer: wgpu::Buffer,
-    pub(super) staging_buffer: wgpu::Buffer,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -46,12 +46,6 @@ pub(super) fn build_setup(
         usage: wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::COPY_SRC
             | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("retained staging"),
-        size: src_bytes,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
     let final_output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -135,6 +129,7 @@ pub(super) fn build_setup(
             "clear_accum",
             "retained clear pipeline",
         ),
+        #[cfg(test)]
         blend_pipeline: create_compute_pipeline(
             device,
             &layout,
@@ -175,7 +170,6 @@ pub(super) fn build_setup(
         post_uniform,
         finalize_uniform,
         final_output_buffer,
-        staging_buffer,
     })
 }
 

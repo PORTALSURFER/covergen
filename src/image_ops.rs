@@ -55,6 +55,7 @@ pub(crate) fn apply_posterize_and_contrast(src: &mut [f32], bands: u32, strength
 }
 
 /// Decode BGRA bytes into normalized luma values using the blue channel.
+#[cfg(test)]
 pub(crate) fn decode_luma(raw: &[u8], out: &mut [f32]) {
     debug_assert_eq!(out.len() * 4, raw.len());
 

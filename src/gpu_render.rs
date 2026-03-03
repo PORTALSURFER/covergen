@@ -1,10 +1,13 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::gpu_retained::{FinalReadbackSettings, RetainedGpuPost};
 use crate::gpu_timestamp::OptionalGpuTimestampQueries;
+#[cfg(test)]
 use crate::image_ops::decode_luma;
 use crate::model::Params;
 use crate::shaders::{create_shader_module, ShaderProgram};
@@ -29,15 +32,16 @@ pub(crate) struct GpuLayerRenderer {
     bind_group: wgpu::BindGroup,
     out_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     readback_slots: Vec<ReadbackSlot>,
     final_output_readback_slots: Vec<FinalOutputReadbackSlot>,
     width: u32,
     height: u32,
     output_size: u64,
+    #[cfg(test)]
     pending_readbacks: VecDeque<usize>,
     pending_final_output_readbacks: VecDeque<usize>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     next_readback_slot: usize,
     next_final_output_readback_slot: usize,
     retained: RetainedGpuPost,
@@ -52,7 +56,7 @@ pub(crate) struct GpuLayerRenderer {
 }
 
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 struct ReadbackSlot {
     staging_buffer: wgpu::Buffer,
     pending: Option<Receiver<Result<(), wgpu::BufferAsyncError>>>,
@@ -132,7 +136,9 @@ impl GpuLayerRenderer {
             contents: bytemuck::bytes_of(&zero),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        #[cfg(test)]
         let mut readback_slots = Vec::with_capacity(2);
+        #[cfg(test)]
         for slot in 0..2 {
             let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("staging-{slot}")),
@@ -250,13 +256,16 @@ impl GpuLayerRenderer {
             bind_group,
             out_buffer,
             uniform_buffer,
+            #[cfg(test)]
             readback_slots,
             final_output_readback_slots,
             width,
             height,
             output_size,
+            #[cfg(test)]
             pending_readbacks: VecDeque::with_capacity(2),
             pending_final_output_readbacks: VecDeque::with_capacity(FINAL_OUTPUT_READBACK_SLOTS),
+            #[cfg(test)]
             next_readback_slot: 0,
             next_final_output_readback_slot: 0,
             retained,
@@ -393,7 +402,7 @@ impl GpuLayerRenderer {
     }
 
     /// Submit one layer into retained GPU post-processing accumulation.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn submit_retained_layer(
         &mut self,
         params: &Params,
@@ -424,7 +433,7 @@ impl GpuLayerRenderer {
     }
 
     /// Submit one GPU layer render and stage it for asynchronous readback.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn submit_layer(&mut self, params: &Params) -> Result<(), Box<dyn Error>> {
         self.validate_params(params)?;
         if self.pending_readbacks.len() >= self.readback_slots.len() {
@@ -466,7 +475,7 @@ impl GpuLayerRenderer {
     }
 
     /// Complete a previously submitted GPU layer render and decode into `out`.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn collect_layer(&mut self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
         if out.len() != self.expected_pixels()? {
             return Err("output buffer length does not match render dimensions".into());
@@ -496,7 +505,7 @@ impl GpuLayerRenderer {
     }
 
     /// Render one layer into a grayscale float buffer.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn render_layer(
         &mut self,
         params: &Params,
@@ -548,7 +557,14 @@ impl GpuLayerRenderer {
     }
 
     fn has_pending_layer_readbacks(&self) -> bool {
-        !self.pending_readbacks.is_empty()
+        #[cfg(test)]
+        {
+            !self.pending_readbacks.is_empty()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     fn pop_pending_final_output_slot(&mut self) -> Result<usize, Box<dyn Error>> {
@@ -557,7 +573,7 @@ impl GpuLayerRenderer {
             .ok_or("no retained final-output readback pending".into())
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn expected_pixels(&self) -> Result<usize, Box<dyn Error>> {
         self.width
             .checked_mul(self.height)

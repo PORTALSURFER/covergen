@@ -53,7 +53,7 @@ pub(crate) struct FinalReadbackSettings {
 #[derive(Debug)]
 pub(crate) struct RetainedGpuPost {
     clear_pipeline: wgpu::ComputePipeline,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     blend_pipeline: wgpu::ComputePipeline,
     clear_hist_pipeline: wgpu::ComputePipeline,
     histogram_pipeline: wgpu::ComputePipeline,
@@ -64,8 +64,6 @@ pub(crate) struct RetainedGpuPost {
     post_uniform: wgpu::Buffer,
     finalize_uniform: wgpu::Buffer,
     final_output_buffer: wgpu::Buffer,
-    #[allow(dead_code)]
-    staging_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
     output_width: u32,
@@ -117,6 +115,7 @@ impl RetainedGpuPost {
 
         Ok(Self {
             clear_pipeline: setup.clear_pipeline,
+            #[cfg(test)]
             blend_pipeline: setup.blend_pipeline,
             clear_hist_pipeline: setup.clear_hist_pipeline,
             histogram_pipeline: setup.histogram_pipeline,
@@ -127,7 +126,6 @@ impl RetainedGpuPost {
             post_uniform: setup.post_uniform,
             finalize_uniform: setup.finalize_uniform,
             final_output_buffer: setup.final_output_buffer,
-            staging_buffer: setup.staging_buffer,
             width,
             height,
             output_width,
@@ -176,7 +174,7 @@ impl RetainedGpuPost {
     }
 
     /// Encode one retained blend pass after the main fractal pass has populated source pixels.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn encode_blend_pass(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -216,46 +214,9 @@ impl RetainedGpuPost {
     }
 
     /// Resolve retained timestamp queries into the per-node resolve buffer.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn resolve_timestamps(&mut self, encoder: &mut wgpu::CommandEncoder) {
         self.timestamps.resolve_and_reset(encoder);
-    }
-
-    /// Map retained accumulation for legacy host-side processing.
-    #[allow(dead_code)]
-    pub(crate) fn begin_readback(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> Receiver<Result<(), wgpu::BufferAsyncError>> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("retained readback encoder"),
-        });
-        encoder.copy_buffer_to_buffer(
-            &self.accum_buffer,
-            0,
-            &self.staging_buffer,
-            0,
-            (self.expected_pixels() * std::mem::size_of::<f32>()) as u64,
-        );
-        queue.submit(Some(encoder.finish()));
-        map_buffer_async(&self.staging_buffer)
-    }
-
-    /// Copy mapped retained accumulation into `out`.
-    #[allow(dead_code)]
-    pub(crate) fn finish_readback(&self, out: &mut [f32]) -> Result<(), Box<dyn Error>> {
-        if out.len() != self.expected_pixels() {
-            return Err("output buffer length does not match render dimensions".into());
-        }
-        let slice = self.staging_buffer.slice(..);
-        {
-            let raw = slice.get_mapped_range();
-            let mapped: &[f32] = bytemuck::cast_slice(&raw);
-            out.copy_from_slice(&mapped[..self.expected_pixels()]);
-        }
-        self.staging_buffer.unmap();
-        Ok(())
     }
 
     /// Run final GPU passes and map readback data into one caller-provided staging buffer.
