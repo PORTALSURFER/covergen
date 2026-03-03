@@ -336,854 +336,604 @@ impl GuiCompiledRuntime {
     ) {
         out_ops.clear();
         begin_runtime_eval_pass(eval_stack);
-        let mut mesh = None;
-        let mut entity = None;
-        let mut scene_ready = false;
-        let mut camera_zoom = 1.0_f32;
+        let mut step_state = RuntimeEvalState::new();
+        let mut ctx = RuntimeEvalContext::new(project, time_secs, frame, eval_stack, out_ops);
         for step in &self.steps {
-            let out_len_before = out_ops.len();
-            match step.kind {
-                CompiledStepKind::Solid => {
-                    out_ops.push(TexRuntimeOp::Solid {
-                        color_r: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::solid::COLOR_R_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_g: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::solid::COLOR_G_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::solid::COLOR_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        alpha: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::solid::ALPHA_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                    });
-                }
-                CompiledStepKind::Circle => {
-                    out_ops.push(TexRuntimeOp::Circle {
-                        center_x: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::CENTER_X_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5),
-                        center_y: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::CENTER_Y_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5),
-                        radius: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::RADIUS_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.24),
-                        feather: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::FEATHER_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.06),
-                        line_width: 0.0,
-                        noise_amount: 0.0,
-                        noise_freq: 1.0,
-                        noise_phase: 0.0,
-                        noise_twist: 0.0,
-                        noise_stretch: 0.0,
-                        arc_start_deg: 0.0,
-                        arc_end_deg: 360.0,
-                        segment_count: 0.0,
-                        arc_open: 0.0,
-                        color_r: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::COLOR_R_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_g: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::COLOR_G_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::COLOR_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        alpha: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::circle::ALPHA_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                        alpha_clip: false,
-                    });
-                }
-                CompiledStepKind::SphereBuffer => {
-                    let radius = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::sphere_buffer::RADIUS_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.28)
-                    .max(0.01);
-                    mesh = Some(SceneMeshState {
-                        profile: SceneMeshProfile::Sphere,
-                        radius,
-                        arc_start_deg: 0.0,
-                        arc_end_deg: 360.0,
-                        line_width: 0.0,
-                        noise_amount: 0.0,
-                        noise_freq: 1.0,
-                        noise_phase: 0.0,
-                        noise_twist: 0.0,
-                        noise_stretch: 0.0,
-                        order: 3.0,
-                        segment_count: 0.0,
-                        arc_open: false,
-                    });
-                    scene_ready = false;
-                }
-                CompiledStepKind::CircleNurbsBuffer => {
-                    let radius = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::RADIUS_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.28)
-                    .max(0.01);
-                    let arc_start_deg = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::ARC_START_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                    .clamp(0.0, 360.0);
-                    let arc_end_deg = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::ARC_END_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(360.0)
-                    .clamp(0.0, 360.0);
-                    let line_width = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::LINE_WIDTH_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.01)
-                    .clamp(0.0005, 0.35);
-                    let order = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::ORDER_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(3.0)
-                    .clamp(2.0, 5.0);
-                    let segment_count = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::DIVISIONS_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(64.0)
-                    .clamp(3.0, 512.0);
-                    let arc_open = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::circle_nurbs_buffer::ARC_STYLE_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                        >= 0.5;
-                    mesh = Some(SceneMeshState {
-                        profile: SceneMeshProfile::CircleNurbs,
-                        radius,
-                        arc_start_deg,
-                        arc_end_deg,
-                        line_width,
-                        noise_amount: 0.0,
-                        noise_freq: 1.0,
-                        noise_phase: 0.0,
-                        noise_twist: 0.0,
-                        noise_stretch: 0.0,
-                        order,
-                        segment_count,
-                        arc_open,
-                    });
-                    scene_ready = false;
-                }
-                CompiledStepKind::BufferNoise => {
-                    let Some(mut mesh_state) = mesh else {
-                        continue;
-                    };
-                    let amplitude = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::AMPLITUDE_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                    .clamp(0.0, 1.0);
-                    let frequency = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::FREQUENCY_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(2.0)
-                    .max(0.01);
-                    let speed_hz = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::SPEED_HZ_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.35)
-                    .max(0.0);
-                    let phase = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::PHASE_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0);
-                    let seed = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::SEED_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(1.0);
-                    let twist = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::TWIST_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                    .clamp(-8.0, 8.0);
-                    let stretch = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::STRETCH_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                    .clamp(0.0, 1.0);
-                    let loop_cycles = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::LOOP_CYC_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(12.0)
-                    .clamp(0.0, 256.0);
-                    let loop_mode = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::buffer_noise::LOOP_MODE_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                        >= 0.5;
-                    let (base_phase, warp_freq, warp_input) = if loop_mode {
-                        let loop_phase = timeline_loop_phase(frame, time_secs);
-                        (
-                            loop_phase * loop_cycles.round(),
-                            frequency.round().clamp(1.0, 64.0),
-                            loop_phase,
-                        )
-                    } else {
-                        (
-                            time_secs * speed_hz * std::f32::consts::TAU,
-                            frequency,
-                            time_secs * speed_hz * std::f32::consts::TAU * 0.37,
-                        )
-                    };
-                    let phase_warp = if loop_mode {
-                        layered_loop_sine_noise(warp_input, warp_freq, phase, seed)
-                    } else {
-                        layered_sine_noise(warp_input, warp_freq, phase, seed)
-                    };
-                    let mut noise_phase = base_phase
-                        + phase * std::f32::consts::TAU
-                        + seed * 0.173
-                        + phase_warp * 0.65;
-                    if loop_mode {
-                        noise_phase = noise_phase.rem_euclid(std::f32::consts::TAU);
-                    }
-                    mesh_state.noise_amount = amplitude;
-                    mesh_state.noise_freq = frequency;
-                    mesh_state.noise_phase = noise_phase;
-                    mesh_state.noise_twist = twist;
-                    mesh_state.noise_stretch = stretch;
-                    mesh = Some(mesh_state);
-                    scene_ready = false;
-                }
-                CompiledStepKind::SceneEntity => {
-                    entity = Some(SceneEntityState {
-                        pos_x: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::POS_X_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5),
-                        pos_y: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::POS_Y_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5),
-                        scale: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::SCALE_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .max(0.01),
-                        ambient: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::AMBIENT_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.2),
-                        color_r: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::COLOR_R_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_g: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::COLOR_G_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        color_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::COLOR_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.9),
-                        alpha: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::scene_entity::ALPHA_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                    });
-                    scene_ready = false;
-                }
-                CompiledStepKind::SceneBuild => {
-                    scene_ready = mesh.is_some() && entity.is_some();
-                }
-                CompiledStepKind::Camera => {
-                    camera_zoom = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::render_camera::ZOOM_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(1.0)
-                    .clamp(0.1, 8.0);
-                }
-                CompiledStepKind::ScenePass => {
-                    if !scene_ready {
-                        continue;
-                    }
-                    let (Some(mesh_state), Some(entity_state)) = (mesh, entity) else {
-                        continue;
-                    };
-                    let alpha_clip = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::render_scene_pass::BG_MODE_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.0)
-                        >= 0.5;
-                    let zoom = camera_zoom.max(0.1);
-                    let center_x = (entity_state.pos_x - 0.5) * zoom + 0.5;
-                    let center_y = (entity_state.pos_y - 0.5) * zoom + 0.5;
-                    let edge_softness = compiled_param_value_opt(
-                        project,
-                        step,
-                        param_schema::render_scene_pass::EDGE_SOFTNESS_INDEX,
-                        time_secs,
-                        eval_stack,
-                    )
-                    .unwrap_or(0.01)
-                    .max(0.0);
-                    match mesh_state.profile {
-                        SceneMeshProfile::Sphere => out_ops.push(TexRuntimeOp::Sphere {
-                            center_x,
-                            center_y,
-                            radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
-                            edge_softness: edge_softness * zoom,
-                            noise_amount: mesh_state.noise_amount,
-                            noise_freq: mesh_state.noise_freq,
-                            noise_phase: mesh_state.noise_phase,
-                            noise_twist: mesh_state.noise_twist,
-                            noise_stretch: mesh_state.noise_stretch,
-                            light_x: compiled_param_value_opt(
-                                project,
-                                step,
-                                param_schema::render_scene_pass::LIGHT_X_INDEX,
-                                time_secs,
-                                eval_stack,
-                            )
-                            .unwrap_or(0.4),
-                            light_y: compiled_param_value_opt(
-                                project,
-                                step,
-                                param_schema::render_scene_pass::LIGHT_Y_INDEX,
-                                time_secs,
-                                eval_stack,
-                            )
-                            .unwrap_or(-0.5),
-                            light_z: compiled_param_value_opt(
-                                project,
-                                step,
-                                param_schema::render_scene_pass::LIGHT_Z_INDEX,
-                                time_secs,
-                                eval_stack,
-                            )
-                            .unwrap_or(1.0),
-                            ambient: entity_state.ambient,
-                            color_r: entity_state.color_r,
-                            color_g: entity_state.color_g,
-                            color_b: entity_state.color_b,
-                            alpha: entity_state.alpha,
-                            alpha_clip,
-                        }),
-                        SceneMeshProfile::CircleNurbs => out_ops.push(TexRuntimeOp::Circle {
-                            center_x,
-                            center_y,
-                            radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
-                            feather: edge_softness
-                                * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35)
-                                * zoom,
-                            line_width: (mesh_state.line_width * entity_state.scale * zoom)
-                                .max(0.0005),
-                            noise_amount: mesh_state.noise_amount,
-                            noise_freq: mesh_state.noise_freq,
-                            noise_phase: mesh_state.noise_phase,
-                            noise_twist: mesh_state.noise_twist,
-                            noise_stretch: mesh_state.noise_stretch,
-                            arc_start_deg: mesh_state.arc_start_deg,
-                            arc_end_deg: mesh_state.arc_end_deg,
-                            segment_count: mesh_state.segment_count,
-                            arc_open: mesh_state.arc_open as u32 as f32,
-                            color_r: entity_state.color_r,
-                            color_g: entity_state.color_g,
-                            color_b: entity_state.color_b,
-                            alpha: entity_state.alpha,
-                            alpha_clip,
-                        }),
-                    }
-                }
-                CompiledStepKind::Transform => {
-                    out_ops.push(TexRuntimeOp::Transform {
-                        brightness: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::transform_2d::BRIGHTNESS_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                        gain_r: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::transform_2d::GAIN_R_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                        gain_g: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::transform_2d::GAIN_G_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                        gain_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::transform_2d::GAIN_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                        alpha_mul: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::transform_2d::ALPHA_MUL_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0),
-                    });
-                }
-                CompiledStepKind::Level => {
-                    out_ops.push(TexRuntimeOp::Level {
-                        in_low: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::level::IN_LOW_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        in_high: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::level::IN_HIGH_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 1.0),
-                        gamma: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::level::GAMMA_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.1, 8.0),
-                        out_low: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::level::OUT_LOW_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        out_high: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::level::OUT_HIGH_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 1.0),
-                    });
-                }
-                CompiledStepKind::Feedback => {
-                    let history = compiled_feedback_history_source(project, step).map_or(
-                        TexRuntimeFeedbackHistoryBinding::Internal {
-                            feedback_node_id: step.node_id,
-                        },
-                        |texture_node_id| TexRuntimeFeedbackHistoryBinding::External {
-                            texture_node_id,
-                        },
-                    );
-                    out_ops.push(TexRuntimeOp::Feedback {
-                        mix: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::feedback::RUNTIME_MIX_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 1.0),
-                        frame_gap: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::feedback::RUNTIME_FRAME_GAP_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .round()
-                        .clamp(0.0, 32.0) as u32,
-                        history,
-                    });
-                }
-                CompiledStepKind::ReactionDiffusion => {
-                    out_ops.push(TexRuntimeOp::ReactionDiffusion {
-                        diffusion_a: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::DIFF_A_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 2.0),
-                        diffusion_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::DIFF_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5)
-                        .clamp(0.0, 2.0),
-                        feed: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::FEED_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.055)
-                        .clamp(0.0, 0.12),
-                        kill: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::KILL_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.062)
-                        .clamp(0.0, 0.12),
-                        dt: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::DT_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 2.0),
-                        seed_mix: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::reaction_diffusion::SEED_MIX_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.04)
-                        .clamp(0.0, 1.0),
-                        history: TexRuntimeFeedbackHistoryBinding::Internal {
-                            feedback_node_id: step.node_id,
-                        },
-                    });
-                }
-                CompiledStepKind::PostProcess { category } => {
-                    let history = if post_process_uses_history(category) {
-                        Some(TexRuntimeFeedbackHistoryBinding::Internal {
-                            feedback_node_id: step.node_id,
-                        })
-                    } else {
-                        None
-                    };
-                    out_ops.push(TexRuntimeOp::PostProcess {
-                        category,
-                        effect: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::post_process::EFFECT_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0),
-                        amount: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::post_process::AMOUNT_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5)
-                        .clamp(0.0, 1.0),
-                        scale: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::post_process::SCALE_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 8.0),
-                        threshold: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::post_process::THRESH_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.5)
-                        .clamp(0.0, 1.0),
-                        speed: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::post_process::SPEED_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(1.0)
-                        .clamp(0.0, 8.0),
-                        time: time_secs,
-                        history,
-                    });
-                }
-                CompiledStepKind::StoreTexture => {
-                    push_store_texture_op(out_ops, step.node_id);
-                }
-                CompiledStepKind::Blend {
-                    base_source_id,
-                    layer_source_id,
-                } => {
-                    out_ops.push(TexRuntimeOp::Blend {
-                        mode: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::MODE_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .round()
-                        .clamp(0.0, 8.0),
-                        opacity: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::OPACITY_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        bg_r: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::BG_R_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        bg_g: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::BG_G_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        bg_b: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::BG_B_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        bg_a: compiled_param_value_opt(
-                            project,
-                            step,
-                            param_schema::blend::BG_A_INDEX,
-                            time_secs,
-                            eval_stack,
-                        )
-                        .unwrap_or(0.0)
-                        .clamp(0.0, 1.0),
-                        base_texture_node_id: base_source_id,
-                        layer_texture_node_id: layer_source_id,
-                    });
-                }
-            }
+            let out_len_before = ctx.out_ops.len();
+            Self::emit_step(step, &mut step_state, &mut ctx);
             if step.kind != CompiledStepKind::StoreTexture
                 && self
                     .external_feedback_history_sources
                     .contains(&step.node_id)
-                && out_ops.len() > out_len_before
+                && ctx.out_ops.len() > out_len_before
             {
-                push_store_texture_op(out_ops, step.node_id);
+                push_store_texture_op(ctx.out_ops, step.node_id);
             }
         }
+    }
+
+    fn emit_step(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        match step.kind {
+            CompiledStepKind::Solid => Self::emit_solid(step, ctx),
+            CompiledStepKind::Circle => Self::emit_circle(step, ctx),
+            CompiledStepKind::SphereBuffer => Self::update_sphere_mesh(step, step_state, ctx),
+            CompiledStepKind::CircleNurbsBuffer => {
+                Self::update_circle_nurbs_mesh(step, step_state, ctx)
+            }
+            CompiledStepKind::BufferNoise => Self::update_noise_mesh(step, step_state, ctx),
+            CompiledStepKind::SceneEntity => Self::update_scene_entity(step, step_state, ctx),
+            CompiledStepKind::SceneBuild => Self::mark_scene_ready(step_state),
+            CompiledStepKind::Camera => Self::update_camera(step, step_state, ctx),
+            CompiledStepKind::ScenePass => Self::emit_scene_pass(step, step_state, ctx),
+            CompiledStepKind::Transform => Self::emit_transform(step, ctx),
+            CompiledStepKind::Level => Self::emit_level(step, ctx),
+            CompiledStepKind::Feedback => Self::emit_feedback(step, ctx),
+            CompiledStepKind::ReactionDiffusion => Self::emit_reaction_diffusion(step, ctx),
+            CompiledStepKind::PostProcess { category } => {
+                Self::emit_post_process(step, category, ctx)
+            }
+            CompiledStepKind::StoreTexture => push_store_texture_op(ctx.out_ops, step.node_id),
+            CompiledStepKind::Blend {
+                base_source_id,
+                layer_source_id,
+            } => Self::emit_blend(step, base_source_id, layer_source_id, ctx),
+        }
+    }
+
+    fn emit_solid(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let color_r = ctx
+            .param(step, param_schema::solid::COLOR_R_INDEX)
+            .unwrap_or(0.9);
+        let color_g = ctx
+            .param(step, param_schema::solid::COLOR_G_INDEX)
+            .unwrap_or(0.9);
+        let color_b = ctx
+            .param(step, param_schema::solid::COLOR_B_INDEX)
+            .unwrap_or(0.9);
+        let alpha = ctx
+            .param(step, param_schema::solid::ALPHA_INDEX)
+            .unwrap_or(1.0);
+        ctx.out_ops.push(TexRuntimeOp::Solid {
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+        });
+    }
+
+    fn emit_circle(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let center_x = ctx
+            .param(step, param_schema::circle::CENTER_X_INDEX)
+            .unwrap_or(0.5);
+        let center_y = ctx
+            .param(step, param_schema::circle::CENTER_Y_INDEX)
+            .unwrap_or(0.5);
+        let radius = ctx
+            .param(step, param_schema::circle::RADIUS_INDEX)
+            .unwrap_or(0.24);
+        let feather = ctx
+            .param(step, param_schema::circle::FEATHER_INDEX)
+            .unwrap_or(0.06);
+        let color_r = ctx
+            .param(step, param_schema::circle::COLOR_R_INDEX)
+            .unwrap_or(0.9);
+        let color_g = ctx
+            .param(step, param_schema::circle::COLOR_G_INDEX)
+            .unwrap_or(0.9);
+        let color_b = ctx
+            .param(step, param_schema::circle::COLOR_B_INDEX)
+            .unwrap_or(0.9);
+        let alpha = ctx
+            .param(step, param_schema::circle::ALPHA_INDEX)
+            .unwrap_or(1.0);
+        ctx.out_ops.push(TexRuntimeOp::Circle {
+            center_x,
+            center_y,
+            radius,
+            feather,
+            line_width: 0.0,
+            noise_amount: 0.0,
+            noise_freq: 1.0,
+            noise_phase: 0.0,
+            noise_twist: 0.0,
+            noise_stretch: 0.0,
+            arc_start_deg: 0.0,
+            arc_end_deg: 360.0,
+            segment_count: 0.0,
+            arc_open: 0.0,
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+            alpha_clip: false,
+        });
+    }
+
+    fn update_sphere_mesh(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let radius = ctx
+            .param(step, param_schema::sphere_buffer::RADIUS_INDEX)
+            .unwrap_or(0.28)
+            .max(0.01);
+        step_state.mesh = Some(SceneMeshState {
+            profile: SceneMeshProfile::Sphere,
+            radius,
+            arc_start_deg: 0.0,
+            arc_end_deg: 360.0,
+            line_width: 0.0,
+            noise_amount: 0.0,
+            noise_freq: 1.0,
+            noise_phase: 0.0,
+            noise_twist: 0.0,
+            noise_stretch: 0.0,
+            order: 3.0,
+            segment_count: 0.0,
+            arc_open: false,
+        });
+        step_state.scene_ready = false;
+    }
+
+    fn update_circle_nurbs_mesh(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let radius = ctx
+            .param(step, param_schema::circle_nurbs_buffer::RADIUS_INDEX)
+            .unwrap_or(0.28)
+            .max(0.01);
+        let arc_start_deg = ctx
+            .param(step, param_schema::circle_nurbs_buffer::ARC_START_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 360.0);
+        let arc_end_deg = ctx
+            .param(step, param_schema::circle_nurbs_buffer::ARC_END_INDEX)
+            .unwrap_or(360.0)
+            .clamp(0.0, 360.0);
+        let line_width = ctx
+            .param(step, param_schema::circle_nurbs_buffer::LINE_WIDTH_INDEX)
+            .unwrap_or(0.01)
+            .clamp(0.0005, 0.35);
+        let order = ctx
+            .param(step, param_schema::circle_nurbs_buffer::ORDER_INDEX)
+            .unwrap_or(3.0)
+            .clamp(2.0, 5.0);
+        let segment_count = ctx
+            .param(step, param_schema::circle_nurbs_buffer::DIVISIONS_INDEX)
+            .unwrap_or(64.0)
+            .clamp(3.0, 512.0);
+        let arc_open = ctx
+            .param(step, param_schema::circle_nurbs_buffer::ARC_STYLE_INDEX)
+            .unwrap_or(0.0)
+            >= 0.5;
+        step_state.mesh = Some(SceneMeshState {
+            profile: SceneMeshProfile::CircleNurbs,
+            radius,
+            arc_start_deg,
+            arc_end_deg,
+            line_width,
+            noise_amount: 0.0,
+            noise_freq: 1.0,
+            noise_phase: 0.0,
+            noise_twist: 0.0,
+            noise_stretch: 0.0,
+            order,
+            segment_count,
+            arc_open,
+        });
+        step_state.scene_ready = false;
+    }
+
+    fn update_noise_mesh(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let Some(mut mesh_state) = step_state.mesh else {
+            return;
+        };
+        let amplitude = ctx
+            .param(step, param_schema::buffer_noise::AMPLITUDE_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let frequency = ctx
+            .param(step, param_schema::buffer_noise::FREQUENCY_INDEX)
+            .unwrap_or(2.0)
+            .max(0.01);
+        let speed_hz = ctx
+            .param(step, param_schema::buffer_noise::SPEED_HZ_INDEX)
+            .unwrap_or(0.35)
+            .max(0.0);
+        let phase = ctx
+            .param(step, param_schema::buffer_noise::PHASE_INDEX)
+            .unwrap_or(0.0);
+        let seed = ctx
+            .param(step, param_schema::buffer_noise::SEED_INDEX)
+            .unwrap_or(1.0);
+        let twist = ctx
+            .param(step, param_schema::buffer_noise::TWIST_INDEX)
+            .unwrap_or(0.0)
+            .clamp(-8.0, 8.0);
+        let stretch = ctx
+            .param(step, param_schema::buffer_noise::STRETCH_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let loop_cycles = ctx
+            .param(step, param_schema::buffer_noise::LOOP_CYC_INDEX)
+            .unwrap_or(12.0)
+            .clamp(0.0, 256.0);
+        let loop_mode = ctx
+            .param(step, param_schema::buffer_noise::LOOP_MODE_INDEX)
+            .unwrap_or(0.0)
+            >= 0.5;
+        let (base_phase, warp_freq, warp_input) = if loop_mode {
+            let loop_phase = timeline_loop_phase(ctx.frame, ctx.time_secs);
+            (
+                loop_phase * loop_cycles.round(),
+                frequency.round().clamp(1.0, 64.0),
+                loop_phase,
+            )
+        } else {
+            (
+                ctx.time_secs * speed_hz * std::f32::consts::TAU,
+                frequency,
+                ctx.time_secs * speed_hz * std::f32::consts::TAU * 0.37,
+            )
+        };
+        let phase_warp = if loop_mode {
+            layered_loop_sine_noise(warp_input, warp_freq, phase, seed)
+        } else {
+            layered_sine_noise(warp_input, warp_freq, phase, seed)
+        };
+        let mut noise_phase =
+            base_phase + phase * std::f32::consts::TAU + seed * 0.173 + phase_warp * 0.65;
+        if loop_mode {
+            noise_phase = noise_phase.rem_euclid(std::f32::consts::TAU);
+        }
+        mesh_state.noise_amount = amplitude;
+        mesh_state.noise_freq = frequency;
+        mesh_state.noise_phase = noise_phase;
+        mesh_state.noise_twist = twist;
+        mesh_state.noise_stretch = stretch;
+        step_state.mesh = Some(mesh_state);
+        step_state.scene_ready = false;
+    }
+
+    fn update_scene_entity(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        step_state.entity = Some(SceneEntityState {
+            pos_x: ctx
+                .param(step, param_schema::scene_entity::POS_X_INDEX)
+                .unwrap_or(0.5),
+            pos_y: ctx
+                .param(step, param_schema::scene_entity::POS_Y_INDEX)
+                .unwrap_or(0.5),
+            scale: ctx
+                .param(step, param_schema::scene_entity::SCALE_INDEX)
+                .unwrap_or(1.0)
+                .max(0.01),
+            ambient: ctx
+                .param(step, param_schema::scene_entity::AMBIENT_INDEX)
+                .unwrap_or(0.2),
+            color_r: ctx
+                .param(step, param_schema::scene_entity::COLOR_R_INDEX)
+                .unwrap_or(0.9),
+            color_g: ctx
+                .param(step, param_schema::scene_entity::COLOR_G_INDEX)
+                .unwrap_or(0.9),
+            color_b: ctx
+                .param(step, param_schema::scene_entity::COLOR_B_INDEX)
+                .unwrap_or(0.9),
+            alpha: ctx
+                .param(step, param_schema::scene_entity::ALPHA_INDEX)
+                .unwrap_or(1.0),
+        });
+        step_state.scene_ready = false;
+    }
+
+    fn mark_scene_ready(step_state: &mut RuntimeEvalState) {
+        step_state.scene_ready = step_state.mesh.is_some() && step_state.entity.is_some();
+    }
+
+    fn update_camera(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        step_state.camera_zoom = ctx
+            .param(step, param_schema::render_camera::ZOOM_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.1, 8.0);
+    }
+
+    fn emit_scene_pass(
+        step: &CompiledStep,
+        step_state: &RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        if !step_state.scene_ready {
+            return;
+        }
+        let (Some(mesh_state), Some(entity_state)) = (step_state.mesh, step_state.entity) else {
+            return;
+        };
+        let alpha_clip = ctx
+            .param(step, param_schema::render_scene_pass::BG_MODE_INDEX)
+            .unwrap_or(0.0)
+            >= 0.5;
+        let zoom = step_state.camera_zoom.max(0.1);
+        let center_x = (entity_state.pos_x - 0.5) * zoom + 0.5;
+        let center_y = (entity_state.pos_y - 0.5) * zoom + 0.5;
+        let edge_softness = ctx
+            .param(step, param_schema::render_scene_pass::EDGE_SOFTNESS_INDEX)
+            .unwrap_or(0.01)
+            .max(0.0);
+        match mesh_state.profile {
+            SceneMeshProfile::Sphere => {
+                let light_x = ctx
+                    .param(step, param_schema::render_scene_pass::LIGHT_X_INDEX)
+                    .unwrap_or(0.4);
+                let light_y = ctx
+                    .param(step, param_schema::render_scene_pass::LIGHT_Y_INDEX)
+                    .unwrap_or(-0.5);
+                let light_z = ctx
+                    .param(step, param_schema::render_scene_pass::LIGHT_Z_INDEX)
+                    .unwrap_or(1.0);
+                ctx.out_ops.push(TexRuntimeOp::Sphere {
+                    center_x,
+                    center_y,
+                    radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
+                    edge_softness: edge_softness * zoom,
+                    noise_amount: mesh_state.noise_amount,
+                    noise_freq: mesh_state.noise_freq,
+                    noise_phase: mesh_state.noise_phase,
+                    noise_twist: mesh_state.noise_twist,
+                    noise_stretch: mesh_state.noise_stretch,
+                    light_x,
+                    light_y,
+                    light_z,
+                    ambient: entity_state.ambient,
+                    color_r: entity_state.color_r,
+                    color_g: entity_state.color_g,
+                    color_b: entity_state.color_b,
+                    alpha: entity_state.alpha,
+                    alpha_clip,
+                });
+            }
+            SceneMeshProfile::CircleNurbs => ctx.out_ops.push(TexRuntimeOp::Circle {
+                center_x,
+                center_y,
+                radius: (mesh_state.radius * entity_state.scale * zoom).max(0.01),
+                feather: edge_softness * (1.0 + (5.0 - mesh_state.order).max(0.0) * 0.35) * zoom,
+                line_width: (mesh_state.line_width * entity_state.scale * zoom).max(0.0005),
+                noise_amount: mesh_state.noise_amount,
+                noise_freq: mesh_state.noise_freq,
+                noise_phase: mesh_state.noise_phase,
+                noise_twist: mesh_state.noise_twist,
+                noise_stretch: mesh_state.noise_stretch,
+                arc_start_deg: mesh_state.arc_start_deg,
+                arc_end_deg: mesh_state.arc_end_deg,
+                segment_count: mesh_state.segment_count,
+                arc_open: mesh_state.arc_open as u32 as f32,
+                color_r: entity_state.color_r,
+                color_g: entity_state.color_g,
+                color_b: entity_state.color_b,
+                alpha: entity_state.alpha,
+                alpha_clip,
+            }),
+        }
+    }
+
+    fn emit_transform(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let brightness = ctx
+            .param(step, param_schema::transform_2d::BRIGHTNESS_INDEX)
+            .unwrap_or(1.0);
+        let gain_r = ctx
+            .param(step, param_schema::transform_2d::GAIN_R_INDEX)
+            .unwrap_or(1.0);
+        let gain_g = ctx
+            .param(step, param_schema::transform_2d::GAIN_G_INDEX)
+            .unwrap_or(1.0);
+        let gain_b = ctx
+            .param(step, param_schema::transform_2d::GAIN_B_INDEX)
+            .unwrap_or(1.0);
+        let alpha_mul = ctx
+            .param(step, param_schema::transform_2d::ALPHA_MUL_INDEX)
+            .unwrap_or(1.0);
+        ctx.out_ops.push(TexRuntimeOp::Transform {
+            brightness,
+            gain_r,
+            gain_g,
+            gain_b,
+            alpha_mul,
+        });
+    }
+
+    fn emit_level(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let in_low = ctx
+            .param(step, param_schema::level::IN_LOW_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let in_high = ctx
+            .param(step, param_schema::level::IN_HIGH_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let gamma = ctx
+            .param(step, param_schema::level::GAMMA_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.1, 8.0);
+        let out_low = ctx
+            .param(step, param_schema::level::OUT_LOW_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let out_high = ctx
+            .param(step, param_schema::level::OUT_HIGH_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::Level {
+            in_low,
+            in_high,
+            gamma,
+            out_low,
+            out_high,
+        });
+    }
+
+    fn emit_feedback(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let history = compiled_feedback_history_source(ctx.project, step).map_or(
+            TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: step.node_id,
+            },
+            |texture_node_id| TexRuntimeFeedbackHistoryBinding::External { texture_node_id },
+        );
+        let mix = ctx
+            .param(step, param_schema::feedback::RUNTIME_MIX_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let frame_gap = ctx
+            .param(step, param_schema::feedback::RUNTIME_FRAME_GAP_INDEX)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 32.0) as u32;
+        ctx.out_ops.push(TexRuntimeOp::Feedback {
+            mix,
+            frame_gap,
+            history,
+        });
+    }
+
+    fn emit_reaction_diffusion(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let diffusion_a = ctx
+            .param(step, param_schema::reaction_diffusion::DIFF_A_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let diffusion_b = ctx
+            .param(step, param_schema::reaction_diffusion::DIFF_B_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 2.0);
+        let feed = ctx
+            .param(step, param_schema::reaction_diffusion::FEED_INDEX)
+            .unwrap_or(0.055)
+            .clamp(0.0, 0.12);
+        let kill = ctx
+            .param(step, param_schema::reaction_diffusion::KILL_INDEX)
+            .unwrap_or(0.062)
+            .clamp(0.0, 0.12);
+        let dt = ctx
+            .param(step, param_schema::reaction_diffusion::DT_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let seed_mix = ctx
+            .param(step, param_schema::reaction_diffusion::SEED_MIX_INDEX)
+            .unwrap_or(0.04)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::ReactionDiffusion {
+            diffusion_a,
+            diffusion_b,
+            feed,
+            kill,
+            dt,
+            seed_mix,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: step.node_id,
+            },
+        });
+    }
+
+    fn emit_post_process(
+        step: &CompiledStep,
+        category: PostProcessCategory,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let history = if post_process_uses_history(category) {
+            Some(TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: step.node_id,
+            })
+        } else {
+            None
+        };
+        let effect = ctx
+            .param(step, param_schema::post_process::EFFECT_INDEX)
+            .unwrap_or(0.0);
+        let amount = ctx
+            .param(step, param_schema::post_process::AMOUNT_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        let scale = ctx
+            .param(step, param_schema::post_process::SCALE_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 8.0);
+        let threshold = ctx
+            .param(step, param_schema::post_process::THRESH_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        let speed = ctx
+            .param(step, param_schema::post_process::SPEED_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 8.0);
+        ctx.out_ops.push(TexRuntimeOp::PostProcess {
+            category,
+            effect,
+            amount,
+            scale,
+            threshold,
+            speed,
+            time: ctx.time_secs,
+            history,
+        });
+    }
+
+    fn emit_blend(
+        step: &CompiledStep,
+        base_source_id: u32,
+        layer_source_id: Option<u32>,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let mode = ctx
+            .param(step, param_schema::blend::MODE_INDEX)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 8.0);
+        let opacity = ctx
+            .param(step, param_schema::blend::OPACITY_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let bg_r = ctx
+            .param(step, param_schema::blend::BG_R_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let bg_g = ctx
+            .param(step, param_schema::blend::BG_G_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let bg_b = ctx
+            .param(step, param_schema::blend::BG_B_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        let bg_a = ctx
+            .param(step, param_schema::blend::BG_A_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::Blend {
+            mode,
+            opacity,
+            bg_r,
+            bg_g,
+            bg_b,
+            bg_a,
+            base_texture_node_id: base_source_id,
+            layer_texture_node_id: layer_source_id,
+        });
     }
 
     /// Return resolved render-texture size for this compiled output chain.
@@ -1232,6 +982,61 @@ impl GuiCompiledRuntime {
             return (width.max(1), height.max(1));
         }
         (default_w, default_h)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RuntimeEvalState {
+    mesh: Option<SceneMeshState>,
+    entity: Option<SceneEntityState>,
+    scene_ready: bool,
+    camera_zoom: f32,
+}
+
+impl RuntimeEvalState {
+    const fn new() -> Self {
+        Self {
+            mesh: None,
+            entity: None,
+            scene_ready: false,
+            camera_zoom: 1.0,
+        }
+    }
+}
+
+struct RuntimeEvalContext<'a> {
+    project: &'a GuiProject,
+    time_secs: f32,
+    frame: Option<TexRuntimeFrameContext>,
+    eval_stack: &'a mut SignalEvalStack,
+    out_ops: &'a mut Vec<TexRuntimeOp>,
+}
+
+impl<'a> RuntimeEvalContext<'a> {
+    fn new(
+        project: &'a GuiProject,
+        time_secs: f32,
+        frame: Option<TexRuntimeFrameContext>,
+        eval_stack: &'a mut SignalEvalStack,
+        out_ops: &'a mut Vec<TexRuntimeOp>,
+    ) -> Self {
+        Self {
+            project,
+            time_secs,
+            frame,
+            eval_stack,
+            out_ops,
+        }
+    }
+
+    fn param(&mut self, step: &CompiledStep, param_index: usize) -> Option<f32> {
+        compiled_param_value_opt(
+            self.project,
+            step,
+            param_index,
+            self.time_secs,
+            self.eval_stack,
+        )
     }
 }
 
