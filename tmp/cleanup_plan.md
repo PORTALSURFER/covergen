@@ -32,7 +32,7 @@ Date: 2026-03-03
     - `cargo test -q gui::runtime::tests --bin covergen`
     - `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 2. Bound timeline catch-up work to prevent hitch/freeze bursts after stalls
+- [x] 2. Bound timeline catch-up work to prevent hitch/freeze bursts after stalls _(done 2026-03-03, commit 6cfd821)_
   - ROI: High
   - Effort: S
   - Why it matters:
