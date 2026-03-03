@@ -31,7 +31,9 @@ Date: 2026-03-03
     - `cargo test gui::interaction`
     - `cargo clippy --all-targets --all-features -- -D warnings`
 
-- [ ] 2. Centralize transient UI state-reset transitions in GUI input flow
+- [x] 2. Centralize transient UI state-reset transitions in GUI input flow
+  - Completed: 2026-03-03 (`898f7ca`)
+  - Validation: Blocked in current environment (`cargo` missing; `scripts/ci_local.sh validate laptop_integrated` exits early).
   - ROI: High
   - Effort: M
   - Why it matters:
