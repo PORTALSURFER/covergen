@@ -47,6 +47,7 @@ const MIN_PANEL_WIDTH: usize = 260;
 const MIN_PREVIEW_WIDTH: usize = 320;
 const DIVIDER_HIT_SLOP_PX: i32 = 6;
 const GUI_LOCKED_FPS: u32 = 60;
+const GUI_BENCH_PROGRESS_LOG_EVERY_FRAMES: u64 = 10;
 const GUI_PROJECT_AUTOSAVE_FILE: &str = ".covergen_gui_graph.json";
 const GUI_PROJECT_SAVE_FILE: &str = "covergen_gui_project.json";
 #[cfg(test)]

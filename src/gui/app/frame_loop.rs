@@ -251,7 +251,7 @@ impl GuiApp {
         let next_frame_counter = self.frame_counter.wrapping_add(1);
         if let Some(limit) = self.benchmark_frame_limit {
             let should_log_progress = next_frame_counter == 1
-                || next_frame_counter.is_multiple_of(GUI_LOCKED_FPS as u64)
+                || next_frame_counter.is_multiple_of(GUI_BENCH_PROGRESS_LOG_EVERY_FRAMES)
                 || next_frame_counter >= limit;
             if should_log_progress {
                 let completed = next_frame_counter.min(limit);
