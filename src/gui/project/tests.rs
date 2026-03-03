@@ -344,6 +344,22 @@ fn disconnect_signal_link_from_param_only_unbinds_target_row() {
 }
 
 #[test]
+fn manual_param_edit_detaches_signal_binding_on_target_row() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 20, 40, 420, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 160, 40, 420, 480);
+    assert!(project.connect_signal_link_to_param(lfo, circle, 0));
+    assert_eq!(project.signal_source_for_param(circle, 0), Some(lfo));
+
+    assert!(project.set_param_value(circle, 0, 0.2));
+    assert_eq!(project.signal_source_for_param(circle, 0), None);
+    let value = project
+        .node_param_raw_value(circle, 0)
+        .expect("manual value should exist");
+    assert!((value - 0.2).abs() < 1e-5);
+}
+
+#[test]
 fn connect_texture_link_to_feedback_target_param_row() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
@@ -924,6 +940,23 @@ fn render_signature_changes_when_render_param_changes() {
 
     assert!(project.set_param_value(solid, 0, 0.2));
     assert_ne!(project.render_signature(), base);
+}
+
+#[test]
+fn render_signature_changes_when_links_change() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 180, 40, 420, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 340, 40, 420, 480);
+    assert!(project.connect_image_link(solid, out));
+    let base = project.render_signature();
+
+    assert!(project.connect_image_link(lfo, solid));
+    let after_bind = project.render_signature();
+    assert_ne!(after_bind, base);
+
+    assert!(project.disconnect_link(lfo, solid));
+    assert_ne!(project.render_signature(), after_bind);
 }
 
 #[test]

@@ -494,6 +494,7 @@ impl GuiProject {
         }
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -550,6 +551,7 @@ impl GuiProject {
             return false;
         }
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -580,6 +582,7 @@ impl GuiProject {
         }
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -625,6 +628,7 @@ impl GuiProject {
             self.invalidate_hit_test_cache();
         }
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 

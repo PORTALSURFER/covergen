@@ -40,6 +40,7 @@ impl GuiProject {
         slot.signal_source = Some(source_id);
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -91,6 +92,7 @@ impl GuiProject {
         }
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -166,6 +168,7 @@ impl GuiProject {
         slot.signal_source = None;
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -191,6 +194,7 @@ impl GuiProject {
         }
         rebuild_node_inputs(target);
         self.recount_edges();
+        self.bump_render_epoch();
         true
     }
 
@@ -341,16 +345,33 @@ impl GuiProject {
     }
 
     /// Adjust selected parameter value by one step.
+    ///
+    /// Manual edits detach an existing signal binding on the selected row.
     pub(crate) fn adjust_selected_param(&mut self, node_id: u32, direction: f32) -> bool {
-        let Some(node) = self.node_mut(node_id) else {
-            return false;
-        };
-        if node.params.is_empty() {
-            return false;
+        let mut changed = false;
+        let mut binding_changed = false;
+        {
+            let Some(node) = self.node_mut(node_id) else {
+                return false;
+            };
+            if node.params.is_empty() {
+                return false;
+            }
+            let index = node.selected_param.min(node.params.len().saturating_sub(1));
+            let slot = &mut node.params[index];
+            if slot.signal_source.take().is_some() {
+                binding_changed = true;
+                changed = true;
+            }
+            changed |= adjust_slot_value(slot, direction);
+            if binding_changed {
+                rebuild_node_inputs(node);
+            }
         }
-        let index = node.selected_param.min(node.params.len().saturating_sub(1));
-        let changed = adjust_slot_value(&mut node.params[index], direction);
         if changed {
+            if binding_changed {
+                self.recount_edges();
+            }
             self.bump_render_epoch();
         }
         changed
@@ -358,17 +379,34 @@ impl GuiProject {
 
     /// Adjust one parameter value by `steps * slot.step` after clamping.
     ///
+    /// Manual edits detach an existing signal binding on the target row.
+    ///
     /// Returns `true` when the parameter value changed.
     pub(crate) fn adjust_param(&mut self, node_id: u32, param_index: usize, steps: f32) -> bool {
-        let Some(node) = self.node_mut(node_id) else {
-            return false;
-        };
-        if node.params.is_empty() || !steps.is_finite() {
-            return false;
+        let mut changed = false;
+        let mut binding_changed = false;
+        {
+            let Some(node) = self.node_mut(node_id) else {
+                return false;
+            };
+            if node.params.is_empty() || !steps.is_finite() {
+                return false;
+            }
+            let index = param_index.min(node.params.len().saturating_sub(1));
+            let slot = &mut node.params[index];
+            if slot.signal_source.take().is_some() {
+                binding_changed = true;
+                changed = true;
+            }
+            changed |= adjust_slot_value(slot, steps);
+            if binding_changed {
+                rebuild_node_inputs(node);
+            }
         }
-        let index = param_index.min(node.params.len().saturating_sub(1));
-        let changed = adjust_slot_value(&mut node.params[index], steps);
         if changed {
+            if binding_changed {
+                self.recount_edges();
+            }
             self.bump_render_epoch();
         }
         changed
@@ -386,16 +424,33 @@ impl GuiProject {
     }
 
     /// Set one parameter value at one index after clamping to slot limits.
+    ///
+    /// Manual edits detach an existing signal binding on the target row.
     pub(crate) fn set_param_value(&mut self, node_id: u32, param_index: usize, value: f32) -> bool {
-        let Some(node) = self.node_mut(node_id) else {
-            return false;
-        };
-        if node.params.is_empty() {
-            return false;
+        let mut changed = false;
+        let mut binding_changed = false;
+        {
+            let Some(node) = self.node_mut(node_id) else {
+                return false;
+            };
+            if node.params.is_empty() {
+                return false;
+            }
+            let index = param_index.min(node.params.len().saturating_sub(1));
+            let slot = &mut node.params[index];
+            if slot.signal_source.take().is_some() {
+                binding_changed = true;
+                changed = true;
+            }
+            changed |= set_slot_value(slot, value);
+            if binding_changed {
+                rebuild_node_inputs(node);
+            }
         }
-        let index = param_index.min(node.params.len().saturating_sub(1));
-        let changed = set_slot_value(&mut node.params[index], value);
         if changed {
+            if binding_changed {
+                self.recount_edges();
+            }
             self.bump_render_epoch();
         }
         changed
@@ -499,28 +554,44 @@ impl GuiProject {
     }
 
     /// Select one dropdown option by index for one parameter row.
+    ///
+    /// Manual edits detach an existing signal binding on the target row.
     pub(crate) fn set_param_dropdown_index(
         &mut self,
         node_id: u32,
         param_index: usize,
         option_index: usize,
     ) -> bool {
-        let Some(node) = self.node_mut(node_id) else {
-            return false;
-        };
-        let index = param_index.min(node.params.len().saturating_sub(1));
-        let Some(slot) = node.params.get_mut(index) else {
-            return false;
-        };
-        let Some(options) = slot.widget.dropdown_options() else {
-            return false;
-        };
-        if options.is_empty() {
-            return false;
+        let mut changed = false;
+        let mut binding_changed = false;
+        {
+            let Some(node) = self.node_mut(node_id) else {
+                return false;
+            };
+            let index = param_index.min(node.params.len().saturating_sub(1));
+            let Some(slot) = node.params.get_mut(index) else {
+                return false;
+            };
+            let Some(options) = slot.widget.dropdown_options() else {
+                return false;
+            };
+            if options.is_empty() {
+                return false;
+            }
+            let next_index = option_index.min(options.len().saturating_sub(1));
+            if slot.signal_source.take().is_some() {
+                binding_changed = true;
+                changed = true;
+            }
+            changed |= apply_dropdown_value(slot, options, next_index);
+            if binding_changed {
+                rebuild_node_inputs(node);
+            }
         }
-        let next_index = option_index.min(options.len().saturating_sub(1));
-        let changed = apply_dropdown_value(slot, options, next_index);
         if changed {
+            if binding_changed {
+                self.recount_edges();
+            }
             self.bump_render_epoch();
         }
         changed
