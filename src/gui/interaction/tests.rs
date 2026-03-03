@@ -4,7 +4,8 @@ use super::{
     handle_link_cut, handle_main_export_menu_input, handle_node_open_toggle,
     handle_param_edit_input, handle_param_wheel_input, handle_right_selection, handle_wire_input,
     insert_param_char, marquee_moved, move_param_cursor_left, move_param_cursor_right,
-    rects_overlap, segments_intersect, update_hover_state, AddNodeMenuEntry, RightMarqueeState,
+    rects_overlap, segments_intersect, step_timeline_if_running, update_hover_state,
+    AddNodeMenuEntry, RightMarqueeState,
 };
 use crate::gui::geometry::Rect;
 use crate::gui::project::{
@@ -20,6 +21,7 @@ use crate::gui::state::{
 };
 use crate::gui::timeline::{editor_panel_height, timeline_control_layout, timeline_rect};
 use crate::runtime_config::V2Config;
+use std::time::Duration;
 
 #[test]
 fn segments_intersect_detects_crossing_lines() {
@@ -61,6 +63,20 @@ fn marquee_moved_requires_drag_threshold() {
 fn rects_overlap_detects_intersection() {
     assert!(rects_overlap(0, 0, 10, 10, 8, 8, 16, 16));
     assert!(!rects_overlap(0, 0, 10, 10, 11, 11, 20, 20));
+}
+
+#[test]
+fn timeline_step_handles_large_delta_without_iterative_catchup() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut state = PreviewState::new(&config);
+    state.paused = false;
+    state.frame_index = 5;
+    state.timeline_accum_secs = 0.0;
+
+    let advanced = step_timeline_if_running(&mut state, Duration::from_secs(10), 60, 180);
+    assert!(advanced);
+    assert_eq!(state.frame_index, 65);
+    assert!(state.timeline_accum_secs < (1.0 / 60.0));
 }
 
 #[test]

@@ -620,17 +620,27 @@ pub(crate) fn step_timeline_if_running(
     timeline_fps: u32,
     timeline_total_frames: u32,
 ) -> bool {
-    let mut advanced = false;
-    if !state.paused {
-        let tick_secs = 1.0 / timeline_fps.max(1) as f32;
-        state.timeline_accum_secs += frame_delta.as_secs_f32();
-        while state.timeline_accum_secs >= tick_secs {
-            state.timeline_accum_secs -= tick_secs;
-            state.frame_index = next_looped_frame(state.frame_index, timeline_total_frames);
-            advanced = true;
-        }
+    if state.paused {
+        return false;
     }
-    advanced
+    let tick_secs = 1.0_f64 / timeline_fps.max(1) as f64;
+    state.timeline_accum_secs += frame_delta.as_secs_f32();
+    let accum_secs = state.timeline_accum_secs as f64;
+    let ticks = (accum_secs / tick_secs).floor() as u32;
+    if ticks > 0 {
+        state.timeline_accum_secs = (accum_secs - tick_secs * ticks as f64).max(0.0) as f32;
+        state.frame_index = advance_looped_frame(state.frame_index, ticks, timeline_total_frames);
+        return true;
+    }
+    false
+}
+
+fn advance_looped_frame(frame: u32, ticks: u32, total_frames: u32) -> u32 {
+    if ticks == 1 {
+        return next_looped_frame(frame, total_frames);
+    }
+    let total = total_frames.max(1) as u64;
+    ((frame as u64 + ticks as u64) % total) as u32
 }
 
 fn handle_timeline_input(
