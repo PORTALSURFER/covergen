@@ -76,6 +76,52 @@ fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut Pre
     }
 }
 
+/// Clear drag/cut/pan/transient pointer interaction modes.
+fn clear_pointer_interactions(state: &mut PreviewState) {
+    state.drag = None;
+    state.wire_drag = None;
+    state.link_cut = None;
+    state.pan_drag = None;
+    state.export_menu_drag = None;
+    state.right_marquee = None;
+}
+
+/// Clear parameter hover targets and highlighted parameter UI rows.
+fn clear_param_hover_state(state: &mut PreviewState) {
+    state.hover_param_target = None;
+    state.hover_param = None;
+    state.hover_alt_param = None;
+}
+
+/// Clear active in-place parameter and dropdown editors.
+fn clear_param_edit_state(state: &mut PreviewState) {
+    state.param_edit = None;
+    state.param_scrub = None;
+    state.param_dropdown = None;
+    state.hover_dropdown_item = None;
+}
+
+/// Clear active timeline text-edit widgets.
+fn clear_timeline_edit_state(state: &mut PreviewState) {
+    state.timeline_bpm_edit = None;
+    state.timeline_bar_edit = None;
+}
+
+/// Cancel drag/wire interaction modes plus parameter-hover/dropdown state.
+fn cancel_node_interaction_modes(state: &mut PreviewState) {
+    state.drag = None;
+    state.wire_drag = None;
+    clear_param_hover_state(state);
+    state.param_dropdown = None;
+    state.param_scrub = None;
+}
+
+/// Close the add-node and main menu overlays.
+fn close_primary_menus(state: &mut PreviewState) {
+    state.menu = AddNodeMenuState::closed();
+    state.main_menu = MainMenuState::closed();
+}
+
 /// Shared panel-size context for interaction submodules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct InteractionPanelContext {
@@ -120,32 +166,20 @@ pub(crate) fn apply_preview_actions(
         state.timeline_accum_secs = 0.0;
         state.timeline_scrub_active = false;
         state.timeline_volume_drag_active = false;
-        state.drag = None;
-        state.wire_drag = None;
-        state.link_cut = None;
-        state.pan_drag = None;
-        state.export_menu_drag = None;
-        state.right_marquee = None;
-        state.param_edit = None;
-        state.param_scrub = None;
-        state.timeline_bpm_edit = None;
-        state.timeline_bar_edit = None;
-        state.param_dropdown = None;
+        clear_pointer_interactions(state);
+        clear_param_edit_state(state);
+        clear_timeline_edit_state(state);
         state.selected_nodes.clear();
         state.pan_x = 0.0;
         state.pan_y = 0.0;
         state.zoom = 1.0;
-        state.menu = AddNodeMenuState::closed();
-        state.main_menu = MainMenuState::closed();
+        close_primary_menus(state);
         state.active_node = None;
         state.hover_node = None;
         state.hover_output_pin = None;
         state.hover_input_pin = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
+        clear_param_hover_state(state);
         state.hover_insert_link = None;
-        state.hover_dropdown_item = None;
         state.auto_expanded_binding_nodes.clear();
         state.hover_menu_item = None;
         state.hover_main_menu_item = None;
@@ -177,32 +211,16 @@ pub(crate) fn apply_preview_actions(
         invalidate_timeline_and_signal_previews(project, state);
     }
     if timeline_consumed {
-        state.drag = None;
-        state.wire_drag = None;
-        state.link_cut = None;
-        state.pan_drag = None;
-        state.export_menu_drag = None;
-        state.right_marquee = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_dropdown = None;
-        state.param_edit = None;
-        state.param_scrub = None;
-        state.menu = AddNodeMenuState::closed();
-        state.main_menu = MainMenuState::closed();
+        clear_pointer_interactions(state);
+        clear_param_hover_state(state);
+        clear_param_edit_state(state);
+        close_primary_menus(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
     }
     if state.timeline_bpm_edit.is_some() || state.timeline_bar_edit.is_some() {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_dropdown = None;
-        state.param_scrub = None;
+        cancel_node_interaction_modes(state);
         changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
@@ -214,13 +232,7 @@ pub(crate) fn apply_preview_actions(
         invalidate_graph_layers(state);
     }
     if state.pan_drag.is_some() {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_dropdown = None;
-        state.param_scrub = None;
+        cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -239,11 +251,8 @@ pub(crate) fn apply_preview_actions(
         state.link_cut = None;
         state.hover_param_target = None;
         state.hover_param = None;
-        state.param_edit = None;
-        state.timeline_bpm_edit = None;
-        state.timeline_bar_edit = None;
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
+        clear_param_edit_state(state);
+        clear_timeline_edit_state(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -256,13 +265,7 @@ pub(crate) fn apply_preview_actions(
         state.invalidation.invalidate_overlays();
     }
     if state.link_cut.is_some() {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_dropdown = None;
-        state.param_scrub = None;
+        cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -276,13 +279,7 @@ pub(crate) fn apply_preview_actions(
         state.invalidation.invalidate_overlays();
     }
     if state.right_marquee.is_some() {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_dropdown = None;
-        state.param_scrub = None;
+        cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
@@ -317,24 +314,13 @@ pub(crate) fn apply_preview_actions(
         state.invalidation.invalidate_overlays();
     }
     if param_click_consumed {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_scrub = None;
+        cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;
     }
     if state.param_edit.is_some() {
-        state.drag = None;
-        state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_scrub = None;
-        state.param_dropdown = None;
+        cancel_node_interaction_modes(state);
         changed |= collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return changed;
@@ -417,23 +403,11 @@ fn handle_help_input(
         None => build_global_help_modal(),
     };
     state.help_modal = Some(modal);
-    state.menu = AddNodeMenuState::closed();
-    state.main_menu = MainMenuState::closed();
-    state.drag = None;
-    state.wire_drag = None;
-    state.link_cut = None;
-    state.pan_drag = None;
-    state.export_menu_drag = None;
-    state.right_marquee = None;
-    state.param_edit = None;
-    state.param_scrub = None;
-    state.timeline_bpm_edit = None;
-    state.timeline_bar_edit = None;
-    state.param_dropdown = None;
-    state.hover_param_target = None;
-    state.hover_param = None;
-    state.hover_alt_param = None;
-    state.hover_dropdown_item = None;
+    close_primary_menus(state);
+    clear_pointer_interactions(state);
+    clear_param_hover_state(state);
+    clear_param_edit_state(state);
+    clear_timeline_edit_state(state);
     state.invalidation.invalidate_overlays();
     (true, true)
 }
@@ -967,9 +941,7 @@ fn handle_pan_zoom_and_focus(
                 });
                 state.drag = None;
                 state.wire_drag = None;
-                state.hover_param_target = None;
-                state.hover_param = None;
-                state.hover_alt_param = None;
+                clear_param_hover_state(state);
                 state.param_scrub = None;
             }
         }
@@ -1014,15 +986,9 @@ fn handle_add_menu_toggle(
         state.menu = AddNodeMenuState::closed();
         state.main_menu = super::state::MainMenuState::closed();
         state.wire_drag = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        state.hover_alt_param = None;
-        state.param_edit = None;
-        state.param_scrub = None;
-        state.timeline_bpm_edit = None;
-        state.timeline_bar_edit = None;
-        state.param_dropdown = None;
-        state.hover_dropdown_item = None;
+        clear_param_hover_state(state);
+        clear_param_edit_state(state);
+        clear_timeline_edit_state(state);
         return true;
     }
     let (x, y) = input
@@ -1032,15 +998,9 @@ fn handle_add_menu_toggle(
     state.main_menu = MainMenuState::closed();
     state.drag = None;
     state.wire_drag = None;
-    state.hover_param_target = None;
-    state.hover_param = None;
-    state.hover_alt_param = None;
-    state.param_edit = None;
-    state.param_scrub = None;
-    state.timeline_bpm_edit = None;
-    state.timeline_bar_edit = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
+    clear_param_hover_state(state);
+    clear_param_edit_state(state);
+    clear_timeline_edit_state(state);
     true
 }
 
@@ -1061,17 +1021,11 @@ fn handle_main_menu_toggle(
         .unwrap_or((panel_width as i32 / 4, panel_height as i32 / 4));
     state.main_menu = MainMenuState::open_at(x, y, panel_width, editor_panel_height(panel_height));
     state.menu = AddNodeMenuState::closed();
-    state.param_edit = None;
-    state.param_scrub = None;
-    state.timeline_bpm_edit = None;
-    state.timeline_bar_edit = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
+    clear_param_edit_state(state);
+    clear_timeline_edit_state(state);
     state.drag = None;
     state.wire_drag = None;
-    state.hover_param_target = None;
-    state.hover_param = None;
-    state.hover_alt_param = None;
+    clear_param_hover_state(state);
     true
 }
 
@@ -1414,19 +1368,10 @@ fn handle_delete_selected_nodes(
     state.hover_node = None;
     state.hover_output_pin = None;
     state.hover_input_pin = None;
-    state.hover_param_target = None;
-    state.hover_param = None;
-    state.hover_alt_param = None;
-    state.drag = None;
-    state.wire_drag = None;
-    state.right_marquee = None;
-    state.link_cut = None;
-    state.param_edit = None;
-    state.param_scrub = None;
-    state.timeline_bpm_edit = None;
-    state.timeline_bar_edit = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
+    clear_param_hover_state(state);
+    clear_pointer_interactions(state);
+    clear_param_edit_state(state);
+    clear_timeline_edit_state(state);
     true
 }
 
@@ -1498,15 +1443,9 @@ fn handle_link_cut(
                 });
                 state.drag = None;
                 state.wire_drag = None;
-                state.hover_param_target = None;
-                state.hover_param = None;
-                state.hover_alt_param = None;
-                state.param_edit = None;
-                state.param_scrub = None;
-                state.timeline_bpm_edit = None;
-                state.timeline_bar_edit = None;
-                state.param_dropdown = None;
-                state.hover_dropdown_item = None;
+                clear_param_hover_state(state);
+                clear_param_edit_state(state);
+                clear_timeline_edit_state(state);
                 return true;
             }
         }
