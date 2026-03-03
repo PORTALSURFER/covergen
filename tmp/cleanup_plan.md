@@ -145,7 +145,7 @@ Date: 2026-03-03
     - `scripts/lint/private_docs_subset.sh`
     - staged `cargo clippy ... -D warnings` dry runs.
 
-- [ ] 8. Add tests for large, currently untested high-complexity modules
+- [x] 8. Add tests for large, currently untested high-complexity modules _(done 2026-03-03, commit 3f9ec00)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
