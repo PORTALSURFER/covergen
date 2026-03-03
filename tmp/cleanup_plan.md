@@ -182,7 +182,9 @@ Date: 2026-03-03
     - `cargo clippy --all-targets --all-features -- -D warnings`
     - Full `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 8. Reintroduce private-item doc enforcement incrementally
+- [x] 8. Reintroduce private-item doc enforcement incrementally
+  - Completed: 2026-03-03 (`715fe76`)
+  - Validation: `scripts/lint/private_docs_subset.sh` passes; full `scripts/ci_local.sh validate laptop_integrated` remains blocked in current environment (`cargo` missing).
   - ROI: Medium
   - Effort: L
   - Why it matters:
