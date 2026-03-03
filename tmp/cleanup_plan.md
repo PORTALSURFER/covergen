@@ -69,7 +69,7 @@ Date: 2026-03-03
     - `cargo test -q gui::runtime::tests`
     - `cargo test -q gui::project::tests::runtime_param_schema_matches_default_editor_param_order`
 
-- [ ] 4. Decompose tex-preview execution staging into smaller typed units
+- [x] 4. Decompose tex-preview execution staging into smaller typed units _(done 2026-03-03, commit d505183)_
   - ROI: High
   - Effort: M
   - Why it matters:
