@@ -235,7 +235,12 @@ impl TexPreviewRenderer {
     ) -> Option<u64> {
         self.blend_source_aliases.clear();
         self.blend_source_aliases_by_target.clear();
-        if self.cached_plan_signature != Some(plan_signature) {
+        let plan_changed = self.cached_plan_signature != Some(plan_signature);
+        let uniform_changed = self.op_uniform_signature != Some(uniform_signature);
+        if plan_changed || uniform_changed {
+            // Planned render ops embed concrete op payload values (including
+            // fused transform uniforms). Refresh the plan whenever uniforms
+            // change so cached payloads never drift from current `ops`.
             self.cached_plan_ops.clear();
             self.cached_plan_ops.extend_from_slice(ops);
             self.cached_plan_steps.clear();
@@ -246,7 +251,9 @@ impl TexPreviewRenderer {
                 &mut self.cached_plan_render_ops,
             );
             self.cached_plan_signature = Some(plan_signature);
-            self.op_uniform_signature = None;
+            if plan_changed {
+                self.op_uniform_signature = None;
+            }
         }
         if self.cached_plan_render_ops.is_empty() {
             return None;
