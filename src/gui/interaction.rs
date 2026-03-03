@@ -1705,8 +1705,7 @@ fn activate_add_menu_selection(
                 project.add_node(option.kind, spawn_x, spawn_y, panel_width, panel_height);
             if let Some(link) = hover_insert_link_at_cursor(
                 project,
-                panel_width,
-                panel_height,
+                InteractionPanelContext::new(panel_width, panel_height),
                 state,
                 drop_cursor_x,
                 drop_cursor_y,
