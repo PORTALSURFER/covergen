@@ -2,7 +2,8 @@
 
 use crate::gui::geometry::Rect;
 use crate::gui::tex_view::{TexViewerFrame, TexViewerOp, TexViewerPayload};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use super::super::viewer;
 use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
@@ -231,6 +232,7 @@ impl TexPreviewRenderer {
                 self.op_uniform_signature = None;
             }
         }
+        self.prune_texture_caches_for_plan();
         if self.cached_plan_render_ops.is_empty() {
             return None;
         }
@@ -795,6 +797,15 @@ impl TexPreviewRenderer {
         });
     }
 
+    fn prune_texture_caches_for_plan(&mut self) {
+        let (active_feedback, active_blend_sources) = collect_active_cache_keys(
+            self.cached_plan_steps.as_slice(),
+            self.cached_plan_render_ops.as_slice(),
+        );
+        prune_keyed_cache(&mut self.feedback_history, &active_feedback);
+        prune_keyed_cache(&mut self.blend_source_slots, &active_blend_sources);
+    }
+
     fn ensure_viewer_texture(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.viewer_texture_size == (width, height) && self.viewer_bind_group.is_some() {
             return;
@@ -1180,6 +1191,45 @@ impl TexPreviewRenderer {
     }
 }
 
+fn collect_active_cache_keys(
+    planned_steps: &[PlannedStep],
+    planned_render_ops: &[PlannedRenderOp],
+) -> (HashSet<FeedbackHistoryKey>, HashSet<u32>) {
+    let mut active_feedback = HashSet::new();
+    let mut active_blend_sources = HashSet::new();
+    for op in planned_render_ops {
+        if let Some(key) = TexPreviewRenderer::feedback_key_for_planned(*op) {
+            let _ = active_feedback.insert(key);
+        }
+        let PlannedRenderOp::Runtime(TexViewerOp::Blend {
+            base_texture_node_id,
+            layer_texture_node_id,
+            ..
+        }) = *op
+        else {
+            continue;
+        };
+        let _ = active_blend_sources.insert(base_texture_node_id);
+        if let Some(layer_id) = layer_texture_node_id {
+            let _ = active_blend_sources.insert(layer_id);
+        }
+    }
+    for step in planned_steps {
+        let PlannedStep::StoreTexture { texture_node_id } = *step else {
+            continue;
+        };
+        let _ = active_blend_sources.insert(texture_node_id);
+    }
+    (active_feedback, active_blend_sources)
+}
+
+fn prune_keyed_cache<K, V>(cache: &mut HashMap<K, V>, active_keys: &HashSet<K>)
+where
+    K: Eq + Hash,
+{
+    cache.retain(|key, _| active_keys.contains(key));
+}
+
 fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
     match op {
         TexViewerOp::Sphere {
@@ -1204,9 +1254,13 @@ fn consume_feedback_write_cooldown(write_cooldown: &mut u32, frame_gap: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{consume_feedback_write_cooldown, PlannedRenderOp, TexPreviewRenderer};
+    use super::{
+        collect_active_cache_keys, consume_feedback_write_cooldown, prune_keyed_cache,
+        PlannedRenderOp, PlannedStep, TexPreviewRenderer,
+    };
     use crate::gui::runtime::{PostProcessCategory, TexRuntimeFeedbackHistoryBinding};
     use crate::gui::tex_view::TexViewerOp;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn feedback_ops_use_history_tap_mode() {
@@ -1292,6 +1346,64 @@ mod tests {
             TexPreviewRenderer::external_feedback_accumulation_texture(reaction),
             None
         );
+    }
+
+    #[test]
+    fn active_cache_keys_include_feedback_and_blend_sources() {
+        let feedback = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+            mix: 0.5,
+            frame_gap: 0,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 12,
+            },
+        });
+        let post = PlannedRenderOp::Runtime(TexViewerOp::PostProcess {
+            category: PostProcessCategory::Temporal,
+            effect: 0.0,
+            amount: 0.5,
+            scale: 0.5,
+            threshold: 0.0,
+            speed: 0.0,
+            time: 0.0,
+            history: Some(TexRuntimeFeedbackHistoryBinding::External {
+                texture_node_id: 44,
+            }),
+        });
+        let blend = PlannedRenderOp::Runtime(TexViewerOp::Blend {
+            mode: 0.0,
+            opacity: 1.0,
+            bg_r: 0.0,
+            bg_g: 0.0,
+            bg_b: 0.0,
+            bg_a: 0.0,
+            base_texture_node_id: 7,
+            layer_texture_node_id: Some(9),
+        });
+        let steps = vec![
+            PlannedStep::StoreTexture { texture_node_id: 7 },
+            PlannedStep::StoreTexture {
+                texture_node_id: 13,
+            },
+        ];
+        let render_ops = vec![feedback, post, blend];
+
+        let (active_feedback, active_blend) =
+            collect_active_cache_keys(steps.as_slice(), render_ops.as_slice());
+        assert_eq!(active_feedback.len(), 2);
+        assert_eq!(active_blend.len(), 3);
+        assert!(active_blend.contains(&7));
+        assert!(active_blend.contains(&9));
+        assert!(active_blend.contains(&13));
+    }
+
+    #[test]
+    fn prune_keyed_cache_removes_stale_keys() {
+        let mut cache = HashMap::from([(1u32, "a"), (2u32, "b"), (3u32, "c")]);
+        let active = HashSet::from([2u32, 3u32]);
+        prune_keyed_cache(&mut cache, &active);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.contains_key(&2));
+        assert!(cache.contains_key(&3));
     }
 
     #[test]
