@@ -202,7 +202,7 @@ Date: 2026-03-03
     - `scripts/ci_local.sh validate laptop_integrated`
     - `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`
 
-- [ ] 11. Normalize public domain-type field documentation for `node` and config surfaces
+- [x] 11. Normalize public domain-type field documentation for `node` and config surfaces _(done 2026-03-03, commit 6ae2696)_
   - ROI: Low
   - Effort: M
   - Why it matters:
