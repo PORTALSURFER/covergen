@@ -152,7 +152,7 @@ Date: 2026-03-03
     - `cargo test -q animation::tests`
     - `cargo test -q v2_animation_movie_quality_metrics_within_bounds`
 
-- [ ] 8. Complete preset module hierarchy cleanup by moving operator tests with implementation modules
+- [x] 8. Complete preset module hierarchy cleanup by moving operator tests with implementation modules _(done 2026-03-03, commit ce0db68)_
   - ROI: Medium
   - Effort: S
   - Why it matters:
