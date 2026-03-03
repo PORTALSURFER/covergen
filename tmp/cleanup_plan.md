@@ -100,7 +100,7 @@ Date: 2026-03-03
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 6. Split `gui::runtime` evaluator into typed per-step emitters
+- [x] 6. Split `gui::runtime` evaluator into typed per-step emitters _(done 2026-03-03, commit 2c4b35b)_
   - ROI: High
   - Effort: L
   - Why it matters:
