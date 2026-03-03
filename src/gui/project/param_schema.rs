@@ -109,16 +109,16 @@ pub(crate) mod level {
 /// Canonical keys for `tex.feedback`.
 pub(crate) mod feedback {
     use super::super::{
-        FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_PARAM_KEY, LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+        FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_RESET_PARAM_KEY,
     };
 
     pub(crate) const MIX: &str = "feedback";
 
     pub(crate) const KEYS: [&str; 4] = [
-        MIX,
         FEEDBACK_HISTORY_PARAM_KEY,
-        LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+        MIX,
         FEEDBACK_FRAME_GAP_PARAM_KEY,
+        FEEDBACK_RESET_PARAM_KEY,
     ];
 }
 
@@ -157,6 +157,7 @@ pub(crate) mod ctl_lfo {
     pub(crate) const LFO_TYPE_INDEX: usize = 6;
     pub(crate) const SHAPE_INDEX: usize = 7;
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const KEYS: [&str; 8] = [
         RATE_HZ, AMPLITUDE, PHASE, BIAS, SYNC_MODE, BEAT_MUL, LFO_TYPE, SHAPE,
     ];

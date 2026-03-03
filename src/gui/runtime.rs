@@ -9,7 +9,8 @@ use std::time::Instant;
 
 use super::project::{
     param_schema, GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack,
-    BLEND_LAYER_PARAM_KEY,
+    BLEND_LAYER_PARAM_KEY, FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_PARAM_KEY,
+    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
 };
 use crate::telemetry;
 
@@ -79,7 +80,12 @@ const LEVEL_IN_HIGH_SLOT: usize = 1;
 const LEVEL_GAMMA_SLOT: usize = 2;
 const LEVEL_OUT_LOW_SLOT: usize = 3;
 const LEVEL_OUT_HIGH_SLOT: usize = 4;
-const FEEDBACK_PARAM_KEYS: [&str; 4] = param_schema::feedback::KEYS;
+const FEEDBACK_PARAM_KEYS: [&str; 4] = [
+    param_schema::feedback::MIX,
+    FEEDBACK_HISTORY_PARAM_KEY,
+    LEGACY_FEEDBACK_HISTORY_PARAM_KEY,
+    FEEDBACK_FRAME_GAP_PARAM_KEY,
+];
 const FEEDBACK_MIX_SLOT: usize = 0;
 const FEEDBACK_HISTORY_SLOT: usize = 1;
 const FEEDBACK_LEGACY_HISTORY_SLOT: usize = 2;
@@ -1851,7 +1857,7 @@ mod tests {
         compiled_param_value_opt, compiled_step, compiled_texture_source_for_param,
         CompiledStepKind, GuiCompiledRuntime, PostProcessCategory,
         TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext, TexRuntimeOp,
-        FEEDBACK_FRAME_GAP_PARAM_KEY, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
+        FEEDBACK_FRAME_GAP_SLOT, FEEDBACK_HISTORY_SLOT, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
 
@@ -2144,7 +2150,7 @@ mod tests {
         assert!(project.connect_image_link(solid, feedback));
         assert!(project.connect_image_link(feedback, out));
         let frame_gap_slot = project
-            .node_param_slot_index(feedback, FEEDBACK_FRAME_GAP_PARAM_KEY)
+            .node_param_slot_index(feedback, FEEDBACK_PARAM_KEYS[FEEDBACK_FRAME_GAP_SLOT])
             .expect("feedback frame_gap slot should exist");
         assert!(project.set_param_value(feedback, frame_gap_slot, 3.7));
 

@@ -1,4 +1,5 @@
 //! Shared procedural helpers for CHOP/SOP/tex-camera graph nodes.
+#![allow(dead_code)]
 
 use crate::chop::{ChopLfoNode, ChopMathMode, ChopMathNode, ChopRemapNode, ChopWave};
 use crate::node::GraphTimeInput;

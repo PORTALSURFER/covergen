@@ -1,4 +1,5 @@
 //! Core data types shared across GPU/CUDA renderers and strategy selection.
+#![allow(dead_code)]
 
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};

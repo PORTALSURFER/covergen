@@ -315,7 +315,10 @@ pub(crate) fn apply_preview_actions(
         state.invalidation.invalidate_overlays();
     }
     if param_click_consumed {
-        cancel_node_interaction_modes(state);
+        state.drag = None;
+        state.wire_drag = None;
+        clear_param_hover_state(state);
+        state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes(project, panel_width, panel_height, state);
         state.prev_left_down = input.left_down;
         return true;

@@ -216,6 +216,7 @@ impl RetainedGpuPost {
     }
 
     /// Resolve retained timestamp queries into the per-node resolve buffer.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn resolve_timestamps(&mut self, encoder: &mut wgpu::CommandEncoder) {
         self.timestamps.resolve_and_reset(encoder);
     }

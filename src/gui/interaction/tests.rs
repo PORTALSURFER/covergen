@@ -1149,8 +1149,9 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
         let node = project.node(pass).expect("scene-pass node should exist");
         node_param_value_rect(node, 2).expect("bg_mode value rect should exist")
     };
+    let value_panel = super::graph_rect_to_panel(value_rect, &state);
     let input = InputSnapshot {
-        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        mouse_pos: Some((value_panel.x + 2, value_panel.y + 2)),
         left_clicked: true,
         ..InputSnapshot::default()
     };
