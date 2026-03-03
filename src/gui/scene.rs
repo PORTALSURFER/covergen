@@ -172,6 +172,31 @@ struct ParamRouteCacheKey {
     end_tail_cells: i32,
 }
 
+/// Stateful cache and scratch storage for wire-route planning.
+#[derive(Default)]
+struct WireRouteService {
+    edge_cache_epoch: Option<u64>,
+    edge_cache: HashMap<EdgeRouteCacheKey, Arc<[(i32, i32)]>>,
+    edge_obstacle_map: wire_route::RouteObstacleMap,
+    edge_occupied: wire_route::RouteOccupiedEdges,
+    param_cache_epoch: Option<u64>,
+    param_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
+    param_obstacle_map: wire_route::RouteObstacleMap,
+    edge_live_route_keys_scratch: HashSet<EdgeRouteCacheKey>,
+    edge_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
+    edge_route_panel_scratch: Vec<(i32, i32)>,
+    param_live_route_keys_scratch: HashSet<ParamRouteCacheKey>,
+    param_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
+    param_route_panel_scratch: Vec<(i32, i32)>,
+}
+
+impl WireRouteService {
+    fn invalidate_epochs(&mut self) {
+        self.edge_cache_epoch = None;
+        self.param_cache_epoch = None;
+    }
+}
+
 /// Stateful scene builder that reuses allocation capacity across frames.
 #[derive(Default)]
 pub(crate) struct SceneBuilder {
@@ -185,31 +210,19 @@ pub(crate) struct SceneBuilder {
     cached_param_wires_overlay_epoch: Option<u64>,
     cached_overlays_epoch: Option<u64>,
     cached_timeline_epoch: Option<u64>,
-    edge_route_cache_epoch: Option<u64>,
-    edge_route_cache: HashMap<EdgeRouteCacheKey, Arc<[(i32, i32)]>>,
-    edge_route_obstacle_map: wire_route::RouteObstacleMap,
-    edge_route_occupied: wire_route::RouteOccupiedEdges,
+    wire_routes: WireRouteService,
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
     fitted_label_cache: HashMap<FittedLabelCacheBucketKey, HashMap<String, String>>,
-    param_route_cache_epoch: Option<u64>,
-    param_route_cache: HashMap<ParamRouteCacheKey, Arc<[(i32, i32)]>>,
-    param_route_panel_scratch: Vec<(i32, i32)>,
-    param_route_obstacle_map: wire_route::RouteObstacleMap,
     signal_eval_stack: SignalEvalStack,
     signal_sample_memo: SignalSampleMemo,
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
     live_signal_scope_nodes: HashSet<u32>,
     signal_scope_line_scratch: Vec<(i32, i32, i32, i32)>,
     selected_nodes_lookup_scratch: HashSet<u32>,
-    edge_live_route_keys_scratch: HashSet<EdgeRouteCacheKey>,
     edge_drawn_segments_scratch: Vec<DrawnWireSegment>,
-    edge_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
-    edge_route_panel_scratch: Vec<(i32, i32)>,
-    param_live_route_keys_scratch: HashSet<ParamRouteCacheKey>,
     param_drawn_segments_scratch: Vec<DrawnWireSegment>,
-    param_tail_slots_scratch: HashMap<((i32, i32), wire_route::RouteDirection), i32>,
     bridge_new_segments_scratch: Vec<DrawnWireSegment>,
     bridge_candidate_indices_scratch: Vec<usize>,
     bridge_crossings_scratch: Vec<f32>,
@@ -256,8 +269,7 @@ impl SceneBuilder {
             self.cached_param_wires_epoch = None;
             self.cached_param_wires_overlay_epoch = None;
             self.cached_overlays_epoch = None;
-            self.edge_route_cache_epoch = None;
-            self.param_route_cache_epoch = None;
+            self.wire_routes.invalidate_epochs();
         }
 
         self.rebuild_static_if_needed(width, height, panel_width);
@@ -439,28 +451,29 @@ impl SceneBuilder {
     }
 
     fn push_edges(&mut self, project: &GuiProject, state: &PreviewState) {
-        self.edge_route_occupied = wire_route::RouteOccupiedEdges::default();
+        self.wire_routes.edge_occupied = wire_route::RouteOccupiedEdges::default();
         if project.edge_count() == 0 {
             return;
         }
         let obstacle_epoch = edge_route_obstacle_epoch(project);
-        if self.edge_route_cache_epoch != Some(obstacle_epoch) {
-            self.edge_route_cache_epoch = Some(obstacle_epoch);
-            self.edge_route_cache.clear();
+        if self.wire_routes.edge_cache_epoch != Some(obstacle_epoch) {
+            self.wire_routes.edge_cache_epoch = Some(obstacle_epoch);
+            self.wire_routes.edge_cache.clear();
             let obstacles = collect_graph_node_obstacles(project);
-            self.edge_route_obstacle_map =
+            self.wire_routes.edge_obstacle_map =
                 wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
         }
-        let active_epoch = self.edge_route_cache_epoch.unwrap_or(obstacle_epoch);
-        let mut live_route_keys = std::mem::take(&mut self.edge_live_route_keys_scratch);
+        let active_epoch = self.wire_routes.edge_cache_epoch.unwrap_or(obstacle_epoch);
+        let mut live_route_keys =
+            std::mem::take(&mut self.wire_routes.edge_live_route_keys_scratch);
         let mut drawn_segments = std::mem::take(&mut self.edge_drawn_segments_scratch);
         live_route_keys.clear();
         drawn_segments.clear();
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
-        let mut tail_slots = std::mem::take(&mut self.edge_tail_slots_scratch);
+        let mut tail_slots = std::mem::take(&mut self.wire_routes.edge_tail_slots_scratch);
         tail_slots.clear();
-        let mut route_panel = std::mem::take(&mut self.edge_route_panel_scratch);
+        let mut route_panel = std::mem::take(&mut self.wire_routes.edge_route_panel_scratch);
         route_panel.clear();
         for target in project.nodes() {
             let Some((default_to_x_graph, default_to_y_graph)) = input_pin_center(target) else {
@@ -504,19 +517,21 @@ impl SceneBuilder {
                     end_tail_cells,
                 };
                 live_route_keys.insert(route_key);
-                if !self.edge_route_cache.contains_key(&route_key) {
+                if !self.wire_routes.edge_cache.contains_key(&route_key) {
                     let route =
                         wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_map(
                             start_endpoint,
                             end_endpoint,
-                            &self.edge_route_obstacle_map,
+                            &self.wire_routes.edge_obstacle_map,
                             &occupied_edges,
                             start_tail_cells,
                             end_tail_cells,
                         );
-                    self.edge_route_cache.insert(route_key, Arc::from(route));
+                    self.wire_routes
+                        .edge_cache
+                        .insert(route_key, Arc::from(route));
                 }
-                let Some(route_graph) = self.edge_route_cache.get(&route_key).cloned() else {
+                let Some(route_graph) = self.wire_routes.edge_cache.get(&route_key).cloned() else {
                     continue;
                 };
                 route_panel.clear();
@@ -545,17 +560,18 @@ impl SceneBuilder {
                 self.push_round_endpoint(to_x, to_y, color);
             }
         }
-        self.edge_route_occupied = occupied_edges;
-        self.edge_route_cache
+        self.wire_routes.edge_occupied = occupied_edges;
+        self.wire_routes
+            .edge_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
         route_panel.clear();
         tail_slots.clear();
         drawn_segments.clear();
         live_route_keys.clear();
-        self.edge_route_panel_scratch = route_panel;
-        self.edge_tail_slots_scratch = tail_slots;
+        self.wire_routes.edge_route_panel_scratch = route_panel;
+        self.wire_routes.edge_tail_slots_scratch = tail_slots;
         self.edge_drawn_segments_scratch = drawn_segments;
-        self.edge_live_route_keys_scratch = live_route_keys;
+        self.wire_routes.edge_live_route_keys_scratch = live_route_keys;
     }
 
     fn push_nodes(
@@ -1767,24 +1783,25 @@ impl SceneBuilder {
             return;
         }
         let obstacle_epoch =
-            param_route_obstacle_epoch(project, state, self.param_route_cache_epoch);
-        if self.param_route_cache_epoch != Some(obstacle_epoch) {
-            self.param_route_cache_epoch = Some(obstacle_epoch);
-            self.param_route_cache.clear();
+            param_route_obstacle_epoch(project, state, self.wire_routes.param_cache_epoch);
+        if self.wire_routes.param_cache_epoch != Some(obstacle_epoch) {
+            self.wire_routes.param_cache_epoch = Some(obstacle_epoch);
+            self.wire_routes.param_cache.clear();
             let obstacles = collect_graph_node_obstacles(project);
-            self.param_route_obstacle_map =
+            self.wire_routes.param_obstacle_map =
                 wire_route::RouteObstacleMap::from_obstacles(&obstacles);
         }
-        let active_epoch = self.param_route_cache_epoch.unwrap_or(obstacle_epoch);
-        let mut live_route_keys = std::mem::take(&mut self.param_live_route_keys_scratch);
+        let active_epoch = self.wire_routes.param_cache_epoch.unwrap_or(obstacle_epoch);
+        let mut live_route_keys =
+            std::mem::take(&mut self.wire_routes.param_live_route_keys_scratch);
         let mut drawn_segments = std::mem::take(&mut self.param_drawn_segments_scratch);
         live_route_keys.clear();
         drawn_segments.clear();
         let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
         let mut param_occupied_edges = wire_route::RouteOccupiedEdges::default();
-        let mut tail_slots = std::mem::take(&mut self.param_tail_slots_scratch);
+        let mut tail_slots = std::mem::take(&mut self.wire_routes.param_tail_slots_scratch);
         tail_slots.clear();
-        let mut route_panel = std::mem::take(&mut self.param_route_panel_scratch);
+        let mut route_panel = std::mem::take(&mut self.wire_routes.param_route_panel_scratch);
         route_panel.clear();
         for target in project.nodes() {
             for param_index in 0..target.param_count() {
@@ -1827,20 +1844,22 @@ impl SceneBuilder {
                     end_tail_cells,
                 };
                 live_route_keys.insert(route_key);
-                if !self.param_route_cache.contains_key(&route_key) {
+                if !self.wire_routes.param_cache.contains_key(&route_key) {
                     let route =
                         wire_route::route_wire_path_with_tail_cells_avoiding_overlaps_with_dual_map(
                             start_endpoint,
                             end_endpoint,
-                            &self.param_route_obstacle_map,
-                            &self.edge_route_occupied,
+                            &self.wire_routes.param_obstacle_map,
+                            &self.wire_routes.edge_occupied,
                             &param_occupied_edges,
                             start_tail_cells,
                             end_tail_cells,
                         );
-                    self.param_route_cache.insert(route_key, Arc::from(route));
+                    self.wire_routes
+                        .param_cache
+                        .insert(route_key, Arc::from(route));
                 }
-                let Some(route) = self.param_route_cache.get(&route_key).cloned() else {
+                let Some(route) = self.wire_routes.param_cache.get(&route_key).cloned() else {
                     continue;
                 };
                 map_graph_path_to_panel_into(route.as_ref(), state, &mut route_panel);
@@ -1860,16 +1879,17 @@ impl SceneBuilder {
                 self.push_param_target_marker(to_x, to_y, color);
             }
         }
-        self.param_route_cache
+        self.wire_routes
+            .param_cache
             .retain(|key, _| key.obstacle_epoch == active_epoch && live_route_keys.contains(key));
         route_panel.clear();
         tail_slots.clear();
         drawn_segments.clear();
         live_route_keys.clear();
-        self.param_route_panel_scratch = route_panel;
-        self.param_tail_slots_scratch = tail_slots;
+        self.wire_routes.param_route_panel_scratch = route_panel;
+        self.wire_routes.param_tail_slots_scratch = tail_slots;
         self.param_drawn_segments_scratch = drawn_segments;
-        self.param_live_route_keys_scratch = live_route_keys;
+        self.wire_routes.param_live_route_keys_scratch = live_route_keys;
     }
 
     fn push_path_lines(&mut self, points: &[(i32, i32)], color: Color) {
@@ -2530,12 +2550,14 @@ mod tests {
 
         state.invalidation.invalidate_overlays();
         let _ = scene.build(&project, &state, 640, 480, 640, 60);
-        assert_eq!(scene.param_route_cache.len(), 1);
+        assert_eq!(scene.wire_routes.param_cache.len(), 1);
         let initial_epoch = scene
-            .param_route_cache_epoch
+            .wire_routes
+            .param_cache_epoch
             .expect("param route epoch should be initialized");
         let initial_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should exist")
@@ -2553,9 +2575,10 @@ mod tests {
         });
 
         let _ = scene.build(&project, &state, 640, 480, 640, 60);
-        assert_eq!(scene.param_route_cache_epoch, Some(initial_epoch));
+        assert_eq!(scene.wire_routes.param_cache_epoch, Some(initial_epoch));
         let drag_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should stay cached during drag")
@@ -2566,11 +2589,13 @@ mod tests {
         state.invalidation.invalidate_overlays();
         let _ = scene.build(&project, &state, 640, 480, 640, 60);
         let release_epoch = scene
-            .param_route_cache_epoch
+            .wire_routes
+            .param_cache_epoch
             .expect("param route epoch should remain initialized");
         assert_ne!(release_epoch, initial_epoch);
         let release_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should be recomputed on release")
@@ -2591,7 +2616,8 @@ mod tests {
         state.invalidation.invalidate_overlays();
         let _ = scene.build(&project, &state, 640, 480, 640, 60);
         let initial_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should exist")
@@ -2608,7 +2634,8 @@ mod tests {
         });
         let _ = scene.build(&project, &state, 640, 480, 640, 60);
         let drag_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should stay cached during drag")
@@ -2623,7 +2650,8 @@ mod tests {
             "drop should force one parameter-wire refresh so parameter routes update"
         );
         let release_route = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("route should be recomputed on release")
@@ -2642,12 +2670,14 @@ mod tests {
         let mut scene = SceneBuilder::default();
         let frame = scene.build(&project, &state, 640, 480, 640, 60);
         assert!(frame.dirty.edges, "initial build should populate edges");
-        assert_eq!(scene.edge_route_cache.len(), 1);
+        assert_eq!(scene.wire_routes.edge_cache.len(), 1);
         let initial_epoch = scene
-            .edge_route_cache_epoch
+            .wire_routes
+            .edge_cache_epoch
             .expect("edge route epoch should be initialized");
         let initial_route = scene
-            .edge_route_cache
+            .wire_routes
+            .edge_cache
             .values()
             .next()
             .expect("cached edge route should exist")
@@ -2661,9 +2691,10 @@ mod tests {
             frame.dirty.edges,
             "pan should rebuild panel-space edge layer"
         );
-        assert_eq!(scene.edge_route_cache_epoch, Some(initial_epoch));
+        assert_eq!(scene.wire_routes.edge_cache_epoch, Some(initial_epoch));
         let pan_route = scene
-            .edge_route_cache
+            .wire_routes
+            .edge_cache
             .values()
             .next()
             .expect("cached edge route should remain populated")
@@ -2748,11 +2779,13 @@ mod tests {
         let state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         let mut scene = SceneBuilder::default();
         scene
-            .edge_route_occupied
+            .wire_routes
+            .edge_occupied
             .record_path_non_tail(baseline_route.as_slice());
         scene.push_param_links(&project, &state);
         let rendered_param = scene
-            .param_route_cache
+            .wire_routes
+            .param_cache
             .values()
             .next()
             .expect("param route should be cached")
