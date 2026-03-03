@@ -166,7 +166,7 @@ Date: 2026-03-03
     - `cargo test -q`
     - targeted module tests as introduced.
 
-- [ ] 9. Continue module decomposition for oversized files violating project limits
+- [x] 9. Continue module decomposition for oversized files violating project limits _(done 2026-03-03, commit 5e09b85)_
   - ROI: Medium
   - Effort: L
   - Why it matters:
