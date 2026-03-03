@@ -1,5 +1,10 @@
 //! Image buffer manipulation and output helpers.
+//!
+//! Runtime-critical helpers in this module are used by the CPU execution path
+//! and output writers. Legacy posterize/downsample helpers are test-only
+//! reference utilities and are compiled only for test targets.
 
+#[cfg(test)]
 use std::cmp::Ordering as CmpOrdering;
 use std::error::Error;
 use std::io::Cursor;
@@ -9,8 +14,10 @@ use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ImageEncoder,
 };
+#[cfg(test)]
 use rayon::prelude::*;
 
+#[cfg(test)]
 use crate::model::LayerBlendMode;
 
 /// Absolute output size cap for generated PNG files.
@@ -20,12 +27,13 @@ pub(crate) const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 pub(crate) const MIN_IMAGE_DIMENSION: u32 = 64;
 
 /// Clamp a normalized scalar to the `[0, 1]` range.
+#[cfg(test)]
 pub(crate) fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
 /// Quantize one normalized scalar into the requested posterization band count.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn apply_posterize(mut value: f32, bands: u32) -> f32 {
     if bands <= 1 {
         return clamp01(value);
@@ -36,7 +44,7 @@ pub(crate) fn apply_posterize(mut value: f32, bands: u32) -> f32 {
 }
 
 /// Posterize an entire grayscale buffer in place.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn apply_posterize_buffer(src: &mut [f32], bands: u32) {
     for value in src.iter_mut() {
         *value = apply_posterize(*value, bands);
@@ -44,7 +52,7 @@ pub(crate) fn apply_posterize_buffer(src: &mut [f32], bands: u32) {
 }
 
 /// Apply posterization and contrast in a single pass to reduce memory traffic.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn apply_posterize_and_contrast(src: &mut [f32], bands: u32, strength: f32) {
     let contrast = strength.clamp(1.0, 3.0);
     let midpoint = 0.5;
@@ -65,7 +73,7 @@ pub(crate) fn decode_luma(raw: &[u8], out: &mut [f32]) {
 }
 
 /// Encode normalized luma values into grayscale bytes.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn encode_gray(dst: &mut [u8], luma: &[f32]) {
     debug_assert_eq!(luma.len(), dst.len());
 
@@ -75,7 +83,7 @@ pub(crate) fn encode_gray(dst: &mut [u8], luma: &[f32]) {
 }
 
 /// Downsample one luma buffer and reuse caller-owned scratch allocations.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn downsample_luma<'a>(
     source: &[f32],
     source_width: u32,
@@ -135,7 +143,7 @@ pub(crate) fn downsample_luma<'a>(
 }
 
 /// Stretch in-place values to percentile-selected low/high anchors.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn stretch_to_percentile(
     src: &mut [f32],
     scratch: &mut [f32],
@@ -186,7 +194,7 @@ pub(crate) fn stretch_to_percentile(
 }
 
 /// Blend a source layer into the destination buffer with the selected blend mode.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn blend_layer_stack(
     dst: &mut [f32],
     layer: &[f32],
@@ -223,7 +231,7 @@ pub(crate) fn blend_layer_stack(
 }
 
 /// Apply a centered linear contrast curve in place.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn apply_contrast(src: &mut [f32], strength: f32) {
     let clamped = strength.clamp(1.0, 3.0);
     let midpoint = 0.5;
