@@ -227,7 +227,9 @@ Date: 2026-03-03
       - `scripts/ci_local.sh validate laptop_integrated`
       - `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`
 
-- [ ] 10. Separate production modules from heavy inline test blocks
+- [x] 10. Separate production modules from heavy inline test blocks
+  - Completed: 2026-03-03 (`cfcf6b4`)
+  - Validation: Structural refactor only; full suite validation remains blocked in this environment (`cargo` missing).
   - ROI: Medium
   - Effort: S
   - Why it matters:
