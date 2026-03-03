@@ -51,7 +51,7 @@ Date: 2026-03-03
     - `cargo test -q gui::interaction::tests`
     - Manual GUI smoke for menu/timeline/drag/dropdown workflows.
 
-- [ ] 3. Remove GUI runtime parameter-slot duplication with generated slot descriptors
+- [x] 3. Remove GUI runtime parameter-slot duplication with generated slot descriptors _(done 2026-03-03, commit 04640f5)_
   - ROI: High
   - Effort: M
   - Why it matters:
