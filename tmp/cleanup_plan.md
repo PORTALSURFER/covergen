@@ -67,7 +67,7 @@ Date: 2026-03-03
     - `cargo clippy --all-targets --all-features -- -D warnings`
     - `cargo test -q`
 
-- [ ] 4. Finish argument-arity cleanup in hot paths by replacing long signatures with context structs
+- [x] 4. Finish argument-arity cleanup in hot paths by replacing long signatures with context structs _(done 2026-03-03, commit f006c72)_
   - ROI: High
   - Effort: M
   - Why it matters:
