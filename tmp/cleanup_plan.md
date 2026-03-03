@@ -200,7 +200,7 @@ Date: 2026-03-03
   - Suggested validation:
     - `cargo test -q presets`
 
-- [ ] 11. Clarify feedback parameter naming and legacy-key migration boundaries
+- [x] 11. Clarify feedback parameter naming and legacy-key migration boundaries _(done 2026-03-03, commit e5541ee)_
   - ROI: Low
   - Effort: S
   - Why it matters:
