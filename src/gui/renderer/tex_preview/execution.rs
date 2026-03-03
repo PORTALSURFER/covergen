@@ -55,6 +55,16 @@ struct DispatchContext<'a> {
     height: u32,
 }
 
+/// One frame's GPU-op dispatch request payload.
+#[derive(Clone, Copy, Debug)]
+struct GpuOpsRequest<'a> {
+    ops: &'a [TexViewerOp],
+    width: u32,
+    height: u32,
+    plan_signature: u64,
+    uniform_signature: u64,
+}
+
 impl TexPreviewRenderer {
     /// Prepare viewer resources and content for the current frame.
     pub(in crate::gui::renderer) fn prepare(
@@ -117,16 +127,14 @@ impl TexPreviewRenderer {
         }
 
         let TexViewerPayload::GpuOps(ops) = tex_view.payload;
-        if let Some(op_upload_bytes) = self.encode_gpu_ops(
-            device,
-            queue,
-            encoder,
+        let request = GpuOpsRequest {
             ops,
-            tex_view.texture_width,
-            tex_view.texture_height,
-            tex_view.ops_plan_signature,
-            tex_view.ops_uniform_signature,
-        ) {
+            width: tex_view.texture_width,
+            height: tex_view.texture_height,
+            plan_signature: tex_view.ops_plan_signature,
+            uniform_signature: tex_view.ops_uniform_signature,
+        };
+        if let Some(op_upload_bytes) = self.encode_gpu_ops(device, queue, encoder, request) {
             upload_bytes = upload_bytes.saturating_add(op_upload_bytes);
         } else {
             self.clear_viewer_target(encoder);
@@ -135,65 +143,38 @@ impl TexPreviewRenderer {
         upload_bytes
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn encode_gpu_ops(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        ops: &[TexViewerOp],
-        width: u32,
-        height: u32,
-        plan_signature: u64,
-        uniform_signature: u64,
+        request: GpuOpsRequest<'_>,
     ) -> Option<u64> {
-        if ops.is_empty() {
+        if request.ops.is_empty() {
             return None;
         }
         self.op_pass_timestamps.begin_frame();
-        let result = self.encode_gpu_ops_staged(
-            device,
-            queue,
-            encoder,
-            ops,
-            width,
-            height,
-            plan_signature,
-            uniform_signature,
-        );
+        let result = self.encode_gpu_ops_staged(device, queue, encoder, request);
         self.op_pass_timestamps.resolve_and_reset(encoder);
         result
     }
 
     /// Run staged tex-op dispatch: plan -> prepare targets -> encode passes -> finalize.
-    #[allow(clippy::too_many_arguments)]
     fn encode_gpu_ops_staged(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        ops: &[TexViewerOp],
-        width: u32,
-        height: u32,
-        plan_signature: u64,
-        uniform_signature: u64,
+        request: GpuOpsRequest<'_>,
     ) -> Option<u64> {
-        let upload_bytes = self.plan_gpu_dispatch(
-            device,
-            queue,
-            ops,
-            width,
-            height,
-            plan_signature,
-            uniform_signature,
-        )?;
+        let upload_bytes = self.plan_gpu_dispatch(device, queue, request)?;
         let planned_steps = std::mem::take(&mut self.cached_plan_steps);
         let planned_render_ops = std::mem::take(&mut self.cached_plan_render_ops);
         let mut dispatch = DispatchContext {
             device,
             encoder,
-            width,
-            height,
+            width: request.width,
+            height: request.height,
         };
         let mut state = GpuDispatchState::default();
         for step in planned_steps.iter().copied() {
@@ -222,35 +203,30 @@ impl TexPreviewRenderer {
     }
 
     /// Build a render plan and allocate resources needed for this frame.
-    #[allow(clippy::too_many_arguments)]
     fn plan_gpu_dispatch(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        ops: &[TexViewerOp],
-        width: u32,
-        height: u32,
-        plan_signature: u64,
-        uniform_signature: u64,
+        request: GpuOpsRequest<'_>,
     ) -> Option<u64> {
         self.blend_source_aliases.clear();
         self.blend_source_aliases_by_target.clear();
-        let plan_changed = self.cached_plan_signature != Some(plan_signature);
-        let uniform_changed = self.op_uniform_signature != Some(uniform_signature);
+        let plan_changed = self.cached_plan_signature != Some(request.plan_signature);
+        let uniform_changed = self.op_uniform_signature != Some(request.uniform_signature);
         if plan_changed || uniform_changed {
             // Planned render ops embed concrete op payload values (including
             // fused transform uniforms). Refresh the plan whenever uniforms
             // change so cached payloads never drift from current `ops`.
             self.cached_plan_ops.clear();
-            self.cached_plan_ops.extend_from_slice(ops);
+            self.cached_plan_ops.extend_from_slice(request.ops);
             self.cached_plan_steps.clear();
             self.cached_plan_render_ops.clear();
             build_execution_plan(
-                ops,
+                request.ops,
                 &mut self.cached_plan_steps,
                 &mut self.cached_plan_render_ops,
             );
-            self.cached_plan_signature = Some(plan_signature);
+            self.cached_plan_signature = Some(request.plan_signature);
             if plan_changed {
                 self.op_uniform_signature = None;
             }
@@ -262,17 +238,17 @@ impl TexPreviewRenderer {
         self.ensure_dummy_bind_group(device);
         let render_op_count = self.cached_plan_render_ops.len();
         self.ensure_op_uniform_capacity(device, render_op_count);
-        let upload_bytes = if self.op_uniform_signature != Some(uniform_signature) {
+        let upload_bytes = if self.op_uniform_signature != Some(request.uniform_signature) {
             let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
             let bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
             self.cached_plan_render_ops = render_ops;
-            self.op_uniform_signature = Some(uniform_signature);
+            self.op_uniform_signature = Some(request.uniform_signature);
             bytes
         } else {
             0
         };
         if render_op_count > 1 {
-            self.ensure_scratch_textures(device, width, height);
+            self.ensure_scratch_textures(device, request.width, request.height);
         }
         Some(upload_bytes)
     }
