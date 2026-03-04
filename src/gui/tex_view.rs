@@ -62,6 +62,8 @@ pub(crate) struct TexViewerGenerator {
     compiled_render_signature: Option<u64>,
     compiled_runtime: Option<GuiCompiledRuntime>,
     ops: Vec<TexViewerOp>,
+    ops_plan_signature: u64,
+    ops_uniform_signature: u64,
     eval_stack: SignalEvalStack,
 }
 
@@ -145,6 +147,8 @@ impl TexViewerGenerator {
                 &mut self.ops,
             );
         }
+        self.ops_plan_signature = ops_plan_signature(self.ops.as_slice());
+        self.ops_uniform_signature = ops_uniform_signature(self.ops.as_slice());
     }
 
     /// Return current frame payload, if viewer dimensions are valid.
@@ -165,8 +169,8 @@ impl TexViewerGenerator {
                 .key
                 .map(|key| key.texture_height)
                 .unwrap_or(self.height.max(1)),
-            ops_plan_signature: ops_plan_signature(self.ops.as_slice()),
-            ops_uniform_signature: ops_uniform_signature(self.ops.as_slice()),
+            ops_plan_signature: self.ops_plan_signature,
+            ops_uniform_signature: self.ops_uniform_signature,
             payload: TexViewerPayload::GpuOps(self.ops.as_slice()),
         })
     }
@@ -453,7 +457,6 @@ fn fit_aspect_in_rect(avail_w: u32, avail_h: u32, texture_w: u32, texture_h: u32
         (w.max(1), avail_h.max(1))
     }
 }
-
 
 #[cfg(test)]
 #[allow(clippy::infallible_destructuring_match)]
