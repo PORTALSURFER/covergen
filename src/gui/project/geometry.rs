@@ -141,6 +141,113 @@ impl GuiProject {
         )
     }
 
+    /// Return topmost node + pin hover hits from one fused broad-phase scan.
+    pub(crate) fn hover_hits_at(
+        &self,
+        x: i32,
+        y: i32,
+        radius_px: i32,
+        disallow_source: Option<u32>,
+    ) -> HoverHitResult {
+        self.ensure_hit_test_cache();
+        let mut seen = std::mem::take(&mut *self.hit_test_seen_scratch.borrow_mut());
+        let mut candidates = std::mem::take(&mut *self.hit_test_candidates_scratch.borrow_mut());
+        seen.clear();
+        candidates.clear();
+
+        let cache = self.hit_test_cache.borrow();
+        if let Some(node_ids) = cache.node_bins.get(&hit_bin_key_for_point(x, y)) {
+            self.bump_hit_test_scan_count(node_ids.len() as u64);
+            for node_id in node_ids {
+                if seen.insert(*node_id) {
+                    candidates.push(*node_id);
+                }
+            }
+        }
+
+        let min_x = x.saturating_sub(radius_px);
+        let max_x = x.saturating_add(radius_px);
+        let min_y = y.saturating_sub(radius_px);
+        let max_y = y.saturating_add(radius_px);
+        for by in hit_bin_coord(min_y)..=hit_bin_coord(max_y) {
+            for bx in hit_bin_coord(min_x)..=hit_bin_coord(max_x) {
+                let key = hit_bin_key(bx, by);
+                if let Some(node_ids) = cache.output_pin_bins.get(&key) {
+                    self.bump_hit_test_scan_count(node_ids.len() as u64);
+                    for node_id in node_ids {
+                        if seen.insert(*node_id) {
+                            candidates.push(*node_id);
+                        }
+                    }
+                }
+                if let Some(node_ids) = cache.input_pin_bins.get(&key) {
+                    self.bump_hit_test_scan_count(node_ids.len() as u64);
+                    for node_id in node_ids {
+                        if seen.insert(*node_id) {
+                            candidates.push(*node_id);
+                        }
+                    }
+                }
+            }
+        }
+        drop(cache);
+
+        let radius_sq = radius_px.saturating_mul(radius_px);
+        let mut node_id = None;
+        let mut node_z = 0usize;
+        let mut output_pin_node_id = None;
+        let mut output_z = 0usize;
+        let mut input_pin_node_id = None;
+        let mut input_z = 0usize;
+        for candidate in candidates.iter().copied() {
+            let Some(index) = self.node_index_lookup.get(&candidate).copied() else {
+                continue;
+            };
+            let Some(node) = self.nodes.get(index) else {
+                continue;
+            };
+            if x >= node.x()
+                && x < node.x() + NODE_WIDTH
+                && y >= node.y()
+                && y < node.y() + node.card_height()
+                && (node_id.is_none() || index >= node_z)
+            {
+                node_id = Some(candidate);
+                node_z = index;
+            }
+            if let Some((px, py)) = output_pin_center(node) {
+                if distance_sq(x, y, px, py) <= radius_sq
+                    && (output_pin_node_id.is_none() || index >= output_z)
+                {
+                    output_pin_node_id = Some(candidate);
+                    output_z = index;
+                }
+            }
+            if Some(candidate) == disallow_source {
+                continue;
+            }
+            if let Some((px, py)) = input_pin_center(node) {
+                if distance_sq(x, y, px, py) <= radius_sq
+                    && (input_pin_node_id.is_none() || index >= input_z)
+                {
+                    input_pin_node_id = Some(candidate);
+                    input_z = index;
+                }
+            }
+        }
+
+        candidates.clear();
+        seen.clear();
+        *self.hit_test_candidates_scratch.borrow_mut() = candidates;
+        *self.hit_test_seen_scratch.borrow_mut() = seen;
+
+        HoverHitResult {
+            node_id,
+            output_pin_node_id,
+            input_pin_node_id,
+        }
+    }
+
     fn pin_at(
         &self,
         x: i32,

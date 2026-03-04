@@ -943,6 +943,17 @@ struct HitTestCache {
     input_pin_bin_key_by_node: HashMap<u32, i64>,
 }
 
+/// Combined hover hit-test result for one cursor position.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HoverHitResult {
+    /// Topmost node card under the cursor, if any.
+    pub(crate) node_id: Option<u32>,
+    /// Topmost node output pin within hover radius, if any.
+    pub(crate) output_pin_node_id: Option<u32>,
+    /// Topmost node input pin within hover radius, if any.
+    pub(crate) input_pin_node_id: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PinHitKind {
     Output,

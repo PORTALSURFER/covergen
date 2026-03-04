@@ -282,8 +282,9 @@ pub(super) fn update_hover_state(
     }
     let pin_radius = pin_hit_radius_world(state);
     let disallow_source = state.wire_drag.map(|wire| wire.source_node_id);
-    state.hover_output_pin = project.output_pin_at(graph_x, graph_y, pin_radius);
-    state.hover_input_pin = project.input_pin_at(graph_x, graph_y, pin_radius, disallow_source);
+    let hover_hits = project.hover_hits_at(graph_x, graph_y, pin_radius, disallow_source);
+    state.hover_output_pin = hover_hits.output_pin_node_id;
+    state.hover_input_pin = hover_hits.input_pin_node_id;
     if state.hover_output_pin.is_some() || state.hover_input_pin.is_some() {
         return param_bind_hover_changed
             || state.hover_output_pin != prev_hover_output
@@ -298,7 +299,7 @@ pub(super) fn update_hover_state(
             || prev_hover_export_item.is_some()
             || prev_hover_export_close;
     }
-    state.hover_node = project.node_at(graph_x, graph_y);
+    state.hover_node = hover_hits.node_id;
     if state.hover_node.is_some() {
         state.active_node = state.hover_node;
     }
