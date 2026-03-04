@@ -48,7 +48,7 @@ Date: 2026-03-04
     - `cargo test -q gui::scene::tests --bin covergen`
     - `cargo test -q gui::scene::wire_route::tests --bin covergen`
 
-- [ ] 3. Refactor tex-preview op execution into declarative op descriptors
+- [x] 3. Refactor tex-preview op execution into declarative op descriptors _(done 2026-03-04, commit 05dbd0d)_
   - ROI: High
   - Effort: M
   - Why it matters:
