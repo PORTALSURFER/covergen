@@ -194,7 +194,7 @@ Date: 2026-03-04
     - On tier GPU host: compare render throughput in non-capture runs; verify full timing data remains in capture runs.
   - Completed: 2026-03-04 (commit 3bb0418)
 
-- [ ] 10. Eliminate per-frame frame-dir export buffer clones/allocations via reusable owned-buffer pool
+- [x] 10. Eliminate per-frame frame-dir export buffer clones/allocations via reusable owned-buffer pool
   - ROI: Medium
   - Effort: M
   - Expected impact: export throughput latency, memory, CPU
@@ -212,6 +212,7 @@ Date: 2026-03-04
     - `cargo test runtime::animation_exec`
     - `cargo test runtime::frame_dir_worker`
     - Export long clips and compare memory stability and frame submit stall counters.
+  - Completed: 2026-03-04 (commit 8315e2a)
 
 - [ ] 11. Prewarm common GUI glyphs to reduce first-interaction hitch from lazy text rasterization
   - ROI: Low
