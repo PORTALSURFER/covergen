@@ -127,7 +127,8 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `cargo test -q`
 
-- [ ] 7. Ratchet structure-drift oversized-file threshold to current baseline
+- [x] 7. Ratchet structure-drift oversized-file threshold to current baseline
+  - Completed: 2026-03-04 (`8bb84d7`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
