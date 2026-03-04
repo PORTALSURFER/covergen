@@ -1,252 +1,237 @@
-# Performance ROI Backlog (Phase 1 Re-Audit)
+# Performance ROI Backlog (Phase 1 Deep Audit)
 
 Status: Phase 1 audit complete. Phase 2 implementation is pending explicit user approval.
 Date: 2026-03-04
 
 ## Runtime Evidence Summary
-- Canonical runtime benchmark command was re-run on this host: `cargo run --bin covergen -- bench --tier laptop_integrated`.
-- Result: compile samples completed, then still benchmark execution failed on GPU adapter selection.
-- Error confirms this host is software-adapter only (`llvmpipe`) and rejects unsupported CPU fallback.
-- Existing GUI/runtime telemetry points remain available for validation (`update_ms`, `scene_ms`, `render_ms`, `hit_test_scans`, `bridge_intersection_tests`, upload counters).
+- Required context reviewed: `AGENTS.md`, `README.md`, `docs/plans/active/todo.md`, `docs/plans/index.md`, `MEMORY.md`.
+- Preflight succeeded on this host: `bash scripts/run_agent_request.sh`.
+- Canonical local gates:
+  - `scripts/ci_local.sh [validate|lock] <desktop_mid|laptop_integrated>`
+  - `scripts/bench/tier_gate.sh [validate|lock] <tier>`
+  - `scripts/gui/tier_gate.sh [validate|lock] <tier>`
+  - GUI trace path: `cargo run --bin covergen -- gui ... --gui-benchmark-drag --gui-perf-trace <csv>`
+  - Runtime bench path: `cargo run --bin covergen -- bench ...`
+- This host cannot execute hardware-GPU performance runs (`llvmpipe` software adapter only), so ROI ranking is based on code-level hot-path evidence plus existing trace instrumentation points (`scene.edges_ms`, `hit_test_scans`, `bridge_intersection_tests`, `update_ms`, `render_ms`).
 
 ## ROI-Ordered Backlog
 
-- [x] 1. Narrow hover invalidation to only affected retained layers
+- [x] 1. Cache drag-hover obstacle map for wire-insert hit testing
   - ROI: Very High
   - Effort: S
-  - Expected impact: p95 interaction latency, frame time, CPU
+  - Expected impact: p95 interaction latency, frame time, CPU, memory
   - Evidence:
-    - `src/gui/interaction.rs:389` updates hover state every pointer move.
-    - `src/gui/interaction.rs:398` calls `invalidate_graph_layers` for any hover change.
-    - `src/gui/interaction.rs:67` invalidates `nodes`, `wires`, and `overlays` together.
-    - `src/gui/interaction/hover.rs:54` tracks many hover fields (menu/param/dropdown) that do not always require wire rebuild.
+    - `src/gui/interaction/drag.rs:82` calls hover insert evaluation every drag frame.
+    - `src/gui/interaction/drag.rs:304` rebuilds obstacle list each call.
+    - `src/gui/interaction/drag.rs:305` rebuilds `RouteObstacleMap` each call.
+    - `src/gui/interaction/drag.rs:333`-`352` allocates/fills obstacle vector from all nodes.
   - Recommended change:
-    - Split hover invalidation into scoped flags (`nodes`, `wires`, `overlays`) and only bump `wires` when wire-relevant hover fields change.
-    - Keep existing broad invalidation path as a fallback behind a debug switch during rollout.
+    - Store one drag-scoped cached obstacle vector/map keyed by `(dragged_node_id, project.nodes_epoch)` and reuse across pointer-move frames.
+    - Recompute only when drag target changes or node topology/positions invalidate the map.
   - Risk/tradeoffs:
-    - Incorrect dirty scoping can cause stale hover visuals until next full invalidation.
+    - Cache invalidation must include node move/topology epochs to avoid stale routing.
   - Visual impact: None
   - Validation plan:
     - `cargo test gui::interaction`
     - On tier GPU host: `scripts/gui/tier_gate.sh validate laptop_integrated`
-    - Confirm `scene.edges_ms_p95` and `update_ms_p95` improvements with no stale hover/wire highlights.
-  - Completed: 2026-03-04 (commit 8312893)
+    - Confirm reduced `scene.edges_ms_p95` and `update_ms_p95` during drag traces.
+  - Completed: 2026-03-04 (commit 3e263fe)
 
-- [x] 2. Precompute runtime dispatch metadata and remove per-frame release/compositor recomputation
+- [ ] 2. Remove sort/dedup in route obstacle candidate collection (windowed router search)
   - ROI: Very High
-  - Effort: M
-  - Expected impact: frame time, CPU
-  - Evidence:
-    - `src/runtime_gpu.rs:215` runs `validate_release_index` on every step.
-    - `src/runtime_gpu.rs:425` performs map/index checks each call.
-    - `src/runtime_gpu.rs:219` rebuilds final compositor plan every frame.
-    - `src/runtime_gpu.rs:246` rescans bindings and sorts taps each frame.
-    - `src/runtime_gpu.rs:265`/`276`/`316` repeatedly resolve alias/feedback slots via hash maps.
-  - Recommended change:
-    - Extend compile output with a precomputed runtime dispatch plan:
-      - Per-step resolved input/output alias slots.
-      - Pre-sorted final compositor tap list.
-      - Compile-time validated release schedule.
-    - Convert runtime release checks to `debug_assert!`/compile-time validation only.
-  - Risk/tradeoffs:
-    - Larger compile artifact and tighter coupling between compiler and runtime execution structs.
-  - Visual impact: None
-  - Validation plan:
-    - `cargo test compiler`
-    - `cargo test runtime_gpu`
-    - On tier GPU host: `scripts/ci_local.sh validate desktop_mid`
-    - Compare `v2.image.render` and `v2.gpu.final_compositor` timings before/after.
-  - Completed: 2026-03-04 (commit 7a4c308)
-
-- [x] 3. Reuse transient scalar/SOP value buffers in `runtime_gpu` instead of allocating per frame
-  - ROI: High
-  - Effort: M
-  - Expected impact: frame time, memory, CPU
-  - Evidence:
-    - `src/runtime_gpu.rs:29` and `src/runtime_gpu.rs:30` allocate new `DenseNodeValues` every frame.
-    - `src/runtime_gpu.rs:384` creates `Vec<Option<T>>` with `collect()` for each run.
-  - Recommended change:
-    - Introduce frame-reused scratch stores keyed by compiled node count.
-    - Replace per-frame allocation with clear/reset generation-based slots.
-  - Risk/tradeoffs:
-    - Must prevent stale-slot reads between frames.
-  - Visual impact: None
-  - Validation plan:
-    - `cargo test runtime_gpu`
-    - On tier GPU host: benchmark still/animation runs and compare memory churn and render timing stability.
-  - Completed: 2026-03-04 (commit 490cf84)
-
-- [x] 4. Make hit-test cache updates incremental for node moves instead of full-cache rebuilds
-  - ROI: High
-  - Effort: L
-  - Expected impact: p95 interaction latency, CPU, frame time
-  - Evidence:
-    - `src/gui/project/state.rs:386` invalidates hit-test cache on each node move.
-    - `src/gui/project/state.rs:305` rebuilds all bins in `ensure_hit_test_cache`.
-    - `src/gui/project/state.rs:310` iterates all nodes to repopulate cache.
-  - Recommended change:
-    - Track per-node occupied bins and update only moved nodes’ bin entries.
-    - Keep full rebuild path for structural mutations (add/remove/load).
-  - Risk/tradeoffs:
-    - Additional bookkeeping complexity; incorrect bin removal/addition can break hit-testing.
-  - Visual impact: None
-  - Validation plan:
-    - `cargo test gui::project`
-    - `cargo test gui::interaction`
-    - On tier GPU host: `scripts/gui/tier_gate.sh validate desktop_mid`
-    - Verify lower `hit_test_scans_p95` during drag-heavy traces.
-  - Completed: 2026-03-04 (commit 365d6ab)
-
-- [x] 5. Reuse `BridgeSegmentSpatialHash` scratch storage across edge and param-wire passes
-  - ROI: High
-  - Effort: S
-  - Expected impact: frame time, memory, CPU
-  - Evidence:
-    - `src/gui/scene.rs:471` constructs `BridgeSegmentSpatialHash::default()` in edge pass.
-    - `src/gui/scene.rs:1553` constructs another default hash in param-wire pass.
-    - `src/gui/scene/wires.rs:44` stores buckets in `HashMap<(i32, i32), Vec<usize>>`.
-  - Recommended change:
-    - Add retained bridge-hash scratch fields to `SceneBuilder` and clear/reuse bucket storage per pass.
-  - Risk/tradeoffs:
-    - Must ensure per-pass clear semantics are correct to avoid cross-pass contamination.
-  - Visual impact: None
-  - Validation plan:
-    - `cargo test gui::scene`
-    - On tier GPU host: trace drag scenarios and compare `scene.edges_ms` plus CPU allocation counters.
-  - Completed: 2026-03-04 (commit 58887b5)
-
-- [x] 6. Add spatial indexing to route-obstacle queries to avoid linear scans per route attempt
-  - ROI: High
   - Effort: M
   - Expected impact: frame time, p95 interaction latency, CPU
   - Evidence:
-    - `src/gui/scene/wire_route.rs:286` calls `collect_search_blocked_rects` for each search window attempt.
-    - `src/gui/scene/wire_route.rs:484` linearly scans every blocked rect each call.
-    - `src/gui/scene/wire_route.rs:285` repeats across multiple window sizes (`SEARCH_OBSTACLE_WINDOW_CELLS`).
+    - `src/gui/scene/wire_route.rs:289`-`294` calls `collect_search_blocked_rects` in each search-window attempt.
+    - `src/gui/scene/wire_route.rs:513` allocates candidate index vec each call.
+    - `src/gui/scene/wire_route.rs:522`-`523` does `sort_unstable` + `dedup` per query.
   - Recommended change:
-    - Extend `RouteObstacleMap` with a coarse spatial bin index for blocked rectangles.
-    - Query only bins overlapping the current search bounds and keep deterministic ordering.
+    - Add reusable candidate scratch + generation-stamp dedupe in router workspace.
+    - Preserve deterministic order without global sort per call.
   - Risk/tradeoffs:
-    - More memory overhead for obstacle index.
-    - Route determinism must be preserved.
-  - Visual impact: Minimal
+    - Deterministic route output must remain stable across runs.
+  - Visual impact: None
   - Validation plan:
     - `cargo test gui::scene::wire_route`
-    - On tier GPU host: dense-graph drag benchmark and compare `scene.edges_ms_p95`.
-  - Completed: 2026-03-04 (commit 8a956fd)
+    - On tier GPU host: `scripts/gui/tier_gate.sh validate desktop_mid`
+    - Compare `scene.edges_ms_p95` and drag smoothness in dense graphs.
 
-- [x] 7. Cache tex-preview op signatures at update time instead of recomputing them on every `frame()` call
+- [ ] 3. Decouple tex-preview execution plan topology from uniform payloads
+  - ROI: Very High
+  - Effort: L
+  - Expected impact: frame time, CPU
+  - Evidence:
+    - `src/gui/renderer/tex_preview/execution.rs:215`/`216` compute plan vs uniform change.
+    - `src/gui/renderer/tex_preview/execution.rs:217` rebuilds full execution plan on either change.
+    - `src/gui/renderer/tex_preview/execution.rs:218`-`229` repopulates cached plan ops/steps/render ops when uniforms animate.
+  - Recommended change:
+    - Keep topology plan keyed only by `plan_signature`.
+    - Store mutable uniform payloads separately so uniform changes only trigger buffer upload (`write_planned_op_uniforms`) and not plan rebuild.
+  - Risk/tradeoffs:
+    - Requires careful refactor of fused-transform planning so behavior remains bit-identical.
+  - Visual impact: None
+  - Validation plan:
+    - `cargo test gui::renderer::tex_preview`
+    - On tier GPU host: GUI benchmark traces with animated params; compare `render_ms_p95` and CPU usage.
+
+- [ ] 4. Replace per-frame full dense-value clears with generation-stamped slots in runtime GPU evaluator
+  - ROI: High
+  - Effort: M
+  - Expected impact: frame time, CPU, memory
+  - Evidence:
+    - `src/runtime_gpu.rs:403`-`410` clears every dense slot each frame when size is unchanged.
+    - `src/runtime_gpu.rs:56` iterates compiled steps every frame, so O(node_count) clear cost compounds with graph size.
+  - Recommended change:
+    - Convert `DenseNodeValues<T>` to generation-tagged occupancy (or touched-index reset) to avoid full-vector clears every frame.
+  - Risk/tradeoffs:
+    - Must prevent stale reads when slots are reused across generations.
+  - Visual impact: None
+  - Validation plan:
+    - `cargo test runtime_gpu`
+    - On tier GPU host: `scripts/bench/tier_gate.sh validate desktop_mid`
+    - Compare frame-time stability and CPU profile on large graphs.
+
+- [ ] 5. Replace bridge candidate sort/dedup with stamp-based dedupe
   - ROI: High
   - Effort: S
   - Expected impact: frame time, CPU
   - Evidence:
-    - `src/gui/tex_view.rs:168` computes `ops_plan_signature` every frame payload read.
-    - `src/gui/tex_view.rs:169` computes `ops_uniform_signature` every frame payload read.
-    - `src/gui/tex_view.rs:175` and `src/gui/tex_view.rs:220` hash full op arrays.
+    - `src/gui/scene.rs:1713` collects bridge candidates for each segment.
+    - `src/gui/scene/wires.rs:69`-`83` extends candidate vector from hash buckets.
+    - `src/gui/scene/wires.rs:84`-`85` sorts/dedups each segment query.
   - Recommended change:
-    - Store both signatures when `ops` are rebuilt in `update()`.
-    - Return cached signatures directly from `frame()`.
+    - Track candidate visitation with reusable stamp scratch keyed by segment index.
+    - Eliminate per-segment sorting in bridge lookup hot path.
   - Risk/tradeoffs:
-    - Any mutation path that bypasses `update()` must also refresh cached signatures.
+    - Requires careful scratch lifecycle to avoid stale stamps and missed intersections.
   - Visual impact: None
   - Validation plan:
-    - `cargo test gui::tex_view`
-    - On tier GPU host: compare `render_ms_p95` and CPU usage during steady playback.
-  - Completed: 2026-03-04 (commit ab2ed5d)
+    - `cargo test gui::scene`
+    - On tier GPU host: `scripts/gui/tier_gate.sh validate laptop_integrated`
+    - Track `bridge_intersection_tests_p95` and `scene.edges_ms_p95`.
 
-- [x] 8. Replace multi-call hover hit-testing with one fused broad-phase query path
-  - ROI: Medium
+- [ ] 6. Reuse active cache-key sets and prune tex-preview caches only when plan topology changes
+  - ROI: High
+  - Effort: S
+  - Expected impact: frame time, CPU, memory
+  - Evidence:
+    - `src/gui/renderer/tex_preview/execution.rs:235` prunes caches every frame.
+    - `src/gui/renderer/tex_preview/execution.rs:800`-`807` recomputes active key sets each prune.
+    - `src/gui/renderer/tex_preview/execution.rs:1194`-`1224` allocates/fills fresh `HashSet`s each call.
+  - Recommended change:
+    - Compute active-key sets only when `plan_signature` changes and cache them.
+    - Skip prune when topology is unchanged.
+  - Risk/tradeoffs:
+    - Prune timing must still release stale resources after graph edits.
+  - Visual impact: None
+  - Validation plan:
+    - `cargo test gui::renderer::tex_preview`
+    - On tier GPU host: compare steady-state CPU while playback is running with unchanged graph topology.
+
+- [ ] 7. Remove z-order sort in `node_ids_overlapping_graph_rect` query path
+  - ROI: High
   - Effort: M
   - Expected impact: p95 interaction latency, CPU
   - Evidence:
-    - `src/gui/interaction/hover.rs:179` queries node hover.
-    - `src/gui/interaction/hover.rs:285` and `src/gui/interaction/hover.rs:286` separately query output/input pins.
-    - `src/gui/interaction/hover.rs:301` queries node hover again.
-    - `src/gui/project/geometry.rs:144` `pin_at` scans bins with per-call scratch handling.
+    - `src/gui/project/geometry.rs:77`-`89` gathers candidates from multiple bins.
+    - `src/gui/project/geometry.rs:91`-`97` sorts candidates by node index every call.
+    - Called from drag/cut paths (`src/gui/interaction/drag.rs:314`, `src/gui/interaction.rs:1138`).
   - Recommended change:
-    - Add one fused hit-test API that resolves node + input pin + output pin candidates from one broad-phase bin sweep.
-    - Preserve existing z-order and disallow-source semantics.
+    - Use visit-stamp-by-node-index and ordered emit to avoid final sort.
+    - Keep deterministic top-to-bottom ordering semantics.
   - Risk/tradeoffs:
-    - Behavior parity is sensitive; small ordering differences can change hover feel.
+    - Incorrect ordering can subtly change hover/selection behavior.
+  - Visual impact: None
+  - Validation plan:
+    - `cargo test gui::project`
+    - `cargo test gui::interaction`
+    - On tier GPU host: compare `hit_test_scans_p95` and selection/hover parity.
+
+- [ ] 8. Introduce shared retained route snapshot for interaction queries (architectural)
+  - ROI: High
+  - Effort: L
+  - Expected impact: p95 interaction latency, frame time, CPU
+  - Evidence:
+    - Scene builder already maintains route caches (`src/gui/scene.rs:523`-`546`, `src/gui/scene.rs:1605`-`1632`).
+    - Interaction hover/cut reroute independently (`src/gui/interaction/drag.rs:388`-`399`, `src/gui/interaction.rs:1175`-`1224`).
+  - Recommended change:
+    - Publish immutable per-frame routed polylines (or route handles) from scene build.
+    - Reuse them for hover-insert nearest-path checks and link-cut intersection before fallback reroute.
+    - Follow retained/incremental invalidation pattern: refresh only when wire epochs change.
+  - Risk/tradeoffs:
+    - Cross-subsystem coupling increases; cache coherency must be explicit.
   - Visual impact: Needs review
   - Validation plan:
+    - `cargo test gui::scene`
     - `cargo test gui::interaction`
-    - `cargo test gui::project`
-    - On tier GPU host: compare `hit_test_scans_p95` and manual hover precision checks.
-  - Completed: 2026-03-04 (commit cb2c091)
+    - On tier GPU host: drag and cut benchmarks; verify identical hit behavior with lower update spikes.
 
-- [x] 9. Remove unnecessary node-level timing overhead when telemetry capture is inactive
-  - ROI: Medium
-  - Effort: S
-  - Expected impact: frame time, CPU
-  - Evidence:
-    - `src/runtime_gpu.rs:33` starts an `Instant` timer for every node step.
-    - `src/runtime_gpu.rs:213` records node timing every step.
-    - `src/telemetry.rs:197` early-returns when capture is inactive, so timer work is often wasted.
-  - Recommended change:
-    - Add a fast `telemetry::is_active()` check in runtime hot paths and skip per-node timer/record calls when inactive.
-  - Risk/tradeoffs:
-    - Must not suppress timing capture during benchmark/trace modes.
-  - Visual impact: None
-  - Validation plan:
-    - `cargo test telemetry`
-    - `cargo test runtime_gpu`
-    - On tier GPU host: compare render throughput in non-capture runs; verify full timing data remains in capture runs.
-  - Completed: 2026-03-04 (commit 3bb0418)
-
-- [x] 10. Eliminate per-frame frame-dir export buffer clones/allocations via reusable owned-buffer pool
+- [ ] 9. Skip redundant output-size evaluation in tex viewer when frame key is unchanged
   - ROI: Medium
   - Effort: M
-  - Expected impact: export throughput latency, memory, CPU
+  - Expected impact: frame time, CPU, startup
   - Evidence:
-    - `src/runtime/animation_exec.rs:72` clones frame data with `frame.to_vec()` for frame-dir path.
-    - `src/runtime/animation_exec.rs:267` allocates a new `Vec<u8>` per drained frame in frame-dir mode.
-    - `src/runtime/frame_dir_worker.rs:37` consumes owned `Vec<u8>` frames, enabling pool-based reuse.
+    - `src/gui/tex_view.rs:108`-`112` computes `output_texture_size` before cache-key equality check at `src/gui/tex_view.rs:130`.
+    - `src/gui/runtime.rs:952`-`983` scans runtime steps and evaluates params to resolve output size.
   - Recommended change:
-    - Introduce a reusable gray-frame buffer pool for frame-dir mode.
-    - Recycle buffers after worker write completion instead of allocating/cloning per frame.
+    - Reorder/update keying so stable frames can reuse previous texture size without reevaluating runtime size path.
+    - Preserve dynamic-size correctness for temporal/signal-driven resolution nodes.
   - Risk/tradeoffs:
-    - Requires explicit ownership/recycle handoff protocol with the worker.
+    - Incorrect dynamic-size invalidation can produce stale render target dimensions.
   - Visual impact: None
   - Validation plan:
-    - `cargo test runtime::animation_exec`
-    - `cargo test runtime::frame_dir_worker`
-    - Export long clips and compare memory stability and frame submit stall counters.
-  - Completed: 2026-03-04 (commit 8315e2a)
+    - `cargo test gui::tex_view`
+    - `cargo test gui::runtime`
+    - On tier GPU host: compare CPU usage during paused/static playback.
 
-- [x] 11. Prewarm common GUI glyphs to reduce first-interaction hitch from lazy text rasterization
-  - ROI: Low
+- [ ] 10. Precompute normalized add-menu labels/categories for query filtering
+  - ROI: Medium
   - Effort: S
-  - Expected impact: startup, p95 interaction latency (first-use)
+  - Expected impact: interaction latency (search/filter), CPU, memory
   - Evidence:
-    - `src/gui/text.rs:168` lazily rasterizes and inserts glyphs into cache on first use.
-    - `src/gui/text.rs:179` performs rasterization work in render path for cache misses.
-    - `src/gui/app/frame_loop.rs:243` records first-frame startup timing, which currently includes first-use rendering costs.
+    - `src/gui/state/add_menu.rs:421` calls `option_matches_query` for each option per query refresh.
+    - `src/gui/state/add_menu.rs:451` and `455` allocate lowercase strings (`to_lowercase`) each match.
+    - `src/gui/state/add_menu.rs:458`-`459` lowercases category labels each query.
   - Recommended change:
-    - Prewarm a bounded ASCII set used by HUD/menu/timeline labels at startup or first idle frame.
+    - Cache lowercase labels/category strings once (static table or lazy init) and reuse in fuzzy match.
   - Risk/tradeoffs:
-    - Small predictable startup work increase; bounded by explicit glyph set size.
+    - Minimal; keep menu labels and normalized caches synchronized.
   - Visual impact: None
   - Validation plan:
-    - On GUI host: compare `gui.startup.first_frame.total` and first-open menu responsiveness.
-    - Ensure no regressions in text rendering tests.
-  - Completed: 2026-03-04 (commit f289710)
+    - `cargo test gui::state::add_menu`
+    - Manual add-menu typing responsiveness check under continuous key repeat.
 
-- [ ] 12. Replace placeholder benchmark thresholds with locked real hardware baselines
+- [ ] 11. Make GUI threshold locking locale-stable and normalize decimal format
   - ROI: Low
   - Effort: S
-  - Expected impact: performance regression prevention (indirect), CI signal quality
+  - Expected impact: CI signal quality, regression prevention
   - Evidence:
-    - `docs/v2/benchmarks/README.md:95` states committed hardware threshold files are placeholders until lock runs on real hosts.
-    - Local benchmark run on this host failed hardware adapter requirements (`cargo run --bin covergen -- bench --tier laptop_integrated`).
+    - `scripts/gui/tier_gate.sh:134`-`137` formats floats via `awk` without locale pinning.
+    - `docs/v2/benchmarks/laptop_integrated.gui_interaction.thresholds.ini:6`-`8` uses comma decimals (`0,2728`, etc.).
   - Recommended change:
-    - Run lock/validate flows on representative `desktop_mid` and `laptop_integrated` hardware and commit locked thresholds.
+    - Force `LC_ALL=C` for numeric formatting/parsing in benchmark scripts.
+    - Normalize committed GUI threshold decimals to dot notation.
   - Risk/tradeoffs:
-    - Requires access to tier-representative hardware machines.
+    - Requires verifying compatibility with PowerShell/Windows equivalents.
+  - Visual impact: None
+  - Validation plan:
+    - `scripts/gui/tier_gate.sh validate laptop_integrated`
+    - Confirm threshold parsing and comparisons pass across locale settings.
+
+- [ ] 12. Replace placeholder/invalid tier thresholds with locked hardware baselines
+  - ROI: Low
+  - Effort: S
+  - Expected impact: CI signal quality, regression prevention
+  - Evidence:
+    - `docs/v2/benchmarks/README.md:95` states committed tier files are placeholders until lock runs on real GPU hosts.
+    - Current host cannot complete lock/validate GPU runs (software adapter only).
+  - Recommended change:
+    - Run `lock` flows on representative `desktop_mid` and `laptop_integrated` hardware and commit resulting threshold files.
+  - Risk/tradeoffs:
+    - Requires access to target-tier hardware; cannot be completed on this host.
   - Visual impact: None
   - Validation plan:
     - `scripts/ci_local.sh lock desktop_mid`
     - `scripts/ci_local.sh lock laptop_integrated`
     - `scripts/ci_local.sh validate desktop_mid`
     - `scripts/ci_local.sh validate laptop_integrated`
-  - Blocked: 2026-03-04 on this host (`llvmpipe` software adapter only). `scripts/ci_local.sh lock desktop_mid` now passes rustfmt/clippy/tests and fails at benchmark locking because a hardware GPU adapter is required; direct `scripts/bench/tier_gate.sh lock {desktop_mid,laptop_integrated}` and `scripts/gui/tier_gate.sh lock {desktop_mid,laptop_integrated}` fail with the same adapter error.
