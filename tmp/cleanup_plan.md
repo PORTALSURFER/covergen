@@ -205,7 +205,7 @@ Date: 2026-03-04
     - `cargo doc --no-deps`
     - `scripts/lint/private_docs_subset.sh`
 
-- [ ] 12. Expand private-doc subset lint coverage in staged GUI/runtime buckets
+- [x] 12. Expand private-doc subset lint coverage in staged GUI/runtime buckets _(done 2026-03-04, commit eece995)_
   - ROI: Low
   - Effort: M
   - Why it matters:
