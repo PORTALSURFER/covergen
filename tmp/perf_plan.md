@@ -153,7 +153,7 @@ Date: 2026-03-04
     - On tier GPU host: compare `hit_test_scans_p95` and selection/hover parity.
   - Completed: 2026-03-04 (commit 0e96825)
 
-- [ ] 8. Introduce shared retained route snapshot for interaction queries (architectural)
+- [x] 8. Introduce shared retained route snapshot for interaction queries (architectural)
   - ROI: High
   - Effort: L
   - Expected impact: p95 interaction latency, frame time, CPU
@@ -171,6 +171,7 @@ Date: 2026-03-04
     - `cargo test gui::scene`
     - `cargo test gui::interaction`
     - On tier GPU host: drag and cut benchmarks; verify identical hit behavior with lower update spikes.
+  - Completed: 2026-03-04 (commit e9eaf9c)
 
 - [ ] 9. Skip redundant output-size evaluation in tex viewer when frame key is unchanged
   - ROI: Medium
