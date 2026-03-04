@@ -86,8 +86,7 @@ impl FrameDirEncodeWorker {
         let (recycled_gray_tx, recycled_gray_rx) = mpsc::channel::<Vec<u8>>();
         let (completion_tx, completion_rx) = mpsc::channel::<Result<(), String>>();
         let join_handle = thread::spawn(move || {
-            let result =
-                run_frame_dir_worker_loop(receiver, recycled_gray_tx, dir, width, height);
+            let result = run_frame_dir_worker_loop(receiver, recycled_gray_tx, dir, width, height);
             let _ = completion_tx.send(result);
         });
         Self {
@@ -317,7 +316,11 @@ mod tests {
             1,
             "worker should recycle submitted frame buffers"
         );
-        assert_eq!(recycled[0].len(), 4, "recycled buffer length should match frame");
+        assert_eq!(
+            recycled[0].len(),
+            4,
+            "recycled buffer length should match frame"
+        );
         worker.finish().expect("frame-dir worker should finish");
         std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
     }
