@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-8 completed).
+Status: Phase 2 in progress (items 1-9 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -160,7 +160,8 @@ Date: 2026-03-04
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
     - `cargo test -q`
 
-- [ ] 9. Ratchet structure-drift oversized-file threshold to current baseline
+- [x] 9. Ratchet structure-drift oversized-file threshold to current baseline
+  - Completed: 2026-03-04 (`1693ba0`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
