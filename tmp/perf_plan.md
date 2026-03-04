@@ -58,7 +58,7 @@ Date: 2026-03-04
     - Compare `v2.image.render` and `v2.gpu.final_compositor` timings before/after.
   - Completed: 2026-03-04 (commit 7a4c308)
 
-- [ ] 3. Reuse transient scalar/SOP value buffers in `runtime_gpu` instead of allocating per frame
+- [x] 3. Reuse transient scalar/SOP value buffers in `runtime_gpu` instead of allocating per frame
   - ROI: High
   - Effort: M
   - Expected impact: frame time, memory, CPU
@@ -74,6 +74,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test runtime_gpu`
     - On tier GPU host: benchmark still/animation runs and compare memory churn and render timing stability.
+  - Completed: 2026-03-04 (commit 490cf84)
 
 - [ ] 4. Make hit-test cache updates incremental for node moves instead of full-cache rebuilds
   - ROI: High
