@@ -133,7 +133,7 @@ Date: 2026-03-04
     - On tier GPU host: compare steady-state CPU while playback is running with unchanged graph topology.
   - Completed: 2026-03-04 (commit 08ddfc5)
 
-- [ ] 7. Remove z-order sort in `node_ids_overlapping_graph_rect` query path
+- [x] 7. Remove z-order sort in `node_ids_overlapping_graph_rect` query path
   - ROI: High
   - Effort: M
   - Expected impact: p95 interaction latency, CPU
@@ -151,6 +151,7 @@ Date: 2026-03-04
     - `cargo test gui::project`
     - `cargo test gui::interaction`
     - On tier GPU host: compare `hit_test_scans_p95` and selection/hover parity.
+  - Completed: 2026-03-04 (commit 0e96825)
 
 - [ ] 8. Introduce shared retained route snapshot for interaction queries (architectural)
   - ROI: High
