@@ -225,8 +225,8 @@ impl TexPreviewRenderer {
             );
             self.cached_plan_signature = Some(request.plan_signature);
             self.op_uniform_signature = None;
+            self.prune_texture_caches_for_plan();
         }
-        self.prune_texture_caches_for_plan();
         if self.cached_plan_render_ops.is_empty() {
             return None;
         }
