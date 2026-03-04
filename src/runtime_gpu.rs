@@ -12,7 +12,7 @@ use crate::proc_graph::{
 };
 use crate::telemetry;
 
-use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp, CompiledValueKind};
+use super::compiler::{CompiledGraph, CompiledNodeStep, CompiledOp};
 use super::graph::NodeId;
 use super::node::{GraphTimeInput, PortType};
 
@@ -29,7 +29,7 @@ pub(crate) fn render_graph_luma_gpu(
     let mut scalar_values = DenseNodeValues::new(compiled.steps.len());
     let mut sop_values = DenseNodeValues::new(compiled.steps.len());
 
-    for (step_index, step) in compiled.steps.iter().enumerate() {
+    for step in &compiled.steps {
         let node_start = Instant::now();
         match step.op {
             CompiledOp::GenerateLayer(layer) => {
@@ -211,16 +211,13 @@ pub(crate) fn render_graph_luma_gpu(
             }
         }
         telemetry::record_timing(op_scope(step.op), node_start.elapsed());
-
-        validate_release_index(compiled, step_index)?;
     }
 
     let compositor_start = Instant::now();
-    let compositor_plan = build_final_compositor_plan(compiled)?;
     renderer.compose_outputs_to_retained(
         &mut frame,
-        compositor_plan.primary_slot,
-        &compositor_plan.taps,
+        compiled.final_compositor_plan.primary_slot,
+        &compiled.final_compositor_plan.taps,
     )?;
     let submit = renderer.submit_graph_frame(frame);
     telemetry::record_counter_u64(
@@ -238,50 +235,20 @@ pub(crate) fn render_graph_luma_gpu(
     Ok(())
 }
 
-struct FinalCompositorPlan {
-    primary_slot: usize,
-    taps: Vec<(u8, usize)>,
-}
-
-fn build_final_compositor_plan(
-    compiled: &CompiledGraph,
-) -> Result<FinalCompositorPlan, Box<dyn Error>> {
-    let mut primary_slot = None;
-    let mut taps = Vec::new();
-    for binding in &compiled.output_bindings {
-        let source_slot = output_luma_slot(compiled, binding.source_node)?;
-        match binding.role {
-            super::node::OutputRole::Primary => {
-                primary_slot = Some(source_slot);
-            }
-            super::node::OutputRole::Tap => taps.push((binding.slot, source_slot)),
-        }
-    }
-    let primary_slot = primary_slot.ok_or("compiled graph has no primary output binding")?;
-    taps.sort_by_key(|(slot, _)| *slot);
-    Ok(FinalCompositorPlan { primary_slot, taps })
-}
-
 fn output_luma_slot(compiled: &CompiledGraph, node_id: NodeId) -> Result<usize, Box<dyn Error>> {
-    let lifetime = compiled
-        .resource_plan
-        .gpu_lifetime_for(node_id)
-        .ok_or_else(|| format!("missing gpu lifetime for luma node {:?}", node_id))?;
-    if lifetime.kind != CompiledValueKind::Luma {
-        return Err(format!("node {:?} is not a gpu luma producer", node_id).into());
-    }
-    Ok(lifetime.alias_slot)
+    compiled
+        .gpu_luma_slots
+        .get(&node_id)
+        .copied()
+        .ok_or_else(|| format!("missing precomputed luma slot for node {:?}", node_id).into())
 }
 
 fn output_mask_slot(compiled: &CompiledGraph, node_id: NodeId) -> Result<usize, Box<dyn Error>> {
-    let lifetime = compiled
-        .resource_plan
-        .gpu_lifetime_for(node_id)
-        .ok_or_else(|| format!("missing gpu lifetime for mask node {:?}", node_id))?;
-    if lifetime.kind != CompiledValueKind::Mask {
-        return Err(format!("node {:?} is not a gpu mask producer", node_id).into());
-    }
-    Ok(lifetime.alias_slot)
+    compiled
+        .gpu_mask_slots
+        .get(&node_id)
+        .copied()
+        .ok_or_else(|| format!("missing precomputed mask slot for node {:?}", node_id).into())
 }
 
 fn luma_input_slot(
@@ -422,38 +389,9 @@ fn op_scope(op: CompiledOp) -> &'static str {
     }
 }
 
-fn validate_release_index(
-    compiled: &CompiledGraph,
-    step_index: usize,
-) -> Result<(), Box<dyn Error>> {
-    let releases = compiled
-        .resource_plan
-        .gpu_releases_by_step
-        .get(step_index)
-        .ok_or("invalid gpu release schedule index")?;
-
-    for node_id in releases {
-        let node_index = compiled
-            .node_index(*node_id)
-            .ok_or_else(|| format!("missing compiled node index for release node {:?}", node_id))?;
-        if node_index >= compiled.steps.len() {
-            return Err(format!(
-                "compiled node index {node_index} out of bounds for release node {:?}",
-                node_id
-            )
-            .into());
-        }
-        let _ = compiled
-            .resource_plan
-            .gpu_lifetime_for(*node_id)
-            .ok_or_else(|| format!("missing gpu lifetime for release node {:?}", node_id))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{build_final_compositor_plan, output_luma_slot};
+    use super::output_luma_slot;
     use crate::compiler::compile_graph;
     use crate::graph::{GenerateLayerNode, GraphBuilder};
     use crate::model::LayerBlendMode;
@@ -499,7 +437,7 @@ mod tests {
 
         let graph = builder.build().expect("graph");
         let compiled = compile_graph(&graph).expect("compiled");
-        let plan = build_final_compositor_plan(&compiled).expect("plan");
+        let plan = &compiled.final_compositor_plan;
 
         assert_eq!(
             plan.primary_slot,

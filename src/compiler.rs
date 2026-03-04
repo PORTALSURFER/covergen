@@ -59,6 +59,18 @@ pub struct CompiledOutputBinding {
     pub slot: u8,
 }
 
+/// Precomputed final-output compositor bindings for runtime submission.
+///
+/// This plan is immutable for one compiled graph and avoids per-frame output
+/// binding scans and tap sorting in the GPU runtime.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompiledFinalCompositorPlan {
+    /// Alias slot used as the retained primary output source.
+    pub primary_slot: usize,
+    /// Sorted tap bindings as `(tap_slot, alias_slot)`.
+    pub taps: Vec<(u8, usize)>,
+}
+
 /// Runtime value kind used for transient resource planning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompiledValueKind {
@@ -115,8 +127,14 @@ pub struct CompiledGraph {
     #[cfg_attr(not(test), allow(dead_code))]
     pub primary_output_node: NodeId,
     pub output_bindings: Vec<CompiledOutputBinding>,
+    /// Precomputed final-output compositor plan reused by every runtime frame.
+    pub final_compositor_plan: CompiledFinalCompositorPlan,
     /// Compile-time `NodeId -> step index` map shared by runtime adapters.
     pub node_indices: HashMap<NodeId, usize>,
+    /// Precomputed GPU alias slots for luma-producing nodes.
+    pub gpu_luma_slots: HashMap<NodeId, usize>,
+    /// Precomputed GPU alias slots for mask-producing nodes.
+    pub gpu_mask_slots: HashMap<NodeId, usize>,
     /// Persistent GPU feedback slot index for each stateful feedback node.
     pub feedback_slots: HashMap<NodeId, usize>,
     #[cfg(test)]
@@ -303,6 +321,9 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
     let can_use_retained_layer_path =
         detect_linear_layer_path(&steps, &incoming, primary_output_node, has_non_layer_nodes)?;
     let resource_plan = build_resource_plan(&steps)?;
+    validate_gpu_release_schedule(&resource_plan, &node_indices, steps.len())?;
+    let (gpu_luma_slots, gpu_mask_slots) = build_gpu_slot_maps(&resource_plan);
+    let final_compositor_plan = build_final_compositor_plan(&output_bindings, &gpu_luma_slots)?;
 
     Ok(CompiledGraph {
         width: graph.width,
@@ -311,7 +332,10 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         steps,
         primary_output_node,
         output_bindings,
+        final_compositor_plan,
         node_indices,
+        gpu_luma_slots,
+        gpu_mask_slots,
         feedback_slots,
         #[cfg(test)]
         has_non_layer_nodes,
@@ -330,6 +354,101 @@ fn collect_feedback_slots(steps: &[CompiledNodeStep]) -> HashMap<NodeId, usize> 
         }
     }
     slots
+}
+
+fn validate_gpu_release_schedule(
+    resource_plan: &CompiledResourcePlan,
+    node_indices: &HashMap<NodeId, usize>,
+    step_count: usize,
+) -> Result<(), GraphBuildError> {
+    if resource_plan.gpu_releases_by_step.len() != step_count {
+        return Err(GraphBuildError::new(format!(
+            "gpu release schedule length {} does not match step count {}",
+            resource_plan.gpu_releases_by_step.len(),
+            step_count
+        )));
+    }
+
+    for (step_index, releases) in resource_plan.gpu_releases_by_step.iter().enumerate() {
+        for node_id in releases {
+            let node_index = node_indices.get(node_id).copied().ok_or_else(|| {
+                GraphBuildError::new(format!(
+                    "missing compiled node index for release node {:?}",
+                    node_id
+                ))
+            })?;
+            if node_index >= step_count {
+                return Err(GraphBuildError::new(format!(
+                    "compiled node index {} out of bounds for release node {:?}",
+                    node_index, node_id
+                )));
+            }
+            let lifetime = resource_plan
+                .gpu_lifetimes
+                .get(node_id)
+                .copied()
+                .ok_or_else(|| {
+                    GraphBuildError::new(format!(
+                        "missing gpu lifetime for release node {:?}",
+                        node_id
+                    ))
+                })?;
+            if lifetime.last_step != step_index {
+                return Err(GraphBuildError::new(format!(
+                    "gpu release schedule mismatch for node {:?}: expected step {}, got {}",
+                    node_id, lifetime.last_step, step_index
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn build_gpu_slot_maps(
+    resource_plan: &CompiledResourcePlan,
+) -> (HashMap<NodeId, usize>, HashMap<NodeId, usize>) {
+    let mut gpu_luma_slots = HashMap::with_capacity(resource_plan.gpu_lifetimes.len());
+    let mut gpu_mask_slots = HashMap::with_capacity(resource_plan.gpu_lifetimes.len());
+    for (node_id, lifetime) in &resource_plan.gpu_lifetimes {
+        match lifetime.kind {
+            CompiledValueKind::Luma => {
+                gpu_luma_slots.insert(*node_id, lifetime.alias_slot);
+            }
+            CompiledValueKind::Mask => {
+                gpu_mask_slots.insert(*node_id, lifetime.alias_slot);
+            }
+        }
+    }
+    (gpu_luma_slots, gpu_mask_slots)
+}
+
+fn build_final_compositor_plan(
+    output_bindings: &[CompiledOutputBinding],
+    gpu_luma_slots: &HashMap<NodeId, usize>,
+) -> Result<CompiledFinalCompositorPlan, GraphBuildError> {
+    let mut primary_slot = None;
+    let mut taps = Vec::new();
+    for binding in output_bindings {
+        let source_slot = gpu_luma_slots
+            .get(&binding.source_node)
+            .copied()
+            .ok_or_else(|| {
+                GraphBuildError::new(format!(
+                    "missing precomputed luma slot for output source node {:?}",
+                    binding.source_node
+                ))
+            })?;
+        match binding.role {
+            OutputRole::Primary => {
+                primary_slot = Some(source_slot);
+            }
+            OutputRole::Tap => taps.push((binding.slot, source_slot)),
+        }
+    }
+    let primary_slot =
+        primary_slot.ok_or_else(|| GraphBuildError::new("compiled graph has no primary output"))?;
+    taps.sort_by_key(|(slot, _)| *slot);
+    Ok(CompiledFinalCompositorPlan { primary_slot, taps })
 }
 
 fn topological_order(
