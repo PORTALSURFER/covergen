@@ -110,7 +110,8 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 6. Add direct unit-test coverage for large untested modules
+- [x] 6. Add direct unit-test coverage for large untested modules
+  - Completed: 2026-03-04 (`f678471`)
   - ROI: Medium
   - Effort: M
   - Why it matters:
