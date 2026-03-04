@@ -114,7 +114,7 @@ Date: 2026-03-04
     - Track `bridge_intersection_tests_p95` and `scene.edges_ms_p95`.
   - Completed: 2026-03-04 (commit 97c679a)
 
-- [ ] 6. Reuse active cache-key sets and prune tex-preview caches only when plan topology changes
+- [x] 6. Reuse active cache-key sets and prune tex-preview caches only when plan topology changes
   - ROI: High
   - Effort: S
   - Expected impact: frame time, CPU, memory
@@ -131,6 +131,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::renderer::tex_preview`
     - On tier GPU host: compare steady-state CPU while playback is running with unchanged graph topology.
+  - Completed: 2026-03-04 (commit 08ddfc5)
 
 - [ ] 7. Remove z-order sort in `node_ids_overlapping_graph_rect` query path
   - ROI: High
