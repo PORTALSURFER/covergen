@@ -175,7 +175,7 @@ Date: 2026-03-04
     - On tier GPU host: compare `hit_test_scans_p95` and manual hover precision checks.
   - Completed: 2026-03-04 (commit cb2c091)
 
-- [ ] 9. Remove unnecessary node-level timing overhead when telemetry capture is inactive
+- [x] 9. Remove unnecessary node-level timing overhead when telemetry capture is inactive
   - ROI: Medium
   - Effort: S
   - Expected impact: frame time, CPU
@@ -192,6 +192,7 @@ Date: 2026-03-04
     - `cargo test telemetry`
     - `cargo test runtime_gpu`
     - On tier GPU host: compare render throughput in non-capture runs; verify full timing data remains in capture runs.
+  - Completed: 2026-03-04 (commit 3bb0418)
 
 - [ ] 10. Eliminate per-frame frame-dir export buffer clones/allocations via reusable owned-buffer pool
   - ROI: Medium
