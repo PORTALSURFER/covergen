@@ -43,6 +43,8 @@ pub(super) struct DrawnWireSegment {
 #[derive(Debug, Default)]
 pub(super) struct BridgeSegmentSpatialHash {
     buckets: HashMap<(i32, i32), Vec<usize>>,
+    candidate_visit_generation: Vec<u32>,
+    candidate_generation: u32,
 }
 
 impl BridgeSegmentSpatialHash {
@@ -66,8 +68,16 @@ impl BridgeSegmentSpatialHash {
         }
     }
 
-    pub(super) fn collect_candidates(&self, segment: DrawnWireSegment, out: &mut Vec<usize>) {
+    pub(super) fn collect_candidates(&mut self, segment: DrawnWireSegment, out: &mut Vec<usize>) {
         out.clear();
+        self.candidate_generation = self.candidate_generation.wrapping_add(1);
+        if self.candidate_generation == 0 {
+            self.candidate_visit_generation.fill(0);
+            self.candidate_generation = 1;
+        }
+        let buckets = &self.buckets;
+        let visit_generation = &mut self.candidate_visit_generation;
+        let generation = self.candidate_generation;
         let (min_x, min_y, max_x, max_y) = segment_bounds(segment);
         let min_bucket_x = min_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
         let max_bucket_x = max_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
@@ -75,14 +85,21 @@ impl BridgeSegmentSpatialHash {
         let max_bucket_y = max_y.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
         for bucket_y in min_bucket_y..=max_bucket_y {
             for bucket_x in min_bucket_x..=max_bucket_x {
-                let Some(indices) = self.buckets.get(&(bucket_x, bucket_y)) else {
+                let Some(indices) = buckets.get(&(bucket_x, bucket_y)) else {
                     continue;
                 };
-                out.extend(indices.iter().copied());
+                for index in indices.iter().copied() {
+                    if visit_generation.len() <= index {
+                        visit_generation.resize(index + 1, 0);
+                    }
+                    if visit_generation[index] == generation {
+                        continue;
+                    }
+                    visit_generation[index] = generation;
+                    out.push(index);
+                }
             }
         }
-        out.sort_unstable();
-        out.dedup();
     }
 }
 
