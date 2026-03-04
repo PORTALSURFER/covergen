@@ -222,7 +222,7 @@ Date: 2026-03-04
     - `scripts/lint/private_docs_subset.sh`
     - `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 13. Normalize parameter-schema ownership and runtime key invariants
+- [x] 13. Normalize parameter-schema ownership and runtime key invariants _(done 2026-03-04, commit f0a7b49)_
   - ROI: Low
   - Effort: S
   - Why it matters:
