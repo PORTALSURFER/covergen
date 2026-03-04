@@ -249,4 +249,4 @@ Date: 2026-03-04
     - `scripts/ci_local.sh lock laptop_integrated`
     - `scripts/ci_local.sh validate desktop_mid`
     - `scripts/ci_local.sh validate laptop_integrated`
-  - Blocked: 2026-03-04 on this host (`llvmpipe` software adapter only). `scripts/bench/tier_gate.sh lock {desktop_mid,laptop_integrated}` and `scripts/gui/tier_gate.sh lock {desktop_mid,laptop_integrated}` fail because a hardware GPU adapter is required.
+  - Blocked: 2026-03-04 on this host (`llvmpipe` software adapter only). `scripts/ci_local.sh lock desktop_mid` now passes rustfmt/clippy/tests and fails at benchmark locking because a hardware GPU adapter is required; direct `scripts/bench/tier_gate.sh lock {desktop_mid,laptop_integrated}` and `scripts/gui/tier_gate.sh lock {desktop_mid,laptop_integrated}` fail with the same adapter error.
