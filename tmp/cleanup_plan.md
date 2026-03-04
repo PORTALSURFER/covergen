@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-9 completed).
+Status: Phase 2 in progress (items 1-10 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -176,7 +176,8 @@ Date: 2026-03-04
     - `scripts/lint/structure_drift_report.sh`
     - `scripts/ci_local.sh`
 
-- [ ] 10. Split GUI menu/state catalog modules with mixed concerns
+- [x] 10. Split GUI menu/state catalog modules with mixed concerns
+  - Completed: 2026-03-04 (`ea5583f`)
   - ROI: Low
   - Effort: M
   - Why it matters:

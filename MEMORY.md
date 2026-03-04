@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-03-04 16:08:44 UTC
+Last Updated: 2026-03-04 16:13:08 UTC
 
 ## Current Mission
 Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
@@ -26,7 +26,7 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
 - Deep performance audit backlog is active in `tmp/perf_plan.md`; Phase 2 execution has completed items 1-11 in strict ROI order, and item 12 is blocked pending lock runs on representative `desktop_mid` and `laptop_integrated` hardware.
-- Deep cleanup audit backlog is tracked in `tmp/cleanup_plan.md`; Phase 2 is in progress and items 1-9 are complete (`5cef86b`, `3f9e6df`, `cc92cce`, `11a4639`, `7d7e044`, `6438d08`, `b078cf0`, `9853ed5`, `1693ba0`).
+- Deep cleanup audit backlog is tracked in `tmp/cleanup_plan.md`; Phase 2 is in progress and items 1-10 are complete (`5cef86b`, `3f9e6df`, `cc92cce`, `11a4639`, `7d7e044`, `6438d08`, `b078cf0`, `9853ed5`, `1693ba0`, `ea5583f`).
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
