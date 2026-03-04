@@ -115,7 +115,7 @@ Date: 2026-03-04
     - On tier GPU host: trace drag scenarios and compare `scene.edges_ms` plus CPU allocation counters.
   - Completed: 2026-03-04 (commit 58887b5)
 
-- [ ] 6. Add spatial indexing to route-obstacle queries to avoid linear scans per route attempt
+- [x] 6. Add spatial indexing to route-obstacle queries to avoid linear scans per route attempt
   - ROI: High
   - Effort: M
   - Expected impact: frame time, p95 interaction latency, CPU
@@ -133,6 +133,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::scene::wire_route`
     - On tier GPU host: dense-graph drag benchmark and compare `scene.edges_ms_p95`.
+  - Completed: 2026-03-04 (commit 8a956fd)
 
 - [ ] 7. Cache tex-preview op signatures at update time instead of recomputing them on every `frame()` call
   - ROI: High
