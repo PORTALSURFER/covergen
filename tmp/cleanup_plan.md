@@ -51,7 +51,8 @@ Date: 2026-03-04
     - `cargo test -q gui::runtime::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 3. Decompose `gui/runtime.rs` evaluator surface and move inline tests into focused files
+- [x] 3. Decompose `gui/runtime.rs` evaluator surface and move inline tests into focused files
+  - Completed: 2026-03-04 (`733df8a`)
   - ROI: High
   - Effort: M
   - Why it matters:
