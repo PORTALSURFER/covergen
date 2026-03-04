@@ -57,7 +57,7 @@ Date: 2026-03-04
     - Compare `scene.edges_ms_p95` and drag smoothness in dense graphs.
   - Completed: 2026-03-04 (commit 849afb6)
 
-- [ ] 3. Decouple tex-preview execution plan topology from uniform payloads
+- [x] 3. Decouple tex-preview execution plan topology from uniform payloads
   - ROI: Very High
   - Effort: L
   - Expected impact: frame time, CPU
@@ -74,6 +74,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::renderer::tex_preview`
     - On tier GPU host: GUI benchmark traces with animated params; compare `render_ms_p95` and CPU usage.
+  - Completed: 2026-03-04 (commit ac43235)
 
 - [ ] 4. Replace per-frame full dense-value clears with generation-stamped slots in runtime GPU evaluator
   - ROI: High
