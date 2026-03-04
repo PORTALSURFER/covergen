@@ -1,5 +1,7 @@
 //! Node drag, wire-insert hover, and overlap-snap behavior.
 
+use std::cell::RefCell;
+
 use crate::gui::scene::wire_route;
 use crate::gui::state::DragState;
 
@@ -8,6 +10,25 @@ use super::{
     output_pin_center, GuiProject, HoverInsertLink, InputSnapshot, InteractionPanelContext,
     PreviewState, NODE_OVERLAP_SNAP_GAP_PX, NODE_WIDTH,
 };
+
+thread_local! {
+    /// Reused obstacle map for drag-hover wire-insert hit testing.
+    static HOVER_INSERT_OBSTACLE_CACHE: RefCell<HoverInsertObstacleCache> =
+        RefCell::new(HoverInsertObstacleCache::default());
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HoverInsertObstacleCacheKey {
+    dragged_node_id: u32,
+    non_dragged_signature: u64,
+}
+
+#[derive(Debug, Default)]
+struct HoverInsertObstacleCache {
+    key: Option<HoverInsertObstacleCacheKey>,
+    obstacles: Vec<wire_route::NodeObstacle>,
+    route_map: wire_route::RouteObstacleMap,
+}
 
 /// Handle drag start/update/release interactions for nodes.
 pub(super) fn handle_drag_input(
@@ -301,8 +322,6 @@ pub(super) fn hover_insert_link_at_cursor(
     dragged_node_id: u32,
 ) -> Option<HoverInsertLink> {
     let mut best: Option<(HoverInsertLink, f32)> = None;
-    let obstacles = collect_hover_obstacles(project, dragged_node_id);
-    let route_map = wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
     let query = HoverInsertQuery {
         cursor_x,
         cursor_y,
@@ -312,29 +331,76 @@ pub(super) fn hover_insert_link_at_cursor(
     };
     let (view_x0, view_y0, view_x1, view_y1) = super::marquee::panel_graph_rect(ctx, state);
     let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
-    for target_id in target_ids.iter().copied() {
-        consider_hover_insert_candidate(project, state, query, &route_map, target_id, &mut best);
-    }
-    if best.is_none() && target_ids.len() < project.node_count() {
-        for target in project.nodes() {
+    HOVER_INSERT_OBSTACLE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        ensure_hover_obstacle_route_map(project, dragged_node_id, &mut cache);
+        for target_id in target_ids.iter().copied() {
             consider_hover_insert_candidate(
                 project,
                 state,
                 query,
-                &route_map,
-                target.id(),
+                &cache.route_map,
+                target_id,
                 &mut best,
             );
         }
-    }
+        if best.is_none() && target_ids.len() < project.node_count() {
+            for target in project.nodes() {
+                consider_hover_insert_candidate(
+                    project,
+                    state,
+                    query,
+                    &cache.route_map,
+                    target.id(),
+                    &mut best,
+                );
+            }
+        }
+    });
     best.map(|(link, _)| link)
+}
+
+fn ensure_hover_obstacle_route_map(
+    project: &GuiProject,
+    dragged_node_id: u32,
+    cache: &mut HoverInsertObstacleCache,
+) {
+    let key = HoverInsertObstacleCacheKey {
+        dragged_node_id,
+        non_dragged_signature: hover_obstacle_signature(project, dragged_node_id),
+    };
+    if cache.key == Some(key) {
+        return;
+    }
+    collect_hover_obstacles(project, dragged_node_id, &mut cache.obstacles);
+    cache.route_map = wire_route::RouteObstacleMap::from_obstacles(cache.obstacles.as_slice());
+    cache.key = Some(key);
+}
+
+fn hover_obstacle_signature(project: &GuiProject, excluded_node_id: u32) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for node in project.nodes() {
+        if node.id() == excluded_node_id {
+            continue;
+        }
+        hash = fnv1a(hash, node.id() as u64);
+        hash = fnv1a(hash, node.x() as u32 as u64);
+        hash = fnv1a(hash, node.y() as u32 as u64);
+        hash = fnv1a(hash, node.card_height() as u32 as u64);
+    }
+    hash
+}
+
+fn fnv1a(hash: u64, value: u64) -> u64 {
+    (hash ^ value).wrapping_mul(0x100000001b3)
 }
 
 fn collect_hover_obstacles(
     project: &GuiProject,
     excluded_node_id: u32,
-) -> Vec<wire_route::NodeObstacle> {
-    let mut out = Vec::new();
+    out: &mut Vec<wire_route::NodeObstacle>,
+) {
+    out.clear();
     for node in project.nodes() {
         if node.id() == excluded_node_id {
             continue;
@@ -348,7 +414,6 @@ fn collect_hover_obstacles(
             ),
         });
     }
-    out
 }
 
 #[derive(Clone, Copy, Debug)]
