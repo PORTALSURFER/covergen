@@ -188,7 +188,7 @@ Date: 2026-03-04
     - `cargo test -q gui::project::tests --bin covergen`
     - `cargo test -q gui::tex_view::tests --bin covergen`
 
-- [ ] 11. Harden documentation CI by adding rustdoc validity checks
+- [x] 11. Harden documentation CI by adding rustdoc validity checks _(done 2026-03-04, commit b9b791c)_
   - ROI: Medium
   - Effort: S
   - Why it matters:
