@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::gpu_timestamp::OptionalGpuTimestampQueries;
 
 mod pipeline;
-use pipeline::{build_setup, map_buffer_async};
+use pipeline::{build_setup, map_buffer_async, RetainedSetupParams};
 
 /// Uniforms for one retained blend dispatch.
 #[repr(C)]
@@ -124,13 +124,15 @@ impl RetainedGpuPost {
 
         let setup = build_setup(
             device,
-            out_buffer,
-            width,
-            height,
-            output_width,
-            output_height,
-            post_init,
-            finalize_init,
+            RetainedSetupParams {
+                out_buffer,
+                width,
+                height,
+                output_width,
+                output_height,
+                post_init,
+                finalize_init,
+            },
         )?;
 
         Ok(Self {

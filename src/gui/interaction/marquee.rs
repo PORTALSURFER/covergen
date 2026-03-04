@@ -145,18 +145,10 @@ pub(super) fn panel_graph_rect(
 }
 
 /// Return true when two axis-aligned rectangles overlap.
-#[allow(clippy::too_many_arguments)]
 #[cfg(test)]
-pub(super) fn rects_overlap(
-    ax0: i32,
-    ay0: i32,
-    ax1: i32,
-    ay1: i32,
-    bx0: i32,
-    by0: i32,
-    bx1: i32,
-    by1: i32,
-) -> bool {
+pub(super) fn rects_overlap(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    let (ax0, ay0, ax1, ay1) = a;
+    let (bx0, by0, bx1, by1) = b;
     ax0 <= bx1 && ax1 >= bx0 && ay0 <= by1 && ay1 >= by0
 }
 

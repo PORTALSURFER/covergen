@@ -12,6 +12,14 @@ use super::super::preset_catalog::PresetContext;
 use super::super::primitives::{random_blend, random_tonemap, random_warp};
 use super::{GrammarLimits, GrammarState, LumaValue, NodeClass};
 
+pub(super) struct BlendNodeParams<'a> {
+    pub(super) left: LumaValue,
+    pub(super) right: LumaValue,
+    pub(super) state: &'a GrammarState,
+    pub(super) limits: GrammarLimits,
+    pub(super) collapse_mode: bool,
+}
+
 pub(super) fn blend_in_core_anchor(
     builder: &mut GraphBuilder,
     ctx: PresetContext<'_>,
@@ -30,16 +38,18 @@ pub(super) fn blend_in_core_anchor(
         builder,
         ctx,
         rng,
-        LumaValue {
-            id: core,
-            class: NodeClass::CoreSource,
-            mod_depth: 0,
-            has_core_ancestry: true,
+        BlendNodeParams {
+            left: LumaValue {
+                id: core,
+                class: NodeClass::CoreSource,
+                mod_depth: 0,
+                has_core_ancestry: true,
+            },
+            right: value,
+            state,
+            limits,
+            collapse_mode: true,
         },
-        value,
-        state,
-        limits,
-        true,
     )
 }
 
@@ -106,17 +116,19 @@ pub(super) fn add_feedback_node(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn add_blend_node(
     builder: &mut GraphBuilder,
     ctx: PresetContext<'_>,
     rng: &mut XorShift32,
-    left: LumaValue,
-    right: LumaValue,
-    state: &GrammarState,
-    limits: GrammarLimits,
-    collapse_mode: bool,
+    params: BlendNodeParams<'_>,
 ) -> Result<LumaValue, GraphBuildError> {
+    let BlendNodeParams {
+        left,
+        right,
+        state,
+        limits,
+        collapse_mode,
+    } = params;
     let (min_opacity, max_opacity) = if collapse_mode {
         (0.30, 0.72)
     } else {

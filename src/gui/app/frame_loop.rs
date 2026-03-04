@@ -339,19 +339,19 @@ impl GuiApp {
                 render.ui_alloc_bytes as f64 / total_secs,
             );
         }
-        self.perf.record(
-            self.frame_counter,
-            input_elapsed,
-            update.update_elapsed,
-            render.scene_elapsed,
-            render.render_elapsed,
-            total_elapsed,
-            render.submit_count,
-            render.upload_bytes,
-            update.hit_test_scans,
-            render.bridge_intersection_tests,
-            render.ui_alloc_bytes,
-        );
+        self.perf.record(GuiFrameRecord {
+            frame_index: self.frame_counter,
+            input: input_elapsed,
+            update: update.update_elapsed,
+            scene: render.scene_elapsed,
+            render: render.render_elapsed,
+            total: total_elapsed,
+            submit_count: render.submit_count,
+            upload_bytes: render.upload_bytes,
+            hit_test_scans: update.hit_test_scans,
+            bridge_intersection_tests: render.bridge_intersection_tests,
+            ui_alloc_bytes: render.ui_alloc_bytes,
+        });
         if self.frame_counter == 0 {
             telemetry::record_timing("gui.startup.first_frame.total", total_elapsed);
             telemetry::record_timing("gui.startup.first_frame.scene", render.scene_elapsed);

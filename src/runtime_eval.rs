@@ -102,14 +102,16 @@ fn evaluate_mixed_graph(
             CompiledOp::GenerateLayer(layer) => {
                 let effective = modulation.map_or(layer, |time| layer.with_time(time));
                 execute_generate_layer(
-                    step,
                     effective,
-                    compiled,
-                    seed_offset,
-                    renderer.as_deref_mut(),
-                    buffers,
-                    &mut values,
-                    &mut arena,
+                    GenerateLayerEvalContext {
+                        step,
+                        compiled,
+                        seed_offset,
+                        renderer: renderer.as_deref_mut(),
+                        buffers,
+                        values: &mut values,
+                        arena: &mut arena,
+                    },
                 )?;
             }
             CompiledOp::SourceNoise(spec) => {
@@ -297,17 +299,29 @@ fn evaluate_mixed_graph(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn execute_generate_layer(
-    step: &CompiledNodeStep,
-    layer: super::node::GenerateLayerNode,
-    compiled: &CompiledGraph,
+struct GenerateLayerEvalContext<'a> {
+    step: &'a CompiledNodeStep,
+    compiled: &'a CompiledGraph,
     seed_offset: u32,
-    renderer: Option<&mut GpuLayerRenderer>,
-    buffers: &mut RuntimeBuffers,
-    values: &mut DenseRuntimeValues,
-    arena: &mut AliasedResourceArena,
+    renderer: Option<&'a mut GpuLayerRenderer>,
+    buffers: &'a mut RuntimeBuffers,
+    values: &'a mut DenseRuntimeValues,
+    arena: &'a mut AliasedResourceArena,
+}
+
+fn execute_generate_layer(
+    layer: super::node::GenerateLayerNode,
+    ctx: GenerateLayerEvalContext<'_>,
 ) -> Result<(), Box<dyn Error>> {
+    let GenerateLayerEvalContext {
+        step,
+        compiled,
+        seed_offset,
+        renderer,
+        buffers,
+        values,
+        arena,
+    } = ctx;
     let renderer = renderer.ok_or("generate-layer node requires GPU renderer")?;
     let params = layer.to_params(compiled.width, compiled.height, seed_offset);
     let gpu_start = Instant::now();

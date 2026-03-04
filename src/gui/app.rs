@@ -25,7 +25,7 @@ use crate::{
 use super::audio::TimelineAudioPreview;
 use super::input::InputCollector;
 use super::interaction::{apply_preview_actions, step_timeline_if_running};
-use super::perf::GuiPerfRecorder;
+use super::perf::{GuiFrameRecord, GuiPerfRecorder};
 use super::project::{
     GuiProject, GuiProjectInvalidation, PersistedGuiProject, PersistedProjectLoadError,
     PersistedProjectLoadOutcome, PersistedProjectLoadWarning, ProjectNodeKind, NODE_WIDTH,

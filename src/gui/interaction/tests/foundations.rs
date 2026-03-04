@@ -37,8 +37,8 @@ fn marquee_moved_requires_drag_threshold() {
 
 #[test]
 fn rects_overlap_detects_intersection() {
-    assert!(rects_overlap(0, 0, 10, 10, 8, 8, 16, 16));
-    assert!(!rects_overlap(0, 0, 10, 10, 11, 11, 20, 20));
+    assert!(rects_overlap((0, 0, 10, 10), (8, 8, 16, 16)));
+    assert!(!rects_overlap((0, 0, 10, 10), (11, 11, 20, 20)));
 }
 
 #[test]

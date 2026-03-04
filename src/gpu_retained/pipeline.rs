@@ -22,17 +22,30 @@ pub(super) struct RetainedSetup {
     pub(super) final_output_buffer: wgpu::Buffer,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Immutable inputs needed to create retained GPU post-processing resources.
+pub(super) struct RetainedSetupParams<'a> {
+    pub(super) out_buffer: &'a wgpu::Buffer,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) output_width: u32,
+    pub(super) output_height: u32,
+    pub(super) post_init: RetainedPostParams,
+    pub(super) finalize_init: RetainedFinalizeParams,
+}
+
 pub(super) fn build_setup(
     device: &wgpu::Device,
-    out_buffer: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-    output_width: u32,
-    output_height: u32,
-    post_init: RetainedPostParams,
-    finalize_init: RetainedFinalizeParams,
+    params: RetainedSetupParams<'_>,
 ) -> Result<RetainedSetup, Box<dyn Error>> {
+    let RetainedSetupParams {
+        out_buffer,
+        width,
+        height,
+        output_width,
+        output_height,
+        post_init,
+        finalize_init,
+    } = params;
     let src_bytes = (width as u64)
         .saturating_mul(height as u64)
         .saturating_mul(std::mem::size_of::<f32>() as u64);

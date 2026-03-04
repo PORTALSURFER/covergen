@@ -25,6 +25,22 @@ pub(crate) struct GuiFrameSample {
     pub(crate) ui_alloc_bytes: u64,
 }
 
+/// Raw timing/counter inputs used to record one GUI frame sample.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GuiFrameRecord {
+    pub(crate) frame_index: u64,
+    pub(crate) input: Duration,
+    pub(crate) update: Duration,
+    pub(crate) scene: Duration,
+    pub(crate) render: Duration,
+    pub(crate) total: Duration,
+    pub(crate) submit_count: u32,
+    pub(crate) upload_bytes: u64,
+    pub(crate) hit_test_scans: u64,
+    pub(crate) bridge_intersection_tests: u64,
+    pub(crate) ui_alloc_bytes: u64,
+}
+
 /// Optional trace recorder for GUI stage timings.
 #[derive(Debug, Default)]
 pub(crate) struct GuiPerfRecorder {
@@ -50,36 +66,22 @@ impl GuiPerfRecorder {
     }
 
     /// Store one timing sample for this GUI frame.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn record(
-        &mut self,
-        frame_index: u64,
-        input: Duration,
-        update: Duration,
-        scene: Duration,
-        render: Duration,
-        total: Duration,
-        submit_count: u32,
-        upload_bytes: u64,
-        hit_test_scans: u64,
-        bridge_intersection_tests: u64,
-        ui_alloc_bytes: u64,
-    ) {
+    pub(crate) fn record(&mut self, record: GuiFrameRecord) {
         if self.output_path.is_none() {
             return;
         }
         let sample = GuiFrameSample {
-            frame_index,
-            input_ms: millis(input),
-            update_ms: millis(update),
-            scene_ms: millis(scene),
-            render_ms: millis(render),
-            total_ms: millis(total),
-            submit_count,
-            upload_bytes,
-            hit_test_scans,
-            bridge_intersection_tests,
-            ui_alloc_bytes,
+            frame_index: record.frame_index,
+            input_ms: millis(record.input),
+            update_ms: millis(record.update),
+            scene_ms: millis(record.scene),
+            render_ms: millis(record.render),
+            total_ms: millis(record.total),
+            submit_count: record.submit_count,
+            upload_bytes: record.upload_bytes,
+            hit_test_scans: record.hit_test_scans,
+            bridge_intersection_tests: record.bridge_intersection_tests,
+            ui_alloc_bytes: record.ui_alloc_bytes,
         };
         if self.writer.is_none() {
             self.ensure_writer_open();
@@ -199,7 +201,7 @@ fn write_sample_line<W: Write>(
 mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{GuiPerfRecorder, TRACE_RING_CAPACITY};
+    use super::{GuiFrameRecord, GuiPerfRecorder, TRACE_RING_CAPACITY};
 
     #[test]
     fn fallback_ring_buffer_is_bounded() {
@@ -212,19 +214,19 @@ mod tests {
         let mut recorder = GuiPerfRecorder::new(Some(trace_path.to_string_lossy().into_owned()));
         let sample_count = TRACE_RING_CAPACITY as u64 + 32;
         for frame in 0..sample_count {
-            recorder.record(
-                frame,
-                Duration::from_millis(1),
-                Duration::from_millis(1),
-                Duration::from_millis(1),
-                Duration::from_millis(1),
-                Duration::from_millis(1),
-                1,
-                128,
-                32,
-                0,
-                0,
-            );
+            recorder.record(GuiFrameRecord {
+                frame_index: frame,
+                input: Duration::from_millis(1),
+                update: Duration::from_millis(1),
+                scene: Duration::from_millis(1),
+                render: Duration::from_millis(1),
+                total: Duration::from_millis(1),
+                submit_count: 1,
+                upload_bytes: 128,
+                hit_test_scans: 32,
+                bridge_intersection_tests: 0,
+                ui_alloc_bytes: 0,
+            });
         }
         assert_eq!(recorder.fallback_samples.len(), TRACE_RING_CAPACITY);
         let first = recorder
@@ -242,32 +244,32 @@ mod tests {
             .as_nanos();
         let trace_path = std::env::temp_dir().join(format!("covergen_gui_trace_{unique}.csv"));
         let mut recorder = GuiPerfRecorder::new(Some(trace_path.to_string_lossy().into_owned()));
-        recorder.record(
-            0,
-            Duration::from_millis(2),
-            Duration::from_millis(3),
-            Duration::from_millis(4),
-            Duration::from_millis(5),
-            Duration::from_millis(6),
-            1,
-            256,
-            64,
-            8,
-            1024,
-        );
-        recorder.record(
-            1,
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            1,
-            128,
-            16,
-            4,
-            0,
-        );
+        recorder.record(GuiFrameRecord {
+            frame_index: 0,
+            input: Duration::from_millis(2),
+            update: Duration::from_millis(3),
+            scene: Duration::from_millis(4),
+            render: Duration::from_millis(5),
+            total: Duration::from_millis(6),
+            submit_count: 1,
+            upload_bytes: 256,
+            hit_test_scans: 64,
+            bridge_intersection_tests: 8,
+            ui_alloc_bytes: 1024,
+        });
+        recorder.record(GuiFrameRecord {
+            frame_index: 1,
+            input: Duration::from_millis(1),
+            update: Duration::from_millis(1),
+            scene: Duration::from_millis(1),
+            render: Duration::from_millis(1),
+            total: Duration::from_millis(1),
+            submit_count: 1,
+            upload_bytes: 128,
+            hit_test_scans: 16,
+            bridge_intersection_tests: 4,
+            ui_alloc_bytes: 0,
+        });
         assert!(recorder.fallback_samples.is_empty());
         recorder.flush().expect("trace flush should succeed");
 

@@ -21,7 +21,7 @@ use super::primitives::{generate_layer_node, render_size};
 use ops::{
     add_blend_node, add_feedback_node, add_tone_node, add_warp_node, allows_mask_source,
     allows_modulation, blend_in_core_anchor, choose_index, random_mask_node, random_source_noise,
-    take_merge_pair, wire_outputs,
+    take_merge_pair, wire_outputs, BlendNodeParams,
 };
 
 const GRAPH_SALT: u32 = 0x4A95_11E3;
@@ -242,13 +242,35 @@ fn apply_merge_passes(
             break;
         }
         let pair = take_merge_pair(state, rng)?;
-        let merged = add_blend_node(builder, ctx, rng, pair.0, pair.1, state, limits, false)?;
+        let merged = add_blend_node(
+            builder,
+            ctx,
+            rng,
+            BlendNodeParams {
+                left: pair.0,
+                right: pair.1,
+                state,
+                limits,
+                collapse_mode: false,
+            },
+        )?;
         state.push_luma(merged);
     }
 
     while state.luma_pool.len() > 1 {
         let pair = take_merge_pair(state, rng)?;
-        let merged = add_blend_node(builder, ctx, rng, pair.0, pair.1, state, limits, true)?;
+        let merged = add_blend_node(
+            builder,
+            ctx,
+            rng,
+            BlendNodeParams {
+                left: pair.0,
+                right: pair.1,
+                state,
+                limits,
+                collapse_mode: true,
+            },
+        )?;
         state.push_luma(merged);
     }
     Ok(())
