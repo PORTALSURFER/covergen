@@ -221,7 +221,9 @@ pub(crate) struct SceneBuilder {
     signal_scope_line_scratch: Vec<(i32, i32, i32, i32)>,
     selected_nodes_lookup_scratch: HashSet<u32>,
     edge_drawn_segments_scratch: Vec<DrawnWireSegment>,
+    edge_drawn_segment_hash_scratch: BridgeSegmentSpatialHash,
     param_drawn_segments_scratch: Vec<DrawnWireSegment>,
+    param_drawn_segment_hash_scratch: BridgeSegmentSpatialHash,
     bridge_new_segments_scratch: Vec<DrawnWireSegment>,
     bridge_candidate_indices_scratch: Vec<usize>,
     bridge_crossings_scratch: Vec<f32>,
@@ -466,9 +468,10 @@ impl SceneBuilder {
         let mut live_route_keys =
             std::mem::take(&mut self.wire_routes.edge_live_route_keys_scratch);
         let mut drawn_segments = std::mem::take(&mut self.edge_drawn_segments_scratch);
+        let mut drawn_segment_hash = std::mem::take(&mut self.edge_drawn_segment_hash_scratch);
         live_route_keys.clear();
         drawn_segments.clear();
-        let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
+        drawn_segment_hash.clear();
         let mut occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = std::mem::take(&mut self.wire_routes.edge_tail_slots_scratch);
         tail_slots.clear();
@@ -570,6 +573,7 @@ impl SceneBuilder {
         self.wire_routes.edge_route_panel_scratch = route_panel;
         self.wire_routes.edge_tail_slots_scratch = tail_slots;
         self.edge_drawn_segments_scratch = drawn_segments;
+        self.edge_drawn_segment_hash_scratch = drawn_segment_hash;
         self.wire_routes.edge_live_route_keys_scratch = live_route_keys;
     }
 
@@ -1548,9 +1552,10 @@ impl SceneBuilder {
         let mut live_route_keys =
             std::mem::take(&mut self.wire_routes.param_live_route_keys_scratch);
         let mut drawn_segments = std::mem::take(&mut self.param_drawn_segments_scratch);
+        let mut drawn_segment_hash = std::mem::take(&mut self.param_drawn_segment_hash_scratch);
         live_route_keys.clear();
         drawn_segments.clear();
-        let mut drawn_segment_hash = BridgeSegmentSpatialHash::default();
+        drawn_segment_hash.clear();
         let mut param_occupied_edges = wire_route::RouteOccupiedEdges::default();
         let mut tail_slots = std::mem::take(&mut self.wire_routes.param_tail_slots_scratch);
         tail_slots.clear();
@@ -1642,6 +1647,7 @@ impl SceneBuilder {
         self.wire_routes.param_route_panel_scratch = route_panel;
         self.wire_routes.param_tail_slots_scratch = tail_slots;
         self.param_drawn_segments_scratch = drawn_segments;
+        self.param_drawn_segment_hash_scratch = drawn_segment_hash;
         self.wire_routes.param_live_route_keys_scratch = live_route_keys;
     }
 

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use super::wire_route;
+use crate::gui::geometry::segments_intersect as geometry_segments_intersect;
 use crate::gui::state::PreviewState;
 
 pub(super) const WIRE_ENDPOINT_RADIUS_PX: i32 = 2;
@@ -45,6 +46,10 @@ pub(super) struct BridgeSegmentSpatialHash {
 }
 
 impl BridgeSegmentSpatialHash {
+    pub(super) fn clear(&mut self) {
+        self.buckets.clear();
+    }
+
     pub(super) fn insert_segment(&mut self, segment: DrawnWireSegment, segment_index: usize) {
         let (min_x, min_y, max_x, max_y) = segment_bounds(segment);
         let min_bucket_x = min_x.div_euclid(WIRE_BRIDGE_HASH_CELL_PX);
@@ -434,15 +439,11 @@ fn edge_intersects_cut_line(state: &PreviewState, x0: i32, y0: i32, x1: i32, y1:
     let Some(cut) = state.link_cut else {
         return false;
     };
-    segments_intersect(
-        cut.start_x,
-        cut.start_y,
-        cut.cursor_x,
-        cut.cursor_y,
-        x0,
-        y0,
-        x1,
-        y1,
+    geometry_segments_intersect(
+        (cut.start_x, cut.start_y),
+        (cut.cursor_x, cut.cursor_y),
+        (x0, y0),
+        (x1, y1),
     )
 }
 
@@ -462,48 +463,6 @@ pub(super) fn path_intersects_cut_line(state: &PreviewState, points: &[(i32, i32
         }
     }
     false
-}
-
-#[allow(clippy::too_many_arguments)]
-fn segments_intersect(
-    ax: i32,
-    ay: i32,
-    bx: i32,
-    by: i32,
-    cx: i32,
-    cy: i32,
-    dx: i32,
-    dy: i32,
-) -> bool {
-    let o1 = orient(ax, ay, bx, by, cx, cy);
-    let o2 = orient(ax, ay, bx, by, dx, dy);
-    let o3 = orient(cx, cy, dx, dy, ax, ay);
-    let o4 = orient(cx, cy, dx, dy, bx, by);
-    if o1 == 0 && on_segment(ax, ay, bx, by, cx, cy) {
-        return true;
-    }
-    if o2 == 0 && on_segment(ax, ay, bx, by, dx, dy) {
-        return true;
-    }
-    if o3 == 0 && on_segment(cx, cy, dx, dy, ax, ay) {
-        return true;
-    }
-    if o4 == 0 && on_segment(cx, cy, dx, dy, bx, by) {
-        return true;
-    }
-    (o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0)
-}
-
-fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
-    let abx = (bx - ax) as i64;
-    let aby = (by - ay) as i64;
-    let acx = (cx - ax) as i64;
-    let acy = (cy - ay) as i64;
-    abx * acy - aby * acx
-}
-
-fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
-    px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
 }
 
 pub(super) fn segment_crossings(
