@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -117,11 +117,8 @@ impl FrameDirEncodeWorker {
 
     /// Move all currently recycled gray-frame buffers into `pool`.
     pub(crate) fn drain_recycled_gray_buffers(&self, pool: &mut Vec<Vec<u8>>) {
-        loop {
-            match self.recycled_gray_rx.try_recv() {
-                Ok(frame) => pool.push(frame),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        while let Ok(frame) = self.recycled_gray_rx.try_recv() {
+            pool.push(frame);
         }
     }
 
