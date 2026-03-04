@@ -148,7 +148,7 @@ pub(super) fn tex_feedback_params() -> Vec<NodeParamSlot> {
         ),
         // Clears this node's feedback history buffer.
         param_action_button(
-            FEEDBACK_RESET_PARAM_KEY,
+            param_schema::feedback::RESET,
             FEEDBACK_RESET_PARAM_LABEL,
             "reset",
         ),

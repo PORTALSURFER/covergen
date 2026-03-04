@@ -5,7 +5,7 @@ use super::{
     InputSnapshot, InteractionPanelContext, ParamDropdownState, ParamEditState, PendingAppAction,
     PreviewState, Rect, NODE_PARAM_DROPDOWN_ROW_HEIGHT,
 };
-use crate::gui::project::{ProjectNodeKind, FEEDBACK_HISTORY_PARAM_KEY, FEEDBACK_RESET_PARAM_KEY};
+use crate::gui::project::{param_schema, ProjectNodeKind, FEEDBACK_HISTORY_PARAM_KEY};
 
 /// Handle parameter text-edit and dropdown interaction for one input frame.
 pub(super) fn handle_param_edit_input(
@@ -170,7 +170,7 @@ fn feedback_reset_action(
     param_index: usize,
 ) -> Option<PendingAppAction> {
     let descriptor = project.node_param_descriptor(node_id, param_index)?;
-    if descriptor.key != FEEDBACK_RESET_PARAM_KEY {
+    if descriptor.key != param_schema::feedback::RESET {
         return None;
     }
     if project.node(node_id)?.kind() != ProjectNodeKind::TexFeedback {

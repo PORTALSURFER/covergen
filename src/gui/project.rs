@@ -226,6 +226,7 @@ pub(crate) enum ProjectNodeKind {
 struct ProjectNodeKindDescriptor {
     kind: ProjectNodeKind,
     stable_id: &'static str,
+    #[allow(dead_code)]
     execution_kind: ExecutionKind,
     input_resource_kind: Option<ResourceKind>,
     output_resource_kind: Option<ResourceKind>,
@@ -874,7 +875,7 @@ impl ProjectNode {
     }
 
     /// Return read-only parameter row data for one index.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn param_view(&self, param_index: usize) -> Option<NodeParamView<'_>> {
         let slot = self.params.get(param_index)?;
         let selected = param_index == self.selected_param.min(self.params.len().saturating_sub(1));

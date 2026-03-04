@@ -210,7 +210,7 @@ pub(crate) mod feedback {
     pub(crate) const FRAME_GAP: &str = FEEDBACK_FRAME_GAP_PARAM_KEY;
     pub(crate) const RESET: &str = FEEDBACK_RESET_PARAM_KEY;
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) const KEYS: [&str; 4] = [HISTORY, MIX, FRAME_GAP, RESET];
 
     /// Runtime-compiled slot order for `tex.feedback`.
@@ -308,7 +308,7 @@ pub(crate) mod ctl_lfo {
     pub(crate) const LFO_TYPE_INDEX: usize = 6;
     pub(crate) const SHAPE_INDEX: usize = 7;
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) const KEYS: [&str; 8] = [
         RATE_HZ, AMPLITUDE, PHASE, BIAS, SYNC_MODE, BEAT_MUL, LFO_TYPE, SHAPE,
     ];
