@@ -1,23 +1,12 @@
 //! Runtime graph compilation helpers for GUI tex preview execution.
 
+mod helpers;
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashSet;
 
 use super::*;
-
-fn compile_param_slots(
-    project: &GuiProject,
-    node_id: u32,
-    keys: &[&'static str],
-) -> Box<[Option<ParamSlotIndex>]> {
-    keys.iter()
-        .map(|key| {
-            project
-                .node_param_slot_index(node_id, key)
-                .map(ParamSlotIndex)
-        })
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
-}
 
 pub(super) fn compiled_step(
     project: &GuiProject,
@@ -28,30 +17,8 @@ pub(super) fn compiled_step(
     CompiledStep {
         node_id,
         kind,
-        param_slots: compile_param_slots(project, node_id, param_keys),
+        param_slots: helpers::compile_param_slots(project, node_id, param_keys),
     }
-}
-
-fn compile_post_process_node(
-    project: &GuiProject,
-    node_id: u32,
-    category: PostProcessCategory,
-    traversal: &mut CompileTraversalState,
-    out_steps: &mut Vec<CompiledStep>,
-) -> bool {
-    let Some(source_id) = project.input_source_node_id(node_id) else {
-        return false;
-    };
-    if !compile_node(project, source_id, traversal, out_steps) {
-        return false;
-    }
-    out_steps.push(compiled_step(
-        project,
-        node_id,
-        CompiledStepKind::PostProcess { category },
-        &param_schema::post_process::KEYS,
-    ));
-    true
 }
 
 pub(super) fn compile_node(
@@ -192,63 +159,63 @@ pub(super) fn compile_node(
                 true
             }
         }
-        ProjectNodeKind::TexPostColorTone => compile_post_process_node(
+        ProjectNodeKind::TexPostColorTone => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::ColorTone,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostEdgeStructure => compile_post_process_node(
+        ProjectNodeKind::TexPostEdgeStructure => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::EdgeStructure,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostBlurDiffusion => compile_post_process_node(
+        ProjectNodeKind::TexPostBlurDiffusion => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::BlurDiffusion,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostDistortion => compile_post_process_node(
+        ProjectNodeKind::TexPostDistortion => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Distortion,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostTemporal => compile_post_process_node(
+        ProjectNodeKind::TexPostTemporal => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Temporal,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostNoiseTexture => compile_post_process_node(
+        ProjectNodeKind::TexPostNoiseTexture => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::NoiseTexture,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostLighting => compile_post_process_node(
+        ProjectNodeKind::TexPostLighting => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Lighting,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostScreenSpace => compile_post_process_node(
+        ProjectNodeKind::TexPostScreenSpace => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::ScreenSpace,
             traversal,
             out_steps,
         ),
-        ProjectNodeKind::TexPostExperimental => compile_post_process_node(
+        ProjectNodeKind::TexPostExperimental => helpers::compile_post_process_node(
             project,
             node_id,
             PostProcessCategory::Experimental,
@@ -417,57 +384,4 @@ fn node_depends_on(project: &GuiProject, start_node_id: u32, target_node_id: u32
         }
     }
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compile_node_rejects_when_node_is_already_on_traversal_stack() {
-        let mut project = GuiProject::new_empty(640, 480);
-        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 640, 480);
-        let mut traversal = CompileTraversalState::default();
-        traversal.visiting.insert(solid);
-        let mut steps = Vec::new();
-
-        assert!(!compile_node(&project, solid, &mut traversal, &mut steps));
-        assert!(steps.is_empty());
-    }
-
-    #[test]
-    fn compile_blend_node_emits_store_steps_for_base_and_layer_sources() {
-        let mut project = GuiProject::new_empty(640, 480);
-        let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 640, 480);
-        let circle = project.add_node(ProjectNodeKind::TexCircle, 120, 40, 640, 480);
-        let blend = project.add_node(ProjectNodeKind::TexBlend, 220, 40, 640, 480);
-        assert!(project.connect_image_link(solid, blend));
-        assert!(project.connect_texture_link_to_param(circle, blend, 0));
-
-        let mut traversal = CompileTraversalState::default();
-        let mut steps = Vec::new();
-        assert!(compile_node(&project, blend, &mut traversal, &mut steps));
-
-        let mut saw_base_store = false;
-        let mut saw_layer_store = false;
-        let mut saw_blend = false;
-        for step in steps {
-            match step.kind {
-                CompiledStepKind::StoreTexture if step.node_id == solid => saw_base_store = true,
-                CompiledStepKind::StoreTexture if step.node_id == circle => saw_layer_store = true,
-                CompiledStepKind::Blend {
-                    base_source_id,
-                    layer_source_id,
-                } => {
-                    saw_blend = true;
-                    assert_eq!(base_source_id, solid);
-                    assert_eq!(layer_source_id, Some(circle));
-                }
-                _ => {}
-            }
-        }
-        assert!(saw_base_store);
-        assert!(saw_layer_store);
-        assert!(saw_blend);
-    }
 }
