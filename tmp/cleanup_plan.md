@@ -85,7 +85,7 @@ Date: 2026-03-04
     - `cargo test -q gpu_render::graph_exec::tests --bin covergen`
     - `cargo test -q`
 
-- [ ] 5. Lower structure-drift risk and make drift enforcement actionable
+- [x] 5. Lower structure-drift risk and make drift enforcement actionable _(done 2026-03-04, commit e541d72)_
   - ROI: High
   - Effort: M
   - Why it matters:
