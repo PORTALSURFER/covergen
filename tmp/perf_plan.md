@@ -210,7 +210,7 @@ Date: 2026-03-04
     - Manual add-menu typing responsiveness check under continuous key repeat.
   - Completed: 2026-03-04 (commit 239864a)
 
-- [ ] 11. Make GUI threshold locking locale-stable and normalize decimal format
+- [x] 11. Make GUI threshold locking locale-stable and normalize decimal format
   - ROI: Low
   - Effort: S
   - Expected impact: CI signal quality, regression prevention
@@ -226,6 +226,7 @@ Date: 2026-03-04
   - Validation plan:
     - `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Confirm threshold parsing and comparisons pass across locale settings.
+  - Completed: 2026-03-04 (commit b78e73d)
 
 - [ ] 12. Replace placeholder/invalid tier thresholds with locked hardware baselines
   - ROI: Low
