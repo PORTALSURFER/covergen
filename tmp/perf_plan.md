@@ -94,7 +94,7 @@ Date: 2026-03-04
     - Compare frame-time stability and CPU profile on large graphs.
   - Completed: 2026-03-04 (commit 0ea54ed)
 
-- [ ] 5. Replace bridge candidate sort/dedup with stamp-based dedupe
+- [x] 5. Replace bridge candidate sort/dedup with stamp-based dedupe
   - ROI: High
   - Effort: S
   - Expected impact: frame time, CPU
@@ -112,6 +112,7 @@ Date: 2026-03-04
     - `cargo test gui::scene`
     - On tier GPU host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Track `bridge_intersection_tests_p95` and `scene.edges_ms_p95`.
+  - Completed: 2026-03-04 (commit 97c679a)
 
 - [ ] 6. Reuse active cache-key sets and prune tex-preview caches only when plan topology changes
   - ROI: High
