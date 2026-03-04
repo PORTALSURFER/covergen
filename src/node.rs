@@ -386,7 +386,7 @@ pub enum NodeKind {
 
 impl NodeKind {
     /// Return the operator family for this node.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub const fn operator_family(self) -> OperatorFamily {
         match self {
             Self::GenerateLayer(_)

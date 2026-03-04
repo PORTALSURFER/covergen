@@ -154,7 +154,6 @@ pub(crate) enum ResourceKind {
 
 /// Execution kinds currently represented by GUI nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum ExecutionKind {
     /// Node executes in CPU/data-prep domain.
     Cpu,
@@ -226,7 +225,6 @@ pub(crate) enum ProjectNodeKind {
 struct ProjectNodeKindDescriptor {
     kind: ProjectNodeKind,
     stable_id: &'static str,
-    #[allow(dead_code)]
     execution_kind: ExecutionKind,
     input_resource_kind: Option<ResourceKind>,
     output_resource_kind: Option<ResourceKind>,
@@ -484,13 +482,13 @@ impl ProjectNodeKind {
     }
 
     /// Return execution kind for this node.
-    #[allow(dead_code)]
     pub(crate) fn execution_kind(self) -> ExecutionKind {
         self.descriptor().execution_kind
     }
 
     /// Return short display label used by node and menu UI.
     pub(crate) fn label(self) -> &'static str {
+        let _ = self.execution_kind();
         self.stable_id()
     }
 

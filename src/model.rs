@@ -117,7 +117,6 @@ impl ArtStyle {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SymmetryStyle {
     None,
@@ -130,24 +129,21 @@ pub(crate) enum SymmetryStyle {
     Grid,
 }
 
-impl SymmetryStyle {
-    /// Convert a numeric value into a stable symmetry style variant.
-    #[allow(dead_code)]
-    pub(crate) fn from_u32(value: u32) -> Self {
-        match value % 8 {
-            0 => Self::None,
-            1 => Self::Radial,
-            2 => Self::Mirror,
-            3 => Self::MirrorX,
-            4 => Self::MirrorY,
-            5 => Self::MirrorDiagonal,
-            6 => Self::MirrorCross,
-            _ => Self::Grid,
-        }
-    }
+const ALL_SYMMETRY_STYLES: [SymmetryStyle; 8] = [
+    SymmetryStyle::None,
+    SymmetryStyle::Radial,
+    SymmetryStyle::Mirror,
+    SymmetryStyle::MirrorX,
+    SymmetryStyle::MirrorY,
+    SymmetryStyle::MirrorDiagonal,
+    SymmetryStyle::MirrorCross,
+    SymmetryStyle::Grid,
+];
 
+impl SymmetryStyle {
     /// Numeric representation used by manifest serialization and runtime uniforms.
     pub(crate) fn as_u32(self) -> u32 {
+        debug_assert_eq!(ALL_SYMMETRY_STYLES.len(), 8);
         match self {
             Self::None => 0,
             Self::Radial => 1,

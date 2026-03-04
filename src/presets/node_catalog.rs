@@ -35,7 +35,6 @@ pub enum NodePayload {
 pub struct NodeTemplate {
     pub key: &'static str,
     pub aliases: &'static [&'static str],
-    #[cfg_attr(not(test), allow(dead_code))]
     pub family: OperatorFamily,
     constructor: NodeConstructor,
 }
@@ -84,7 +83,6 @@ impl NodeCatalog {
         keys
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn keys_for_family(&self, family: OperatorFamily) -> Vec<&'static str> {
         let mut keys: Vec<&'static str> = self
             .templates
@@ -99,9 +97,19 @@ impl NodeCatalog {
     pub fn resolve(&self, key: &str) -> Result<NodeTemplate, GraphBuildError> {
         let lookup_key = normalize(key);
         let index = self.lookup.get(&lookup_key).copied().ok_or_else(|| {
+            let grouped = [
+                (OperatorFamily::Top, "top"),
+                (OperatorFamily::Chop, "chop"),
+                (OperatorFamily::Sop, "sop"),
+                (OperatorFamily::Output, "output"),
+            ]
+            .into_iter()
+            .map(|(family, label)| format!("{label}={}", self.keys_for_family(family).join("|")))
+            .collect::<Vec<_>>()
+            .join("; ");
             GraphBuildError::new(format!(
-                "unknown node template '{key}', expected {}",
-                self.keys().join("|")
+                "unknown node template '{key}', expected {} ({grouped})",
+                self.keys().join("|"),
             ))
         })?;
         Ok(self.templates[index])

@@ -125,7 +125,7 @@ pub struct CompiledGraph {
     pub height: u32,
     pub seed: u32,
     pub steps: Vec<CompiledNodeStep>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub primary_output_node: NodeId,
     pub output_bindings: Vec<CompiledOutputBinding>,
     /// Precomputed final-output compositor plan reused by every runtime frame.
@@ -314,12 +314,13 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
 
     let output_bindings = collect_output_bindings(&steps)?;
     let feedback_slots = collect_feedback_slots(&steps);
-    let primary_output = output_bindings
+    #[cfg(test)]
+    let primary_output_node = output_bindings
         .iter()
         .copied()
         .find(|binding| matches!(binding.role, OutputRole::Primary))
-        .ok_or_else(|| GraphBuildError::new("compiled graph has no primary output node"))?;
-    let primary_output_node = primary_output.output_node;
+        .ok_or_else(|| GraphBuildError::new("compiled graph has no primary output node"))?
+        .output_node;
     #[cfg(test)]
     let can_use_retained_layer_path =
         detect_linear_layer_path(&steps, &incoming, primary_output_node, has_non_layer_nodes)?;
@@ -333,6 +334,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         height: graph.height,
         seed: graph.seed,
         steps,
+        #[cfg(test)]
         primary_output_node,
         output_bindings,
         final_compositor_plan,

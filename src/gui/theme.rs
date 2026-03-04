@@ -30,9 +30,6 @@ pub(crate) struct GuiTheme {
     pub(crate) highlight_warning: u32,
     /// Highlight for error-critical states.
     pub(crate) highlight_error: u32,
-    /// Highlight for success and healthy status.
-    #[allow(dead_code)]
-    pub(crate) highlight_success: u32,
     /// Highlight for active selection.
     pub(crate) highlight_selection: u32,
     /// Highlight for hover/focus indications.
@@ -104,7 +101,6 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     menu_text: 0xFFDADADA,
     highlight_warning: 0xFFF59E0B,
     highlight_error: 0xFFEF4444,
-    highlight_success: 0xFF22C55E,
     highlight_selection: 0xFF3B82F6,
     highlight_focus: 0xFF06B6D4,
     highlight_accent: 0xFFA855F7,
