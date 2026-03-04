@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-7 completed).
+Status: Phase 2 in progress (items 1-8 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -144,7 +144,8 @@ Date: 2026-03-04
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
     - `scripts/lint/structure_drift_report.sh`
 
-- [ ] 8. Remove `too_many_arguments` suppressions via typed parameter objects
+- [x] 8. Remove `too_many_arguments` suppressions via typed parameter objects
+  - Completed: 2026-03-04 (`9853ed5`)
   - ROI: Medium
   - Effort: M
   - Why it matters:
