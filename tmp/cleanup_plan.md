@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-5 completed).
+Status: Phase 2 in progress (items 1-6 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -109,7 +109,8 @@ Date: 2026-03-04
     - `cargo test -q gui::app::frame_loop::tests --bin covergen`
     - `cargo test -q gui::tex_view::tests --bin covergen`
 
-- [ ] 6. Correct and lock user-facing control documentation to actual key bindings
+- [x] 6. Correct and lock user-facing control documentation to actual key bindings
+  - Completed: 2026-03-04 (`6438d08`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
