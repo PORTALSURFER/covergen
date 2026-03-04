@@ -135,7 +135,7 @@ Date: 2026-03-04
     - On tier GPU host: dense-graph drag benchmark and compare `scene.edges_ms_p95`.
   - Completed: 2026-03-04 (commit 8a956fd)
 
-- [ ] 7. Cache tex-preview op signatures at update time instead of recomputing them on every `frame()` call
+- [x] 7. Cache tex-preview op signatures at update time instead of recomputing them on every `frame()` call
   - ROI: High
   - Effort: S
   - Expected impact: frame time, CPU
@@ -152,6 +152,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::tex_view`
     - On tier GPU host: compare `render_ms_p95` and CPU usage during steady playback.
+  - Completed: 2026-03-04 (commit ab2ed5d)
 
 - [ ] 8. Replace multi-call hover hit-testing with one fused broad-phase query path
   - ROI: Medium
