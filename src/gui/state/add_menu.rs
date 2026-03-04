@@ -1,11 +1,14 @@
 //! Add-node popup menu model, filtering, and staged category navigation.
 
+mod catalog;
+
 use std::cell::RefCell;
 use std::sync::OnceLock;
 
+use self::catalog::{category_count, ADD_NODE_CATEGORIES};
+pub(crate) use self::catalog::{AddNodeCategory, AddNodeOption, ADD_NODE_OPTIONS};
 use super::popup_list;
 use crate::gui::geometry::Rect;
-use crate::gui::project::ProjectNodeKind;
 
 /// Add-node popup geometry constants.
 pub(crate) const MENU_WIDTH: i32 = 260;
@@ -15,170 +18,6 @@ pub(crate) const MENU_INNER_PADDING: i32 = 6;
 pub(crate) const MENU_ITEM_HEIGHT: i32 = 22;
 pub(crate) const MENU_BLOCK_GAP: i32 = 4;
 const MENU_BOTTOM_PAD: i32 = 8;
-
-/// Category for one add-node menu option.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AddNodeCategory {
-    Texture,
-    Buffer,
-    Scene,
-    Render,
-    Control,
-    Io,
-}
-
-impl AddNodeCategory {
-    /// Return display label used in category rows.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Texture => "Texture",
-            Self::Buffer => "Buffer",
-            Self::Scene => "Scene",
-            Self::Render => "Render",
-            Self::Control => "Control",
-            Self::Io => "IO",
-        }
-    }
-
-    /// Return a lowercase category label used for query filtering.
-    const fn normalized_label(self) -> &'static str {
-        match self {
-            Self::Texture => "texture",
-            Self::Buffer => "buffer",
-            Self::Scene => "scene",
-            Self::Render => "render",
-            Self::Control => "control",
-            Self::Io => "io",
-        }
-    }
-}
-
-/// One add-node menu option.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct AddNodeOption {
-    pub(crate) kind: ProjectNodeKind,
-    pub(crate) category: AddNodeCategory,
-}
-
-impl AddNodeOption {
-    /// Return menu label for this option.
-    pub(crate) fn label(self) -> &'static str {
-        self.kind.label()
-    }
-}
-
-/// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 25] = [
-    AddNodeOption {
-        kind: ProjectNodeKind::TexSolid,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexCircle,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufSphere,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufCircleNurbs,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufNoise,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::SceneEntity,
-        category: AddNodeCategory::Scene,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::SceneBuild,
-        category: AddNodeCategory::Scene,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::RenderCamera,
-        category: AddNodeCategory::Render,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::RenderScenePass,
-        category: AddNodeCategory::Render,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexTransform2D,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexLevel,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexFeedback,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexReactionDiffusion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostColorTone,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostEdgeStructure,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostBlurDiffusion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostDistortion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostTemporal,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostNoiseTexture,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostLighting,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostScreenSpace,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostExperimental,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexBlend,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::CtlLfo,
-        category: AddNodeCategory::Control,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::IoWindowOut,
-        category: AddNodeCategory::Io,
-    },
-];
-
-const ADD_NODE_CATEGORIES: [AddNodeCategory; 6] = [
-    AddNodeCategory::Texture,
-    AddNodeCategory::Buffer,
-    AddNodeCategory::Scene,
-    AddNodeCategory::Render,
-    AddNodeCategory::Control,
-    AddNodeCategory::Io,
-];
 
 /// One visible row in the add-node popup list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -454,10 +293,6 @@ fn menu_height_for_entries(entry_count: usize) -> i32 {
 fn max_menu_height() -> i32 {
     let row_count = (ADD_NODE_OPTIONS.len() + 1).max(category_count());
     menu_height_for_entries(row_count)
-}
-
-fn category_count() -> usize {
-    ADD_NODE_CATEGORIES.len()
 }
 
 fn option_matches_query(option_index: usize, option: AddNodeOption, query: &str) -> bool {
