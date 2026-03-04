@@ -214,7 +214,7 @@ Date: 2026-03-04
     - Export long clips and compare memory stability and frame submit stall counters.
   - Completed: 2026-03-04 (commit 8315e2a)
 
-- [ ] 11. Prewarm common GUI glyphs to reduce first-interaction hitch from lazy text rasterization
+- [x] 11. Prewarm common GUI glyphs to reduce first-interaction hitch from lazy text rasterization
   - ROI: Low
   - Effort: S
   - Expected impact: startup, p95 interaction latency (first-use)
@@ -230,6 +230,7 @@ Date: 2026-03-04
   - Validation plan:
     - On GUI host: compare `gui.startup.first_frame.total` and first-open menu responsiveness.
     - Ensure no regressions in text rendering tests.
+  - Completed: 2026-03-04 (commit f289710)
 
 - [ ] 12. Replace placeholder benchmark thresholds with locked real hardware baselines
   - ROI: Low
