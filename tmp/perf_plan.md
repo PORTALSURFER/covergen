@@ -97,7 +97,7 @@ Date: 2026-03-04
     - Verify lower `hit_test_scans_p95` during drag-heavy traces.
   - Completed: 2026-03-04 (commit 365d6ab)
 
-- [ ] 5. Reuse `BridgeSegmentSpatialHash` scratch storage across edge and param-wire passes
+- [x] 5. Reuse `BridgeSegmentSpatialHash` scratch storage across edge and param-wire passes
   - ROI: High
   - Effort: S
   - Expected impact: frame time, memory, CPU
@@ -113,6 +113,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::scene`
     - On tier GPU host: trace drag scenarios and compare `scene.edges_ms` plus CPU allocation counters.
+  - Completed: 2026-03-04 (commit 58887b5)
 
 - [ ] 6. Add spatial indexing to route-obstacle queries to avoid linear scans per route attempt
   - ROI: High
