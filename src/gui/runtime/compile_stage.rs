@@ -49,7 +49,7 @@ fn compile_post_process_node(
         project,
         node_id,
         CompiledStepKind::PostProcess { category },
-        &POST_PROCESS_PARAM_KEYS,
+        &param_schema::post_process::KEYS,
     ));
     true
 }
@@ -76,7 +76,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::Solid,
-                &SOLID_PARAM_KEYS,
+                &param_schema::solid::KEYS,
             ));
             true
         }
@@ -85,7 +85,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::Circle,
-                &CIRCLE_PARAM_KEYS,
+                &param_schema::circle::KEYS,
             ));
             true
         }
@@ -94,7 +94,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::SphereBuffer,
-                &SPHERE_BUFFER_PARAM_KEYS,
+                &param_schema::sphere_buffer::KEYS,
             ));
             true
         }
@@ -103,7 +103,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::CircleNurbsBuffer,
-                &CIRCLE_NURBS_BUFFER_PARAM_KEYS,
+                &param_schema::circle_nurbs_buffer::KEYS,
             ));
             true
         }
@@ -119,7 +119,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::BufferNoise,
-                    &BUFFER_NOISE_PARAM_KEYS,
+                    &param_schema::buffer_noise::KEYS,
                 ));
                 true
             }
@@ -136,7 +136,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Transform,
-                    &TRANSFORM_PARAM_KEYS,
+                    &param_schema::transform_2d::KEYS,
                 ));
                 true
             }
@@ -153,7 +153,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Level,
-                    &LEVEL_PARAM_KEYS,
+                    &param_schema::level::KEYS,
                 ));
                 true
             }
@@ -170,7 +170,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Feedback,
-                    &FEEDBACK_PARAM_KEYS,
+                    &param_schema::feedback::RUNTIME_KEYS,
                 ));
                 true
             }
@@ -187,7 +187,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::ReactionDiffusion,
-                    &REACTION_DIFFUSION_PARAM_KEYS,
+                    &param_schema::reaction_diffusion::KEYS,
                 ));
                 true
             }
@@ -315,7 +315,7 @@ pub(super) fn compile_node(
                     base_source_id,
                     layer_source_id,
                 },
-                &BLEND_PARAM_KEYS,
+                &param_schema::blend::KEYS,
             ));
             true
         }
@@ -331,7 +331,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::SceneEntity,
-                    &SCENE_ENTITY_PARAM_KEYS,
+                    &param_schema::scene_entity::KEYS,
                 ));
                 true
             }
@@ -365,7 +365,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Camera,
-                    &CAMERA_PARAM_KEYS,
+                    &param_schema::render_camera::KEYS,
                 ));
                 true
             }
@@ -382,7 +382,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::ScenePass,
-                    &SCENE_PASS_PARAM_KEYS,
+                    &param_schema::render_scene_pass::KEYS,
                 ));
                 true
             }

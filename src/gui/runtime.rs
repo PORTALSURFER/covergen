@@ -26,20 +26,6 @@ use feedback_stage::{
 };
 
 const DEFAULT_LOOP_FPS: u32 = 60;
-const SOLID_PARAM_KEYS: [&str; 4] = param_schema::solid::KEYS;
-const CIRCLE_PARAM_KEYS: [&str; 8] = param_schema::circle::KEYS;
-const SPHERE_BUFFER_PARAM_KEYS: [&str; 1] = param_schema::sphere_buffer::KEYS;
-const CIRCLE_NURBS_BUFFER_PARAM_KEYS: [&str; 7] = param_schema::circle_nurbs_buffer::KEYS;
-const BUFFER_NOISE_PARAM_KEYS: [&str; 9] = param_schema::buffer_noise::KEYS;
-const SCENE_ENTITY_PARAM_KEYS: [&str; 8] = param_schema::scene_entity::KEYS;
-const CAMERA_PARAM_KEYS: [&str; 1] = param_schema::render_camera::KEYS;
-const SCENE_PASS_PARAM_KEYS: [&str; 7] = param_schema::render_scene_pass::KEYS;
-const TRANSFORM_PARAM_KEYS: [&str; 5] = param_schema::transform_2d::KEYS;
-const LEVEL_PARAM_KEYS: [&str; 5] = param_schema::level::KEYS;
-const FEEDBACK_PARAM_KEYS: [&str; 4] = param_schema::feedback::RUNTIME_KEYS;
-const REACTION_DIFFUSION_PARAM_KEYS: [&str; 6] = param_schema::reaction_diffusion::KEYS;
-const POST_PROCESS_PARAM_KEYS: [&str; 5] = param_schema::post_process::KEYS;
-const BLEND_PARAM_KEYS: [&str; 6] = param_schema::blend::KEYS;
 
 /// Compile-time resolved parameter slot index for one node parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1052,7 +1038,7 @@ mod tests {
     use super::{
         compiled_param_value_opt, param_schema, CompiledStepKind, GuiCompiledRuntime,
         PostProcessCategory, TexRuntimeFeedbackHistoryBinding, TexRuntimeFrameContext,
-        TexRuntimeOp, FEEDBACK_PARAM_KEYS, SOLID_PARAM_KEYS,
+        TexRuntimeOp,
     };
     use crate::gui::project::{GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack};
 
@@ -1064,9 +1050,14 @@ mod tests {
         assert!(project.set_param_value(solid, 1, 0.35));
         assert!(project.set_param_value(solid, 2, 0.55));
         assert!(project.set_param_value(solid, 3, 0.75));
-        let step = compiled_step(&project, solid, CompiledStepKind::Solid, &SOLID_PARAM_KEYS);
+        let step = compiled_step(
+            &project,
+            solid,
+            CompiledStepKind::Solid,
+            &param_schema::solid::KEYS,
+        );
         let mut eval_stack = SignalEvalStack::default();
-        for (slot_index, key) in SOLID_PARAM_KEYS.iter().enumerate() {
+        for (slot_index, key) in param_schema::solid::KEYS.iter().enumerate() {
             let keyed = project.node_param_value(solid, key, 0.0, &mut eval_stack);
             eval_stack.clear_nodes();
             let indexed =
@@ -1089,7 +1080,7 @@ mod tests {
             &project,
             feedback,
             CompiledStepKind::Feedback,
-            &FEEDBACK_PARAM_KEYS,
+            &param_schema::feedback::RUNTIME_KEYS,
         );
         assert_eq!(
             compiled_texture_source_for_param(
@@ -1351,7 +1342,8 @@ mod tests {
         let frame_gap_slot = project
             .node_param_slot_index(
                 feedback,
-                FEEDBACK_PARAM_KEYS[param_schema::feedback::RUNTIME_FRAME_GAP_INDEX],
+                param_schema::feedback::RUNTIME_KEYS
+                    [param_schema::feedback::RUNTIME_FRAME_GAP_INDEX],
             )
             .expect("feedback frame_gap slot should exist");
         assert!(project.set_param_value(feedback, frame_gap_slot, 3.7));
