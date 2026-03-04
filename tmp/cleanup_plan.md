@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-10 completed).
+Status: Phase 2 in progress (items 1-11 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -193,7 +193,8 @@ Date: 2026-03-04
     - `cargo test -q gui::state::main_menu::tests --bin covergen`
     - `cargo test -q gui::interaction::tests --bin covergen`
 
-- [ ] 11. Extract tex-view cache signatures and hashers into a focused module
+- [x] 11. Extract tex-view cache signatures and hashers into a focused module
+  - Completed: 2026-03-04 (`8b1e7bd`)
   - ROI: Low
   - Effort: S
   - Why it matters:
