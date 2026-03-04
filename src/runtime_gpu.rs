@@ -390,11 +390,17 @@ fn input_node(step: &CompiledNodeStep, slot: usize) -> Result<(NodeId, usize), B
 /// Dense transient value storage keyed by compile-time node indices.
 struct DenseNodeValues<T> {
     slots: Vec<Option<T>>,
+    generation_by_slot: Vec<u32>,
+    current_generation: u32,
 }
 
 impl<T> Default for DenseNodeValues<T> {
     fn default() -> Self {
-        Self { slots: Vec::new() }
+        Self {
+            slots: Vec::new(),
+            generation_by_slot: Vec::new(),
+            current_generation: 0,
+        }
     }
 }
 
@@ -403,10 +409,12 @@ impl<T> DenseNodeValues<T> {
     fn prepare(&mut self, node_count: usize) {
         if self.slots.len() != node_count {
             self.slots.resize_with(node_count, || None);
-            return;
+            self.generation_by_slot.resize(node_count, 0);
         }
-        for slot in &mut self.slots {
-            *slot = None;
+        self.current_generation = self.current_generation.wrapping_add(1);
+        if self.current_generation == 0 {
+            self.generation_by_slot.fill(0);
+            self.current_generation = 1;
         }
     }
 
@@ -417,10 +425,14 @@ impl<T> DenseNodeValues<T> {
             "compiled node index out of bounds for dense value store"
         );
         self.slots[step.node_index] = Some(value);
+        self.generation_by_slot[step.node_index] = self.current_generation;
     }
 
     /// Return one previously produced node value by dense slot index.
     fn get(&self, index: usize) -> Option<&T> {
+        if self.generation_by_slot.get(index).copied() != Some(self.current_generation) {
+            return None;
+        }
         self.slots.get(index).and_then(Option::as_ref)
     }
 }
@@ -447,10 +459,11 @@ fn op_scope(op: CompiledOp) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::output_luma_slot;
+    use super::{output_luma_slot, CompiledNodeStep, CompiledOp, DenseNodeValues};
     use crate::compiler::compile_graph;
-    use crate::graph::{GenerateLayerNode, GraphBuilder};
+    use crate::graph::{GenerateLayerNode, GraphBuilder, NodeId};
     use crate::model::LayerBlendMode;
+    use crate::node::OutputNode;
     use crate::node::GenerateLayerTemporal;
 
     fn sample_layer(seed: u32) -> GenerateLayerNode {
@@ -510,5 +523,28 @@ mod tests {
             plan.taps[1].1,
             output_luma_slot(&compiled, a).expect("tap slot")
         );
+    }
+
+    fn dense_step(index: usize) -> CompiledNodeStep {
+        CompiledNodeStep {
+            node_id: NodeId(index as u32 + 1),
+            node_index: index,
+            op: CompiledOp::Output(OutputNode::primary()),
+            inputs: Vec::new(),
+            input_indices: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn dense_values_generation_skips_stale_values_without_full_clear() {
+        let mut values = DenseNodeValues::<u32>::default();
+        values.prepare(3);
+        values.insert(&dense_step(1), 42);
+        assert_eq!(values.get(1), Some(&42));
+
+        values.prepare(3);
+        assert_eq!(values.get(1), None);
+        values.insert(&dense_step(2), 99);
+        assert_eq!(values.get(2), Some(&99));
     }
 }
