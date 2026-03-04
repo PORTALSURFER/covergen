@@ -1,0 +1,328 @@
+use super::*;
+#[test]
+fn supported_graph_emits_gpu_ops_payload() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let tex_source = project.add_node(ProjectNodeKind::TexSolid, 60, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+    assert!(project.connect_image_link(tex_source, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+}
+
+#[test]
+fn transform_chain_produces_solid_then_transform_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, xform));
+    assert!(project.connect_image_link(xform, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::Transform { .. }));
+}
+
+#[test]
+fn level_chain_produces_solid_then_level_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let level = project.add_node(ProjectNodeKind::TexLevel, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, level));
+    assert!(project.connect_image_link(level, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::Level { .. }));
+}
+
+#[test]
+fn feedback_chain_produces_solid_then_feedback_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, feedback));
+    assert!(project.connect_image_link(feedback, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::Feedback { .. }));
+}
+
+#[test]
+fn reaction_diffusion_chain_produces_solid_then_reaction_diffusion_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let reaction = project.add_node(ProjectNodeKind::TexReactionDiffusion, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, reaction));
+    assert!(project.connect_image_link(reaction, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::ReactionDiffusion { .. }));
+}
+
+#[test]
+fn post_process_chain_produces_post_process_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let post = project.add_node(ProjectNodeKind::TexPostDistortion, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, post));
+    assert!(project.connect_image_link(post, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::PostProcess { .. }));
+}
+
+#[test]
+fn lfo_binding_changes_gpu_op_parameter_over_time() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 40, 40, 420, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(solid, out));
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    assert!(project.connect_image_link(lfo, solid));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let r0 = match viewer.frame().expect("frame0").payload {
+        TexViewerPayload::GpuOps(ops) => match ops[0] {
+            TexViewerOp::Solid { color_r, .. } => color_r,
+            _ => panic!("first op should be solid"),
+        },
+    };
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 60,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let r1 = match viewer.frame().expect("frame1").payload {
+        TexViewerPayload::GpuOps(ops) => match ops[0] {
+            TexViewerOp::Solid { color_r, .. } => color_r,
+            _ => panic!("first op should be solid"),
+        },
+    };
+    assert_ne!(r0, r1);
+}
+
+#[test]
+fn circle_node_emits_circle_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let circle = project.add_node(ProjectNodeKind::TexCircle, 60, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+    assert!(project.connect_image_link(circle, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexViewerOp::Circle { .. }));
+}
+
+#[test]
+fn sphere_buffer_pipeline_emits_sphere_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 220, 80, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 380, 80, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 540, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 700, 80, 420, 480);
+    assert!(project.connect_image_link(sphere, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexViewerOp::Sphere { .. }));
+}
+
+#[test]
+fn scene_pass_resolution_overrides_output_texture_size() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let sphere = project.add_node(ProjectNodeKind::BufSphere, 60, 80, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 220, 80, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 380, 80, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 540, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 700, 80, 420, 480);
+    assert!(project.connect_image_link(sphere, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+    assert!(project.set_param_value(pass, 0, 1024.0));
+    assert!(project.set_param_value(pass, 1, 256.0));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 1200,
+            viewport_height: 700,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    assert_eq!(frame.texture_width, 1024);
+    assert_eq!(frame.texture_height, 256);
+}

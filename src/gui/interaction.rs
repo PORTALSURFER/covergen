@@ -11,8 +11,6 @@ mod timeline_input;
 mod wire;
 
 #[cfg(test)]
-use self::drag::point_to_segment_distance_sq;
-#[cfg(test)]
 use self::marquee::{marquee_moved, rects_overlap};
 #[cfg(test)]
 use self::param_edit::{
