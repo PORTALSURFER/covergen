@@ -34,6 +34,7 @@ pub(crate) struct TexViewerFrame<'a> {
     pub(crate) ops_plan_signature: u64,
     /// Signature for full operation payload cache reuse in uniform uploads.
     pub(crate) ops_uniform_signature: u64,
+    /// Borrowed operation payload consumed by the current viewer frame.
     pub(crate) payload: TexViewerPayload<'a>,
 }
 

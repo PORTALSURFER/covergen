@@ -12,3 +12,11 @@ src/runtime_progress.rs
 src/runtime_selection.rs
 src/selection.rs
 src/shaders.rs
+
+# Stage 3: high-churn GUI editor surfaces
+src/gui/interaction.rs
+src/gui/app/frame_loop.rs
+src/gui/tex_view.rs
+
+# Stage 4: GUI runtime bridge surface
+src/gui/runtime/compile_stage.rs
