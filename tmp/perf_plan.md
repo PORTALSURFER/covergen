@@ -154,7 +154,7 @@ Date: 2026-03-04
     - On tier GPU host: compare `render_ms_p95` and CPU usage during steady playback.
   - Completed: 2026-03-04 (commit ab2ed5d)
 
-- [ ] 8. Replace multi-call hover hit-testing with one fused broad-phase query path
+- [x] 8. Replace multi-call hover hit-testing with one fused broad-phase query path
   - ROI: Medium
   - Effort: M
   - Expected impact: p95 interaction latency, CPU
@@ -173,6 +173,7 @@ Date: 2026-03-04
     - `cargo test gui::interaction`
     - `cargo test gui::project`
     - On tier GPU host: compare `hit_test_scans_p95` and manual hover precision checks.
+  - Completed: 2026-03-04 (commit cb2c091)
 
 - [ ] 9. Remove unnecessary node-level timing overhead when telemetry capture is inactive
   - ROI: Medium
