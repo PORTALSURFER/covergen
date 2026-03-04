@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-2 completed).
+Status: Phase 2 in progress (items 1-3 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -50,7 +50,8 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 3. Separate project mutation responsibilities and remove repeated mutation bookkeeping
+- [x] 3. Separate project mutation responsibilities and remove repeated mutation bookkeeping
+  - Completed: 2026-03-04 (`cc92cce`)
   - ROI: High
   - Effort: L
   - Why it matters:
