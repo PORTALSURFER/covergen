@@ -138,7 +138,7 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `cargo test -q gui::scene::tests --bin covergen`
 
-- [ ] 8. Reduce high-arity APIs with context structs at GUI boundaries
+- [x] 8. Reduce high-arity APIs with context structs at GUI boundaries _(done 2026-03-04, commit 13342d5)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
