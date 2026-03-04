@@ -11,7 +11,7 @@ Date: 2026-03-04
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Narrow hover invalidation to only affected retained layers
+- [x] 1. Narrow hover invalidation to only affected retained layers
   - ROI: Very High
   - Effort: S
   - Expected impact: p95 interaction latency, frame time, CPU
@@ -30,6 +30,7 @@ Date: 2026-03-04
     - `cargo test gui::interaction`
     - On tier GPU host: `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Confirm `scene.edges_ms_p95` and `update_ms_p95` improvements with no stale hover/wire highlights.
+  - Completed: 2026-03-04 (commit 8312893)
 
 - [ ] 2. Precompute runtime dispatch metadata and remove per-frame release/compositor recomputation
   - ROI: Very High
