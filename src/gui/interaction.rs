@@ -23,7 +23,12 @@ use self::param_edit::{
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
-use super::geometry::{segments_intersect as geometry_segments_intersect, Rect};
+use super::geometry::{
+    graph_point_to_panel as geometry_graph_point_to_panel,
+    graph_rect_to_panel as geometry_graph_rect_to_panel,
+    map_graph_path_to_panel_into as geometry_map_graph_path_to_panel_into,
+    screen_point_to_graph as geometry_screen_point_to_graph, segments_intersect, Rect,
+};
 use super::help::{build_global_help_modal, build_node_help_modal, build_param_help_modal};
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
@@ -1260,14 +1265,10 @@ fn cut_intersects_path(cut: LinkCutState, path: &[(i32, i32)]) -> bool {
     }
     for segment in path.windows(2) {
         if segments_intersect(
-            cut.start_x,
-            cut.start_y,
-            cut.cursor_x,
-            cut.cursor_y,
-            segment[0].0,
-            segment[0].1,
-            segment[1].0,
-            segment[1].1,
+            (cut.start_x, cut.start_y),
+            (cut.cursor_x, cut.cursor_y),
+            segment[0],
+            segment[1],
         ) {
             return true;
         }
@@ -1365,46 +1366,27 @@ fn wire_drag_source_kind(project: &GuiProject, wire: WireDragState) -> Option<Re
 }
 
 fn screen_to_graph(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
-    let zoom = state.zoom.max(0.001);
-    let gx = ((x as f32 - state.pan_x) / zoom).round() as i32;
-    let gy = ((y as f32 - state.pan_y) / zoom).round() as i32;
-    (gx, gy)
+    geometry_screen_point_to_graph((x, y), state.zoom, state.pan_x, state.pan_y)
 }
 
 fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
-    let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
-    let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
-    (sx, sy)
+    geometry_graph_point_to_panel((x, y), state.zoom, state.pan_x, state.pan_y)
 }
 
 fn map_graph_path_to_panel(points: &[(i32, i32)], state: &PreviewState) -> Vec<(i32, i32)> {
-    points
-        .iter()
-        .copied()
-        .map(|(x, y)| graph_point_to_panel(x, y, state))
-        .collect()
+    let mut panel_points = Vec::with_capacity(points.len());
+    geometry_map_graph_path_to_panel_into(
+        points,
+        state.zoom,
+        state.pan_x,
+        state.pan_y,
+        &mut panel_points,
+    );
+    panel_points
 }
 
 fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
-    let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
-    let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
-    let w = (rect.w as f32 * state.zoom).round().max(1.0) as i32;
-    let h = (rect.h as f32 * state.zoom).round().max(1.0) as i32;
-    Rect::new(x, y, w, h)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn segments_intersect(
-    ax: i32,
-    ay: i32,
-    bx: i32,
-    by: i32,
-    cx: i32,
-    cy: i32,
-    dx: i32,
-    dy: i32,
-) -> bool {
-    geometry_segments_intersect((ax, ay), (bx, by), (cx, cy), (dx, dy))
+    geometry_graph_rect_to_panel(rect, state.zoom, state.pan_x, state.pan_y)
 }
 
 fn pin_hit_radius_world(state: &PreviewState) -> i32 {

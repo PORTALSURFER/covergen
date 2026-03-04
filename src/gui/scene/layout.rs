@@ -1,6 +1,6 @@
 //! Scene graph/panel layout conversion helpers.
 
-use crate::gui::geometry::Rect;
+use crate::gui::geometry::{self, Rect};
 use crate::gui::project::{ProjectNode, NODE_WIDTH};
 use crate::gui::state::{PreviewState, RightMarqueeState};
 
@@ -16,18 +16,12 @@ pub(super) fn node_rect(node: &ProjectNode, state: &PreviewState) -> Rect {
 
 /// Return one graph-space rectangle transformed to panel space.
 pub(super) fn graph_rect_to_panel(rect: Rect, state: &PreviewState) -> Rect {
-    let x = (rect.x as f32 * state.zoom + state.pan_x).round() as i32;
-    let y = (rect.y as f32 * state.zoom + state.pan_y).round() as i32;
-    let w = (rect.w as f32 * state.zoom).round().max(1.0) as i32;
-    let h = (rect.h as f32 * state.zoom).round().max(1.0) as i32;
-    Rect::new(x, y, w, h)
+    geometry::graph_rect_to_panel(rect, state.zoom, state.pan_x, state.pan_y)
 }
 
 /// Return one graph-space point transformed to panel space.
 pub(super) fn graph_point_to_panel(x: i32, y: i32, state: &PreviewState) -> (i32, i32) {
-    let sx = (x as f32 * state.zoom + state.pan_x).round() as i32;
-    let sy = (y as f32 * state.zoom + state.pan_y).round() as i32;
-    (sx, sy)
+    geometry::graph_point_to_panel((x, y), state.zoom, state.pan_x, state.pan_y)
 }
 
 /// Return scale multiplier used by zoom-normalized wire layout helpers.
@@ -41,12 +35,12 @@ pub(super) fn map_graph_path_to_panel_into(
     state: &PreviewState,
     panel_points: &mut Vec<(i32, i32)>,
 ) {
-    panel_points.clear();
-    panel_points.extend(
-        points
-            .iter()
-            .copied()
-            .map(|(x, y)| graph_point_to_panel(x, y, state)),
+    geometry::map_graph_path_to_panel_into(
+        points,
+        state.zoom,
+        state.pan_x,
+        state.pan_y,
+        panel_points,
     );
 }
 

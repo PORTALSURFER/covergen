@@ -25,12 +25,12 @@ use std::time::Duration;
 
 #[test]
 fn segments_intersect_detects_crossing_lines() {
-    assert!(segments_intersect(0, 0, 10, 10, 0, 10, 10, 0));
+    assert!(segments_intersect((0, 0), (10, 10), (0, 10), (10, 0)));
 }
 
 #[test]
 fn segments_intersect_detects_non_crossing_lines() {
-    assert!(!segments_intersect(0, 0, 10, 0, 0, 5, 10, 5));
+    assert!(!segments_intersect((0, 0), (10, 0), (0, 5), (10, 5)));
 }
 
 #[test]
@@ -1555,9 +1555,12 @@ fn alt_cut_unbinds_parameter_link_when_cut_crosses_routed_param_wire() {
             } else {
                 ((ax + bx) / 2, ay - 24, (ax + bx) / 2, ay + 24)
             };
-            if !segments_intersect(start_x, start_y, cursor_x, cursor_y, ax, ay, bx, by)
+            if !segments_intersect((start_x, start_y), (cursor_x, cursor_y), (ax, ay), (bx, by))
                 || segments_intersect(
-                    start_x, start_y, cursor_x, cursor_y, from_x, from_y, to_x, to_y,
+                    (start_x, start_y),
+                    (cursor_x, cursor_y),
+                    (from_x, from_y),
+                    (to_x, to_y),
                 )
             {
                 return None;

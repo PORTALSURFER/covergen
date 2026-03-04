@@ -21,6 +21,56 @@ impl Rect {
     }
 }
 
+/// Transform one graph-space point into panel space using zoom + pan.
+pub(crate) fn graph_point_to_panel(
+    point: (i32, i32),
+    zoom: f32,
+    pan_x: f32,
+    pan_y: f32,
+) -> (i32, i32) {
+    let sx = (point.0 as f32 * zoom + pan_x).round() as i32;
+    let sy = (point.1 as f32 * zoom + pan_y).round() as i32;
+    (sx, sy)
+}
+
+/// Transform one graph-space rectangle into panel space using zoom + pan.
+pub(crate) fn graph_rect_to_panel(rect: Rect, zoom: f32, pan_x: f32, pan_y: f32) -> Rect {
+    let (x, y) = graph_point_to_panel((rect.x, rect.y), zoom, pan_x, pan_y);
+    let w = (rect.w as f32 * zoom).round().max(1.0) as i32;
+    let h = (rect.h as f32 * zoom).round().max(1.0) as i32;
+    Rect::new(x, y, w, h)
+}
+
+/// Transform one panel-space point into graph space using zoom + pan.
+pub(crate) fn screen_point_to_graph(
+    point: (i32, i32),
+    zoom: f32,
+    pan_x: f32,
+    pan_y: f32,
+) -> (i32, i32) {
+    let zoom = zoom.max(0.001);
+    let gx = ((point.0 as f32 - pan_x) / zoom).round() as i32;
+    let gy = ((point.1 as f32 - pan_y) / zoom).round() as i32;
+    (gx, gy)
+}
+
+/// Map one graph-space polyline into panel space in-place.
+pub(crate) fn map_graph_path_to_panel_into(
+    points: &[(i32, i32)],
+    zoom: f32,
+    pan_x: f32,
+    pan_y: f32,
+    out: &mut Vec<(i32, i32)>,
+) {
+    out.clear();
+    out.extend(
+        points
+            .iter()
+            .copied()
+            .map(|point| graph_point_to_panel(point, zoom, pan_x, pan_y)),
+    );
+}
+
 /// Return true when line segments `ab` and `cd` intersect.
 pub(crate) fn segments_intersect(
     a: (i32, i32),
