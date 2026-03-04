@@ -1,5 +1,9 @@
 //! Frame-time tex preview preparation and GPU operation execution.
 
+mod history_stage;
+mod op_metadata;
+mod pass_stage;
+
 use crate::gui::geometry::Rect;
 use crate::gui::tex_view::{TexViewerFrame, TexViewerOp, TexViewerPayload};
 use std::collections::{HashMap, HashSet};
@@ -394,92 +398,6 @@ impl TexPreviewRenderer {
         })
     }
 
-    /// Encode one render pass for one planned operation.
-    fn encode_pass_for_op(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        prepared: PreparedRenderOp,
-        source_target: Option<RenderTargetRef>,
-    ) -> Option<()> {
-        let clear_color = self.op_clear_color_for_planned(prepared.planned_op);
-        let timestamp_parts = self.op_pass_timestamps.next_render_pass_parts();
-        let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
-            wgpu::RenderPassTimestampWrites {
-                query_set: query_set.as_ref(),
-                beginning_of_pass_write_index: Some(*begin),
-                end_of_pass_write_index: Some(*end),
-            }
-        });
-        let target_view = self.target_view(prepared.target)?;
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("gui-tex-preview-op-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear_color),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes,
-        });
-        match prepared.planned_op {
-            PlannedRenderOp::Runtime { .. } => {
-                let runtime_op = self.runtime_op_for_planned(prepared.planned_op)?;
-                match runtime_op {
-                    TexViewerOp::Blend {
-                        base_texture_node_id,
-                        layer_texture_node_id,
-                        ..
-                    } => {
-                        let base_bind_group = self
-                            .blend_source_bind_group_for_texture(base_texture_node_id)
-                            .or_else(|| {
-                                source_target
-                                    .and_then(|target_ref| self.target_bind_group(target_ref))
-                            })?;
-                        let layer_bind_group = layer_texture_node_id
-                            .and_then(|id| self.blend_source_bind_group_for_texture(id))
-                            .unwrap_or(self.dummy_bind_group.as_ref()?);
-                        pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
-                        pass.set_bind_group(
-                            0,
-                            &self.op_uniform_bind_group,
-                            &[prepared.dynamic_offset],
-                        );
-                        pass.set_bind_group(1, base_bind_group, &[]);
-                        pass.set_bind_group(2, layer_bind_group, &[]);
-                    }
-                    TexViewerOp::StoreTexture { .. } => {
-                        return None;
-                    }
-                    _ => {
-                        let descriptor = runtime_op_descriptor(runtime_op)?;
-                        self.encode_runtime_pass_with_descriptor(
-                            &mut pass,
-                            descriptor,
-                            source_target,
-                            prepared.feedback_history_key,
-                            prepared.dynamic_offset,
-                        )?;
-                    }
-                }
-            }
-            PlannedRenderOp::TransformPair { .. } => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                pass.set_pipeline(self.op_transform_fused_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-        }
-        pass.draw(0..6, 0..1);
-        Some(())
-    }
-
     /// Copy final render target into viewer output.
     fn finalize_gpu_dispatch(
         &self,
@@ -490,68 +408,6 @@ impl TexPreviewRenderer {
     ) -> Option<()> {
         let final_target = final_target?;
         self.copy_target_to_viewer(encoder, final_target, width, height);
-        Some(())
-    }
-
-    fn runtime_pipeline(&self, pipeline: RuntimeOpPipelineKind) -> Option<&wgpu::RenderPipeline> {
-        match pipeline {
-            RuntimeOpPipelineKind::Solid => self.op_solid_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Circle => self.op_circle_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Sphere => self.op_sphere_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Transform => self.op_transform_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Level => self.op_level_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Feedback => self.op_feedback_pipeline.as_ref(),
-            RuntimeOpPipelineKind::ReactionDiffusion => {
-                self.op_reaction_diffusion_pipeline.as_ref()
-            }
-            RuntimeOpPipelineKind::PostProcess => self.op_post_process_pipeline.as_ref(),
-        }
-    }
-
-    fn runtime_source_bind_group(
-        &self,
-        source: RuntimeSourceBinding,
-        source_target: Option<RenderTargetRef>,
-    ) -> Option<&wgpu::BindGroup> {
-        match source {
-            RuntimeSourceBinding::Dummy => self.dummy_bind_group.as_ref(),
-            RuntimeSourceBinding::SourceTarget => {
-                let source_target = source_target?;
-                self.target_bind_group(source_target)
-            }
-        }
-    }
-
-    fn runtime_feedback_bind_group(
-        &self,
-        feedback: RuntimeFeedbackBinding,
-        feedback_history_key: Option<FeedbackHistoryKey>,
-    ) -> Option<&wgpu::BindGroup> {
-        match feedback {
-            RuntimeFeedbackBinding::Dummy => self.dummy_bind_group.as_ref(),
-            RuntimeFeedbackBinding::HistoryRequired => {
-                let history_key = feedback_history_key?;
-                self.feedback_history_read_bind_group(history_key)
-            }
-        }
-    }
-
-    fn encode_runtime_pass_with_descriptor<'a>(
-        &'a self,
-        pass: &mut wgpu::RenderPass<'a>,
-        descriptor: RuntimeOpDescriptor,
-        source_target: Option<RenderTargetRef>,
-        feedback_history_key: Option<FeedbackHistoryKey>,
-        dynamic_offset: u32,
-    ) -> Option<()> {
-        pass.set_pipeline(self.runtime_pipeline(descriptor.pipeline)?);
-        pass.set_bind_group(0, &self.op_uniform_bind_group, &[dynamic_offset]);
-        let source_bind_group =
-            self.runtime_source_bind_group(descriptor.source_binding, source_target)?;
-        let feedback_bind_group =
-            self.runtime_feedback_bind_group(descriptor.feedback_binding, feedback_history_key)?;
-        pass.set_bind_group(1, source_bind_group, &[]);
-        pass.set_bind_group(2, feedback_bind_group, &[]);
         Some(())
     }
 
@@ -937,107 +793,6 @@ impl TexPreviewRenderer {
         }
     }
 
-    fn ensure_feedback_history_slot(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        key: FeedbackHistoryKey,
-        width: u32,
-        height: u32,
-    ) {
-        if self
-            .feedback_history
-            .get(&key)
-            .map(|history| history.slots[0].size == (width, height))
-            .unwrap_or(false)
-        {
-            return;
-        }
-        let (texture_a, view_a, bind_group_a) = create_preview_texture_bundle(
-            device,
-            width,
-            height,
-            "gui-tex-preview-feedback-history-a",
-            &self.viewer_texture_layout,
-            &self.op_sampler,
-        );
-        let (texture_b, view_b, bind_group_b) = create_preview_texture_bundle(
-            device,
-            width,
-            height,
-            "gui-tex-preview-feedback-history-b",
-            &self.viewer_texture_layout,
-            &self.op_sampler,
-        );
-        for view in [&view_a, &view_b] {
-            let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gui-tex-preview-feedback-history-clear-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(TRANSPARENT_BG),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
-        self.feedback_history.insert(
-            key,
-            FeedbackHistorySlot {
-                slots: [
-                    CachedTextureSlot {
-                        texture: texture_a,
-                        view: view_a,
-                        bind_group: bind_group_a,
-                        size: (width, height),
-                    },
-                    CachedTextureSlot {
-                        texture: texture_b,
-                        view: view_b,
-                        bind_group: bind_group_b,
-                        size: (width, height),
-                    },
-                ],
-                read_index: 0,
-                write_cooldown: 0,
-                configured_gap: 0,
-            },
-        );
-    }
-
-    fn feedback_history_read_bind_group(
-        &self,
-        key: FeedbackHistoryKey,
-    ) -> Option<&wgpu::BindGroup> {
-        let history = self.feedback_history.get(&key)?;
-        history
-            .slots
-            .get(history.read_index)
-            .map(|slot| &slot.bind_group)
-    }
-
-    fn feedback_history_write_target(&self, key: FeedbackHistoryKey) -> Option<RenderTargetRef> {
-        let history = self.feedback_history.get(&key)?;
-        let write_index = 1usize.saturating_sub(history.read_index);
-        Some(RenderTargetRef::FeedbackHistory {
-            key,
-            slot_index: write_index,
-        })
-    }
-
-    fn swap_feedback_history(&mut self, key: FeedbackHistoryKey) -> Option<RenderTargetRef> {
-        let history = self.feedback_history.get_mut(&key)?;
-        history.read_index = 1usize.saturating_sub(history.read_index);
-        Some(RenderTargetRef::FeedbackHistory {
-            key,
-            slot_index: history.read_index,
-        })
-    }
-
     fn copy_target_to_viewer(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1258,109 +1013,35 @@ fn collect_active_cache_keys(
 }
 
 fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOpDescriptor> {
-    let descriptor = match runtime_op {
-        TexViewerOp::Solid { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Solid,
-            source_binding: RuntimeSourceBinding::Dummy,
-            feedback_binding: RuntimeFeedbackBinding::Dummy,
-        },
-        TexViewerOp::Circle { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Circle,
-            source_binding: RuntimeSourceBinding::Dummy,
-            feedback_binding: RuntimeFeedbackBinding::Dummy,
-        },
-        TexViewerOp::Sphere { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Sphere,
-            source_binding: RuntimeSourceBinding::Dummy,
-            feedback_binding: RuntimeFeedbackBinding::Dummy,
-        },
-        TexViewerOp::Transform { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Transform,
-            source_binding: RuntimeSourceBinding::SourceTarget,
-            feedback_binding: RuntimeFeedbackBinding::Dummy,
-        },
-        TexViewerOp::Level { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Level,
-            source_binding: RuntimeSourceBinding::SourceTarget,
-            feedback_binding: RuntimeFeedbackBinding::Dummy,
-        },
-        TexViewerOp::Feedback { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Feedback,
-            source_binding: RuntimeSourceBinding::SourceTarget,
-            feedback_binding: RuntimeFeedbackBinding::HistoryRequired,
-        },
-        TexViewerOp::ReactionDiffusion { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::ReactionDiffusion,
-            source_binding: RuntimeSourceBinding::SourceTarget,
-            feedback_binding: RuntimeFeedbackBinding::HistoryRequired,
-        },
-        TexViewerOp::PostProcess { history, .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::PostProcess,
-            source_binding: RuntimeSourceBinding::SourceTarget,
-            feedback_binding: if history.is_some() {
-                RuntimeFeedbackBinding::HistoryRequired
-            } else {
-                RuntimeFeedbackBinding::Dummy
-            },
-        },
-        TexViewerOp::Blend { .. } | TexViewerOp::StoreTexture { .. } => {
-            return None;
-        }
-    };
-    Some(descriptor)
-}
-
-fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform {
-    match runtime_op {
-        TexViewerOp::Solid { .. } | TexViewerOp::StoreTexture { .. } => {
-            TexOpUniform::solid(runtime_op)
-        }
-        TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
-        TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
-        TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
-        TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
-        TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
-        TexViewerOp::ReactionDiffusion { .. } => TexOpUniform::reaction_diffusion(runtime_op),
-        TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
-        TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
-    }
+    op_metadata::runtime_op_descriptor(runtime_op)
 }
 
 fn feedback_key_for_runtime_op(runtime_op: TexViewerOp) -> Option<FeedbackHistoryKey> {
-    match runtime_op {
-        TexViewerOp::Feedback { history, .. } => Some(FeedbackHistoryKey::from_binding(history)),
-        TexViewerOp::ReactionDiffusion { history, .. } => {
-            Some(FeedbackHistoryKey::from_binding(history))
-        }
-        TexViewerOp::PostProcess {
-            history: Some(history),
-            ..
-        } => Some(FeedbackHistoryKey::from_binding(history)),
-        _ => None,
-    }
+    op_metadata::feedback_key_for_runtime_op(runtime_op)
 }
 
 fn is_feedback_history_tap_runtime_op(runtime_op: TexViewerOp) -> bool {
-    matches!(runtime_op, TexViewerOp::Feedback { .. })
+    op_metadata::is_feedback_history_tap_runtime_op(runtime_op)
 }
 
 fn external_feedback_accumulation_texture_for_runtime_op(runtime_op: TexViewerOp) -> Option<u32> {
-    let TexViewerOp::Feedback { history, .. } = runtime_op else {
-        return None;
-    };
-    let crate::gui::runtime::TexRuntimeFeedbackHistoryBinding::External { texture_node_id } =
-        history
-    else {
-        return None;
-    };
-    Some(texture_node_id)
+    op_metadata::external_feedback_accumulation_texture_for_runtime_op(runtime_op)
 }
 
 fn feedback_frame_gap_for_runtime_op(runtime_op: TexViewerOp) -> u32 {
-    let TexViewerOp::Feedback { frame_gap, .. } = runtime_op else {
-        return 0;
-    };
-    frame_gap
+    op_metadata::feedback_frame_gap_for_runtime_op(runtime_op)
+}
+
+fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
+    op_metadata::op_clear_color(op)
+}
+
+fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform {
+    op_metadata::op_uniform_for_runtime_op(runtime_op)
+}
+
+fn consume_feedback_write_cooldown(write_cooldown: &mut u32, frame_gap: u32) -> bool {
+    history_stage::consume_feedback_write_cooldown(write_cooldown, frame_gap)
 }
 
 fn prune_keyed_cache<K, V>(cache: &mut HashMap<K, V>, active_keys: &HashSet<K>)
@@ -1368,28 +1049,6 @@ where
     K: Eq + Hash,
 {
     cache.retain(|key, _| active_keys.contains(key));
-}
-
-fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
-    match op {
-        TexViewerOp::Sphere {
-            alpha_clip: true, ..
-        }
-        | TexViewerOp::Circle {
-            alpha_clip: true, ..
-        } => TRANSPARENT_BG,
-        _ => PREVIEW_BG,
-    }
-}
-
-fn consume_feedback_write_cooldown(write_cooldown: &mut u32, frame_gap: u32) -> bool {
-    if *write_cooldown == 0 {
-        *write_cooldown = frame_gap;
-        true
-    } else {
-        *write_cooldown = (*write_cooldown).saturating_sub(1);
-        false
-    }
 }
 
 #[cfg(test)]
