@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use super::super::viewer;
-use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep, TransformParams};
+use super::execution_plan::{build_execution_plan, PlannedRenderOp, PlannedStep};
 use super::pipeline::create_preview_texture_bundle;
 use super::{
     CachedTextureSlot, FeedbackHistoryKey, FeedbackHistorySlot, RenderTargetRef, TexOpUniform,
@@ -213,13 +213,9 @@ impl TexPreviewRenderer {
         self.blend_source_aliases.clear();
         self.blend_source_aliases_by_target.clear();
         let plan_changed = self.cached_plan_signature != Some(request.plan_signature);
-        let uniform_changed = self.op_uniform_signature != Some(request.uniform_signature);
-        if plan_changed || uniform_changed {
-            // Planned render ops embed concrete op payload values (including
-            // fused transform uniforms). Refresh the plan whenever uniforms
-            // change so cached payloads never drift from current `ops`.
-            self.cached_plan_ops.clear();
-            self.cached_plan_ops.extend_from_slice(request.ops);
+        self.cached_plan_ops.clear();
+        self.cached_plan_ops.extend_from_slice(request.ops);
+        if plan_changed {
             self.cached_plan_steps.clear();
             self.cached_plan_render_ops.clear();
             build_execution_plan(
@@ -228,9 +224,7 @@ impl TexPreviewRenderer {
                 &mut self.cached_plan_render_ops,
             );
             self.cached_plan_signature = Some(request.plan_signature);
-            if plan_changed {
-                self.op_uniform_signature = None;
-            }
+            self.op_uniform_signature = None;
         }
         self.prune_texture_caches_for_plan();
         if self.cached_plan_render_ops.is_empty() {
@@ -284,13 +278,13 @@ impl TexPreviewRenderer {
         let prepared =
             self.prepare_targets_for_op(dispatch, planned_op, render_ops.len(), state)?;
         self.encode_pass_for_op(dispatch.encoder, prepared, source_target_before)?;
-        if Self::is_feedback_history_tap_op(prepared.planned_op) {
+        if self.is_feedback_history_tap_op(prepared.planned_op) {
             let history_key = prepared.feedback_history_key?;
             let source_target = source_target_before?;
-            let frame_gap = Self::feedback_frame_gap_for_planned(prepared.planned_op);
+            let frame_gap = self.feedback_frame_gap_for_planned(prepared.planned_op);
             if self.should_write_feedback_history(history_key, frame_gap)? {
                 if let Some(texture_node_id) =
-                    Self::external_feedback_accumulation_texture(prepared.planned_op)
+                    self.external_feedback_accumulation_texture(prepared.planned_op)
                 {
                     state
                         .pending_external_feedback_writes
@@ -332,7 +326,7 @@ impl TexPreviewRenderer {
         render_op_count: usize,
         state: &mut GpuDispatchState,
     ) -> Option<PreparedRenderOp> {
-        let feedback_history_key = Self::feedback_key_for_planned(planned_op);
+        let feedback_history_key = self.feedback_key_for_planned(planned_op);
         if let Some(history_key) = feedback_history_key {
             self.ensure_feedback_history_slot(
                 dispatch.device,
@@ -348,7 +342,7 @@ impl TexPreviewRenderer {
         } else {
             self.choose_intermediate_target(&mut state.scratch_flip)
         };
-        if feedback_history_key.is_some() && !Self::is_feedback_history_tap_op(planned_op) {
+        if feedback_history_key.is_some() && !self.is_feedback_history_tap_op(planned_op) {
             let history_key = feedback_history_key?;
             target = self.feedback_history_write_target(history_key)?;
         }
@@ -376,7 +370,7 @@ impl TexPreviewRenderer {
         prepared: PreparedRenderOp,
         source_target: Option<RenderTargetRef>,
     ) -> Option<()> {
-        let clear_color = Self::op_clear_color_for_planned(prepared.planned_op);
+        let clear_color = self.op_clear_color_for_planned(prepared.planned_op);
         let timestamp_parts = self.op_pass_timestamps.next_render_pass_parts();
         let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
             wgpu::RenderPassTimestampWrites {
@@ -401,39 +395,99 @@ impl TexPreviewRenderer {
             timestamp_writes,
         });
         match prepared.planned_op {
-            PlannedRenderOp::Runtime(TexViewerOp::Solid { .. }) => {
-                pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Circle { .. }) => {
-                pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Sphere { .. }) => {
-                pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. }) => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Level { .. }) => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                pass.set_pipeline(self.op_level_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+            PlannedRenderOp::Runtime { .. } => {
+                let runtime_op = self.runtime_op_for_planned(prepared.planned_op)?;
+                match runtime_op {
+                    TexViewerOp::Solid { .. } => {
+                        pass.set_pipeline(self.op_solid_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
+                    TexViewerOp::Circle { .. } => {
+                        pass.set_pipeline(self.op_circle_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
+                    TexViewerOp::Sphere { .. } => {
+                        pass.set_pipeline(self.op_sphere_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, self.dummy_bind_group.as_ref()?, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
+                    TexViewerOp::Transform { .. } => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        pass.set_pipeline(self.op_transform_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
+                    TexViewerOp::Level { .. } => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        pass.set_pipeline(self.op_level_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
+                    }
+                    TexViewerOp::Feedback { .. } => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        let history_key = prepared.feedback_history_key?;
+                        let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
+                        pass.set_pipeline(self.op_feedback_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, history_bind_group, &[]);
+                    }
+                    TexViewerOp::ReactionDiffusion { .. } => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        let history_key = prepared.feedback_history_key?;
+                        let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
+                        pass.set_pipeline(self.op_reaction_diffusion_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, history_bind_group, &[]);
+                    }
+                    TexViewerOp::PostProcess { history, .. } => {
+                        let src_target = source_target?;
+                        let src_bind_group = self.target_bind_group(src_target)?;
+                        let feedback_bind_group = if history.is_some() {
+                            let history_key = prepared.feedback_history_key?;
+                            self.feedback_history_read_bind_group(history_key)?
+                        } else {
+                            self.dummy_bind_group.as_ref()?
+                        };
+                        pass.set_pipeline(self.op_post_process_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, src_bind_group, &[]);
+                        pass.set_bind_group(2, feedback_bind_group, &[]);
+                    }
+                    TexViewerOp::Blend {
+                        base_texture_node_id,
+                        layer_texture_node_id,
+                        ..
+                    } => {
+                        let base_bind_group = self
+                            .blend_source_bind_group_for_texture(base_texture_node_id)
+                            .or_else(|| {
+                                source_target.and_then(|target_ref| self.target_bind_group(target_ref))
+                            })?;
+                        let layer_bind_group = layer_texture_node_id
+                            .and_then(|id| self.blend_source_bind_group_for_texture(id))
+                            .unwrap_or(self.dummy_bind_group.as_ref()?);
+                        pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
+                        pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
+                        pass.set_bind_group(1, base_bind_group, &[]);
+                        pass.set_bind_group(2, layer_bind_group, &[]);
+                    }
+                    TexViewerOp::StoreTexture { .. } => {
+                        return None;
+                    }
+                }
             }
             PlannedRenderOp::TransformPair { .. } => {
                 let src_target = source_target?;
@@ -442,61 +496,6 @@ impl TexPreviewRenderer {
                 pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
                 pass.set_bind_group(1, src_bind_group, &[]);
                 pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }) => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                let history_key = prepared.feedback_history_key?;
-                let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
-                pass.set_pipeline(self.op_feedback_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, history_bind_group, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion { .. }) => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                let history_key = prepared.feedback_history_key?;
-                let history_bind_group = self.feedback_history_read_bind_group(history_key)?;
-                pass.set_pipeline(self.op_reaction_diffusion_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, history_bind_group, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::PostProcess { history, .. }) => {
-                let src_target = source_target?;
-                let src_bind_group = self.target_bind_group(src_target)?;
-                let feedback_bind_group = if history.is_some() {
-                    let history_key = prepared.feedback_history_key?;
-                    self.feedback_history_read_bind_group(history_key)?
-                } else {
-                    self.dummy_bind_group.as_ref()?
-                };
-                pass.set_pipeline(self.op_post_process_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, src_bind_group, &[]);
-                pass.set_bind_group(2, feedback_bind_group, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::Blend {
-                base_texture_node_id,
-                layer_texture_node_id,
-                ..
-            }) => {
-                let base_bind_group = self
-                    .blend_source_bind_group_for_texture(base_texture_node_id)
-                    .or_else(|| {
-                        source_target.and_then(|target_ref| self.target_bind_group(target_ref))
-                    })?;
-                let layer_bind_group = layer_texture_node_id
-                    .and_then(|id| self.blend_source_bind_group_for_texture(id))
-                    .unwrap_or(self.dummy_bind_group.as_ref()?);
-                pass.set_pipeline(self.op_blend_pipeline.as_ref()?);
-                pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
-                pass.set_bind_group(1, base_bind_group, &[]);
-                pass.set_bind_group(2, layer_bind_group, &[]);
-            }
-            PlannedRenderOp::Runtime(TexViewerOp::StoreTexture { .. }) => {
-                return None;
             }
         }
         pass.draw(0..6, 0..1);
@@ -516,43 +515,66 @@ impl TexPreviewRenderer {
         Some(())
     }
 
-    fn op_uniform_for_fused_transform_pair(
-        first: TransformParams,
-        second: TransformParams,
-    ) -> TexOpUniform {
+    fn op_uniform_for_fused_transform_pair(first: [f32; 5], second: [f32; 5]) -> TexOpUniform {
         TexOpUniform {
-            p0: [first.brightness, first.gain_r, first.gain_g, first.gain_b],
-            p1: [first.alpha_mul, 0.0, 0.0, 0.0],
-            p2: [
-                second.brightness,
-                second.gain_r,
-                second.gain_g,
-                second.gain_b,
-            ],
-            p3: [second.alpha_mul, 0.0, 0.0, 0.0],
+            p0: [first[0], first[1], first[2], first[3]],
+            p1: [first[4], 0.0, 0.0, 0.0],
+            p2: [second[0], second[1], second[2], second[3]],
+            p3: [second[4], 0.0, 0.0, 0.0],
             p4: [0.0; 4],
         }
     }
 
-    fn op_uniform_for_planned(op: PlannedRenderOp) -> TexOpUniform {
+    fn transform_components(op: TexViewerOp) -> Option<[f32; 5]> {
+        let TexViewerOp::Transform {
+            brightness,
+            gain_r,
+            gain_g,
+            gain_b,
+            alpha_mul,
+        } = op
+        else {
+            return None;
+        };
+        Some([brightness, gain_r, gain_g, gain_b, alpha_mul])
+    }
+
+    fn runtime_op_for_planned(&self, op: PlannedRenderOp) -> Option<TexViewerOp> {
+        let PlannedRenderOp::Runtime { op_index } = op else {
+            return None;
+        };
+        self.cached_plan_ops.get(op_index).copied()
+    }
+
+    fn op_uniform_for_planned(&self, op: PlannedRenderOp) -> Option<TexOpUniform> {
         match op {
-            PlannedRenderOp::Runtime(runtime_op) => match runtime_op {
-                TexViewerOp::Solid { .. } => TexOpUniform::solid(runtime_op),
-                TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
-                TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
-                TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
-                TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
-                TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
-                TexViewerOp::ReactionDiffusion { .. } => {
-                    TexOpUniform::reaction_diffusion(runtime_op)
-                }
-                TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
-                TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
-                TexViewerOp::StoreTexture { .. } => TexOpUniform::solid(runtime_op),
-            },
-            PlannedRenderOp::TransformPair { first, second } => {
-                Self::op_uniform_for_fused_transform_pair(first, second)
+            PlannedRenderOp::Runtime { .. } => {
+                let runtime_op = self.runtime_op_for_planned(op)?;
+                Some(match runtime_op {
+                    TexViewerOp::Solid { .. } => TexOpUniform::solid(runtime_op),
+                    TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
+                    TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
+                    TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
+                    TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
+                    TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
+                    TexViewerOp::ReactionDiffusion { .. } => {
+                        TexOpUniform::reaction_diffusion(runtime_op)
+                    }
+                    TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
+                    TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
+                    TexViewerOp::StoreTexture { .. } => TexOpUniform::solid(runtime_op),
+                })
             }
+            PlannedRenderOp::TransformPair {
+                first_op_index,
+                second_op_index,
+            } => {
+                let first = self.cached_plan_ops.get(first_op_index).copied()?;
+                let second = self.cached_plan_ops.get(second_op_index).copied()?;
+                let first = Self::transform_components(first)?;
+                let second = Self::transform_components(second)?;
+                Some(Self::op_uniform_for_fused_transform_pair(first, second))
+            },
         }
     }
 
@@ -568,10 +590,12 @@ impl TexPreviewRenderer {
         let upload_len = stride.saturating_mul(planned_render_ops.len());
         self.op_uniform_staging.resize(upload_len, 0);
         for (index, op) in planned_render_ops.iter().copied().enumerate() {
+            let Some(uniform) = self.op_uniform_for_planned(op) else {
+                continue;
+            };
             let offset = stride.saturating_mul(index);
             let chunk = &mut self.op_uniform_staging[offset..offset + stride];
             chunk.fill(0);
-            let uniform = Self::op_uniform_for_planned(op);
             chunk[..TEX_OP_UNIFORM_SIZE].copy_from_slice(bytemuck::bytes_of(&uniform));
         }
         queue.write_buffer(
@@ -582,10 +606,8 @@ impl TexPreviewRenderer {
         upload_len as u64
     }
 
-    fn feedback_key_for_planned(op: PlannedRenderOp) -> Option<FeedbackHistoryKey> {
-        let PlannedRenderOp::Runtime(runtime_op) = op else {
-            return None;
-        };
+    fn feedback_key_for_planned(&self, op: PlannedRenderOp) -> Option<FeedbackHistoryKey> {
+        let runtime_op = self.runtime_op_for_planned(op)?;
         match runtime_op {
             TexViewerOp::Feedback { history, .. } => {
                 Some(FeedbackHistoryKey::from_binding(history))
@@ -601,40 +623,28 @@ impl TexPreviewRenderer {
         }
     }
 
-    fn op_clear_color_for_planned(op: PlannedRenderOp) -> wgpu::Color {
-        let PlannedRenderOp::Runtime(runtime_op) = op else {
+    fn op_clear_color_for_planned(&self, op: PlannedRenderOp) -> wgpu::Color {
+        let Some(runtime_op) = self.runtime_op_for_planned(op) else {
             return PREVIEW_BG;
         };
         op_clear_color(runtime_op)
     }
 
-    fn is_feedback_history_tap_op(op: PlannedRenderOp) -> bool {
-        matches!(op, PlannedRenderOp::Runtime(TexViewerOp::Feedback { .. }))
+    fn is_feedback_history_tap_op(&self, op: PlannedRenderOp) -> bool {
+        self.runtime_op_for_planned(op)
+            .map(is_feedback_history_tap_runtime_op)
+            .unwrap_or(false)
     }
 
-    fn external_feedback_accumulation_texture(op: PlannedRenderOp) -> Option<u32> {
-        let PlannedRenderOp::Runtime(runtime_op) = op else {
-            return None;
-        };
-        let TexViewerOp::Feedback { history, .. } = runtime_op else {
-            return None;
-        };
-        let crate::gui::runtime::TexRuntimeFeedbackHistoryBinding::External { texture_node_id } =
-            history
-        else {
-            return None;
-        };
-        Some(texture_node_id)
+    fn external_feedback_accumulation_texture(&self, op: PlannedRenderOp) -> Option<u32> {
+        self.runtime_op_for_planned(op)
+            .and_then(external_feedback_accumulation_texture_for_runtime_op)
     }
 
-    fn feedback_frame_gap_for_planned(op: PlannedRenderOp) -> u32 {
-        let PlannedRenderOp::Runtime(runtime_op) = op else {
-            return 0;
-        };
-        let TexViewerOp::Feedback { frame_gap, .. } = runtime_op else {
-            return 0;
-        };
-        frame_gap
+    fn feedback_frame_gap_for_planned(&self, op: PlannedRenderOp) -> u32 {
+        self.runtime_op_for_planned(op)
+            .map(feedback_frame_gap_for_runtime_op)
+            .unwrap_or(0)
     }
 
     fn should_write_feedback_history(
@@ -801,6 +811,7 @@ impl TexPreviewRenderer {
         let (active_feedback, active_blend_sources) = collect_active_cache_keys(
             self.cached_plan_steps.as_slice(),
             self.cached_plan_render_ops.as_slice(),
+            self.cached_plan_ops.as_slice(),
         );
         prune_keyed_cache(&mut self.feedback_history, &active_feedback);
         prune_keyed_cache(&mut self.blend_source_slots, &active_blend_sources);
@@ -1194,18 +1205,26 @@ impl TexPreviewRenderer {
 fn collect_active_cache_keys(
     planned_steps: &[PlannedStep],
     planned_render_ops: &[PlannedRenderOp],
+    planned_ops: &[TexViewerOp],
 ) -> (HashSet<FeedbackHistoryKey>, HashSet<u32>) {
     let mut active_feedback = HashSet::new();
     let mut active_blend_sources = HashSet::new();
     for op in planned_render_ops {
-        if let Some(key) = TexPreviewRenderer::feedback_key_for_planned(*op) {
+        let runtime_op = match *op {
+            PlannedRenderOp::Runtime { op_index } => planned_ops.get(op_index).copied(),
+            PlannedRenderOp::TransformPair { .. } => None,
+        };
+        let Some(runtime_op) = runtime_op else {
+            continue;
+        };
+        if let Some(key) = feedback_key_for_runtime_op(runtime_op) {
             let _ = active_feedback.insert(key);
         }
-        let PlannedRenderOp::Runtime(TexViewerOp::Blend {
+        let TexViewerOp::Blend {
             base_texture_node_id,
             layer_texture_node_id,
             ..
-        }) = *op
+        } = runtime_op
         else {
             continue;
         };
@@ -1221,6 +1240,43 @@ fn collect_active_cache_keys(
         let _ = active_blend_sources.insert(texture_node_id);
     }
     (active_feedback, active_blend_sources)
+}
+
+fn feedback_key_for_runtime_op(runtime_op: TexViewerOp) -> Option<FeedbackHistoryKey> {
+    match runtime_op {
+        TexViewerOp::Feedback { history, .. } => Some(FeedbackHistoryKey::from_binding(history)),
+        TexViewerOp::ReactionDiffusion { history, .. } => {
+            Some(FeedbackHistoryKey::from_binding(history))
+        }
+        TexViewerOp::PostProcess {
+            history: Some(history),
+            ..
+        } => Some(FeedbackHistoryKey::from_binding(history)),
+        _ => None,
+    }
+}
+
+fn is_feedback_history_tap_runtime_op(runtime_op: TexViewerOp) -> bool {
+    matches!(runtime_op, TexViewerOp::Feedback { .. })
+}
+
+fn external_feedback_accumulation_texture_for_runtime_op(runtime_op: TexViewerOp) -> Option<u32> {
+    let TexViewerOp::Feedback { history, .. } = runtime_op else {
+        return None;
+    };
+    let crate::gui::runtime::TexRuntimeFeedbackHistoryBinding::External { texture_node_id } =
+        history
+    else {
+        return None;
+    };
+    Some(texture_node_id)
+}
+
+fn feedback_frame_gap_for_runtime_op(runtime_op: TexViewerOp) -> u32 {
+    let TexViewerOp::Feedback { frame_gap, .. } = runtime_op else {
+        return 0;
+    };
+    frame_gap
 }
 
 fn prune_keyed_cache<K, V>(cache: &mut HashMap<K, V>, active_keys: &HashSet<K>)
@@ -1255,8 +1311,9 @@ fn consume_feedback_write_cooldown(write_cooldown: &mut u32, frame_gap: u32) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_active_cache_keys, consume_feedback_write_cooldown, prune_keyed_cache,
-        PlannedRenderOp, PlannedStep, TexPreviewRenderer,
+        collect_active_cache_keys, consume_feedback_write_cooldown,
+        external_feedback_accumulation_texture_for_runtime_op, is_feedback_history_tap_runtime_op,
+        prune_keyed_cache, PlannedRenderOp, PlannedStep,
     };
     use crate::gui::runtime::{PostProcessCategory, TexRuntimeFeedbackHistoryBinding};
     use crate::gui::tex_view::TexViewerOp;
@@ -1264,19 +1321,19 @@ mod tests {
 
     #[test]
     fn feedback_ops_use_history_tap_mode() {
-        let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+        let op = TexViewerOp::Feedback {
             mix: 1.0,
             frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 11,
             },
-        });
-        assert!(TexPreviewRenderer::is_feedback_history_tap_op(op));
+        };
+        assert!(is_feedback_history_tap_runtime_op(op));
     }
 
     #[test]
     fn temporal_history_ops_except_feedback_keep_history_render_target_mode() {
-        let reaction = PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion {
+        let reaction = TexViewerOp::ReactionDiffusion {
             diffusion_a: 1.0,
             diffusion_b: 0.5,
             feed: 0.06,
@@ -1286,8 +1343,8 @@ mod tests {
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 22,
             },
-        });
-        let post = PlannedRenderOp::Runtime(TexViewerOp::PostProcess {
+        };
+        let post = TexViewerOp::PostProcess {
             category: PostProcessCategory::Temporal,
             effect: 0.0,
             amount: 0.5,
@@ -1298,36 +1355,36 @@ mod tests {
             history: Some(TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 44,
             }),
-        });
-        assert!(!TexPreviewRenderer::is_feedback_history_tap_op(reaction));
-        assert!(!TexPreviewRenderer::is_feedback_history_tap_op(post));
+        };
+        assert!(!is_feedback_history_tap_runtime_op(reaction));
+        assert!(!is_feedback_history_tap_runtime_op(post));
     }
 
     #[test]
     fn external_feedback_accumulation_texture_detects_external_binding() {
-        let op = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+        let op = TexViewerOp::Feedback {
             mix: 1.0,
             frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::External {
                 texture_node_id: 77,
             },
-        });
+        };
         assert_eq!(
-            TexPreviewRenderer::external_feedback_accumulation_texture(op),
+            external_feedback_accumulation_texture_for_runtime_op(op),
             Some(77)
         );
     }
 
     #[test]
     fn external_feedback_accumulation_texture_ignores_internal_and_non_feedback_ops() {
-        let internal_feedback = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
+        let internal_feedback = TexViewerOp::Feedback {
             mix: 0.8,
             frame_gap: 0,
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 5,
             },
-        });
-        let reaction = PlannedRenderOp::Runtime(TexViewerOp::ReactionDiffusion {
+        };
+        let reaction = TexViewerOp::ReactionDiffusion {
             diffusion_a: 1.0,
             diffusion_b: 0.5,
             feed: 0.06,
@@ -1337,58 +1394,67 @@ mod tests {
             history: TexRuntimeFeedbackHistoryBinding::Internal {
                 feedback_node_id: 22,
             },
-        });
+        };
         assert_eq!(
-            TexPreviewRenderer::external_feedback_accumulation_texture(internal_feedback),
+            external_feedback_accumulation_texture_for_runtime_op(internal_feedback),
             None
         );
         assert_eq!(
-            TexPreviewRenderer::external_feedback_accumulation_texture(reaction),
+            external_feedback_accumulation_texture_for_runtime_op(reaction),
             None
         );
     }
 
     #[test]
     fn active_cache_keys_include_feedback_and_blend_sources() {
-        let feedback = PlannedRenderOp::Runtime(TexViewerOp::Feedback {
-            mix: 0.5,
-            frame_gap: 0,
-            history: TexRuntimeFeedbackHistoryBinding::Internal {
-                feedback_node_id: 12,
+        let planned_ops = vec![
+            TexViewerOp::Feedback {
+                mix: 0.5,
+                frame_gap: 0,
+                history: TexRuntimeFeedbackHistoryBinding::Internal {
+                    feedback_node_id: 12,
+                },
             },
-        });
-        let post = PlannedRenderOp::Runtime(TexViewerOp::PostProcess {
-            category: PostProcessCategory::Temporal,
-            effect: 0.0,
-            amount: 0.5,
-            scale: 0.5,
-            threshold: 0.0,
-            speed: 0.0,
-            time: 0.0,
-            history: Some(TexRuntimeFeedbackHistoryBinding::External {
-                texture_node_id: 44,
-            }),
-        });
-        let blend = PlannedRenderOp::Runtime(TexViewerOp::Blend {
-            mode: 0.0,
-            opacity: 1.0,
-            bg_r: 0.0,
-            bg_g: 0.0,
-            bg_b: 0.0,
-            bg_a: 0.0,
-            base_texture_node_id: 7,
-            layer_texture_node_id: Some(9),
-        });
+            TexViewerOp::PostProcess {
+                category: PostProcessCategory::Temporal,
+                effect: 0.0,
+                amount: 0.5,
+                scale: 0.5,
+                threshold: 0.0,
+                speed: 0.0,
+                time: 0.0,
+                history: Some(TexRuntimeFeedbackHistoryBinding::External {
+                    texture_node_id: 44,
+                }),
+            },
+            TexViewerOp::Blend {
+                mode: 0.0,
+                opacity: 1.0,
+                bg_r: 0.0,
+                bg_g: 0.0,
+                bg_b: 0.0,
+                bg_a: 0.0,
+                base_texture_node_id: 7,
+                layer_texture_node_id: Some(9),
+            },
+        ];
+        let render_ops = vec![
+            PlannedRenderOp::Runtime { op_index: 0 },
+            PlannedRenderOp::Runtime { op_index: 1 },
+            PlannedRenderOp::Runtime { op_index: 2 },
+        ];
         let steps = vec![
             PlannedStep::StoreTexture { texture_node_id: 7 },
             PlannedStep::StoreTexture {
                 texture_node_id: 13,
             },
         ];
-        let render_ops = vec![feedback, post, blend];
 
-        let (active_feedback, active_blend) =
-            collect_active_cache_keys(steps.as_slice(), render_ops.as_slice());
+        let (active_feedback, active_blend) = collect_active_cache_keys(
+            steps.as_slice(),
+            render_ops.as_slice(),
+            planned_ops.as_slice(),
+        );
         assert_eq!(active_feedback.len(), 2);
         assert_eq!(active_blend.len(), 3);
         assert!(active_blend.contains(&7));

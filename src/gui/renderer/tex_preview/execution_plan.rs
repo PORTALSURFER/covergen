@@ -6,48 +6,15 @@
 
 use crate::gui::tex_view::TexViewerOp;
 
-/// One transform payload used by fused transform execution.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct TransformParams {
-    pub(super) brightness: f32,
-    pub(super) gain_r: f32,
-    pub(super) gain_g: f32,
-    pub(super) gain_b: f32,
-    pub(super) alpha_mul: f32,
-}
-
-impl TransformParams {
-    /// Extract transform parameters when `op` is a `Transform`.
-    pub(super) fn from_transform_op(op: TexViewerOp) -> Option<Self> {
-        let TexViewerOp::Transform {
-            brightness,
-            gain_r,
-            gain_g,
-            gain_b,
-            alpha_mul,
-        } = op
-        else {
-            return None;
-        };
-        Some(Self {
-            brightness,
-            gain_r,
-            gain_g,
-            gain_b,
-            alpha_mul,
-        })
-    }
-}
-
 /// One render operation in a compiled tex execution plan.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum PlannedRenderOp {
-    /// Render one runtime op directly.
-    Runtime(TexViewerOp),
+    /// Render one runtime op directly by op index.
+    Runtime { op_index: usize },
     /// Render two adjacent transform operations in one fused pass.
     TransformPair {
-        first: TransformParams,
-        second: TransformParams,
+        first_op_index: usize,
+        second_op_index: usize,
     },
 }
 
@@ -76,26 +43,24 @@ pub(super) fn build_execution_plan(
                 index += 1;
             }
             TexViewerOp::Transform { .. } => {
-                let first = TransformParams::from_transform_op(op).expect("checked match");
-                if let Some(second) = ops
-                    .get(index + 1)
-                    .copied()
-                    .and_then(TransformParams::from_transform_op)
-                {
+                if matches!(ops.get(index + 1), Some(TexViewerOp::Transform { .. })) {
                     let render_index = planned_render_ops.len();
-                    planned_render_ops.push(PlannedRenderOp::TransformPair { first, second });
+                    planned_render_ops.push(PlannedRenderOp::TransformPair {
+                        first_op_index: index,
+                        second_op_index: index + 1,
+                    });
                     planned_steps.push(PlannedStep::Render { render_index });
                     index += 2;
                     continue;
                 }
                 let render_index = planned_render_ops.len();
-                planned_render_ops.push(PlannedRenderOp::Runtime(op));
+                planned_render_ops.push(PlannedRenderOp::Runtime { op_index: index });
                 planned_steps.push(PlannedStep::Render { render_index });
                 index += 1;
             }
             _ => {
                 let render_index = planned_render_ops.len();
-                planned_render_ops.push(PlannedRenderOp::Runtime(op));
+                planned_render_ops.push(PlannedRenderOp::Runtime { op_index: index });
                 planned_steps.push(PlannedStep::Render { render_index });
                 index += 1;
             }
@@ -175,11 +140,11 @@ mod tests {
         ));
         assert!(matches!(
             planned_render_ops[0],
-            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. })
+            PlannedRenderOp::Runtime { .. }
         ));
         assert!(matches!(
             planned_render_ops[1],
-            PlannedRenderOp::Runtime(TexViewerOp::Transform { .. })
+            PlannedRenderOp::Runtime { .. }
         ));
     }
 }
