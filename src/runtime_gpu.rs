@@ -5,7 +5,8 @@ use std::error::Error;
 use std::time::Instant;
 
 use crate::gpu_render::{
-    BlendAliasDispatch, GenerateLayerAliasDispatch, GpuLayerRenderer, SourceNoiseAliasDispatch,
+    BlendAliasDispatch, GenerateLayerAliasDispatch, GpuLayerRenderer, GraphFrameContext,
+    SourceNoiseAliasDispatch,
 };
 use crate::proc_graph::{
     apply_sop_geometry, eval_chop_lfo, eval_chop_math, eval_chop_remap, eval_source_noise_scalar,
@@ -36,6 +37,17 @@ impl GpuValueWorkspace {
     }
 }
 
+/// Mutable dispatch context shared by per-op runtime GPU handlers.
+struct RuntimeGpuDispatchContext<'a> {
+    compiled: &'a CompiledGraph,
+    renderer: &'a mut GpuLayerRenderer,
+    frame: &'a mut GraphFrameContext,
+    seed_offset: u32,
+    modulation: Option<GraphTimeInput>,
+    scalar_values: &'a mut DenseNodeValues<f32>,
+    sop_values: &'a mut DenseNodeValues<SopPrimitive>,
+}
+
 /// Render one compiled graph image/frame fully on GPU and stage final output.
 pub(crate) fn render_graph_luma_gpu(
     compiled: &CompiledGraph,
@@ -52,204 +64,20 @@ pub(crate) fn render_graph_luma_gpu(
             scalar_values,
             sop_values,
         } = &mut *workspace;
+        let mut dispatch = RuntimeGpuDispatchContext {
+            compiled,
+            renderer,
+            frame: &mut frame,
+            seed_offset,
+            modulation,
+            scalar_values,
+            sop_values,
+        };
 
         for step in &compiled.steps {
             let capture_active = telemetry::is_active();
             let node_start = capture_active.then(Instant::now);
-            match step.op {
-                CompiledOp::GenerateLayer(layer) => {
-                    let effective = modulation.map_or(layer, |time| layer.with_time(time));
-                    let params = effective.to_params(compiled.width, compiled.height, seed_offset);
-                    let input = optional_luma_input_slot(compiled, step, 0)?;
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    if capture_active {
-                        let gpu_start = Instant::now();
-                        renderer.render_generate_layer_to_alias(
-                            &mut frame,
-                            &params,
-                            GenerateLayerAliasDispatch {
-                                input_base_slot: input,
-                                output_slot: output,
-                                opacity: effective.opacity,
-                                blend_mode: effective.blend_mode.as_u32(),
-                                contrast: effective.contrast,
-                            },
-                        )?;
-                        telemetry::record_timing(
-                            "v2.gpu.node.generate_layer.retained",
-                            gpu_start.elapsed(),
-                        );
-                    } else {
-                        renderer.render_generate_layer_to_alias(
-                            &mut frame,
-                            &params,
-                            GenerateLayerAliasDispatch {
-                                input_base_slot: input,
-                                output_slot: output,
-                                opacity: effective.opacity,
-                                blend_mode: effective.blend_mode.as_u32(),
-                                contrast: effective.contrast,
-                            },
-                        )?;
-                    }
-                }
-                CompiledOp::SourceNoise(spec) => {
-                    let effective = modulation.map_or(spec, |time| spec.with_time(time));
-                    let effective_seed = effective.seed.wrapping_add(seed_offset);
-                    match effective.output_port {
-                        PortType::LumaTexture | PortType::MaskTexture => {
-                            let output_mask =
-                                matches!(effective.output_port, PortType::MaskTexture);
-                            let output = if output_mask {
-                                output_mask_slot(compiled, step.node_id)?
-                            } else {
-                                output_luma_slot(compiled, step.node_id)?
-                            };
-                            renderer.render_source_noise_to_alias(
-                                &mut frame,
-                                SourceNoiseAliasDispatch {
-                                    output_mask,
-                                    output_slot: output,
-                                    seed: effective_seed,
-                                    scale: effective.scale,
-                                    octaves: effective.octaves,
-                                    amplitude: effective.amplitude,
-                                },
-                            )?;
-                        }
-                        PortType::ChannelScalar => {
-                            let phase = modulation.map(|time| time.normalized).unwrap_or(0.0);
-                            scalar_values.insert(
-                                step,
-                                eval_source_noise_scalar(
-                                    effective.seed,
-                                    effective.scale,
-                                    effective.octaves,
-                                    effective.amplitude,
-                                    phase,
-                                ),
-                            );
-                        }
-                        PortType::SopPrimitive => {
-                            return Err("source-noise output port cannot be SOP".into());
-                        }
-                    }
-                }
-                CompiledOp::Mask(spec) => {
-                    let effective = modulation.map_or(spec, |time| spec.with_time(time));
-                    let input = luma_input_slot(compiled, step, 0)?;
-                    let output = output_mask_slot(compiled, step.node_id)?;
-                    renderer.render_mask_to_alias(
-                        &mut frame,
-                        input,
-                        output,
-                        effective.threshold,
-                        effective.softness,
-                        effective.invert,
-                    )?;
-                }
-                CompiledOp::Blend(spec) => {
-                    let effective = modulation.map_or(spec, |time| spec.with_time(time));
-                    let base = luma_input_slot(compiled, step, 0)?;
-                    let top = luma_input_slot(compiled, step, 1)?;
-                    let mask = if step.inputs.len() > 2 {
-                        Some(mask_input_slot(compiled, step, 2)?)
-                    } else {
-                        None
-                    };
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    renderer.render_blend_to_alias(
-                        &mut frame,
-                        BlendAliasDispatch {
-                            base_slot: base,
-                            top_slot: top,
-                            mask_slot: mask,
-                            output_slot: output,
-                            mode: effective.mode.as_u32(),
-                            opacity: effective.opacity,
-                        },
-                    )?;
-                }
-                CompiledOp::ToneMap(spec) => {
-                    let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
-                    let channel = optional_scalar_input(step, 1, scalar_values)?;
-                    if let Some(value) = channel {
-                        effective.contrast = (effective.contrast * value).clamp(0.5, 3.0);
-                    }
-                    let input = luma_input_slot(compiled, step, 0)?;
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    renderer.render_tone_map_to_alias(
-                        &mut frame,
-                        input,
-                        output,
-                        effective.contrast,
-                        effective.low_pct,
-                        effective.high_pct,
-                    )?;
-                }
-                CompiledOp::WarpTransform(spec) => {
-                    let mut effective = modulation.map_or(spec, |time| spec.with_time(time));
-                    let channel = optional_scalar_input(step, 1, scalar_values)?;
-                    if let Some(value) = channel {
-                        effective.strength = (effective.strength * value).clamp(0.0, 2.4);
-                    }
-                    let input = luma_input_slot(compiled, step, 0)?;
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    renderer.render_warp_to_alias(
-                        &mut frame,
-                        input,
-                        output,
-                        effective.strength,
-                        effective.frequency,
-                        effective.phase,
-                    )?;
-                }
-                CompiledOp::StatefulFeedback(spec) => {
-                    let input = luma_input_slot(compiled, step, 0)?;
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    let feedback_slot = stateful_feedback_slot(compiled, step.node_id)?;
-                    renderer.render_stateful_feedback_to_alias(
-                        &mut frame,
-                        input,
-                        output,
-                        feedback_slot,
-                        spec.mix,
-                    )?;
-                }
-                CompiledOp::ChopLfo(spec) => {
-                    scalar_values.insert(step, eval_chop_lfo(spec, modulation));
-                }
-                CompiledOp::ChopMath(spec) => {
-                    let a = require_scalar_input(step, 0, scalar_values)?;
-                    let b = optional_scalar_input(step, 1, scalar_values)?;
-                    scalar_values.insert(step, eval_chop_math(spec, a, b));
-                }
-                CompiledOp::ChopRemap(spec) => {
-                    let input = require_scalar_input(step, 0, scalar_values)?;
-                    scalar_values.insert(step, eval_chop_remap(spec, input));
-                }
-                CompiledOp::SopCircle(spec) => {
-                    sop_values.insert(step, SopPrimitive::Circle(spec));
-                }
-                CompiledOp::SopSphere(spec) => {
-                    sop_values.insert(step, SopPrimitive::Sphere(spec));
-                }
-                CompiledOp::SopGeometry(spec) => {
-                    let input = require_sop_input(step, 0, sop_values)?;
-                    let modulation = optional_scalar_input(step, 1, scalar_values)?;
-                    sop_values.insert(step, apply_sop_geometry(input, spec, modulation));
-                }
-                CompiledOp::TopCameraRender(spec) => {
-                    let primitive = require_sop_input(step, 0, sop_values)?;
-                    let channel = optional_scalar_input(step, 1, scalar_values)?;
-                    let output = output_luma_slot(compiled, step.node_id)?;
-                    renderer
-                        .render_top_camera_to_alias(&mut frame, primitive, spec, channel, output)?;
-                }
-                CompiledOp::Output(output) => {
-                    let _ = output;
-                }
-            }
+            dispatch_compiled_step(step, &mut dispatch, capture_active)?;
             if let Some(start) = node_start {
                 telemetry::record_timing(op_scope(step.op), start.elapsed());
             }
@@ -278,6 +106,319 @@ pub(crate) fn render_graph_luma_gpu(
         telemetry::record_timing("v2.gpu.final_compositor", start.elapsed());
     }
 
+    Ok(())
+}
+
+fn dispatch_compiled_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+    capture_active: bool,
+) -> Result<(), Box<dyn Error>> {
+    match step.op {
+        CompiledOp::GenerateLayer(_) => handle_generate_layer_step(step, ctx, capture_active),
+        CompiledOp::SourceNoise(_) => handle_source_noise_step(step, ctx),
+        CompiledOp::Mask(_) => handle_mask_step(step, ctx),
+        CompiledOp::Blend(_) => handle_blend_step(step, ctx),
+        CompiledOp::ToneMap(_) => handle_tonemap_step(step, ctx),
+        CompiledOp::WarpTransform(_) => handle_warp_transform_step(step, ctx),
+        CompiledOp::StatefulFeedback(_) => handle_stateful_feedback_step(step, ctx),
+        CompiledOp::ChopLfo(_) => {
+            handle_chop_lfo_step(step, ctx);
+            Ok(())
+        }
+        CompiledOp::ChopMath(_) => handle_chop_math_step(step, ctx),
+        CompiledOp::ChopRemap(_) => handle_chop_remap_step(step, ctx),
+        CompiledOp::SopCircle(_) => {
+            handle_sop_circle_step(step, ctx);
+            Ok(())
+        }
+        CompiledOp::SopSphere(_) => {
+            handle_sop_sphere_step(step, ctx);
+            Ok(())
+        }
+        CompiledOp::SopGeometry(_) => handle_sop_geometry_step(step, ctx),
+        CompiledOp::TopCameraRender(_) => handle_top_camera_render_step(step, ctx),
+        CompiledOp::Output(output) => {
+            let _ = output;
+            Ok(())
+        }
+    }
+}
+
+fn handle_generate_layer_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+    capture_active: bool,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::GenerateLayer(layer) = step.op else {
+        unreachable!("handler must only be called for generate-layer steps");
+    };
+    let effective = ctx.modulation.map_or(layer, |time| layer.with_time(time));
+    let params = effective.to_params(ctx.compiled.width, ctx.compiled.height, ctx.seed_offset);
+    let input = optional_luma_input_slot(ctx.compiled, step, 0)?;
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    let dispatch = GenerateLayerAliasDispatch {
+        input_base_slot: input,
+        output_slot: output,
+        opacity: effective.opacity,
+        blend_mode: effective.blend_mode.as_u32(),
+        contrast: effective.contrast,
+    };
+    if capture_active {
+        let gpu_start = Instant::now();
+        ctx.renderer
+            .render_generate_layer_to_alias(ctx.frame, &params, dispatch)?;
+        telemetry::record_timing("v2.gpu.node.generate_layer.retained", gpu_start.elapsed());
+    } else {
+        ctx.renderer
+            .render_generate_layer_to_alias(ctx.frame, &params, dispatch)?;
+    }
+    Ok(())
+}
+
+fn handle_source_noise_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::SourceNoise(spec) = step.op else {
+        unreachable!("handler must only be called for source-noise steps");
+    };
+    let effective = ctx.modulation.map_or(spec, |time| spec.with_time(time));
+    let effective_seed = effective.seed.wrapping_add(ctx.seed_offset);
+    match effective.output_port {
+        PortType::LumaTexture | PortType::MaskTexture => {
+            let output_mask = matches!(effective.output_port, PortType::MaskTexture);
+            let output = if output_mask {
+                output_mask_slot(ctx.compiled, step.node_id)?
+            } else {
+                output_luma_slot(ctx.compiled, step.node_id)?
+            };
+            ctx.renderer.render_source_noise_to_alias(
+                ctx.frame,
+                SourceNoiseAliasDispatch {
+                    output_mask,
+                    output_slot: output,
+                    seed: effective_seed,
+                    scale: effective.scale,
+                    octaves: effective.octaves,
+                    amplitude: effective.amplitude,
+                },
+            )?;
+        }
+        PortType::ChannelScalar => {
+            let phase = ctx.modulation.map(|time| time.normalized).unwrap_or(0.0);
+            ctx.scalar_values.insert(
+                step,
+                eval_source_noise_scalar(
+                    effective.seed,
+                    effective.scale,
+                    effective.octaves,
+                    effective.amplitude,
+                    phase,
+                ),
+            );
+        }
+        PortType::SopPrimitive => {
+            return Err("source-noise output port cannot be SOP".into());
+        }
+    }
+    Ok(())
+}
+
+fn handle_mask_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::Mask(spec) = step.op else {
+        unreachable!("handler must only be called for mask steps");
+    };
+    let effective = ctx.modulation.map_or(spec, |time| spec.with_time(time));
+    let input = luma_input_slot(ctx.compiled, step, 0)?;
+    let output = output_mask_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer.render_mask_to_alias(
+        ctx.frame,
+        input,
+        output,
+        effective.threshold,
+        effective.softness,
+        effective.invert,
+    )?;
+    Ok(())
+}
+
+fn handle_blend_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::Blend(spec) = step.op else {
+        unreachable!("handler must only be called for blend steps");
+    };
+    let effective = ctx.modulation.map_or(spec, |time| spec.with_time(time));
+    let base = luma_input_slot(ctx.compiled, step, 0)?;
+    let top = luma_input_slot(ctx.compiled, step, 1)?;
+    let mask = if step.inputs.len() > 2 {
+        Some(mask_input_slot(ctx.compiled, step, 2)?)
+    } else {
+        None
+    };
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer.render_blend_to_alias(
+        ctx.frame,
+        BlendAliasDispatch {
+            base_slot: base,
+            top_slot: top,
+            mask_slot: mask,
+            output_slot: output,
+            mode: effective.mode.as_u32(),
+            opacity: effective.opacity,
+        },
+    )?;
+    Ok(())
+}
+
+fn handle_tonemap_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::ToneMap(spec) = step.op else {
+        unreachable!("handler must only be called for tonemap steps");
+    };
+    let mut effective = ctx.modulation.map_or(spec, |time| spec.with_time(time));
+    let channel = optional_scalar_input(step, 1, ctx.scalar_values)?;
+    if let Some(value) = channel {
+        effective.contrast = (effective.contrast * value).clamp(0.5, 3.0);
+    }
+    let input = luma_input_slot(ctx.compiled, step, 0)?;
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer.render_tone_map_to_alias(
+        ctx.frame,
+        input,
+        output,
+        effective.contrast,
+        effective.low_pct,
+        effective.high_pct,
+    )?;
+    Ok(())
+}
+
+fn handle_warp_transform_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::WarpTransform(spec) = step.op else {
+        unreachable!("handler must only be called for warp-transform steps");
+    };
+    let mut effective = ctx.modulation.map_or(spec, |time| spec.with_time(time));
+    let channel = optional_scalar_input(step, 1, ctx.scalar_values)?;
+    if let Some(value) = channel {
+        effective.strength = (effective.strength * value).clamp(0.0, 2.4);
+    }
+    let input = luma_input_slot(ctx.compiled, step, 0)?;
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer.render_warp_to_alias(
+        ctx.frame,
+        input,
+        output,
+        effective.strength,
+        effective.frequency,
+        effective.phase,
+    )?;
+    Ok(())
+}
+
+fn handle_stateful_feedback_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::StatefulFeedback(spec) = step.op else {
+        unreachable!("handler must only be called for stateful-feedback steps");
+    };
+    let input = luma_input_slot(ctx.compiled, step, 0)?;
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    let feedback_slot = stateful_feedback_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer.render_stateful_feedback_to_alias(
+        ctx.frame,
+        input,
+        output,
+        feedback_slot,
+        spec.mix,
+    )?;
+    Ok(())
+}
+
+fn handle_chop_lfo_step(step: &CompiledNodeStep, ctx: &mut RuntimeGpuDispatchContext<'_>) {
+    let CompiledOp::ChopLfo(spec) = step.op else {
+        unreachable!("handler must only be called for chop-lfo steps");
+    };
+    ctx.scalar_values
+        .insert(step, eval_chop_lfo(spec, ctx.modulation));
+}
+
+fn handle_chop_math_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::ChopMath(spec) = step.op else {
+        unreachable!("handler must only be called for chop-math steps");
+    };
+    let a = require_scalar_input(step, 0, ctx.scalar_values)?;
+    let b = optional_scalar_input(step, 1, ctx.scalar_values)?;
+    ctx.scalar_values.insert(step, eval_chop_math(spec, a, b));
+    Ok(())
+}
+
+fn handle_chop_remap_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::ChopRemap(spec) = step.op else {
+        unreachable!("handler must only be called for chop-remap steps");
+    };
+    let input = require_scalar_input(step, 0, ctx.scalar_values)?;
+    ctx.scalar_values.insert(step, eval_chop_remap(spec, input));
+    Ok(())
+}
+
+fn handle_sop_circle_step(step: &CompiledNodeStep, ctx: &mut RuntimeGpuDispatchContext<'_>) {
+    let CompiledOp::SopCircle(spec) = step.op else {
+        unreachable!("handler must only be called for sop-circle steps");
+    };
+    ctx.sop_values.insert(step, SopPrimitive::Circle(spec));
+}
+
+fn handle_sop_sphere_step(step: &CompiledNodeStep, ctx: &mut RuntimeGpuDispatchContext<'_>) {
+    let CompiledOp::SopSphere(spec) = step.op else {
+        unreachable!("handler must only be called for sop-sphere steps");
+    };
+    ctx.sop_values.insert(step, SopPrimitive::Sphere(spec));
+}
+
+fn handle_sop_geometry_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::SopGeometry(spec) = step.op else {
+        unreachable!("handler must only be called for sop-geometry steps");
+    };
+    let input = require_sop_input(step, 0, ctx.sop_values)?;
+    let modulation = optional_scalar_input(step, 1, ctx.scalar_values)?;
+    ctx.sop_values
+        .insert(step, apply_sop_geometry(input, spec, modulation));
+    Ok(())
+}
+
+fn handle_top_camera_render_step(
+    step: &CompiledNodeStep,
+    ctx: &mut RuntimeGpuDispatchContext<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let CompiledOp::TopCameraRender(spec) = step.op else {
+        unreachable!("handler must only be called for top-camera-render steps");
+    };
+    let primitive = require_sop_input(step, 0, ctx.sop_values)?;
+    let channel = optional_scalar_input(step, 1, ctx.scalar_values)?;
+    let output = output_luma_slot(ctx.compiled, step.node_id)?;
+    ctx.renderer
+        .render_top_camera_to_alias(ctx.frame, primitive, spec, channel, output)?;
     Ok(())
 }
 
@@ -463,8 +604,8 @@ mod tests {
     use crate::compiler::compile_graph;
     use crate::graph::{GenerateLayerNode, GraphBuilder, NodeId};
     use crate::model::LayerBlendMode;
-    use crate::node::OutputNode;
     use crate::node::GenerateLayerTemporal;
+    use crate::node::OutputNode;
 
     fn sample_layer(seed: u32) -> GenerateLayerNode {
         GenerateLayerNode {
