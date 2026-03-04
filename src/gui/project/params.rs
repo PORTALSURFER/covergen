@@ -30,24 +30,24 @@ impl GuiProject {
         if source.kind().output_resource_kind() != Some(ResourceKind::Signal) {
             return false;
         }
-        let Some(target) = self.node_mut(target_id) else {
-            return false;
-        };
-        if !target.kind.accepts_signal_bindings() || target.params.is_empty() {
-            return false;
+        {
+            let Some(target) = self.node_mut(target_id) else {
+                return false;
+            };
+            if !target.kind.accepts_signal_bindings() || target.params.is_empty() {
+                return false;
+            }
+            let index = param_index.min(target.params.len().saturating_sub(1));
+            let slot = &mut target.params[index];
+            if slot.widget.is_texture_target() || slot.widget.is_action_button() {
+                return false;
+            }
+            if slot.signal_source == Some(source_id) {
+                return false;
+            }
+            slot.signal_source = Some(source_id);
         }
-        let index = param_index.min(target.params.len().saturating_sub(1));
-        let slot = &mut target.params[index];
-        if slot.widget.is_texture_target() || slot.widget.is_action_button() {
-            return false;
-        }
-        if slot.signal_source == Some(source_id) {
-            return false;
-        }
-        slot.signal_source = Some(source_id);
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 
@@ -83,23 +83,23 @@ impl GuiProject {
         if !is_feedback_history_binding && self.depends_on(source_id, target_id) {
             return false;
         }
-        let Some(target) = self.node_mut(target_id) else {
-            return false;
-        };
-        let index = param_index.min(target.params.len().saturating_sub(1));
-        let Some(slot) = target.params.get_mut(index) else {
-            return false;
-        };
-        if !slot.widget.is_texture_target() {
-            return false;
+        {
+            let Some(target) = self.node_mut(target_id) else {
+                return false;
+            };
+            let index = param_index.min(target.params.len().saturating_sub(1));
+            let Some(slot) = target.params.get_mut(index) else {
+                return false;
+            };
+            if !slot.widget.is_texture_target() {
+                return false;
+            }
+            let changed = bind_texture_target_slot(slot, Some((source_id, source_label)));
+            if !changed {
+                return false;
+            }
         }
-        let changed = bind_texture_target_slot(slot, Some((source_id, source_label)));
-        if !changed {
-            return false;
-        }
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 
@@ -162,19 +162,19 @@ impl GuiProject {
         target_id: u32,
         param_index: usize,
     ) -> bool {
-        let Some(target) = self.node_mut(target_id) else {
-            return false;
-        };
-        let Some(slot) = target.params.get_mut(param_index) else {
-            return false;
-        };
-        if slot.signal_source.is_none() {
-            return false;
+        {
+            let Some(target) = self.node_mut(target_id) else {
+                return false;
+            };
+            let Some(slot) = target.params.get_mut(param_index) else {
+                return false;
+            };
+            if slot.signal_source.is_none() {
+                return false;
+            }
+            slot.signal_source = None;
         }
-        slot.signal_source = None;
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 
@@ -186,21 +186,21 @@ impl GuiProject {
         target_id: u32,
         param_index: usize,
     ) -> bool {
-        let Some(target) = self.node_mut(target_id) else {
-            return false;
-        };
-        let Some(slot) = target.params.get_mut(param_index) else {
-            return false;
-        };
-        if slot.texture_source.is_none() {
-            return false;
+        {
+            let Some(target) = self.node_mut(target_id) else {
+                return false;
+            };
+            let Some(slot) = target.params.get_mut(param_index) else {
+                return false;
+            };
+            if slot.texture_source.is_none() {
+                return false;
+            }
+            if !bind_texture_target_slot(slot, None) {
+                return false;
+            }
         }
-        if !bind_texture_target_slot(slot, None) {
-            return false;
-        }
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 

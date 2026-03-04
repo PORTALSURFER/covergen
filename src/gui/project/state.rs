@@ -302,6 +302,20 @@ impl GuiProject {
         self.bump_hit_test_invalidation_epochs();
     }
 
+    /// Recount graph edges and bump render epoch after one link-topology mutation.
+    pub(super) fn finalize_link_mutation(&mut self) {
+        self.recount_edges();
+        self.bump_render_epoch();
+    }
+
+    /// Rebuild one target node input list and finalize link mutation bookkeeping.
+    pub(super) fn finalize_target_link_mutation(&mut self, target_id: u32) {
+        if let Some(target) = self.node_mut(target_id) {
+            rebuild_node_inputs(target);
+        }
+        self.finalize_link_mutation();
+    }
+
     fn bump_hit_test_invalidation_epochs(&mut self) {
         self.bump_nodes_epoch();
         self.bump_wires_epoch();
@@ -599,9 +613,8 @@ impl GuiProject {
         if !changed {
             return false;
         }
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        let target_id = target.id();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 
@@ -657,8 +670,7 @@ impl GuiProject {
         if !changed {
             return false;
         }
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_link_mutation();
         true
     }
 
@@ -687,9 +699,8 @@ impl GuiProject {
         if !changed {
             return false;
         }
-        rebuild_node_inputs(target);
-        self.recount_edges();
-        self.bump_render_epoch();
+        let target_id = target.id();
+        self.finalize_target_link_mutation(target_id);
         true
     }
 
@@ -734,8 +745,7 @@ impl GuiProject {
         if removed_any {
             self.invalidate_hit_test_cache();
         }
-        self.recount_edges();
-        self.bump_render_epoch();
+        self.finalize_link_mutation();
         true
     }
 
