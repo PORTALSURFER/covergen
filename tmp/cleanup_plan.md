@@ -31,7 +31,8 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 2. Refactor `gui/project/params.rs` to eliminate mega-builder complexity
+- [x] 2. Refactor `gui/project/params.rs` to eliminate mega-builder complexity
+  - Completed: 2026-03-04 (`5408e86`)
   - ROI: High
   - Effort: L
   - Why it matters:
