@@ -1,6 +1,7 @@
 //! Add-node popup menu model, filtering, and staged category navigation.
 
 use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use super::popup_list;
 use crate::gui::geometry::Rect;
@@ -36,6 +37,18 @@ impl AddNodeCategory {
             Self::Render => "Render",
             Self::Control => "Control",
             Self::Io => "IO",
+        }
+    }
+
+    /// Return a lowercase category label used for query filtering.
+    const fn normalized_label(self) -> &'static str {
+        match self {
+            Self::Texture => "texture",
+            Self::Buffer => "buffer",
+            Self::Scene => "scene",
+            Self::Render => "render",
+            Self::Control => "control",
+            Self::Io => "io",
         }
     }
 }
@@ -418,7 +431,7 @@ impl AddNodeMenuState {
             if option.category != category {
                 continue;
             }
-            if key_query.is_empty() || option_matches_query(option, key_query) {
+            if key_query.is_empty() || option_matches_query(index, option, key_query) {
                 cache.option_indices.push(index);
                 cache.entries.push(AddNodeMenuEntry::Option(index));
             }
@@ -447,16 +460,30 @@ fn category_count() -> usize {
     ADD_NODE_CATEGORIES.len()
 }
 
-fn option_matches_query(option: AddNodeOption, query: &str) -> bool {
-    let label = option.label().to_lowercase();
-    if fuzzy_query_match(label.as_str(), query) {
+fn option_matches_query(option_index: usize, option: AddNodeOption, query: &str) -> bool {
+    if fuzzy_query_match(normalized_option_label(option_index), query) {
         return true;
     }
-    fuzzy_query_match(option.category.label().to_lowercase().as_str(), query)
+    fuzzy_query_match(option.category.normalized_label(), query)
 }
 
 fn category_matches_query(category: AddNodeCategory, query: &str) -> bool {
-    fuzzy_query_match(category.label().to_lowercase().as_str(), query)
+    fuzzy_query_match(category.normalized_label(), query)
+}
+
+/// Return lowercase option label for one static add-menu option index.
+fn normalized_option_label(index: usize) -> &'static str {
+    static NORMALIZED_OPTION_LABELS: OnceLock<Vec<String>> = OnceLock::new();
+    NORMALIZED_OPTION_LABELS
+        .get_or_init(|| {
+            ADD_NODE_OPTIONS
+                .iter()
+                .map(|option| option.label().to_lowercase())
+                .collect()
+        })
+        .get(index)
+        .map(|label| label.as_str())
+        .unwrap_or_default()
 }
 
 fn fuzzy_query_match(text: &str, query: &str) -> bool {
