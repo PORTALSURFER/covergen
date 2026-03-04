@@ -7,8 +7,8 @@ use crate::gui::state::DragState;
 
 use super::{
     graph_point_to_panel, input_pin_center, inside_panel, node_expand_toggle_rect,
-    output_pin_center, GuiProject, HoverInsertLink, InputSnapshot, InteractionPanelContext,
-    PreviewState, NODE_OVERLAP_SNAP_GAP_PX, NODE_WIDTH,
+    output_pin_center, route_cache, GuiProject, HoverInsertLink, InputSnapshot,
+    InteractionPanelContext, PreviewState, NODE_OVERLAP_SNAP_GAP_PX, NODE_WIDTH,
 };
 
 thread_local! {
@@ -20,7 +20,7 @@ thread_local! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HoverInsertObstacleCacheKey {
     dragged_node_id: u32,
-    non_dragged_signature: u64,
+    obstacle_signature: u64,
 }
 
 #[derive(Debug, Default)]
@@ -334,12 +334,17 @@ pub(super) fn hover_insert_link_at_cursor(
     HOVER_INSERT_OBSTACLE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         ensure_hover_obstacle_route_map(project, dragged_node_id, &mut cache);
+        let obstacle_signature = cache
+            .key
+            .map(|key| key.obstacle_signature)
+            .unwrap_or_default();
         for target_id in target_ids.iter().copied() {
             consider_hover_insert_candidate(
                 project,
                 state,
                 query,
                 &cache.route_map,
+                obstacle_signature,
                 target_id,
                 &mut best,
             );
@@ -351,6 +356,7 @@ pub(super) fn hover_insert_link_at_cursor(
                     state,
                     query,
                     &cache.route_map,
+                    obstacle_signature,
                     target.id(),
                     &mut best,
                 );
@@ -367,7 +373,10 @@ fn ensure_hover_obstacle_route_map(
 ) {
     let key = HoverInsertObstacleCacheKey {
         dragged_node_id,
-        non_dragged_signature: hover_obstacle_signature(project, dragged_node_id),
+        obstacle_signature: route_cache::obstacle_signature_for_project(
+            project,
+            Some(dragged_node_id),
+        ),
     };
     if cache.key == Some(key) {
         return;
@@ -375,24 +384,6 @@ fn ensure_hover_obstacle_route_map(
     collect_hover_obstacles(project, dragged_node_id, &mut cache.obstacles);
     cache.route_map = wire_route::RouteObstacleMap::from_obstacles(cache.obstacles.as_slice());
     cache.key = Some(key);
-}
-
-fn hover_obstacle_signature(project: &GuiProject, excluded_node_id: u32) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for node in project.nodes() {
-        if node.id() == excluded_node_id {
-            continue;
-        }
-        hash = fnv1a(hash, node.id() as u64);
-        hash = fnv1a(hash, node.x() as u32 as u64);
-        hash = fnv1a(hash, node.y() as u32 as u64);
-        hash = fnv1a(hash, node.card_height() as u32 as u64);
-    }
-    hash
-}
-
-fn fnv1a(hash: u64, value: u64) -> u64 {
-    (hash ^ value).wrapping_mul(0x100000001b3)
 }
 
 fn collect_hover_obstacles(
@@ -429,6 +420,7 @@ fn consider_hover_insert_candidate(
     state: &PreviewState,
     query: HoverInsertQuery,
     route_map: &wire_route::RouteObstacleMap,
+    obstacle_signature: u64,
     target_id: u32,
     best: &mut Option<(HoverInsertLink, f32)>,
 ) {
@@ -450,7 +442,7 @@ fn consider_hover_insert_candidate(
     let Some((to_x, to_y)) = input_pin_center(target) else {
         return;
     };
-    let route_graph = wire_route::route_wire_path_with_tails_with_map(
+    let route_graph = route_cache::route_with_tails_cached(
         wire_route::RouteEndpoint {
             point: (from_x, from_y),
             corridor_dir: wire_route::RouteDirection::East,
@@ -460,6 +452,7 @@ fn consider_hover_insert_candidate(
             corridor_dir: wire_route::RouteDirection::West,
         },
         route_map,
+        obstacle_signature,
     );
     let dist_sq = route_graph
         .windows(2)

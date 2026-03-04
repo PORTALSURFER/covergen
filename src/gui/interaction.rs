@@ -6,6 +6,7 @@ mod hover;
 mod marquee;
 mod menu_input;
 mod param_edit;
+mod route_cache;
 mod timeline_input;
 mod wire;
 
@@ -1131,19 +1132,36 @@ fn collect_cut_links(
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
+    let obstacle_signature = route_cache::obstacle_signature_for_project(project, None);
     let obstacles = collect_graph_node_obstacles(project);
     let route_map =
         super::scene::wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
     let (view_x0, view_y0, view_x1, view_y1) = panel_graph_rect(panel_width, panel_height, state);
     let target_ids = project.node_ids_overlapping_graph_rect(view_x0, view_y0, view_x1, view_y1);
     for target_id in target_ids.iter().copied() {
-        collect_cut_links_for_target(project, state, cut, &route_map, target_id, &mut links);
+        collect_cut_links_for_target(
+            project,
+            state,
+            cut,
+            &route_map,
+            obstacle_signature,
+            target_id,
+            &mut links,
+        );
     }
     let cut_outside_panel = !inside_panel(cut.start_x, cut.start_y, panel_width, panel_height)
         || !inside_panel(cut.cursor_x, cut.cursor_y, panel_width, panel_height);
     if (links.is_empty() || cut_outside_panel) && target_ids.len() < project.node_count() {
         for target in project.nodes() {
-            collect_cut_links_for_target(project, state, cut, &route_map, target.id(), &mut links);
+            collect_cut_links_for_target(
+                project,
+                state,
+                cut,
+                &route_map,
+                obstacle_signature,
+                target.id(),
+                &mut links,
+            );
         }
     }
     links.sort_unstable();
@@ -1156,6 +1174,7 @@ fn collect_cut_links_for_target(
     state: &PreviewState,
     cut: LinkCutState,
     route_map: &super::scene::wire_route::RouteObstacleMap,
+    obstacle_signature: u64,
     target_id: u32,
     links: &mut Vec<CutLink>,
 ) {
@@ -1172,7 +1191,7 @@ fn collect_cut_links_for_target(
         let Some((from_x, from_y)) = output_pin_center(source) else {
             return;
         };
-        let route_graph = super::scene::wire_route::route_wire_path_with_tails_with_map(
+        let route_graph = route_cache::route_with_tails_cached(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
@@ -1182,8 +1201,9 @@ fn collect_cut_links_for_target(
                 corridor_dir: super::scene::wire_route::RouteDirection::West,
             },
             route_map,
+            obstacle_signature,
         );
-        let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
+        let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
             links.push(CutLink {
                 source_id: texture_source_id,
@@ -1211,7 +1231,7 @@ fn collect_cut_links_for_target(
         } else {
             continue;
         };
-        let route_graph = super::scene::wire_route::route_wire_path_with_tails_with_map(
+        let route_graph = route_cache::route_with_tails_cached(
             super::scene::wire_route::RouteEndpoint {
                 point: (from_x, from_y),
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
@@ -1221,8 +1241,9 @@ fn collect_cut_links_for_target(
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
             },
             route_map,
+            obstacle_signature,
         );
-        let route_panel = map_graph_path_to_panel(route_graph.as_slice(), state);
+        let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
             links.push(CutLink {
                 source_id,
