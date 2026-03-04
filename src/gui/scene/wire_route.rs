@@ -285,15 +285,20 @@ fn route_wire_path_internal(
 
     let mut cells = None;
     ROUTE_SEARCH_WORKSPACE.with(|workspace| {
-        let mut workspace = workspace.borrow_mut();
-        for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
-            let blocked_rects =
-                collect_search_blocked_rects(obstacle_map, start_point, end_point, window_cells);
-            let Some(mut grid) =
-                SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
-            else {
-                continue;
-            };
+            let mut workspace = workspace.borrow_mut();
+            for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
+                let blocked_rects = collect_search_blocked_rects(
+                    obstacle_map,
+                    start_point,
+                    end_point,
+                    window_cells,
+                    &mut workspace,
+                );
+                let Some(mut grid) =
+                    SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
+                else {
+                    continue;
+                };
             grid.carve_corridor(start_point, start.corridor_dir);
             grid.carve_corridor(end_point, end.corridor_dir);
             let mut attempt = grid.find_path_with_blocked_edges(
@@ -486,6 +491,7 @@ fn collect_search_blocked_rects(
     start: (i32, i32),
     end: (i32, i32),
     window_cells: i32,
+    workspace: &mut RouteSearchWorkspace,
 ) -> Vec<Rect> {
     let blocked_rects = obstacle_map.blocked_rects.as_slice();
     let pad = window_cells.max(ROUTE_PADDING_CELLS) * GRID_PITCH_PX;
@@ -510,18 +516,18 @@ fn collect_search_blocked_rects(
     let search_max_y = search_bounds
         .y
         .saturating_add(search_bounds.h.saturating_sub(1));
-    let mut candidate_indices = Vec::new();
+    workspace.prepare_obstacle_candidate_pass(blocked_rects.len());
     for by in obstacle_bin_coord(search_bounds.y)..=obstacle_bin_coord(search_max_y) {
         for bx in obstacle_bin_coord(search_bounds.x)..=obstacle_bin_coord(search_max_x) {
             let Some(indices) = obstacle_map.obstacle_bins.get(&(bx, by)) else {
                 continue;
             };
-            candidate_indices.extend(indices.iter().copied());
+            for index in indices.iter().copied() {
+                workspace.push_unique_obstacle_candidate(index);
+            }
         }
     }
-    candidate_indices.sort_unstable();
-    candidate_indices.dedup();
-    for index in candidate_indices {
+    for index in workspace.obstacle_candidate_indices.iter().copied() {
         let Some(rect) = blocked_rects.get(index).copied() else {
             continue;
         };
@@ -618,6 +624,9 @@ struct RouteSearchWorkspace {
     current_generation: u32,
     touched_states: Vec<usize>,
     open: BinaryHeap<(Reverse<i32>, Reverse<i32>, usize)>,
+    obstacle_candidate_indices: Vec<usize>,
+    obstacle_visit_generation: Vec<u32>,
+    obstacle_current_generation: u32,
 }
 
 impl RouteSearchWorkspace {
@@ -663,6 +672,29 @@ impl RouteSearchWorkspace {
         }
         self.best_cost[key] = cost;
         self.parent[key] = parent;
+    }
+
+    fn prepare_obstacle_candidate_pass(&mut self, obstacle_count: usize) {
+        if self.obstacle_visit_generation.len() < obstacle_count {
+            self.obstacle_visit_generation.resize(obstacle_count, 0);
+        }
+        self.obstacle_current_generation = self.obstacle_current_generation.wrapping_add(1);
+        if self.obstacle_current_generation == 0 {
+            self.obstacle_visit_generation.fill(0);
+            self.obstacle_current_generation = 1;
+        }
+        self.obstacle_candidate_indices.clear();
+    }
+
+    fn push_unique_obstacle_candidate(&mut self, index: usize) {
+        let Some(slot) = self.obstacle_visit_generation.get_mut(index) else {
+            return;
+        };
+        if *slot == self.obstacle_current_generation {
+            return;
+        }
+        *slot = self.obstacle_current_generation;
+        self.obstacle_candidate_indices.push(index);
     }
 }
 
