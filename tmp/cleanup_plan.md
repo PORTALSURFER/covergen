@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-6 completed).
+Status: Phase 2 in progress (items 1-7 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -126,7 +126,8 @@ Date: 2026-03-04
     - `cargo test -q gui::input::tests --bin covergen` (or equivalent new doc-consistency test)
     - `scripts/ci_local.sh`
 
-- [ ] 7. Remove remaining `dead_code` suppressions with explicit ownership decisions
+- [x] 7. Remove remaining `dead_code` suppressions with explicit ownership decisions
+  - Completed: 2026-03-04 (`b078cf0`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
