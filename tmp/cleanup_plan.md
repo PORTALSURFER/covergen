@@ -160,7 +160,8 @@ Date: 2026-03-04
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
     - `scripts/lint/structure_drift_report.sh`
 
-- [ ] 9. Split `gui/project/param_schema.rs` tests into a sibling test module to keep schema file focused
+- [x] 9. Split `gui/project/param_schema.rs` tests into a sibling test module to keep schema file focused
+  - Completed: 2026-03-04 (`8019346`)
   - ROI: Low
   - Effort: S
   - Why it matters:
