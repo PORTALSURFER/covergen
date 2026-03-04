@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-4 completed).
+Status: Phase 2 in progress (items 1-5 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -91,7 +91,8 @@ Date: 2026-03-04
     - `cargo test -q gui::tex_view::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 5. Add explicit regression tests for playback/frame-loop redraw invariants
+- [x] 5. Add explicit regression tests for playback/frame-loop redraw invariants
+  - Completed: 2026-03-04 (`7d7e044`)
   - ROI: High
   - Effort: S
   - Why it matters:
