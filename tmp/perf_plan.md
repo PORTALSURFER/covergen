@@ -32,7 +32,7 @@ Date: 2026-03-04
     - Confirm `scene.edges_ms_p95` and `update_ms_p95` improvements with no stale hover/wire highlights.
   - Completed: 2026-03-04 (commit 8312893)
 
-- [ ] 2. Precompute runtime dispatch metadata and remove per-frame release/compositor recomputation
+- [x] 2. Precompute runtime dispatch metadata and remove per-frame release/compositor recomputation
   - ROI: Very High
   - Effort: M
   - Expected impact: frame time, CPU
@@ -56,6 +56,7 @@ Date: 2026-03-04
     - `cargo test runtime_gpu`
     - On tier GPU host: `scripts/ci_local.sh validate desktop_mid`
     - Compare `v2.image.render` and `v2.gpu.final_compositor` timings before/after.
+  - Completed: 2026-03-04 (commit 7a4c308)
 
 - [ ] 3. Reuse transient scalar/SOP value buffers in `runtime_gpu` instead of allocating per frame
   - ROI: High
