@@ -4,7 +4,10 @@ mod add_menu_input;
 mod drag;
 mod hover;
 mod marquee;
+mod menu_graph_phase;
 mod menu_input;
+mod navigation_phase;
+mod overlay_param_phase;
 mod param_edit;
 mod route_cache;
 mod timeline_input;
@@ -18,6 +21,9 @@ use self::param_edit::{
     move_param_cursor_right,
 };
 
+use self::menu_graph_phase::apply_menu_or_graph_phase;
+use self::navigation_phase::apply_navigation_phase;
+use self::overlay_param_phase::apply_overlay_and_param_phase;
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
@@ -366,245 +372,6 @@ fn apply_help_and_timeline_phase(
         return Some(*changed);
     }
     None
-}
-
-/// Run viewport-navigation phases (pan/zoom, scrubbing, link cut, marquee selection).
-fn apply_navigation_phase(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_ctx: InteractionPanelContext,
-    state: &mut PreviewState,
-    changed: &mut bool,
-) -> Option<bool> {
-    let zoom_before = state.zoom.to_bits();
-    *changed |= handle_pan_zoom_and_focus(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    if zoom_before != state.zoom.to_bits() {
-        invalidate_graph_layers(state);
-    }
-    if state.pan_drag.is_some() {
-        cancel_node_interaction_modes(state);
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
-    }
-
-    let (param_scrub_changed, param_scrub_active) = handle_alt_param_drag(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= param_scrub_changed;
-    if param_scrub_changed {
-        state.invalidation.invalidate_nodes();
-        state.invalidation.invalidate_overlays();
-    }
-    if param_scrub_active {
-        state.drag = None;
-        state.wire_drag = None;
-        state.link_cut = None;
-        state.hover_param_target = None;
-        state.hover_param = None;
-        clear_param_edit_state(state);
-        clear_timeline_edit_state(state);
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
-    }
-
-    let cut_changed = handle_link_cut(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= cut_changed;
-    if cut_changed {
-        state.invalidation.invalidate_wires();
-        state.invalidation.invalidate_overlays();
-    }
-    if state.link_cut.is_some() {
-        cancel_node_interaction_modes(state);
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
-    }
-
-    let right_sel_changed = handle_right_selection(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= right_sel_changed;
-    if right_sel_changed {
-        state.invalidation.invalidate_nodes();
-        state.invalidation.invalidate_overlays();
-    }
-    if state.right_marquee.is_some() {
-        cancel_node_interaction_modes(state);
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
-    }
-    None
-}
-
-/// Apply overlay toggles plus parameter edit state transitions.
-fn apply_overlay_and_param_phase(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_ctx: InteractionPanelContext,
-    state: &mut PreviewState,
-    changed: &mut bool,
-) -> Option<bool> {
-    let add_menu_changed =
-        handle_add_menu_toggle(input, panel_ctx.panel_width, panel_ctx.panel_height, state);
-    *changed |= add_menu_changed;
-    if add_menu_changed {
-        state.invalidation.invalidate_overlays();
-    }
-    let main_menu_changed =
-        handle_main_menu_toggle(input, panel_ctx.panel_width, panel_ctx.panel_height, state);
-    *changed |= main_menu_changed;
-    if main_menu_changed {
-        state.invalidation.invalidate_overlays();
-    }
-    let hover_before = HoverInvalidationSnapshot::capture(state);
-    let hover_changed = update_hover_state(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= hover_changed;
-    if hover_changed {
-        let hover_after = HoverInvalidationSnapshot::capture(state);
-        if hover_before.nodes_changed(hover_after) {
-            state.invalidation.invalidate_nodes();
-        }
-        if hover_before.overlays_changed(hover_after, state.wire_drag.is_some()) {
-            state.invalidation.invalidate_overlays();
-        }
-    }
-    let node_toggle_changed = handle_node_open_toggle(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= node_toggle_changed;
-    if node_toggle_changed {
-        state.invalidation.invalidate_overlays();
-    }
-    let (param_changed, param_click_consumed) = handle_param_edit_input(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= param_changed;
-    if param_changed {
-        state.invalidation.invalidate_nodes();
-        state.invalidation.invalidate_overlays();
-    }
-    if param_click_consumed {
-        state.drag = None;
-        state.wire_drag = None;
-        clear_param_hover_state(state);
-        state.param_scrub = None;
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
-    }
-    if state.param_edit.is_some() {
-        cancel_node_interaction_modes(state);
-        *changed |= collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(*changed);
-    }
-    None
-}
-
-/// Apply menu-specific and graph-edit interactions after modal/navigation phases.
-fn apply_menu_or_graph_phase(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    panel_ctx: InteractionPanelContext,
-    state: &mut PreviewState,
-    changed: &mut bool,
-) {
-    if state.export_menu.open || state.main_menu.open {
-        let menu_changed = handle_main_export_menu_input(
-            input,
-            panel_ctx.panel_width,
-            panel_ctx.panel_height,
-            state,
-        );
-        *changed |= menu_changed;
-        if menu_changed {
-            state.invalidation.invalidate_overlays();
-            state.invalidation.invalidate_timeline();
-        }
-        return;
-    }
-    if state.menu.open {
-        let menu_changed = handle_add_menu_input(
-            input,
-            project,
-            panel_ctx.panel_width,
-            panel_ctx.panel_height,
-            state,
-        );
-        *changed |= menu_changed;
-        if menu_changed {
-            state.invalidation.invalidate_overlays();
-        }
-        return;
-    }
-
-    let delete_changed = handle_delete_selected_nodes(input, project, state);
-    *changed |= delete_changed;
-    if delete_changed {
-        state.invalidation.invalidate_overlays();
-    }
-    let param_shortcut_changed = handle_parameter_shortcuts(input, project, state);
-    *changed |= param_shortcut_changed;
-    if param_shortcut_changed {
-        state.invalidation.invalidate_nodes();
-    }
-    let wire_changed = handle_wire_input(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= wire_changed;
-    if wire_changed {
-        invalidate_graph_layers(state);
-    }
-    if state.wire_drag.is_none() {
-        let drag_changed = handle_drag_input(
-            input,
-            project,
-            panel_ctx.panel_width,
-            panel_ctx.panel_height,
-            state,
-        );
-        *changed |= drag_changed;
-        if drag_changed {
-            invalidate_graph_layers(state);
-        }
-        return;
-    }
-    state.drag = None;
 }
 
 /// Collapse auto-expanded binding nodes using the panel context.
