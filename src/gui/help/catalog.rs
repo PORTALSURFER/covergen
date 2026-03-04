@@ -3,8 +3,8 @@
 //! The catalog format is human-readable Markdown with two structured heading
 //! levels consumed by the parser:
 //! - `## Global`
-//! - `## Node \`<stable_id>\``
-//! - `### Param \`<key>\`` inside a node section
+//! - `## Node \`stable_id\``
+//! - `### Param \`param_key\`` inside a node section
 //!
 //! Any non-empty text line inside a section becomes one in-app help line.
 

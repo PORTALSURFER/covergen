@@ -1,6 +1,7 @@
 # label|bash_command|powershell_command
 rustfmt check|cargo fmt --check|& cargo fmt --check
 clippy (warnings denied; private-doc lint reported separately)|cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items|& cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
+rustdoc validity (warnings denied)|RUSTDOCFLAGS='-D warnings' cargo doc --no-deps|& { $env:RUSTDOCFLAGS='-D warnings'; cargo doc --no-deps }
 structure drift report (warn gate)|scripts/lint/structure_drift_report.sh|& (Join-Path $repoRoot 'scripts/lint/structure_drift_report.ps1')
 private-doc subset lint|scripts/lint/private_docs_subset.sh|& (Join-Path $repoRoot 'scripts/lint/private_docs_subset.ps1')
 full test suite|cargo test -q|& cargo test -q
