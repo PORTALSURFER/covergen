@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 1 complete (audit + planning). Phase 2 pending explicit user approval.
+Status: Phase 2 in progress (sequential implementation in ROI order).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -11,7 +11,8 @@ Date: 2026-03-04
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Split `gui::scene` retained-layer assembly into smaller layer modules
+- [x] 1. Split `gui::scene` retained-layer assembly into smaller layer modules
+  - Completed: 2026-03-04 (`4a4f934`)
   - ROI: High
   - Effort: L
   - Why it matters:
