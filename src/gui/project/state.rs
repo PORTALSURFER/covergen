@@ -969,3 +969,44 @@ fn next_project_name() -> String {
         .as_secs();
     format!("Untitled-{}", now)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_node_position_snaps_to_node_grid() {
+        let (x, y) = clamp_node_position(7, -7, 640, 480, NODE_HEIGHT);
+        assert_eq!(x, snap_to_node_grid(7));
+        assert_eq!(y, snap_to_node_grid(-7));
+    }
+
+    #[test]
+    fn resolve_replacement_source_follows_primary_input_chain() {
+        let removed = HashMap::from([(11u32, Some(7u32)), (7u32, Some(3u32))]);
+        assert_eq!(resolve_replacement_source(11, &removed), Some(3));
+    }
+
+    #[test]
+    fn resolve_replacement_source_breaks_cycles() {
+        let removed = HashMap::from([(11u32, Some(7u32)), (7u32, Some(11u32))]);
+        assert_eq!(resolve_replacement_source(11, &removed), None);
+    }
+
+    #[test]
+    fn contains_sorted_id_uses_binary_search() {
+        let ids = [1u32, 4, 9, 12];
+        assert!(contains_sorted_id(&ids, 9));
+        assert!(!contains_sorted_id(&ids, 8));
+    }
+
+    #[test]
+    fn node_card_height_accounts_for_expanded_param_rows() {
+        assert_eq!(node_card_height_for_param_count(false, 5), NODE_HEIGHT);
+        assert_eq!(node_card_height_for_param_count(true, 0), NODE_HEIGHT);
+        assert_eq!(
+            node_card_height_for_param_count(true, 2),
+            NODE_HEIGHT + 2 * NODE_PARAM_ROW_HEIGHT + NODE_PARAM_FOOTER_PAD
+        );
+    }
+}

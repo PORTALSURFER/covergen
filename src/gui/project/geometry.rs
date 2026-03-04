@@ -430,3 +430,29 @@ pub(super) fn hit_bin_key_for_point(x: i32, y: i32) -> i64 {
 pub(super) fn hit_bin_key(x: i32, y: i32) -> i64 {
     ((x as i64) << 32) | ((y as u32) as i64)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hit_bin_coord_handles_negative_values_with_euclidean_division() {
+        assert_eq!(hit_bin_coord(-1), -1);
+        assert_eq!(hit_bin_coord(-HIT_BIN_SIZE), -1);
+        assert_eq!(hit_bin_coord(-HIT_BIN_SIZE - 1), -2);
+    }
+
+    #[test]
+    fn collect_node_rect_bin_keys_spans_all_touched_bins() {
+        let mut keys = Vec::new();
+        collect_node_rect_bin_keys(0, 0, NODE_HEIGHT, &mut keys);
+        assert_eq!(keys, vec![hit_bin_key(0, 0), hit_bin_key(1, 0)]);
+    }
+
+    #[test]
+    fn collect_node_rect_bin_keys_skips_non_positive_heights() {
+        let mut keys = vec![123];
+        collect_node_rect_bin_keys(0, 0, 0, &mut keys);
+        assert!(keys.is_empty());
+    }
+}

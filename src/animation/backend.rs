@@ -413,3 +413,26 @@ pub(super) fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> S
     }
     "unknown panic payload".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(windows)]
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn decode_nvenc_api_version_extracts_major_and_minor_components() {
+        // Lower 16 bits carry major, upper byte carries minor.
+        assert_eq!(decode_nvenc_api_version(0x0A00_000F), (0x000F, 0x0A));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn panic_payload_message_handles_known_payload_types() {
+        assert_eq!(
+            panic_payload_message(Box::new(String::from("boom"))),
+            "boom".to_string()
+        );
+        assert_eq!(panic_payload_message(Box::new("snap")), "snap".to_string());
+    }
+}

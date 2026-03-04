@@ -484,3 +484,41 @@ impl NodeKind {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_node_constructors_set_expected_role_and_slot() {
+        assert_eq!(OutputNode::primary().role, OutputRole::Primary);
+        assert_eq!(OutputNode::primary().slot, 0);
+        assert_eq!(OutputNode::tap(3).role, OutputRole::Tap);
+        assert_eq!(OutputNode::tap(3).slot, 3);
+    }
+
+    #[test]
+    fn blend_node_port_contract_matches_declared_slots() {
+        let kind = NodeKind::Blend(BlendNode {
+            mode: LayerBlendMode::Normal,
+            opacity: 1.0,
+            temporal: BlendTemporal::default(),
+        });
+        assert_eq!(kind.operator_family(), OperatorFamily::Top);
+        assert_eq!(kind.input_port(0), Some(PortType::LumaTexture));
+        assert_eq!(kind.input_port(1), Some(PortType::LumaTexture));
+        assert_eq!(kind.input_port(2), Some(PortType::MaskTexture));
+        assert_eq!(kind.input_port(3), None);
+        assert_eq!(kind.output_port(), Some(PortType::LumaTexture));
+        assert_eq!(kind.input_range(), (2, 3));
+    }
+
+    #[test]
+    fn output_node_is_terminal_and_has_no_output_port() {
+        let kind = NodeKind::Output(OutputNode::primary());
+        assert_eq!(kind.operator_family(), OperatorFamily::Output);
+        assert_eq!(kind.input_port(0), Some(PortType::LumaTexture));
+        assert_eq!(kind.output_port(), None);
+        assert_eq!(kind.input_range(), (1, 1));
+    }
+}

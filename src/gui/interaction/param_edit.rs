@@ -509,3 +509,47 @@ pub(super) fn next_char_boundary(text: &str, index: usize) -> usize {
         .map(|ch| clamped + ch.len_utf8())
         .unwrap_or(text.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit(buffer: &str, cursor: usize, anchor: usize) -> ParamEditState {
+        ParamEditState {
+            node_id: 1,
+            param_index: 0,
+            buffer: buffer.to_string(),
+            cursor,
+            anchor,
+        }
+    }
+
+    #[test]
+    fn insert_param_char_rejects_second_decimal_point() {
+        let mut state = edit("1.2", 3, 3);
+        assert!(!insert_param_char(&mut state, '.'));
+        assert_eq!(state.buffer, "1.2");
+        assert_eq!(state.cursor, 3);
+    }
+
+    #[test]
+    fn insert_param_char_replaces_active_selection() {
+        let mut state = edit("12.4", 4, 1);
+        assert!(insert_param_char(&mut state, '9'));
+        assert_eq!(state.buffer, "19");
+        assert_eq!(state.cursor, 2);
+        assert_eq!(state.anchor, 2);
+    }
+
+    #[test]
+    fn delete_and_cursor_helpers_respect_utf8_boundaries() {
+        let text = "aéz";
+        assert_eq!(next_char_boundary(text, 1), 3);
+        assert_eq!(prev_char_boundary(text, 3), 1);
+
+        let mut state = edit("aéz", 3, 3);
+        assert!(backspace_param_text(&mut state));
+        assert_eq!(state.buffer, "az");
+        assert_eq!(state.cursor, 1);
+    }
+}
