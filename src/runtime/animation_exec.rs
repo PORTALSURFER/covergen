@@ -91,6 +91,12 @@ impl ClipEncodeWorker {
         }
     }
 
+    fn drain_recycled_gray_buffers(&self, pool: &mut Vec<Vec<u8>>) {
+        if let Self::FrameDir(worker) = self {
+            worker.drain_recycled_gray_buffers(pool);
+        }
+    }
+
     fn finish(self) -> Result<(), Box<dyn Error>> {
         match self {
             Self::Stream(worker) => worker.finish(),
@@ -141,6 +147,7 @@ pub(super) fn execute_animation(
         let mut pending_frame_indices = VecDeque::with_capacity(readback_capacity + 1);
         let mut gray_frame_scratch = vec![0u8; buffers.output_gray.len()];
         let mut bgra_frame_scratch = vec![0u8; buffers.output_bgra.len()];
+        let mut frame_dir_gray_pool = Vec::with_capacity(readback_capacity + 1);
         let clip_seed_offset = config
             .seed
             .wrapping_add(compiled.seed)
@@ -177,6 +184,7 @@ pub(super) fn execute_animation(
                         &mut pending_frame_indices,
                         &mut gray_frame_scratch,
                         &mut bgra_frame_scratch,
+                        &mut frame_dir_gray_pool,
                     )?;
                 }
                 let frame_elapsed = frame_start.elapsed();
@@ -197,6 +205,7 @@ pub(super) fn execute_animation(
                     &mut pending_frame_indices,
                     &mut gray_frame_scratch,
                     &mut bgra_frame_scratch,
+                    &mut frame_dir_gray_pool,
                 )?;
             }
             if !pending_frame_indices.is_empty() {
@@ -256,7 +265,9 @@ fn drain_one_queued_export_frame(
     pending_frame_indices: &mut VecDeque<u32>,
     gray_frame_scratch: &mut Vec<u8>,
     bgra_frame_scratch: &mut Vec<u8>,
+    frame_dir_gray_pool: &mut Vec<Vec<u8>>,
 ) -> Result<(), Box<dyn Error>> {
+    worker.drain_recycled_gray_buffers(frame_dir_gray_pool);
     let frame_index = pending_frame_indices
         .pop_front()
         .ok_or("queued readback had no matching frame index")?;
@@ -264,13 +275,15 @@ fn drain_one_queued_export_frame(
     match worker.frame_format() {
         StreamFrameFormat::Gray8 => {
             if matches!(worker, ClipEncodeWorker::FrameDir(_)) {
-                let mut owned_frame = vec![0u8; gray_frame_scratch.len()];
+                let mut owned_frame =
+                    take_reusable_gray_frame(gray_frame_scratch.len(), frame_dir_gray_pool);
                 renderer.collect_retained_output_gray_queued(owned_frame.as_mut_slice())?;
                 telemetry::record_timing(
                     "v2.gpu.node.finalize_retained_output",
                     finalize_start.elapsed(),
                 );
                 worker.submit_gray_owned(frame_index, owned_frame)?;
+                worker.drain_recycled_gray_buffers(frame_dir_gray_pool);
                 return Ok(());
             }
             renderer.collect_retained_output_gray_queued(gray_frame_scratch.as_mut_slice())?;
@@ -290,6 +303,16 @@ fn drain_one_queued_export_frame(
         }
     }
     Ok(())
+}
+
+fn take_reusable_gray_frame(frame_len: usize, pool: &mut Vec<Vec<u8>>) -> Vec<u8> {
+    if let Some(mut frame) = pool.pop() {
+        if frame.len() != frame_len {
+            frame.resize(frame_len, 0);
+        }
+        return frame;
+    }
+    vec![0u8; frame_len]
 }
 
 #[cfg(test)]

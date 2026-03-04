@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -41,6 +41,7 @@ enum FrameDirWorkerJob {
 /// Dedicated PNG frame-dir worker used by animation export fallback mode.
 pub(crate) struct FrameDirEncodeWorker {
     sender: Option<SyncSender<FrameDirWorkerJob>>,
+    recycled_gray_rx: Receiver<Vec<u8>>,
     completion_rx: Receiver<Result<(), String>>,
     join_handle: Option<JoinHandle<()>>,
 }
@@ -82,13 +83,16 @@ pub(crate) enum FrameDirFinishWaitError {
 impl FrameDirEncodeWorker {
     pub(crate) fn spawn(dir: PathBuf, width: u32, height: u32) -> Self {
         let (sender, receiver) = mpsc::sync_channel::<FrameDirWorkerJob>(FRAME_DIR_QUEUE_CAPACITY);
+        let (recycled_gray_tx, recycled_gray_rx) = mpsc::channel::<Vec<u8>>();
         let (completion_tx, completion_rx) = mpsc::channel::<Result<(), String>>();
         let join_handle = thread::spawn(move || {
-            let result = run_frame_dir_worker_loop(receiver, dir, width, height);
+            let result =
+                run_frame_dir_worker_loop(receiver, recycled_gray_tx, dir, width, height);
             let _ = completion_tx.send(result);
         });
         Self {
             sender: Some(sender),
+            recycled_gray_rx,
             completion_rx,
             join_handle: Some(join_handle),
         }
@@ -110,6 +114,16 @@ impl FrameDirEncodeWorker {
             },
             FrameDirSendPolicy::default_policy(),
         )
+    }
+
+    /// Move all currently recycled gray-frame buffers into `pool`.
+    pub(crate) fn drain_recycled_gray_buffers(&self, pool: &mut Vec<Vec<u8>>) {
+        loop {
+            match self.recycled_gray_rx.try_recv() {
+                Ok(frame) => pool.push(frame),
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+            }
+        }
     }
 
     pub(crate) fn finish(mut self) -> Result<(), Box<dyn Error>> {
@@ -156,6 +170,7 @@ impl FrameDirEncodeWorker {
 
 fn run_frame_dir_worker_loop(
     receiver: Receiver<FrameDirWorkerJob>,
+    recycled_gray_tx: mpsc::Sender<Vec<u8>>,
     dir: PathBuf,
     width: u32,
     height: u32,
@@ -167,6 +182,7 @@ fn run_frame_dir_worker_loop(
                     .map_err(|err| err.to_string())?;
                 let frame_path = dir.join(frame_filename(frame_index));
                 std::fs::write(frame_path, encoded).map_err(|err| err.to_string())?;
+                let _ = recycled_gray_tx.send(gray);
             }
             FrameDirWorkerJob::Shutdown => break,
         }
@@ -278,6 +294,31 @@ mod tests {
 
         let frame = dir.join(frame_filename(0));
         assert!(frame.exists(), "encoded frame should exist on disk");
+        std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
+    }
+
+    #[test]
+    fn frame_dir_worker_recycles_gray_buffers_after_write() {
+        let dir = create_temp_dir("covergen-frame-dir-worker-recycle");
+        let worker = FrameDirEncodeWorker::spawn(dir.clone(), 2, 2);
+        worker
+            .submit_gray(0, vec![0, 85, 170, 255])
+            .expect("gray frame should enqueue");
+        let mut recycled = Vec::new();
+        let wait_start = Instant::now();
+        while recycled.is_empty() && wait_start.elapsed() < Duration::from_millis(500) {
+            worker.drain_recycled_gray_buffers(&mut recycled);
+            if recycled.is_empty() {
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert_eq!(
+            recycled.len(),
+            1,
+            "worker should recycle submitted frame buffers"
+        );
+        assert_eq!(recycled[0].len(), 4, "recycled buffer length should match frame");
+        worker.finish().expect("frame-dir worker should finish");
         std::fs::remove_dir_all(&dir).expect("test temp dir should be removable");
     }
 
