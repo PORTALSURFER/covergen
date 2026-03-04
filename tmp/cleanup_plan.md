@@ -104,7 +104,7 @@ Date: 2026-03-04
     - `COVERGEN_STRUCTURE_DRIFT_GATE=warn scripts/lint/structure_drift_report.sh`
     - `scripts/ci_local.sh validate laptop_integrated`
 
-- [ ] 6. Burn down `dead_code` suppression debt and remove obsolete signature APIs
+- [x] 6. Burn down `dead_code` suppression debt and remove obsolete signature APIs _(done 2026-03-04, commit 5bb2533)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
