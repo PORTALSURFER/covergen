@@ -76,7 +76,7 @@ Date: 2026-03-04
     - On tier GPU host: GUI benchmark traces with animated params; compare `render_ms_p95` and CPU usage.
   - Completed: 2026-03-04 (commit ac43235)
 
-- [ ] 4. Replace per-frame full dense-value clears with generation-stamped slots in runtime GPU evaluator
+- [x] 4. Replace per-frame full dense-value clears with generation-stamped slots in runtime GPU evaluator
   - ROI: High
   - Effort: M
   - Expected impact: frame time, CPU, memory
@@ -92,6 +92,7 @@ Date: 2026-03-04
     - `cargo test runtime_gpu`
     - On tier GPU host: `scripts/bench/tier_gate.sh validate desktop_mid`
     - Compare frame-time stability and CPU profile on large graphs.
+  - Completed: 2026-03-04 (commit 0ea54ed)
 
 - [ ] 5. Replace bridge candidate sort/dedup with stamp-based dedupe
   - ROI: High
