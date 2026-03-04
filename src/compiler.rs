@@ -113,6 +113,7 @@ impl CompiledResourcePlan {
         self.lifetimes.get(&node_id).copied()
     }
 
+    #[cfg(test)]
     pub fn gpu_lifetime_for(&self, node_id: NodeId) -> Option<CompiledValueLifetime> {
         self.gpu_lifetimes.get(&node_id).copied()
     }
@@ -130,6 +131,7 @@ pub struct CompiledGraph {
     /// Precomputed final-output compositor plan reused by every runtime frame.
     pub final_compositor_plan: CompiledFinalCompositorPlan,
     /// Compile-time `NodeId -> step index` map shared by runtime adapters.
+    #[cfg(test)]
     pub node_indices: HashMap<NodeId, usize>,
     /// Precomputed GPU alias slots for luma-producing nodes.
     pub gpu_luma_slots: HashMap<NodeId, usize>,
@@ -146,6 +148,7 @@ pub struct CompiledGraph {
 
 impl CompiledGraph {
     /// Return dense runtime slot index for one compiled node id.
+    #[cfg(test)]
     pub fn node_index(&self, node_id: NodeId) -> Option<usize> {
         self.node_indices.get(&node_id).copied()
     }
@@ -333,6 +336,7 @@ pub fn compile_graph(graph: &GpuGraph) -> Result<CompiledGraph, GraphBuildError>
         primary_output_node,
         output_bindings,
         final_compositor_plan,
+        #[cfg(test)]
         node_indices,
         gpu_luma_slots,
         gpu_mask_slots,
