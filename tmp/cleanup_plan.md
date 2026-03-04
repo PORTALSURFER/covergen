@@ -155,7 +155,7 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `cargo test -q gui::scene::tests --bin covergen`
 
-- [ ] 9. Add focused tests for high-risk modules currently lacking local unit tests
+- [x] 9. Add focused tests for high-risk modules currently lacking local unit tests _(done 2026-03-04, commit f14e0e8)_
   - ROI: Medium
   - Effort: M
   - Why it matters:
