@@ -177,7 +177,8 @@ Date: 2026-03-04
     - `cargo test -q gui::project::param_schema::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 10. Expand private-doc subset lint to include one staged runtime/scene target
+- [x] 10. Expand private-doc subset lint to include one staged runtime/scene target
+  - Completed: 2026-03-04 (`ac9e0a0`)
   - ROI: Low
   - Effort: M
   - Why it matters:
