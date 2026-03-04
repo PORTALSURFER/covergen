@@ -9,7 +9,7 @@ pub(super) fn apply_navigation_phase(
     panel_ctx: InteractionPanelContext,
     state: &mut PreviewState,
     changed: &mut bool,
-) -> Option<bool> {
+) -> InteractionPhaseControl {
     let zoom_before = state.zoom.to_bits();
     *changed |= handle_pan_zoom_and_focus(
         input,
@@ -24,7 +24,7 @@ pub(super) fn apply_navigation_phase(
     if state.pan_drag.is_some() {
         cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
+        return InteractionPhaseControl::Finish(true);
     }
 
     let (param_scrub_changed, param_scrub_active) = handle_alt_param_drag(
@@ -48,7 +48,7 @@ pub(super) fn apply_navigation_phase(
         clear_param_edit_state(state);
         clear_timeline_edit_state(state);
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
+        return InteractionPhaseControl::Finish(true);
     }
 
     let cut_changed = handle_link_cut(
@@ -66,7 +66,7 @@ pub(super) fn apply_navigation_phase(
     if state.link_cut.is_some() {
         cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
+        return InteractionPhaseControl::Finish(true);
     }
 
     let right_sel_changed = handle_right_selection(
@@ -84,7 +84,7 @@ pub(super) fn apply_navigation_phase(
     if state.right_marquee.is_some() {
         cancel_node_interaction_modes(state);
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
+        return InteractionPhaseControl::Finish(true);
     }
-    None
+    InteractionPhaseControl::Continue
 }

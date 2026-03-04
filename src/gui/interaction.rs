@@ -2,6 +2,7 @@
 
 mod add_menu_input;
 mod drag;
+mod frame_lifecycle;
 mod hover;
 mod marquee;
 mod menu_graph_phase;
@@ -10,6 +11,7 @@ mod navigation_phase;
 mod overlay_param_phase;
 mod param_edit;
 mod route_cache;
+mod state_reset;
 mod timeline_input;
 mod wire;
 
@@ -21,6 +23,11 @@ use self::param_edit::{
     move_param_cursor_right,
 };
 
+#[cfg(test)]
+use self::frame_lifecycle::handle_help_input;
+use self::frame_lifecycle::{
+    apply_help_and_timeline_phase, begin_interaction_frame, finish_interaction_frame,
+};
 use self::menu_graph_phase::apply_menu_or_graph_phase;
 use self::navigation_phase::apply_navigation_phase;
 use self::overlay_param_phase::apply_overlay_and_param_phase;
@@ -33,7 +40,6 @@ use super::geometry::{
     map_graph_path_to_panel_into as geometry_map_graph_path_to_panel_into,
     screen_point_to_graph as geometry_screen_point_to_graph, segments_intersect, Rect,
 };
-use super::help::{build_global_help_modal, build_node_help_modal, build_param_help_modal};
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, output_pin_center, GraphBounds, GuiProject,
@@ -42,9 +48,9 @@ use super::project::{
 #[cfg(test)]
 use super::state::AddNodeMenuEntry;
 use super::state::{
-    AddNodeMenuState, HoverInsertLink, HoverParamTarget, InputSnapshot, LinkCutState,
-    MainMenuState, PanDragState, ParamDropdownState, ParamEditState, PendingAppAction,
-    PreviewState, RightMarqueeState, WireDragState,
+    HoverInsertLink, HoverParamTarget, InputSnapshot, LinkCutState, PanDragState,
+    ParamDropdownState, ParamEditState, PendingAppAction, PreviewState, RightMarqueeState,
+    WireDragState,
 };
 use super::timeline::{editor_panel_height, next_looped_frame};
 
@@ -74,6 +80,13 @@ enum HelpTarget {
     Param { node_id: u32, param_index: usize },
 }
 
+/// Control flow emitted by one interaction phase.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InteractionPhaseControl {
+    Continue,
+    Finish(bool),
+}
+
 fn invalidate_graph_layers(state: &mut PreviewState) {
     state.invalidation.invalidate_nodes();
     state.invalidation.invalidate_wires();
@@ -87,51 +100,10 @@ fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut Pre
     }
 }
 
-/// Clear drag/cut/pan/transient pointer interaction modes.
-fn clear_pointer_interactions(state: &mut PreviewState) {
-    state.drag = None;
-    state.wire_drag = None;
-    state.link_cut = None;
-    state.pan_drag = None;
-    state.export_menu_drag = None;
-    state.right_marquee = None;
-}
-
-/// Clear parameter hover targets and highlighted parameter UI rows.
-fn clear_param_hover_state(state: &mut PreviewState) {
-    state.hover_param_target = None;
-    state.hover_param = None;
-    state.hover_alt_param = None;
-}
-
-/// Clear active in-place parameter and dropdown editors.
-fn clear_param_edit_state(state: &mut PreviewState) {
-    state.param_edit = None;
-    state.param_scrub = None;
-    state.param_dropdown = None;
-    state.hover_dropdown_item = None;
-}
-
-/// Clear active timeline text-edit widgets.
-fn clear_timeline_edit_state(state: &mut PreviewState) {
-    state.timeline_bpm_edit = None;
-    state.timeline_bar_edit = None;
-}
-
-/// Cancel drag/wire interaction modes plus parameter-hover/dropdown state.
-fn cancel_node_interaction_modes(state: &mut PreviewState) {
-    state.drag = None;
-    state.wire_drag = None;
-    clear_param_hover_state(state);
-    state.param_dropdown = None;
-    state.param_scrub = None;
-}
-
-/// Close the add-node and main menu overlays.
-fn close_primary_menus(state: &mut PreviewState) {
-    state.menu = AddNodeMenuState::closed();
-    state.main_menu = MainMenuState::closed();
-}
+use self::state_reset::{
+    cancel_node_interaction_modes, clear_param_edit_state, clear_param_hover_state,
+    clear_pointer_interactions, clear_timeline_edit_state, close_primary_menus,
+};
 
 /// Shared panel-size context for interaction submodules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,7 +221,7 @@ pub(crate) fn apply_preview_actions(
     let panel_ctx = context.panel_context();
     let mut changed = begin_interaction_frame(context.config, &input, project, state);
 
-    if let Some(result) = apply_help_and_timeline_phase(
+    if let InteractionPhaseControl::Finish(result) = apply_help_and_timeline_phase(
         &input,
         project,
         context.viewport_width,
@@ -260,10 +232,12 @@ pub(crate) fn apply_preview_actions(
     ) {
         return finish_interaction_frame(&input, state, result);
     }
-    if let Some(result) = apply_navigation_phase(&input, project, panel_ctx, state, &mut changed) {
+    if let InteractionPhaseControl::Finish(result) =
+        apply_navigation_phase(&input, project, panel_ctx, state, &mut changed)
+    {
         return finish_interaction_frame(&input, state, result);
     }
-    if let Some(result) =
+    if let InteractionPhaseControl::Finish(result) =
         apply_overlay_and_param_phase(&input, project, panel_ctx, state, &mut changed)
     {
         return finish_interaction_frame(&input, state, result);
@@ -273,105 +247,6 @@ pub(crate) fn apply_preview_actions(
         changed |= collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
     }
     finish_interaction_frame(&input, state, changed)
-}
-
-/// Apply pre-phase state updates shared by all interactions for one frame.
-fn begin_interaction_frame(
-    config: &V2Config,
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    state: &mut PreviewState,
-) -> bool {
-    let mut changed = false;
-    if state.drag.is_none() && state.hover_insert_link.take().is_some() {
-        changed = true;
-    }
-    if input.toggle_pause {
-        state.paused = !state.paused;
-        state.invalidation.invalidate_timeline();
-        changed = true;
-    }
-    if input.new_project || state.request_new_project {
-        state.request_new_project = false;
-        *project = GuiProject::new_empty(config.width, config.height);
-        state.frame_index = 0;
-        state.timeline_accum_secs = 0.0;
-        state.timeline_scrub_active = false;
-        state.timeline_volume_drag_active = false;
-        clear_pointer_interactions(state);
-        clear_param_edit_state(state);
-        clear_timeline_edit_state(state);
-        state.selected_nodes.clear();
-        state.pan_x = 0.0;
-        state.pan_y = 0.0;
-        state.zoom = 1.0;
-        close_primary_menus(state);
-        state.active_node = None;
-        state.hover_node = None;
-        state.hover_output_pin = None;
-        state.hover_input_pin = None;
-        clear_param_hover_state(state);
-        state.hover_insert_link = None;
-        state.auto_expanded_binding_nodes.clear();
-        state.hover_menu_item = None;
-        state.hover_main_menu_item = None;
-        state.hover_export_menu_item = None;
-        state.hover_export_menu_close = false;
-        state.pending_app_action = None;
-        state.help_modal = None;
-        state.invalidation.invalidate_all();
-        changed = true;
-    }
-    changed
-}
-
-/// Run modal interaction phases that can consume the frame early.
-fn apply_help_and_timeline_phase(
-    input: &InputSnapshot,
-    project: &mut GuiProject,
-    viewport_width: usize,
-    panel_ctx: InteractionPanelContext,
-    timeline_fps: u32,
-    state: &mut PreviewState,
-    changed: &mut bool,
-) -> Option<bool> {
-    let (help_changed, help_consumed) = handle_help_input(
-        input,
-        project,
-        panel_ctx.panel_width,
-        panel_ctx.panel_height,
-        state,
-    );
-    *changed |= help_changed;
-    if help_consumed {
-        return Some(*changed);
-    }
-
-    let (timeline_changed, timeline_consumed) = handle_timeline_input(
-        input,
-        viewport_width,
-        panel_ctx.panel_height,
-        timeline_fps,
-        state,
-    );
-    *changed |= timeline_changed;
-    if timeline_changed {
-        invalidate_timeline_and_signal_previews(project, state);
-    }
-    if timeline_consumed {
-        clear_pointer_interactions(state);
-        clear_param_hover_state(state);
-        clear_param_edit_state(state);
-        close_primary_menus(state);
-        let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(*changed);
-    }
-    if state.timeline_bpm_edit.is_some() || state.timeline_bar_edit.is_some() {
-        cancel_node_interaction_modes(state);
-        *changed |= collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(*changed);
-    }
-    None
 }
 
 /// Collapse auto-expanded binding nodes using the panel context.
@@ -386,92 +261,6 @@ fn collapse_auto_expanded_binding_nodes_with_panel(
         panel_ctx.panel_height,
         state,
     )
-}
-
-/// Finalize one interaction frame and persist edge-trigger input state.
-fn finish_interaction_frame(
-    input: &InputSnapshot,
-    state: &mut PreviewState,
-    changed: bool,
-) -> bool {
-    state.prev_left_down = input.left_down;
-    changed
-}
-
-fn handle_help_input(
-    input: &InputSnapshot,
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &mut PreviewState,
-) -> (bool, bool) {
-    let close_requested = input.open_help || input.left_clicked || input.right_clicked;
-    if state.help_modal.is_some() {
-        if close_requested {
-            state.help_modal = None;
-            state.invalidation.invalidate_overlays();
-            return (true, true);
-        }
-        return (false, true);
-    }
-    if !input.open_help {
-        return (false, false);
-    }
-    let modal = match resolve_help_target(input, project, panel_width, panel_height, state) {
-        Some(HelpTarget::Param {
-            node_id,
-            param_index,
-        }) => build_param_help_modal(project, node_id, param_index)
-            .or_else(|| build_node_help_modal(project, node_id))
-            .unwrap_or_else(build_global_help_modal),
-        Some(HelpTarget::Node(node_id)) => {
-            build_node_help_modal(project, node_id).unwrap_or_else(build_global_help_modal)
-        }
-        None => build_global_help_modal(),
-    };
-    state.help_modal = Some(modal);
-    close_primary_menus(state);
-    clear_pointer_interactions(state);
-    clear_param_hover_state(state);
-    clear_param_edit_state(state);
-    clear_timeline_edit_state(state);
-    state.invalidation.invalidate_overlays();
-    (true, true)
-}
-
-fn resolve_help_target(
-    input: &InputSnapshot,
-    project: &GuiProject,
-    panel_width: usize,
-    panel_height: usize,
-    state: &PreviewState,
-) -> Option<HelpTarget> {
-    if let Some((mx, my)) = input.mouse_pos {
-        if inside_panel(mx, my, panel_width, panel_height) {
-            let (graph_x, graph_y) = screen_to_graph(mx, my, state);
-            if let Some(node_id) = project.node_at(graph_x, graph_y) {
-                if let Some(param_index) = project.param_row_at(node_id, graph_x, graph_y) {
-                    return Some(HelpTarget::Param {
-                        node_id,
-                        param_index,
-                    });
-                }
-                return Some(HelpTarget::Node(node_id));
-            }
-        }
-    }
-    if let Some(target) = state.hover_param_target {
-        return Some(HelpTarget::Param {
-            node_id: target.node_id,
-            param_index: target.param_index,
-        });
-    }
-    state
-        .hover_node
-        .or(state.hover_input_pin)
-        .or(state.hover_output_pin)
-        .or(state.active_node)
-        .map(HelpTarget::Node)
 }
 
 /// Advance timeline frame counter at the configured playback frame rate.

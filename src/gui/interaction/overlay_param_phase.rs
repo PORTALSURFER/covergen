@@ -9,7 +9,7 @@ pub(super) fn apply_overlay_and_param_phase(
     panel_ctx: InteractionPanelContext,
     state: &mut PreviewState,
     changed: &mut bool,
-) -> Option<bool> {
+) -> InteractionPhaseControl {
     let add_menu_changed =
         handle_add_menu_toggle(input, panel_ctx.panel_width, panel_ctx.panel_height, state);
     *changed |= add_menu_changed;
@@ -69,12 +69,12 @@ pub(super) fn apply_overlay_and_param_phase(
         clear_param_hover_state(state);
         state.param_scrub = None;
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(true);
+        return InteractionPhaseControl::Finish(true);
     }
     if state.param_edit.is_some() {
         cancel_node_interaction_modes(state);
         *changed |= collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
-        return Some(*changed);
+        return InteractionPhaseControl::Finish(*changed);
     }
-    None
+    InteractionPhaseControl::Continue
 }
