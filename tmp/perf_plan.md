@@ -192,7 +192,7 @@ Date: 2026-03-04
     - On tier GPU host: compare CPU usage during paused/static playback.
   - Completed: 2026-03-04 (commit 7f484ea)
 
-- [ ] 10. Precompute normalized add-menu labels/categories for query filtering
+- [x] 10. Precompute normalized add-menu labels/categories for query filtering
   - ROI: Medium
   - Effort: S
   - Expected impact: interaction latency (search/filter), CPU, memory
@@ -208,6 +208,7 @@ Date: 2026-03-04
   - Validation plan:
     - `cargo test gui::state::add_menu`
     - Manual add-menu typing responsiveness check under continuous key repeat.
+  - Completed: 2026-03-04 (commit 239864a)
 
 - [ ] 11. Make GUI threshold locking locale-stable and normalize decimal format
   - ROI: Low
