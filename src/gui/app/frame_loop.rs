@@ -249,7 +249,12 @@ impl GuiApp {
         timeline_total_frames: u32,
     ) -> Result<FrameRenderPhase, Box<dyn Error>> {
         let mut phase = FrameRenderPhase::default();
-        if !(scene_dirty || self.needs_redraw || export_active || self.continuous_redraw) {
+        if !should_render_phase(
+            scene_dirty,
+            self.needs_redraw,
+            export_active,
+            self.continuous_redraw,
+        ) {
             return Ok(phase);
         }
         self.tex_view.update(
@@ -448,6 +453,15 @@ impl GuiApp {
     }
 }
 
+fn should_render_phase(
+    scene_dirty: bool,
+    needs_redraw: bool,
+    export_active: bool,
+    continuous_redraw: bool,
+) -> bool {
+    scene_dirty || needs_redraw || export_active || continuous_redraw
+}
+
 fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
     let inst = 1.0 / frame_elapsed.as_secs_f32().max(1e-4);
     if previous <= 0.0 {
@@ -488,7 +502,7 @@ fn input_has_project_mutation_intent(input: &InputSnapshot) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{input_has_project_mutation_intent, smoothed_fps};
+    use super::{input_has_project_mutation_intent, should_render_phase, smoothed_fps};
     use crate::gui::state::InputSnapshot;
     use std::time::Duration;
 
@@ -522,5 +536,16 @@ mod tests {
             ..InputSnapshot::default()
         };
         assert!(input_has_project_mutation_intent(&click_input));
+    }
+
+    #[test]
+    fn render_phase_gate_blocks_only_fully_idle_frames() {
+        assert!(!should_render_phase(false, false, false, false));
+    }
+
+    #[test]
+    fn render_phase_gate_keeps_playback_and_timeline_updates_live() {
+        assert!(should_render_phase(false, false, false, true));
+        assert!(should_render_phase(true, false, false, false));
     }
 }
