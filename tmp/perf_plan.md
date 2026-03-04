@@ -173,7 +173,7 @@ Date: 2026-03-04
     - On tier GPU host: drag and cut benchmarks; verify identical hit behavior with lower update spikes.
   - Completed: 2026-03-04 (commit e9eaf9c)
 
-- [ ] 9. Skip redundant output-size evaluation in tex viewer when frame key is unchanged
+- [x] 9. Skip redundant output-size evaluation in tex viewer when frame key is unchanged
   - ROI: Medium
   - Effort: M
   - Expected impact: frame time, CPU, startup
@@ -190,6 +190,7 @@ Date: 2026-03-04
     - `cargo test gui::tex_view`
     - `cargo test gui::runtime`
     - On tier GPU host: compare CPU usage during paused/static playback.
+  - Completed: 2026-03-04 (commit 7f484ea)
 
 - [ ] 10. Precompute normalized add-menu labels/categories for query filtering
   - ROI: Medium
