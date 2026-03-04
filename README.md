@@ -86,7 +86,9 @@ Realtime GUI controls:
 
 - `Esc`: quit
 - `Space`: pause/resume timeline
-- `Tab`: open/close Add Node menu
+- `Shift+A`: open/close Add Node menu
+- `Tab`: open/close selected node parameters
+- `` ` ``: open/close main menu
 - `Delete`: remove selected nodes
 - `Up` / `Down`: change Add Node selection
 - `Enter` or left click in menu: place selected node

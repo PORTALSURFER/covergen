@@ -263,3 +263,61 @@ fn mouse_wheel_lines(delta: MouseScrollDelta) -> f32 {
         MouseScrollDelta::PixelDelta(pos) => (pos.y as f32) / 48.0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    const README_CONTROLS_LINES: [&str; 3] = [
+        "- `Shift+A`: open/close Add Node menu",
+        "- `Tab`: open/close selected node parameters",
+        "- `` ` ``: open/close main menu",
+    ];
+
+    #[test]
+    fn shift_a_toggles_add_menu() {
+        let mut collector = InputCollector::default();
+        collector.handle_key(
+            PhysicalKey::Code(KeyCode::ShiftLeft),
+            ElementState::Pressed,
+            false,
+            None,
+        );
+        collector.handle_key(
+            PhysicalKey::Code(KeyCode::KeyA),
+            ElementState::Pressed,
+            false,
+            Some("A"),
+        );
+        let snapshot = collector.snapshot(1280, 720);
+        assert!(snapshot.toggle_add_menu);
+        assert!(!snapshot.toggle_node_open);
+    }
+
+    #[test]
+    fn tab_toggles_node_open() {
+        let mut collector = InputCollector::default();
+        collector.handle_key(
+            PhysicalKey::Code(KeyCode::Tab),
+            ElementState::Pressed,
+            false,
+            None,
+        );
+        let snapshot = collector.snapshot(1280, 720);
+        assert!(snapshot.toggle_node_open);
+        assert!(!snapshot.toggle_add_menu);
+    }
+
+    #[test]
+    fn readme_controls_match_key_bindings() {
+        let readme_path = format!("{}/README.md", env!("CARGO_MANIFEST_DIR"));
+        let readme = fs::read_to_string(readme_path).expect("README.md should be readable");
+        for line in README_CONTROLS_LINES {
+            assert!(
+                readme.contains(line),
+                "README controls section should include: {line}"
+            );
+        }
+    }
+}
