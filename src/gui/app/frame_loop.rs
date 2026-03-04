@@ -249,7 +249,7 @@ impl GuiApp {
         timeline_total_frames: u32,
     ) -> Result<FrameRenderPhase, Box<dyn Error>> {
         let mut phase = FrameRenderPhase::default();
-        if !(scene_dirty || self.needs_redraw || export_active) {
+        if !(scene_dirty || self.needs_redraw || export_active || self.continuous_redraw) {
             return Ok(phase);
         }
         self.tex_view.update(

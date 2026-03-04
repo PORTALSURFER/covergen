@@ -150,6 +150,18 @@ fn project_detects_when_signal_preview_nodes_exist() {
 }
 
 #[test]
+fn project_detects_temporal_node_kinds() {
+    let mut project = GuiProject::new_empty(640, 480);
+    assert!(!project.has_temporal_nodes());
+
+    project.add_node(ProjectNodeKind::TexSolid, 40, 40, 420, 480);
+    assert!(!project.has_temporal_nodes());
+
+    project.add_node(ProjectNodeKind::BufNoise, 80, 40, 420, 480);
+    assert!(project.has_temporal_nodes());
+}
+
+#[test]
 #[should_panic(expected = "parameter label")]
 fn parameter_constructor_rejects_labels_longer_than_budget() {
     let _ = super::params::param("key", "label_too_long", 0.0, 0.0, 1.0, 0.1);

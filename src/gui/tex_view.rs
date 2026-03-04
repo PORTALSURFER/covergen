@@ -111,11 +111,7 @@ impl TexViewerGenerator {
         let render_signature = project.render_signature();
         let panel_w = update.viewport_width.saturating_sub(update.panel_width) as u32;
         let panel_h = editor_panel_height(update.viewport_height) as u32;
-        let dynamic_frame = if project.has_signal_bindings() || project.has_temporal_nodes() {
-            update.frame_index
-        } else {
-            0
-        };
+        let dynamic_frame = update.frame_index;
         if self.compiled_epoch != Some(update.tex_eval_epoch)
             || self.compiled_render_signature != Some(render_signature)
         {

@@ -84,6 +84,7 @@ impl GuiProject {
     }
 
     /// Return true when at least one parameter has a live signal binding.
+    #[cfg(test)]
     pub(crate) fn has_signal_bindings(&self) -> bool {
         self.ensure_runtime_flags();
         self.has_signal_bindings_cached.get()
@@ -94,6 +95,7 @@ impl GuiProject {
     /// This includes nodes that change output over time without explicit
     /// signal bindings, such as feedback, post-process temporal categories,
     /// and buffer noise deformation.
+    #[cfg(test)]
     pub(crate) fn has_temporal_nodes(&self) -> bool {
         self.ensure_runtime_flags();
         self.has_temporal_nodes_cached.get()
