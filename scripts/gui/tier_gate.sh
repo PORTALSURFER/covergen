@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
+export LANG=C
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/rust_tooling.sh
@@ -24,6 +26,11 @@ Environment overrides:
   OUTPUT_ROOT                     default: target/bench
   COVERGEN_RUST_GPU_SPIRV_DIR     default: target/rust-gpu
 EOF
+}
+
+normalize_decimal() {
+  local value="$1"
+  printf '%s' "${value//,/.}"
 }
 
 if [[ $# -ne 2 ]]; then
@@ -57,9 +64,9 @@ warmup_frames="${GUI_WARMUP_FRAMES:-60}"
 target_fps="${GUI_TARGET_FPS:-60}"
 size="${GUI_SIZE:-1024}"
 seed="${GUI_SEED:-1337}"
-ms_margin="${GUI_MS_THRESHOLD_MARGIN:-1.20}"
-hit_margin="${GUI_HIT_THRESHOLD_MARGIN:-1.20}"
-bridge_margin="${GUI_BRIDGE_THRESHOLD_MARGIN:-${hit_margin}}"
+ms_margin="$(normalize_decimal "${GUI_MS_THRESHOLD_MARGIN:-1.20}")"
+hit_margin="$(normalize_decimal "${GUI_HIT_THRESHOLD_MARGIN:-1.20}")"
+bridge_margin="$(normalize_decimal "${GUI_BRIDGE_THRESHOLD_MARGIN:-${hit_margin}}")"
 output_root="${OUTPUT_ROOT:-target/bench}"
 shader_root="${COVERGEN_RUST_GPU_SPIRV_DIR:-target/rust-gpu}"
 
@@ -202,11 +209,11 @@ if [[ "${threshold_tier}" != "${tier}" ]]; then
   exit 1
 fi
 
-update_limit="$(read_threshold "update_ms_p95_max")"
-scene_limit="$(read_threshold "scene_ms_p95_max")"
-render_limit="$(read_threshold "render_ms_p95_max")"
-hit_limit="$(read_threshold "hit_test_scans_p95_max")"
-bridge_limit="$(read_threshold "bridge_intersection_tests_p95_max")"
+update_limit="$(normalize_decimal "$(read_threshold "update_ms_p95_max")")"
+scene_limit="$(normalize_decimal "$(read_threshold "scene_ms_p95_max")")"
+render_limit="$(normalize_decimal "$(read_threshold "render_ms_p95_max")")"
+hit_limit="$(normalize_decimal "$(read_threshold "hit_test_scans_p95_max")")"
+bridge_limit="$(normalize_decimal "$(read_threshold "bridge_intersection_tests_p95_max")")"
 
 missing_key=0
 for key in update_limit scene_limit render_limit hit_limit bridge_limit; do
