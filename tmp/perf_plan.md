@@ -37,7 +37,7 @@ Date: 2026-03-04
     - Confirm reduced `scene.edges_ms_p95` and `update_ms_p95` during drag traces.
   - Completed: 2026-03-04 (commit 3e263fe)
 
-- [ ] 2. Remove sort/dedup in route obstacle candidate collection (windowed router search)
+- [x] 2. Remove sort/dedup in route obstacle candidate collection (windowed router search)
   - ROI: Very High
   - Effort: M
   - Expected impact: frame time, p95 interaction latency, CPU
@@ -55,6 +55,7 @@ Date: 2026-03-04
     - `cargo test gui::scene::wire_route`
     - On tier GPU host: `scripts/gui/tier_gate.sh validate desktop_mid`
     - Compare `scene.edges_ms_p95` and drag smoothness in dense graphs.
+  - Completed: 2026-03-04 (commit 849afb6)
 
 - [ ] 3. Decouple tex-preview execution plan topology from uniform payloads
   - ROI: Very High
