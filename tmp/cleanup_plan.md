@@ -172,7 +172,7 @@ Date: 2026-03-04
     - `cargo test -q gui::tex_view::tests --bin covergen`
     - `cargo test -q`
 
-- [ ] 10. Split oversized test modules into behavior-focused files
+- [x] 10. Split oversized test modules into behavior-focused files _(done 2026-03-04, commit a3f6290)_
   - ROI: Medium
   - Effort: S
   - Why it matters:
