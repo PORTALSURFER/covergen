@@ -87,27 +87,19 @@ impl GuiProject {
                 }
             }
         }
-        if !candidates.is_empty() {
-            candidates.sort_unstable_by_key(|node_id| {
-                self.node_index_lookup
-                    .get(node_id)
-                    .copied()
-                    .unwrap_or(usize::MAX)
-            });
-        }
-
         let mut out = Vec::with_capacity(candidates.len());
-        for node_id in candidates.iter().copied() {
-            let Some(index) = self.node_index_lookup.get(&node_id).copied() else {
+        for node in &self.nodes {
+            if !seen.contains(&node.id()) {
                 continue;
-            };
-            if let Some(node) = self.nodes.get(index) {
-                let nx0 = node.x();
-                let ny0 = node.y();
-                let nx1 = nx0.saturating_add(NODE_WIDTH);
-                let ny1 = ny0.saturating_add(node.card_height());
-                if min_x <= nx1 && max_x >= nx0 && min_y <= ny1 && max_y >= ny0 {
-                    out.push(node_id);
+            }
+            let nx0 = node.x();
+            let ny0 = node.y();
+            let nx1 = nx0.saturating_add(NODE_WIDTH);
+            let ny1 = ny0.saturating_add(node.card_height());
+            if min_x <= nx1 && max_x >= nx0 && min_y <= ny1 && max_y >= ny0 {
+                out.push(node.id());
+                if out.len() == candidates.len() {
+                    break;
                 }
             }
         }
