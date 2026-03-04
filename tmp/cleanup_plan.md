@@ -92,7 +92,8 @@ Date: 2026-03-04
     - `cargo test -q gui::tex_view::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 5. Decompose `gui/interaction.rs` orchestration into phase-focused modules
+- [x] 5. Decompose `gui/interaction.rs` orchestration into phase-focused modules
+  - Completed: 2026-03-04 (`dc441fe`)
   - ROI: Medium
   - Effort: M
   - Why it matters:
