@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-3 completed).
+Status: Phase 2 in progress (items 1-4 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -70,7 +70,8 @@ Date: 2026-03-04
     - `cargo test -q gui::runtime::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 4. Further modularize tex-preview execution and renderer bridge state
+- [x] 4. Further modularize tex-preview execution and renderer bridge state
+  - Completed: 2026-03-04 (`11a4639`)
   - ROI: High
   - Effort: M
   - Why it matters:
