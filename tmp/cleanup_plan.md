@@ -72,7 +72,8 @@ Date: 2026-03-04
     - `cargo test v2_animation_movie_quality_metrics_within_bounds`
     - `scripts/ci_local.sh`
 
-- [ ] 4. Continue modularization of tex-preview execution path
+- [x] 4. Continue modularization of tex-preview execution path
+  - Completed: 2026-03-04 (`d2a8ed0`)
   - ROI: High
   - Effort: M
   - Why it matters:
