@@ -514,3 +514,67 @@ pub(super) fn segment_crossings(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        bridge_distance_allowed, bridged_segment_points_into, cluster_bridge_ranges_into,
+        BridgeSegmentSpatialHash, DrawnWireSegment,
+    };
+
+    #[test]
+    fn bridge_distance_guard_rejects_corner_proximity_for_middle_segments() {
+        assert!(!bridge_distance_allowed(1, 3, 200.0, 8.0, 1.0));
+        assert!(bridge_distance_allowed(1, 3, 200.0, 100.0, 1.0));
+    }
+
+    #[test]
+    fn cluster_bridge_ranges_merges_nearby_crossings() {
+        let crossings = [50.0, 56.0, 120.0];
+        let mut ranges = Vec::new();
+        cluster_bridge_ranges_into(crossings.as_slice(), 200.0, 1.0, &mut ranges);
+        assert_eq!(ranges.len(), 2);
+        assert!(ranges[0].0 <= 42.0 && ranges[0].1 >= 64.0);
+        assert!(ranges[1].0 <= 112.0 && ranges[1].1 >= 128.0);
+    }
+
+    #[test]
+    fn bridged_segment_points_include_endpoints_without_bridges() {
+        let mut points = Vec::new();
+        let segment = DrawnWireSegment {
+            from: (10, 20),
+            to: (90, 20),
+        };
+        bridged_segment_points_into(segment, &[], 1.0, &mut points);
+        assert_eq!(points, vec![(10, 20), (90, 20)]);
+    }
+
+    #[test]
+    fn bridge_spatial_hash_candidate_collection_is_deduplicated() {
+        let mut hash = BridgeSegmentSpatialHash::default();
+        hash.insert_segment(
+            DrawnWireSegment {
+                from: (0, 0),
+                to: (200, 0),
+            },
+            0,
+        );
+        hash.insert_segment(
+            DrawnWireSegment {
+                from: (64, -20),
+                to: (64, 80),
+            },
+            1,
+        );
+        let mut candidates = Vec::new();
+        hash.collect_candidates(
+            DrawnWireSegment {
+                from: (48, -8),
+                to: (96, 8),
+            },
+            &mut candidates,
+        );
+        candidates.sort_unstable();
+        assert_eq!(candidates, vec![0, 1]);
+    }
+}

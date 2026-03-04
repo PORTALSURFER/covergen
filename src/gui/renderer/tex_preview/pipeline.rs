@@ -649,3 +649,37 @@ fn fs_blend(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(out_rgb, out_a);
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::OP_SHADER_SOURCE;
+
+    #[test]
+    fn op_shader_declares_expected_pipeline_entry_points() {
+        let entries = [
+            "fn vs_fullscreen(",
+            "fn fs_solid(",
+            "fn fs_circle(",
+            "fn fs_sphere(",
+            "fn fs_transform(",
+            "fn fs_level(",
+            "fn fs_transform_fused(",
+            "fn fs_feedback(",
+            "fn fs_reaction_diffusion(",
+            "fn fs_post_process(",
+            "fn fs_blend(",
+        ];
+        for entry in entries {
+            assert!(
+                OP_SHADER_SOURCE.contains(entry),
+                "missing shader entry point: {entry}"
+            );
+        }
+    }
+
+    #[test]
+    fn fullscreen_vertex_shader_entry_is_unique() {
+        let count = OP_SHADER_SOURCE.match_indices("fn vs_fullscreen(").count();
+        assert_eq!(count, 1, "expected exactly one fullscreen vertex entry");
+    }
+}

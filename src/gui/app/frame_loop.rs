@@ -485,3 +485,42 @@ fn input_has_project_mutation_intent(input: &InputSnapshot) -> bool {
         || input.param_commit
         || input.param_cancel
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{input_has_project_mutation_intent, smoothed_fps};
+    use crate::gui::state::InputSnapshot;
+    use std::time::Duration;
+
+    #[test]
+    fn smoothed_fps_uses_instant_value_when_previous_is_uninitialized() {
+        let fps = smoothed_fps(0.0, Duration::from_millis(16));
+        assert!(fps > 62.0 && fps < 63.0);
+    }
+
+    #[test]
+    fn smoothed_fps_blends_previous_and_instant_values() {
+        let fps = smoothed_fps(60.0, Duration::from_millis(10));
+        assert!((fps - 64.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn mutation_intent_is_false_for_idle_input() {
+        assert!(!input_has_project_mutation_intent(&InputSnapshot::default()));
+    }
+
+    #[test]
+    fn mutation_intent_is_true_for_text_or_click_input() {
+        let text_input = InputSnapshot {
+            typed_text: "n".to_string(),
+            ..InputSnapshot::default()
+        };
+        assert!(input_has_project_mutation_intent(&text_input));
+
+        let click_input = InputSnapshot {
+            left_clicked: true,
+            ..InputSnapshot::default()
+        };
+        assert!(input_has_project_mutation_intent(&click_input));
+    }
+}

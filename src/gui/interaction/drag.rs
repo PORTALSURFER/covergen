@@ -567,3 +567,52 @@ pub(super) fn point_to_segment_distance_sq(
     let dy = py - cy;
     dx * dx + dy * dy
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        can_insert_dragged_node_on_link, point_to_segment_distance_sq, rects_overlap_strict,
+    };
+    use crate::gui::project::{GuiProject, ProjectNodeKind};
+
+    #[test]
+    fn point_to_segment_distance_projects_onto_segment() {
+        let dist_sq = point_to_segment_distance_sq(5.0, 3.0, 0.0, 0.0, 10.0, 0.0);
+        assert!((dist_sq - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn point_to_segment_distance_handles_degenerate_segment() {
+        let dist_sq = point_to_segment_distance_sq(4.0, 5.0, 1.0, 1.0, 1.0, 1.0);
+        assert!((dist_sq - 25.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn strict_rect_overlap_excludes_touching_edges() {
+        assert!(rects_overlap_strict((0, 0, 10, 10), (8, 8, 10, 10)));
+        assert!(!rects_overlap_strict((0, 0, 10, 10), (10, 0, 4, 4)));
+    }
+
+    #[test]
+    fn insert_link_validation_rejects_invalid_node_identity() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 20, 20, 640, 480);
+        let target = project.add_node(ProjectNodeKind::IoWindowOut, 220, 20, 640, 480);
+        assert!(project.connect_image_link(source, target));
+        assert!(!can_insert_dragged_node_on_link(
+            &project, source, source, target
+        ));
+    }
+
+    #[test]
+    fn insert_link_validation_accepts_compatible_texture_chain() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let source = project.add_node(ProjectNodeKind::TexSolid, 20, 20, 640, 480);
+        let target = project.add_node(ProjectNodeKind::IoWindowOut, 220, 20, 640, 480);
+        let dragged = project.add_node(ProjectNodeKind::TexTransform2D, 120, 120, 640, 480);
+        assert!(project.connect_image_link(source, target));
+        assert!(can_insert_dragged_node_on_link(
+            &project, dragged, source, target
+        ));
+    }
+}
