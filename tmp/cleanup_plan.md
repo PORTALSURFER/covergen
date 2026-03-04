@@ -121,7 +121,7 @@ Date: 2026-03-04
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
     - `scripts/lint/structure_drift_report.sh`
 
-- [ ] 7. Consolidate duplicated graph/panel geometry transforms and thin wrappers
+- [x] 7. Consolidate duplicated graph/panel geometry transforms and thin wrappers _(done 2026-03-04, commit 29de927)_
   - ROI: Medium
   - Effort: S
   - Why it matters:
