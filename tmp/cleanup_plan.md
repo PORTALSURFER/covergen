@@ -66,7 +66,7 @@ Date: 2026-03-04
     - `cargo test -q gui::renderer::tex_preview::execution::tests --bin covergen`
     - `cargo test -q gui::tex_view::tests --bin covergen`
 
-- [ ] 4. Break `runtime_gpu::render_graph_luma_gpu` into per-op handlers with typed dispatch context
+- [x] 4. Break `runtime_gpu::render_graph_luma_gpu` into per-op handlers with typed dispatch context _(done 2026-03-04, commit ca4688c)_
   - ROI: High
   - Effort: M
   - Why it matters:
