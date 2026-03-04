@@ -30,7 +30,7 @@ Date: 2026-03-04
     - `cargo test -q gui::app::project_io::tests --bin covergen`
     - `cargo test -q`
 
-- [ ] 2. Finish splitting `gui::scene` and `gui::scene::wire_route` into smaller responsibility modules
+- [x] 2. Finish splitting `gui::scene` and `gui::scene::wire_route` into smaller responsibility modules _(done 2026-03-04, commit 8d8f706)_
   - ROI: High
   - Effort: L
   - Why it matters:
