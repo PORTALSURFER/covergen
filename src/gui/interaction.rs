@@ -715,7 +715,7 @@ fn handle_timeline_input(
     timeline_input::handle_timeline_input(input, viewport_width, panel_height, timeline_fps, state)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 fn handle_param_wheel_input(
     input: &InputSnapshot,
     project: &mut GuiProject,

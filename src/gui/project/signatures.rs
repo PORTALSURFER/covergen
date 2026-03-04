@@ -56,7 +56,6 @@ impl GuiProject {
         hash
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn render_signature(&self) -> u64 {
         if self.render_signature_dirty.get() {
             self.render_signature_cache
@@ -79,23 +78,9 @@ impl GuiProject {
     ///
     /// This cached signature tracks UI epoch updates for node-card expansion,
     /// row selection, and node positioning without forcing render invalidation.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn ui_signature(&self) -> u64 {
         self.ui_signature_cache
-    }
-
-    /// Return stable signature for both render and UI graph state.
-    ///
-    /// Prefer [`Self::render_signature`] for tex/render invalidation.
-    #[allow(dead_code)]
-    pub(crate) fn graph_signature(&self) -> u64 {
-        if self.graph_signature_dirty.get() {
-            let signature =
-                compose_graph_signature(self.render_signature(), self.ui_signature_cache);
-            self.graph_signature_cache.set(signature);
-            self.graph_signature_dirty.set(false);
-        }
-        self.graph_signature_cache.get()
     }
 
     /// Return true when at least one parameter has a live signal binding.

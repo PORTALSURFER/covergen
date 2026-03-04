@@ -102,7 +102,7 @@ impl GuiProject {
         true
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn signal_param_index_for_source(
         &self,
         source_id: u32,
@@ -116,7 +116,7 @@ impl GuiProject {
     }
 
     /// Return signal source node id bound to one target parameter row, if any.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn signal_source_for_param(
         &self,
         target_id: u32,
@@ -128,7 +128,6 @@ impl GuiProject {
     }
 
     /// Return texture source node id bound to one target parameter row, if any.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn texture_source_for_param(
         &self,
         target_id: u32,
@@ -383,7 +382,7 @@ impl GuiProject {
     }
 
     /// Return raw parameter value at one index for one node.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn node_param_raw_value(&self, node_id: u32, param_index: usize) -> Option<f32> {
         let node = self.node(node_id)?;
         if node.params.is_empty() {
@@ -647,6 +646,7 @@ impl GuiProject {
     ///
     /// This avoids per-sample key lookups and is intended for runtime hot-path
     /// evaluation after compile-time slot resolution.
+    #[cfg(test)]
     pub(crate) fn node_param_value_by_index<S: SignalEvalPath>(
         &self,
         node_id: u32,
@@ -696,7 +696,7 @@ impl GuiProject {
     }
 
     /// Return effective parameter value, resolving optional signal binding.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn node_param_value<S: SignalEvalPath>(
         &self,
         node_id: u32,
@@ -709,7 +709,7 @@ impl GuiProject {
     }
 
     /// Evaluate one scalar signal node output.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn sample_signal_node<S: SignalEvalPath>(
         &self,
         node_id: u32,

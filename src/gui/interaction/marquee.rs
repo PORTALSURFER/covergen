@@ -146,7 +146,7 @@ pub(super) fn panel_graph_rect(
 
 /// Return true when two axis-aligned rectangles overlap.
 #[allow(clippy::too_many_arguments)]
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(super) fn rects_overlap(
     ax0: i32,
     ay0: i32,
