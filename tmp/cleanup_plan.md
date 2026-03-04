@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (item 1 completed).
+Status: Phase 2 in progress (items 1-2 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -31,15 +31,16 @@ Date: 2026-03-04
     - `cargo test -q gui::interaction::tests --bin covergen`
     - `scripts/ci_local.sh`
 
-- [ ] 2. Continue splitting `gui::interaction` orchestration and large handler modules
+- [x] 2. Continue splitting `gui::interaction` orchestration and large handler modules
+  - Completed: 2026-03-04 (`3f9e6df`)
   - ROI: High
   - Effort: L
   - Why it matters:
     - Interaction control flow is still concentrated in one oversized coordinator plus oversized helper modules.
     - Input-consumption precedence remains difficult to reason about and regression-prone.
   - Evidence:
-    - `src/gui/interaction.rs` is 1249 LOC, `src/gui/interaction/drag.rs` is 618 LOC, `src/gui/interaction/param_edit.rs` is 555 LOC.
-    - High-fan-in entrypoints: `apply_preview_actions` (`src/gui/interaction.rs:243`) and `begin_interaction_frame` (`src/gui/interaction.rs:279`).
+    - `src/gui/interaction.rs` is 1038 LOC, `src/gui/interaction/drag.rs` is 618 LOC, `src/gui/interaction/param_edit.rs` is 555 LOC.
+    - High-fan-in entrypoints: `apply_preview_actions` (`src/gui/interaction.rs:212`) and `begin_interaction_frame` (`src/gui/interaction/frame_lifecycle.rs:6`).
   - Recommended change:
     - Introduce a clearer phase tree (`pre_frame`, `modal`, `navigation`, `graph_edit`, `post_frame`) with typed phase outputs.
     - Move pointer/hover reset utilities into one dedicated helper module to reduce repeated side effects.
