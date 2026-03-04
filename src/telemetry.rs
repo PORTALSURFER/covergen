@@ -123,6 +123,14 @@ fn is_capture_active() -> bool {
     capture_active_flag().load(Ordering::Acquire)
 }
 
+/// Return whether telemetry capture is currently active for any thread.
+///
+/// Runtime hot paths use this to skip timing setup work when capture is off.
+#[inline]
+pub(crate) fn is_active() -> bool {
+    is_capture_active()
+}
+
 fn with_state_mut<R>(f: impl FnOnce(&mut TelemetryState) -> R) -> R {
     let mut guard = telemetry_state()
         .lock()
@@ -311,7 +319,7 @@ mod tests {
     fn capture_lifecycle_tracks_current_thread_state() {
         let _ = end_capture();
         begin_capture("sample");
-        assert!(is_capture_active());
+        assert!(is_active());
         assert!(end_capture().is_some());
         assert!(
             end_capture().is_none(),

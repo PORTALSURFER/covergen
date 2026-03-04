@@ -54,29 +54,44 @@ pub(crate) fn render_graph_luma_gpu(
         } = &mut *workspace;
 
         for step in &compiled.steps {
-            let node_start = Instant::now();
+            let capture_active = telemetry::is_active();
+            let node_start = capture_active.then(Instant::now);
             match step.op {
                 CompiledOp::GenerateLayer(layer) => {
                     let effective = modulation.map_or(layer, |time| layer.with_time(time));
                     let params = effective.to_params(compiled.width, compiled.height, seed_offset);
                     let input = optional_luma_input_slot(compiled, step, 0)?;
                     let output = output_luma_slot(compiled, step.node_id)?;
-                    let gpu_start = Instant::now();
-                    renderer.render_generate_layer_to_alias(
-                        &mut frame,
-                        &params,
-                        GenerateLayerAliasDispatch {
-                            input_base_slot: input,
-                            output_slot: output,
-                            opacity: effective.opacity,
-                            blend_mode: effective.blend_mode.as_u32(),
-                            contrast: effective.contrast,
-                        },
-                    )?;
-                    telemetry::record_timing(
-                        "v2.gpu.node.generate_layer.retained",
-                        gpu_start.elapsed(),
-                    );
+                    if capture_active {
+                        let gpu_start = Instant::now();
+                        renderer.render_generate_layer_to_alias(
+                            &mut frame,
+                            &params,
+                            GenerateLayerAliasDispatch {
+                                input_base_slot: input,
+                                output_slot: output,
+                                opacity: effective.opacity,
+                                blend_mode: effective.blend_mode.as_u32(),
+                                contrast: effective.contrast,
+                            },
+                        )?;
+                        telemetry::record_timing(
+                            "v2.gpu.node.generate_layer.retained",
+                            gpu_start.elapsed(),
+                        );
+                    } else {
+                        renderer.render_generate_layer_to_alias(
+                            &mut frame,
+                            &params,
+                            GenerateLayerAliasDispatch {
+                                input_base_slot: input,
+                                output_slot: output,
+                                opacity: effective.opacity,
+                                blend_mode: effective.blend_mode.as_u32(),
+                                contrast: effective.contrast,
+                            },
+                        )?;
+                    }
                 }
                 CompiledOp::SourceNoise(spec) => {
                     let effective = modulation.map_or(spec, |time| spec.with_time(time));
@@ -235,12 +250,14 @@ pub(crate) fn render_graph_luma_gpu(
                     let _ = output;
                 }
             }
-            telemetry::record_timing(op_scope(step.op), node_start.elapsed());
+            if let Some(start) = node_start {
+                telemetry::record_timing(op_scope(step.op), start.elapsed());
+            }
         }
         Ok(())
     })?;
 
-    let compositor_start = Instant::now();
+    let compositor_start = telemetry::is_active().then(Instant::now);
     renderer.compose_outputs_to_retained(
         &mut frame,
         compiled.final_compositor_plan.primary_slot,
@@ -257,7 +274,9 @@ pub(crate) fn render_graph_luma_gpu(
         submit.bind_group_creates,
     );
     telemetry::record_counter_u64("bind_group_creates_per_frame", submit.bind_group_creates);
-    telemetry::record_timing("v2.gpu.final_compositor", compositor_start.elapsed());
+    if let Some(start) = compositor_start {
+        telemetry::record_timing("v2.gpu.final_compositor", start.elapsed());
+    }
 
     Ok(())
 }
