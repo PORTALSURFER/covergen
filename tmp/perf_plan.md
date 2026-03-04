@@ -76,7 +76,7 @@ Date: 2026-03-04
     - On tier GPU host: benchmark still/animation runs and compare memory churn and render timing stability.
   - Completed: 2026-03-04 (commit 490cf84)
 
-- [ ] 4. Make hit-test cache updates incremental for node moves instead of full-cache rebuilds
+- [x] 4. Make hit-test cache updates incremental for node moves instead of full-cache rebuilds
   - ROI: High
   - Effort: L
   - Expected impact: p95 interaction latency, CPU, frame time
@@ -95,6 +95,7 @@ Date: 2026-03-04
     - `cargo test gui::interaction`
     - On tier GPU host: `scripts/gui/tier_gate.sh validate desktop_mid`
     - Verify lower `hit_test_scans_p95` during drag-heavy traces.
+  - Completed: 2026-03-04 (commit 365d6ab)
 
 - [ ] 5. Reuse `BridgeSegmentSpatialHash` scratch storage across edge and param-wire passes
   - ROI: High
