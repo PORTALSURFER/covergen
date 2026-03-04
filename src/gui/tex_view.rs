@@ -50,6 +50,24 @@ struct ViewerCacheKey {
     frame_index: u32,
 }
 
+impl ViewerCacheKey {
+    /// Return true when all inputs that can change texture-size evaluation are unchanged.
+    fn matches_runtime_size_inputs(
+        &self,
+        panel_width: u32,
+        panel_height: u32,
+        render_signature: u64,
+        tex_eval_epoch: u64,
+        frame_index: u32,
+    ) -> bool {
+        self.panel_width == panel_width
+            && self.panel_height == panel_height
+            && self.render_signature == render_signature
+            && self.tex_eval_epoch == tex_eval_epoch
+            && self.frame_index == frame_index
+    }
+}
+
 /// Cached tex preview payload producer.
 #[derive(Debug, Default)]
 pub(crate) struct TexViewerGenerator {
@@ -103,6 +121,20 @@ impl TexViewerGenerator {
             self.compiled_runtime = GuiCompiledRuntime::compile(project);
             self.compiled_epoch = Some(update.tex_eval_epoch);
             self.compiled_render_signature = Some(render_signature);
+        }
+        if let Some(key) = self.key.filter(|key| {
+            key.matches_runtime_size_inputs(
+                panel_w,
+                panel_h,
+                render_signature,
+                update.tex_eval_epoch,
+                dynamic_frame,
+            )
+        }) {
+            self.x =
+                update.panel_width as i32 + (panel_w.saturating_sub(key.view_width) / 2) as i32;
+            self.y = (panel_h.saturating_sub(key.view_height) / 2) as i32;
+            return;
         }
         let time_secs = update.frame_index as f32 / update.timeline_fps.max(1) as f32;
         let (texture_width, texture_height) = self
