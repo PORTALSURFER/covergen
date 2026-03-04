@@ -145,6 +145,40 @@ impl InteractionPanelContext {
     }
 }
 
+/// Cohesive frame-scope inputs for GUI interaction updates.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct InteractionFrameContext<'a> {
+    config: &'a V2Config,
+    viewport_width: usize,
+    panel_width: usize,
+    panel_height: usize,
+}
+
+impl<'a> InteractionFrameContext<'a> {
+    /// Build one interaction context from immutable frame dimensions/config.
+    pub(crate) fn new(
+        config: &'a V2Config,
+        viewport_width: usize,
+        panel_width: usize,
+        panel_height: usize,
+    ) -> Self {
+        Self {
+            config,
+            viewport_width,
+            panel_width,
+            panel_height,
+        }
+    }
+
+    fn panel_context(self) -> InteractionPanelContext {
+        InteractionPanelContext::new(self.panel_width, self.panel_height)
+    }
+
+    fn timeline_fps(self) -> u32 {
+        self.config.animation.fps
+    }
+}
+
 /// Hover fields snapshot used to scope retained-layer invalidation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HoverInvalidationSnapshot {
@@ -203,23 +237,20 @@ impl HoverInvalidationSnapshot {
 ///
 /// Returns `true` when this frame changed visual/editor state and should be redrawn.
 pub(crate) fn apply_preview_actions(
-    config: &V2Config,
+    context: InteractionFrameContext<'_>,
     input: InputSnapshot,
     project: &mut GuiProject,
-    viewport_width: usize,
-    panel_width: usize,
-    panel_height: usize,
     state: &mut PreviewState,
 ) -> bool {
-    let panel_ctx = InteractionPanelContext::new(panel_width, panel_height);
-    let mut changed = begin_interaction_frame(config, &input, project, state);
+    let panel_ctx = context.panel_context();
+    let mut changed = begin_interaction_frame(context.config, &input, project, state);
 
     if let Some(result) = apply_help_and_timeline_phase(
         &input,
         project,
-        viewport_width,
+        context.viewport_width,
         panel_ctx,
-        config.animation.fps,
+        context.timeline_fps(),
         state,
         &mut changed,
     ) {

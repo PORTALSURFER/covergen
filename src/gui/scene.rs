@@ -242,16 +242,39 @@ pub(crate) struct SceneBuilder {
     was_dragging: bool,
 }
 
+/// Frame-invariant dimensions and timing inputs for scene construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SceneBuildRequest {
+    width: usize,
+    height: usize,
+    panel_width: usize,
+    timeline_fps: u32,
+}
+
+impl SceneBuildRequest {
+    /// Construct one scene-build request for a single redraw pass.
+    pub(crate) const fn new(
+        width: usize,
+        height: usize,
+        panel_width: usize,
+        timeline_fps: u32,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            panel_width,
+            timeline_fps,
+        }
+    }
+}
+
 impl SceneBuilder {
     /// Build one frame of editor scene geometry.
     pub(crate) fn build(
         &mut self,
         project: &GuiProject,
         state: &PreviewState,
-        width: usize,
-        height: usize,
-        panel_width: usize,
-        timeline_fps: u32,
+        request: SceneBuildRequest,
     ) -> &SceneFrame {
         if !self.text_glyphs_prewarmed {
             self.text_renderer
@@ -287,14 +310,14 @@ impl SceneBuilder {
             self.wire_routes.invalidate_epochs();
         }
 
-        self.rebuild_static_if_needed(width, height, panel_width);
+        self.rebuild_static_if_needed(request.width, request.height, request.panel_width);
 
         let nodes_epoch = state.invalidation.nodes;
         if self.cached_nodes_epoch != Some(nodes_epoch) {
             self.cached_nodes_epoch = Some(nodes_epoch);
             self.frame.dirty.nodes = true;
             let start = Instant::now();
-            self.rebuild_nodes_layer(project, state, timeline_fps);
+            self.rebuild_nodes_layer(project, state, request.timeline_fps);
             self.frame.nodes_ms = start.elapsed().as_secs_f64() * 1000.0;
         }
 
@@ -329,7 +352,7 @@ impl SceneBuilder {
             self.cached_overlays_epoch = Some(overlays_epoch);
             self.frame.dirty.overlays = true;
             let start = Instant::now();
-            self.rebuild_overlays_layer(project, state, panel_width, height);
+            self.rebuild_overlays_layer(project, state, request.panel_width, request.height);
             self.frame.overlays_ms += start.elapsed().as_secs_f64() * 1000.0;
         }
 
@@ -337,7 +360,7 @@ impl SceneBuilder {
         if self.cached_timeline_epoch != Some(timeline_epoch) {
             self.cached_timeline_epoch = Some(timeline_epoch);
             self.frame.dirty.timeline = true;
-            self.rebuild_timeline_layer(state, width, height, timeline_fps);
+            self.rebuild_timeline_layer(state, request.width, request.height, request.timeline_fps);
         }
         self.frame.ui_alloc_bytes = self.frame_alloc_bytes;
         &self.frame
@@ -2029,8 +2052,8 @@ mod tests {
         build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
     use super::{
-        signal_scope_range, signal_scope_y, timeline_beat_indicator_on, Rect, SceneBuilder,
-        SIGNAL_SCOPE_MAX_SAMPLES,
+        signal_scope_range, signal_scope_y, timeline_beat_indicator_on, Rect, SceneBuildRequest,
+        SceneBuilder, SIGNAL_SCOPE_MAX_SAMPLES,
     };
     use crate::gui::project::{
         collapsed_param_entry_pin_center, output_pin_center, GuiProject, ProjectNodeKind,
@@ -2042,6 +2065,10 @@ mod tests {
     use crate::gui::state::{DragState, PreviewState};
     use crate::runtime_config::V2Config;
     use std::collections::HashSet;
+
+    fn default_scene_build_request() -> SceneBuildRequest {
+        SceneBuildRequest::new(640, 480, 640, 60)
+    }
 
     #[test]
     fn param_wire_smoothing_does_not_backtrack_near_short_corner_segments() {
@@ -2125,7 +2152,7 @@ mod tests {
         state.invalidation.invalidate_nodes();
         let mut scene = SceneBuilder::default();
 
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         let initial_samples = frame.signal_scope_samples;
         assert!(
             initial_samples > 0,
@@ -2134,7 +2161,7 @@ mod tests {
 
         state.frame_index = 1;
         state.invalidation.invalidate_nodes();
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             frame.signal_scope_samples < initial_samples,
             "incremental update should evaluate fewer samples than full rebuild"
@@ -2169,7 +2196,7 @@ mod tests {
         state.invalidation.invalidate_nodes();
         let mut scene = SceneBuilder::default();
 
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             frame.signal_scope_samples <= SIGNAL_SCOPE_MAX_SAMPLES as u64,
             "scope samples should be capped to avoid high zoom recompute spikes"
@@ -2200,7 +2227,7 @@ mod tests {
 
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         let mut scene = SceneBuilder::default();
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(frame.dirty.edges, "initial build should populate edges");
         let frozen_lines_before = frame.edges.lines.len();
 
@@ -2214,7 +2241,7 @@ mod tests {
             origin_y: 40,
         });
 
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             !frame.dirty.edges,
             "edges should remain frozen while node drag is active"
@@ -2222,7 +2249,7 @@ mod tests {
         assert_eq!(frame.edges.lines.len(), frozen_lines_before);
 
         state.drag = None;
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             frame.dirty.edges,
             "edges should rebuild once drag is released"
@@ -2240,7 +2267,7 @@ mod tests {
         let mut scene = SceneBuilder::default();
 
         state.invalidation.invalidate_overlays();
-        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let _ = scene.build(&project, &state, default_scene_build_request());
         assert_eq!(scene.wire_routes.param_cache.len(), 1);
         let initial_epoch = scene
             .wire_routes
@@ -2265,7 +2292,7 @@ mod tests {
             origin_y: 40,
         });
 
-        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let _ = scene.build(&project, &state, default_scene_build_request());
         assert_eq!(scene.wire_routes.param_cache_epoch, Some(initial_epoch));
         let drag_route = scene
             .wire_routes
@@ -2278,7 +2305,7 @@ mod tests {
 
         state.drag = None;
         state.invalidation.invalidate_overlays();
-        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let _ = scene.build(&project, &state, default_scene_build_request());
         let release_epoch = scene
             .wire_routes
             .param_cache_epoch
@@ -2305,7 +2332,7 @@ mod tests {
         let mut scene = SceneBuilder::default();
 
         state.invalidation.invalidate_overlays();
-        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let _ = scene.build(&project, &state, default_scene_build_request());
         let initial_route = scene
             .wire_routes
             .param_cache
@@ -2323,7 +2350,7 @@ mod tests {
             origin_x: 40,
             origin_y: 40,
         });
-        let _ = scene.build(&project, &state, 640, 480, 640, 60);
+        let _ = scene.build(&project, &state, default_scene_build_request());
         let drag_route = scene
             .wire_routes
             .param_cache
@@ -2335,7 +2362,7 @@ mod tests {
 
         // Drop/release without explicitly bumping overlay invalidation.
         state.drag = None;
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             frame.dirty.param_wires,
             "drop should force one parameter-wire refresh so parameter routes update"
@@ -2359,7 +2386,7 @@ mod tests {
 
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         let mut scene = SceneBuilder::default();
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(frame.dirty.edges, "initial build should populate edges");
         assert_eq!(scene.wire_routes.edge_cache.len(), 1);
         let initial_epoch = scene
@@ -2377,7 +2404,7 @@ mod tests {
         state.pan_x += 40.0;
         state.pan_y += 16.0;
         state.invalidation.invalidate_wires();
-        let frame = scene.build(&project, &state, 640, 480, 640, 60);
+        let frame = scene.build(&project, &state, default_scene_build_request());
         assert!(
             frame.dirty.edges,
             "pan should rebuild panel-space edge layer"

@@ -1,6 +1,8 @@
 //! Per-frame update and redraw orchestration.
 
 use super::*;
+use crate::gui::interaction::InteractionFrameContext;
+use crate::gui::scene::SceneBuildRequest;
 
 /// Snapshot of project-scoped invalidation epochs captured pre-update.
 #[derive(Clone, Copy, Debug)]
@@ -110,12 +112,14 @@ impl GuiApp {
             scene_dirty |= self.consume_editor_input(snapshot.left_down);
         } else {
             scene_dirty |= apply_preview_actions(
-                &self.config,
+                InteractionFrameContext::new(
+                    &self.config,
+                    self.renderer.width(),
+                    self.panel_width,
+                    self.renderer.height(),
+                ),
                 snapshot.clone(),
                 &mut self.project,
-                self.renderer.width(),
-                self.panel_width,
-                self.renderer.height(),
                 &mut self.state,
             );
         }
@@ -265,10 +269,12 @@ impl GuiApp {
         let frame = self.scene.build(
             &self.project,
             &self.state,
-            self.renderer.width(),
-            self.renderer.height(),
-            self.panel_width,
-            self.config.animation.fps,
+            SceneBuildRequest::new(
+                self.renderer.width(),
+                self.renderer.height(),
+                self.panel_width,
+                self.config.animation.fps,
+            ),
         );
         phase.scene_elapsed = scene_start.elapsed();
         phase.ui_alloc_bytes = frame.ui_alloc_bytes;

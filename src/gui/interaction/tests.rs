@@ -5,7 +5,7 @@ use super::{
     handle_param_edit_input, handle_param_wheel_input, handle_right_selection, handle_wire_input,
     insert_param_char, marquee_moved, move_param_cursor_left, move_param_cursor_right,
     rects_overlap, segments_intersect, step_timeline_if_running, update_hover_state,
-    AddNodeMenuEntry, RightMarqueeState,
+    AddNodeMenuEntry, InteractionFrameContext, RightMarqueeState,
 };
 use crate::gui::geometry::Rect;
 use crate::gui::project::{
@@ -90,12 +90,9 @@ fn apply_preview_actions_toggle_pause_invalidates_timeline() {
         ..InputSnapshot::default()
     };
     assert!(apply_preview_actions(
-        &config,
+        InteractionFrameContext::new(&config, 640, 420, 480),
         input,
         &mut project,
-        640,
-        420,
-        480,
         &mut state,
     ));
     assert!(
@@ -116,12 +113,9 @@ fn apply_preview_actions_hover_updates_invalidate_only_nodes_when_overlay_state_
         ..InputSnapshot::default()
     };
     assert!(apply_preview_actions(
-        &config,
+        InteractionFrameContext::new(&config, 640, 420, 480),
         input,
         &mut project,
-        640,
-        420,
-        480,
         &mut state,
     ));
     assert!(
@@ -1172,12 +1166,9 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
         ..InputSnapshot::default()
     };
     assert!(apply_preview_actions(
-        &config,
+        InteractionFrameContext::new(&config, 640, 420, 480),
         input,
         &mut project,
-        640,
-        420,
-        480,
         &mut state,
     ));
     assert_eq!(
@@ -1662,12 +1653,9 @@ fn add_menu_toggle_shortcut_does_not_seed_query_text() {
         ..InputSnapshot::default()
     };
     assert!(apply_preview_actions(
-        &config,
+        InteractionFrameContext::new(&config, 640, 420, 480),
         input,
         &mut project,
-        640,
-        420,
-        480,
         &mut state
     ));
     assert!(state.menu.open);
