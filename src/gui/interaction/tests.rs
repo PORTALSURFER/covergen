@@ -105,7 +105,7 @@ fn apply_preview_actions_toggle_pause_invalidates_timeline() {
 }
 
 #[test]
-fn apply_preview_actions_hover_updates_invalidate_graph_layers() {
+fn apply_preview_actions_hover_updates_invalidate_only_nodes_when_overlay_state_is_unchanged() {
     let config = V2Config::parse(Vec::new()).expect("config");
     let mut project = GuiProject::new_empty(640, 480);
     let _solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
@@ -129,12 +129,12 @@ fn apply_preview_actions_hover_updates_invalidate_graph_layers() {
         "hover updates should invalidate nodes layer"
     );
     assert!(
-        state.invalidation.wires != before.wires,
-        "hover updates should invalidate wires layer"
+        state.invalidation.wires == before.wires,
+        "hover-only updates should not invalidate wires layer"
     );
     assert!(
-        state.invalidation.overlays != before.overlays,
-        "hover updates should invalidate overlays layer"
+        state.invalidation.overlays == before.overlays,
+        "hover updates should not invalidate overlays when overlay state is unchanged"
     );
 }
 

@@ -22,7 +22,7 @@ use self::param_edit::{
 use crate::runtime_config::V2Config;
 use std::time::Duration;
 
-use super::geometry::Rect;
+use super::geometry::{segments_intersect as geometry_segments_intersect, Rect};
 use super::help::{build_global_help_modal, build_node_help_modal, build_param_help_modal};
 use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
@@ -136,6 +136,60 @@ impl InteractionPanelContext {
             panel_width,
             panel_height,
         }
+    }
+}
+
+/// Hover fields snapshot used to scope retained-layer invalidation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HoverInvalidationSnapshot {
+    hover_node: Option<u32>,
+    hover_output_pin: Option<u32>,
+    hover_input_pin: Option<u32>,
+    hover_param: Option<HoverParamTarget>,
+    hover_param_target: Option<HoverParamTarget>,
+    hover_alt_param: Option<HoverParamTarget>,
+    hover_dropdown_item: Option<usize>,
+    hover_menu_item: Option<usize>,
+    hover_main_menu_item: Option<usize>,
+    hover_export_menu_item: Option<usize>,
+    hover_export_menu_close: bool,
+}
+
+impl HoverInvalidationSnapshot {
+    fn capture(state: &PreviewState) -> Self {
+        Self {
+            hover_node: state.hover_node,
+            hover_output_pin: state.hover_output_pin,
+            hover_input_pin: state.hover_input_pin,
+            hover_param: state.hover_param,
+            hover_param_target: state.hover_param_target,
+            hover_alt_param: state.hover_alt_param,
+            hover_dropdown_item: state.hover_dropdown_item,
+            hover_menu_item: state.hover_menu_item,
+            hover_main_menu_item: state.hover_main_menu_item,
+            hover_export_menu_item: state.hover_export_menu_item,
+            hover_export_menu_close: state.hover_export_menu_close,
+        }
+    }
+
+    fn nodes_changed(self, next: Self) -> bool {
+        self.hover_node != next.hover_node
+            || self.hover_output_pin != next.hover_output_pin
+            || self.hover_input_pin != next.hover_input_pin
+            || self.hover_param != next.hover_param
+            || self.hover_param_target != next.hover_param_target
+            || self.hover_alt_param != next.hover_alt_param
+    }
+
+    fn overlays_changed(self, next: Self, wire_drag_active: bool) -> bool {
+        self.hover_dropdown_item != next.hover_dropdown_item
+            || self.hover_menu_item != next.hover_menu_item
+            || self.hover_main_menu_item != next.hover_main_menu_item
+            || self.hover_export_menu_item != next.hover_export_menu_item
+            || self.hover_export_menu_close != next.hover_export_menu_close
+            || (wire_drag_active
+                && (self.hover_input_pin != next.hover_input_pin
+                    || self.hover_param_target != next.hover_param_target))
     }
 }
 
@@ -386,6 +440,7 @@ fn apply_overlay_and_param_phase(
     if main_menu_changed {
         state.invalidation.invalidate_overlays();
     }
+    let hover_before = HoverInvalidationSnapshot::capture(state);
     let hover_changed = update_hover_state(
         input,
         project,
@@ -395,7 +450,13 @@ fn apply_overlay_and_param_phase(
     );
     *changed |= hover_changed;
     if hover_changed {
-        invalidate_graph_layers(state);
+        let hover_after = HoverInvalidationSnapshot::capture(state);
+        if hover_before.nodes_changed(hover_after) {
+            state.invalidation.invalidate_nodes();
+        }
+        if hover_before.overlays_changed(hover_after, state.wire_drag.is_some()) {
+            state.invalidation.invalidate_overlays();
+        }
     }
     let node_toggle_changed = handle_node_open_toggle(
         input,
@@ -1322,35 +1383,7 @@ fn segments_intersect(
     dx: i32,
     dy: i32,
 ) -> bool {
-    let o1 = orient(ax, ay, bx, by, cx, cy);
-    let o2 = orient(ax, ay, bx, by, dx, dy);
-    let o3 = orient(cx, cy, dx, dy, ax, ay);
-    let o4 = orient(cx, cy, dx, dy, bx, by);
-    if o1 == 0 && on_segment(ax, ay, bx, by, cx, cy) {
-        return true;
-    }
-    if o2 == 0 && on_segment(ax, ay, bx, by, dx, dy) {
-        return true;
-    }
-    if o3 == 0 && on_segment(cx, cy, dx, dy, ax, ay) {
-        return true;
-    }
-    if o4 == 0 && on_segment(cx, cy, dx, dy, bx, by) {
-        return true;
-    }
-    (o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0)
-}
-
-fn orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
-    let abx = (bx - ax) as i64;
-    let aby = (by - ay) as i64;
-    let acx = (cx - ax) as i64;
-    let acy = (cy - ay) as i64;
-    abx * acy - aby * acx
-}
-
-fn on_segment(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> bool {
-    px >= ax.min(bx) && px <= ax.max(bx) && py >= ay.min(by) && py <= ay.max(by)
+    geometry_segments_intersect((ax, ay), (bx, by), (cx, cy), (dx, dy))
 }
 
 fn pin_hit_radius_world(state: &PreviewState) -> i32 {
