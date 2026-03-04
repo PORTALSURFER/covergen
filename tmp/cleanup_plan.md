@@ -1,6 +1,6 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 in progress (items 1-11 completed).
+Status: Phase 2 complete (items 1-12 completed).
 Date: 2026-03-04
 
 ## Context Snapshot
@@ -209,7 +209,8 @@ Date: 2026-03-04
   - Suggested validation:
     - `cargo test -q gui::tex_view::tests --bin covergen`
 
-- [ ] 12. Break up oversized test modules to keep behavior suites maintainable
+- [x] 12. Break up oversized test modules to keep behavior suites maintainable
+  - Completed: 2026-03-04 (`605bc08`)
   - ROI: Low
   - Effort: S
   - Why it matters:
