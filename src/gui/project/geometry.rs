@@ -305,13 +305,9 @@ fn distance_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     dx.saturating_mul(dx) + dy.saturating_mul(dy)
 }
 
-pub(super) fn cache_node_rect_bins(
-    bins: &mut HashMap<i64, Vec<u32>>,
-    node_id: u32,
-    x: i32,
-    y: i32,
-    card_height: i32,
-) {
+/// Collect all broad-phase hit-test bin keys touched by one node card rect.
+pub(super) fn collect_node_rect_bin_keys(x: i32, y: i32, card_height: i32, out: &mut Vec<i64>) {
+    out.clear();
     if card_height <= 0 {
         return;
     }
@@ -319,15 +315,9 @@ pub(super) fn cache_node_rect_bins(
     let max_y = y.saturating_add(card_height.saturating_sub(1));
     for by in hit_bin_coord(y)..=hit_bin_coord(max_y) {
         for bx in hit_bin_coord(x)..=hit_bin_coord(max_x) {
-            bins.entry(hit_bin_key(bx, by)).or_default().push(node_id);
+            out.push(hit_bin_key(bx, by));
         }
     }
-}
-
-pub(super) fn cache_pin_bin(bins: &mut HashMap<i64, Vec<u32>>, node_id: u32, x: i32, y: i32) {
-    bins.entry(hit_bin_key_for_point(x, y))
-        .or_default()
-        .push(node_id);
 }
 
 pub(super) fn hit_bin_coord(value: i32) -> i32 {

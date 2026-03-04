@@ -938,6 +938,9 @@ struct HitTestCache {
     node_bins: HashMap<i64, Vec<u32>>,
     output_pin_bins: HashMap<i64, Vec<u32>>,
     input_pin_bins: HashMap<i64, Vec<u32>>,
+    node_bin_keys_by_node: HashMap<u32, Vec<i64>>,
+    output_pin_bin_key_by_node: HashMap<u32, i64>,
+    input_pin_bin_key_by_node: HashMap<u32, i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

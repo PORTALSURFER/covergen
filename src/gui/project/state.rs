@@ -1,6 +1,8 @@
 use super::*;
 
-use super::geometry::{cache_node_rect_bins, cache_pin_bin, input_pin_center, output_pin_center};
+use super::geometry::{
+    collect_node_rect_bin_keys, hit_bin_key_for_point, input_pin_center, output_pin_center,
+};
 use super::params::{
     bind_texture_target_slot, default_params_for_kind, persisted_param_key_matches,
     rebuild_node_inputs, set_node_primary_input, set_slot_value, texture_source_display_label,
@@ -297,6 +299,10 @@ impl GuiProject {
 
     pub(super) fn invalidate_hit_test_cache(&mut self) {
         self.hit_test_dirty.set(true);
+        self.bump_hit_test_invalidation_epochs();
+    }
+
+    fn bump_hit_test_invalidation_epochs(&mut self) {
         self.bump_nodes_epoch();
         self.bump_wires_epoch();
         self.bump_ui_epoch();
@@ -308,22 +314,121 @@ impl GuiProject {
         }
         let mut cache = HitTestCache::default();
         for node in &self.nodes {
-            cache_node_rect_bins(
-                &mut cache.node_bins,
-                node.id(),
-                node.x(),
-                node.y(),
-                node.card_height(),
-            );
+            let mut node_bin_keys = Vec::new();
+            collect_node_rect_bin_keys(node.x(), node.y(), node.card_height(), &mut node_bin_keys);
+            for key in node_bin_keys.iter().copied() {
+                cache.node_bins.entry(key).or_default().push(node.id());
+            }
+            cache.node_bin_keys_by_node.insert(node.id(), node_bin_keys);
             if let Some((x, y)) = output_pin_center(node) {
-                cache_pin_bin(&mut cache.output_pin_bins, node.id(), x, y);
+                let key = hit_bin_key_for_point(x, y);
+                cache
+                    .output_pin_bins
+                    .entry(key)
+                    .or_default()
+                    .push(node.id());
+                cache.output_pin_bin_key_by_node.insert(node.id(), key);
             }
             if let Some((x, y)) = input_pin_center(node) {
-                cache_pin_bin(&mut cache.input_pin_bins, node.id(), x, y);
+                let key = hit_bin_key_for_point(x, y);
+                cache.input_pin_bins.entry(key).or_default().push(node.id());
+                cache.input_pin_bin_key_by_node.insert(node.id(), key);
             }
         }
         *self.hit_test_cache.borrow_mut() = cache;
         self.hit_test_dirty.set(false);
+    }
+
+    fn apply_incremental_hit_test_cache_for_moved_nodes(&mut self, moved_node_ids: &[u32]) {
+        self.bump_hit_test_invalidation_epochs();
+        if moved_node_ids.is_empty() || self.hit_test_dirty.get() {
+            return;
+        }
+        let mut cache = self.hit_test_cache.borrow_mut();
+        for node_id in moved_node_ids.iter().copied() {
+            self.refresh_cached_node_hit_test_entries(&mut cache, node_id);
+        }
+    }
+
+    fn refresh_cached_node_hit_test_entries(&self, cache: &mut HitTestCache, node_id: u32) {
+        if let Some(bin_keys) = cache.node_bin_keys_by_node.remove(&node_id) {
+            for key in bin_keys {
+                Self::remove_node_id_from_bin(&mut cache.node_bins, key, node_id);
+            }
+        }
+        if let Some(key) = cache.output_pin_bin_key_by_node.remove(&node_id) {
+            Self::remove_node_id_from_bin(&mut cache.output_pin_bins, key, node_id);
+        }
+        if let Some(key) = cache.input_pin_bin_key_by_node.remove(&node_id) {
+            Self::remove_node_id_from_bin(&mut cache.input_pin_bins, key, node_id);
+        }
+
+        let Some(index) = self.node_index_lookup.get(&node_id).copied() else {
+            return;
+        };
+        let Some(node) = self.nodes.get(index) else {
+            return;
+        };
+
+        let mut node_bin_keys = Vec::new();
+        collect_node_rect_bin_keys(node.x(), node.y(), node.card_height(), &mut node_bin_keys);
+        for key in node_bin_keys.iter().copied() {
+            Self::insert_node_id_sorted(
+                &mut cache.node_bins,
+                key,
+                node_id,
+                &self.node_index_lookup,
+            );
+        }
+        cache.node_bin_keys_by_node.insert(node_id, node_bin_keys);
+
+        if let Some((x, y)) = output_pin_center(node) {
+            let key = hit_bin_key_for_point(x, y);
+            Self::insert_node_id_sorted(
+                &mut cache.output_pin_bins,
+                key,
+                node_id,
+                &self.node_index_lookup,
+            );
+            cache.output_pin_bin_key_by_node.insert(node_id, key);
+        }
+        if let Some((x, y)) = input_pin_center(node) {
+            let key = hit_bin_key_for_point(x, y);
+            Self::insert_node_id_sorted(
+                &mut cache.input_pin_bins,
+                key,
+                node_id,
+                &self.node_index_lookup,
+            );
+            cache.input_pin_bin_key_by_node.insert(node_id, key);
+        }
+    }
+
+    fn remove_node_id_from_bin(bins: &mut HashMap<i64, Vec<u32>>, key: i64, node_id: u32) {
+        let mut remove_entry = false;
+        if let Some(ids) = bins.get_mut(&key) {
+            if let Some(index) = ids.iter().position(|existing| *existing == node_id) {
+                ids.remove(index);
+            }
+            remove_entry = ids.is_empty();
+        }
+        if remove_entry {
+            bins.remove(&key);
+        }
+    }
+
+    fn insert_node_id_sorted(
+        bins: &mut HashMap<i64, Vec<u32>>,
+        key: i64,
+        node_id: u32,
+        node_index_lookup: &HashMap<u32, usize>,
+    ) {
+        let ids = bins.entry(key).or_default();
+        if ids.contains(&node_id) {
+            return;
+        }
+        ids.push(node_id);
+        ids.sort_unstable_by_key(|id| node_index_lookup.get(id).copied().unwrap_or(usize::MAX));
     }
 
     pub(crate) fn add_node(
@@ -383,7 +488,7 @@ impl GuiProject {
             }
         };
         if changed {
-            self.invalidate_hit_test_cache();
+            self.apply_incremental_hit_test_cache_for_moved_nodes(&[node_id]);
         }
         changed
     }
@@ -405,6 +510,7 @@ impl GuiProject {
             return false;
         }
         let mut changed = false;
+        let mut moved_node_ids = Vec::with_capacity(node_ids.len());
         for node_id in node_ids.iter().copied() {
             if exclude_node_id == Some(node_id) {
                 continue;
@@ -428,9 +534,10 @@ impl GuiProject {
             node.x = clamped_x;
             node.y = clamped_y;
             changed = true;
+            moved_node_ids.push(node_id);
         }
         if changed {
-            self.invalidate_hit_test_cache();
+            self.apply_incremental_hit_test_cache_for_moved_nodes(moved_node_ids.as_slice());
         }
         changed
     }
