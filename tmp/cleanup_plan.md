@@ -144,7 +144,8 @@ Date: 2026-03-04
     - `scripts/lint/structure_drift_report.sh`
     - `scripts/ci_local.sh`
 
-- [ ] 8. Reduce remaining `dead_code` suppression hotspots
+- [x] 8. Reduce remaining `dead_code` suppression hotspots
+  - Completed: 2026-03-04 (`e22342c`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
