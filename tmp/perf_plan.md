@@ -1,6 +1,6 @@
 # Performance ROI Backlog (Phase 1 Deep Audit)
 
-Status: Phase 1 audit complete. Phase 2 implementation is pending explicit user approval.
+Status: Phase 2 execution active. Items 1-11 complete; item 12 is blocked pending tier-hardware lock runs.
 Date: 2026-03-04
 
 ## Runtime Evidence Summary
@@ -245,3 +245,4 @@ Date: 2026-03-04
     - `scripts/ci_local.sh lock laptop_integrated`
     - `scripts/ci_local.sh validate desktop_mid`
     - `scripts/ci_local.sh validate laptop_integrated`
+  - Blocked: 2026-03-04 on this host (`llvmpipe` software adapter only; hardware GPU required by benchmark/runtime guards).
