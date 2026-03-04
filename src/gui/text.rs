@@ -141,6 +141,30 @@ impl GuiTextRenderer {
         self.glyph_advance(ch, size_key)
     }
 
+    /// Pre-rasterize one bounded ASCII glyph set for the provided text scale.
+    ///
+    /// This reduces first-use interaction hitches by moving glyph cache misses
+    /// into predictable startup work.
+    pub(crate) fn prewarm_ascii_glyphs(&mut self, glyphs: &str, scale: f32) {
+        if self.font.is_none() || glyphs.is_empty() {
+            return;
+        }
+        let size_key = quantized_font_size(scale);
+        let baseline_px = self.metrics_scaled(scale).baseline_px;
+        let mut seen = [false; 128];
+        for ch in glyphs.chars() {
+            if !ch.is_ascii() {
+                continue;
+            }
+            let slot = ch as usize;
+            if slot >= seen.len() || seen[slot] {
+                continue;
+            }
+            seen[slot] = true;
+            let _ = self.cached_glyph(ch, size_key, baseline_px);
+        }
+    }
+
     fn space_advance(&self, size_key: u16) -> i32 {
         self.glyph_advance(' ', size_key).max(1)
     }
@@ -370,6 +394,19 @@ mod tests {
             text.glyph_cache.len(),
             first_len,
             "repeated glyph lookup should reuse cache entry"
+        );
+    }
+
+    #[test]
+    fn prewarm_ascii_glyphs_populates_cache_once_per_ascii_char() {
+        let mut text = GuiTextRenderer::default();
+        text.prewarm_ascii_glyphs("AAaA1!", 1.0);
+        let first_len = text.glyph_cache.len();
+        text.prewarm_ascii_glyphs("AAaA1!", 1.0);
+        assert_eq!(
+            text.glyph_cache.len(),
+            first_len,
+            "prewarm should not duplicate cached glyph entries"
         );
     }
 }

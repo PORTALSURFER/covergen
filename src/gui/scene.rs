@@ -51,6 +51,9 @@ use wires::{
     PARAM_WIRE_ENTRY_TAIL_PX, PARAM_WIRE_EXIT_TAIL_PX, WIRE_ENDPOINT_RADIUS_PX,
 };
 
+const SCENE_TEXT_PREWARM_ASCII: &str =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:+-*/=%()[]{}<>!?@#\"'_|\\/";
+
 /// RGBA color with normalized float channels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Color {
@@ -229,6 +232,7 @@ pub(crate) struct SceneBuilder {
     bridge_crossings_scratch: Vec<f32>,
     bridge_clusters_scratch: Vec<(f32, f32)>,
     bridge_points_scratch: Vec<(i32, i32)>,
+    text_glyphs_prewarmed: bool,
     frame_alloc_bytes: u64,
     was_dragging: bool,
 }
@@ -244,6 +248,11 @@ impl SceneBuilder {
         panel_width: usize,
         timeline_fps: u32,
     ) -> &SceneFrame {
+        if !self.text_glyphs_prewarmed {
+            self.text_renderer
+                .prewarm_ascii_glyphs(SCENE_TEXT_PREWARM_ASCII, 1.0);
+            self.text_glyphs_prewarmed = true;
+        }
         self.frame.clear = Some(PREVIEW_BG);
         self.frame.export_preview_rect = state
             .export_menu

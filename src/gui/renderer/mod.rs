@@ -37,6 +37,7 @@ const HUD_TEXT: Color = Color::argb(0xFFE8E8E8);
 const HUD_TEXT_WARN: Color = Color::argb(0xFFFF4D4D);
 const HUD_TARGET_FPS: f32 = 60.0;
 const GUI_READBACK_MAP_WAIT_TIMEOUT_MS: u64 = 2_000;
+const HUD_TEXT_PREWARM_ASCII: &str = "FPS:.0123456789";
 
 /// One async tex-preview readback request tracked across frames.
 struct PendingTexPreviewReadback {
@@ -418,6 +419,8 @@ impl GuiRenderer {
             "gui.startup.renderer.pipeline_setup",
             pipeline_begin.elapsed(),
         );
+        let mut hud_text = GuiTextRenderer::default();
+        hud_text.prewarm_ascii_glyphs(HUD_TEXT_PREWARM_ASCII, 1.0);
 
         Ok(Self {
             surface,
@@ -437,7 +440,7 @@ impl GuiRenderer {
             timeline_geometry,
             hud_geometry,
             hud_layer: SceneLayer::default(),
-            hud_text: GuiTextRenderer::default(),
+            hud_text,
             hud_label: String::with_capacity(24),
             cached_hud_key: None,
             main_pass_timestamps,
