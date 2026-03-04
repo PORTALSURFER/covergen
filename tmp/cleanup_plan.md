@@ -11,7 +11,7 @@ Date: 2026-03-04
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Decompose GUI frame orchestration (`GuiApp::redraw`) into explicit phases
+- [x] 1. Decompose GUI frame orchestration (`GuiApp::redraw`) into explicit phases _(done 2026-03-04, commit 1d9f144)_
   - ROI: High
   - Effort: L
   - Why it matters:
