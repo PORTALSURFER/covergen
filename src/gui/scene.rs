@@ -8,6 +8,7 @@
 mod layers;
 mod layout;
 mod menus;
+mod route_context;
 mod signal_scope;
 mod style;
 mod timeline_helpers;
@@ -23,7 +24,7 @@ use super::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_expand_toggle_rect,
     node_param_dropdown_rect, node_param_row_rect, node_param_value_rect, output_pin_center,
     pin_rect, GuiProject, ProjectNode, ResourceKind, SignalEvalPath, SignalEvalStack,
-    SignalSampleMemo, NODE_WIDTH,
+    SignalSampleMemo,
 };
 use super::state::{
     AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
@@ -36,6 +37,10 @@ use layout::*;
 use menus::{
     FittedLabelCacheBucketKey, FITTED_LABEL_CACHE_MAX_BUCKETS,
     FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET,
+};
+use route_context::{
+    collect_graph_node_obstacles, edge_route_obstacle_epoch, param_route_obstacle_epoch,
+    wire_drag_source_kind,
 };
 use signal_scope::{
     signal_scope_range, signal_scope_y, SignalScopeCacheEntry, SignalScopeRecomputeConfig,
@@ -2016,49 +2021,6 @@ impl SceneBuilder {
             .frame_alloc_bytes
             .saturating_add((rect_growth + line_growth) as u64);
     }
-}
-
-fn collect_graph_node_obstacles(project: &GuiProject) -> Vec<wire_route::NodeObstacle> {
-    let mut out = Vec::new();
-    for node in project.nodes() {
-        out.push(wire_route::NodeObstacle {
-            rect: Rect::new(node.x(), node.y(), NODE_WIDTH, node.card_height()),
-        });
-    }
-    out
-}
-
-/// Return obstacle epoch used to invalidate cached parameter-wire routes.
-///
-/// The obstacle field is defined by node layout in graph space, not wire hover
-/// or transient overlay states. While a node drag is active we intentionally
-/// freeze this epoch so expensive route recomputation happens once on drop.
-fn param_route_obstacle_epoch(
-    project: &GuiProject,
-    state: &PreviewState,
-    cached_epoch: Option<u64>,
-) -> u64 {
-    let layout_epoch = project.invalidation().nodes;
-    if state.drag.is_some() {
-        return cached_epoch.unwrap_or(layout_epoch);
-    }
-    layout_epoch
-}
-
-/// Return obstacle epoch used to invalidate cached primary-edge routes.
-///
-/// Primary routes depend on node obstacle layout only; pan/zoom remapping is
-/// applied after graph-space routing and does not invalidate this cache.
-fn edge_route_obstacle_epoch(project: &GuiProject) -> u64 {
-    project.invalidation().nodes
-}
-
-fn wire_drag_source_kind(
-    project: &GuiProject,
-    wire: super::state::WireDragState,
-) -> Option<ResourceKind> {
-    let source = project.node(wire.source_node_id)?;
-    source.kind().output_resource_kind()
 }
 
 #[cfg(test)]
