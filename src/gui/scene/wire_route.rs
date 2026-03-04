@@ -9,7 +9,7 @@ use crate::gui::geometry::Rect;
 use crate::gui::project::NODE_GRID_PITCH;
 use std::cell::RefCell;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 const GRID_PITCH_PX: i32 = NODE_GRID_PITCH;
 const ROUTE_PADDING_CELLS: i32 = 6;
@@ -19,6 +19,7 @@ const ENDPOINT_TAIL_CELLS: i32 = 2;
 pub(crate) const DEFAULT_ENDPOINT_TAIL_CELLS: i32 = ENDPOINT_TAIL_CELLS;
 const MAX_GRID_CELLS: usize = 48_000;
 const SEARCH_OBSTACLE_WINDOW_CELLS: [i32; 3] = [24, 48, 96];
+const OBSTACLE_BIN_SIZE_PX: i32 = 256;
 
 const STEP_CARDINAL_COST: i32 = 10;
 const STEP_DIAGONAL_COST: i32 = 14;
@@ -106,13 +107,16 @@ pub(crate) struct RouteEndpoint {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RouteObstacleMap {
     blocked_rects: Vec<Rect>,
+    obstacle_bins: HashMap<(i32, i32), Vec<usize>>,
 }
 
 impl RouteObstacleMap {
     /// Build one reusable obstacle map from graph-space node obstacles.
     pub(crate) fn from_obstacles(obstacles: &[NodeObstacle]) -> Self {
+        let blocked_rects = collect_blocked_rects(obstacles);
         Self {
-            blocked_rects: collect_blocked_rects(obstacles),
+            obstacle_bins: index_obstacle_bins(blocked_rects.as_slice()),
+            blocked_rects,
         }
     }
 }
@@ -283,12 +287,8 @@ fn route_wire_path_internal(
     ROUTE_SEARCH_WORKSPACE.with(|workspace| {
         let mut workspace = workspace.borrow_mut();
         for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
-            let blocked_rects = collect_search_blocked_rects(
-                obstacle_map.blocked_rects.as_slice(),
-                start_point,
-                end_point,
-                window_cells,
-            );
+            let blocked_rects =
+                collect_search_blocked_rects(obstacle_map, start_point, end_point, window_cells);
             let Some(mut grid) =
                 SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
             else {
@@ -482,11 +482,12 @@ fn fallback_octilinear(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
 }
 
 fn collect_search_blocked_rects(
-    blocked_rects: &[Rect],
+    obstacle_map: &RouteObstacleMap,
     start: (i32, i32),
     end: (i32, i32),
     window_cells: i32,
 ) -> Vec<Rect> {
+    let blocked_rects = obstacle_map.blocked_rects.as_slice();
     let pad = window_cells.max(ROUTE_PADDING_CELLS) * GRID_PITCH_PX;
     let min_x = start.0.min(end.0) - pad;
     let min_y = start.1.min(end.1) - pad;
@@ -494,12 +495,62 @@ fn collect_search_blocked_rects(
     let max_y = start.1.max(end.1) + pad;
     let search_bounds = Rect::new(min_x, min_y, (max_x - min_x).max(1), (max_y - min_y).max(1));
     let mut out = Vec::new();
-    for rect in blocked_rects {
-        if rects_overlap(*rect, search_bounds) {
-            out.push(*rect);
+    if obstacle_map.obstacle_bins.is_empty() {
+        for rect in blocked_rects {
+            if rects_overlap(*rect, search_bounds) {
+                out.push(*rect);
+            }
+        }
+        return out;
+    }
+
+    let search_max_x = search_bounds
+        .x
+        .saturating_add(search_bounds.w.saturating_sub(1));
+    let search_max_y = search_bounds
+        .y
+        .saturating_add(search_bounds.h.saturating_sub(1));
+    let mut candidate_indices = Vec::new();
+    for by in obstacle_bin_coord(search_bounds.y)..=obstacle_bin_coord(search_max_y) {
+        for bx in obstacle_bin_coord(search_bounds.x)..=obstacle_bin_coord(search_max_x) {
+            let Some(indices) = obstacle_map.obstacle_bins.get(&(bx, by)) else {
+                continue;
+            };
+            candidate_indices.extend(indices.iter().copied());
+        }
+    }
+    candidate_indices.sort_unstable();
+    candidate_indices.dedup();
+    for index in candidate_indices {
+        let Some(rect) = blocked_rects.get(index).copied() else {
+            continue;
+        };
+        if rects_overlap(rect, search_bounds) {
+            out.push(rect);
         }
     }
     out
+}
+
+fn index_obstacle_bins(blocked_rects: &[Rect]) -> HashMap<(i32, i32), Vec<usize>> {
+    let mut bins = HashMap::new();
+    for (index, rect) in blocked_rects.iter().copied().enumerate() {
+        if rect.w <= 0 || rect.h <= 0 {
+            continue;
+        }
+        let max_x = rect.x.saturating_add(rect.w.saturating_sub(1));
+        let max_y = rect.y.saturating_add(rect.h.saturating_sub(1));
+        for by in obstacle_bin_coord(rect.y)..=obstacle_bin_coord(max_y) {
+            for bx in obstacle_bin_coord(rect.x)..=obstacle_bin_coord(max_x) {
+                bins.entry((bx, by)).or_insert_with(Vec::new).push(index);
+            }
+        }
+    }
+    bins
+}
+
+fn obstacle_bin_coord(value: i32) -> i32 {
+    value.div_euclid(OBSTACLE_BIN_SIZE_PX)
 }
 
 fn rects_overlap(a: Rect, b: Rect) -> bool {
