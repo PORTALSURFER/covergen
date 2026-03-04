@@ -20,3 +20,4 @@ src/gui/tex_view.rs
 
 # Stage 4: GUI runtime bridge surface
 src/gui/runtime/compile_stage.rs
+src/gui/runtime.rs
