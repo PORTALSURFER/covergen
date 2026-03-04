@@ -6,7 +6,7 @@ report_dir="${repo_root}/target/ci"
 report_file="${report_dir}/structure_drift_report.txt"
 thresholds_file_default="${repo_root}/docs/v2/benchmarks/structure_drift.thresholds.ini"
 thresholds_file="${COVERGEN_STRUCTURE_DRIFT_THRESHOLDS_FILE:-${thresholds_file_default}}"
-gate_mode="${COVERGEN_STRUCTURE_DRIFT_GATE:-off}"
+gate_mode="${COVERGEN_STRUCTURE_DRIFT_GATE:-warn}"
 
 max_file_lines=400
 max_oversized_files=40

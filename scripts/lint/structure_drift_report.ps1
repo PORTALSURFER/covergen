@@ -10,7 +10,7 @@ $thresholdsFile = if ($env:COVERGEN_STRUCTURE_DRIFT_THRESHOLDS_FILE) {
 } else {
     $defaultThresholdsFile
 }
-$gateMode = if ($env:COVERGEN_STRUCTURE_DRIFT_GATE) { $env:COVERGEN_STRUCTURE_DRIFT_GATE } else { "off" }
+$gateMode = if ($env:COVERGEN_STRUCTURE_DRIFT_GATE) { $env:COVERGEN_STRUCTURE_DRIFT_GATE } else { "warn" }
 
 $maxFileLines = 400
 $maxOversizedFiles = 40
