@@ -111,6 +111,40 @@ fn scrub_continues_while_left_down_after_alt_release() {
 }
 
 #[test]
+fn scrub_stops_when_mouse_released_even_if_alt_still_down() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_value_rect(node, 0).expect("value rect exists")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let start = InputSnapshot {
+        alt_down: true,
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (_, consumed_start) = handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(state.param_scrub.is_some());
+
+    let release = InputSnapshot {
+        alt_down: true,
+        left_down: false,
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_release, consumed_release) =
+        handle_alt_param_drag(&release, &mut project, 420, 480, &mut state);
+    assert!(consumed_release);
+    assert!(changed_release);
+    assert!(state.param_scrub.is_none());
+}
+
+#[test]
 fn alt_drag_over_param_value_starts_when_param_edit_is_active() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);

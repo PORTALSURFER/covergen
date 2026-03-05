@@ -361,7 +361,7 @@ fn handle_alt_param_drag(
     }
 
     if let Some(mut scrub) = state.param_scrub {
-        if !input.alt_down {
+        if !pointer_down || !input.alt_down {
             state.debug_scrub_code = 20;
             state.param_scrub = None;
             return (true, true);
