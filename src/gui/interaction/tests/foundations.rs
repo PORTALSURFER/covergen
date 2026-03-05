@@ -181,6 +181,49 @@ fn apply_preview_actions_alt_hover_change_invalidates_overlays_for_debug_hud() {
 }
 
 #[test]
+fn apply_preview_actions_keeps_param_scrub_active_after_start() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_value_rect(node, 0).expect("value rect exists")
+    };
+    let mut state = PreviewState::new(&config);
+
+    let start = InputSnapshot {
+        alt_down: true,
+        left_down: true,
+        left_clicked: true,
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        start,
+        &mut project,
+        &mut state,
+    ));
+    assert!(state.param_scrub.is_some(), "scrub should start on click");
+
+    let keep_active = InputSnapshot {
+        alt_down: true,
+        left_down: true,
+        mouse_pos: Some((value_rect.x + 4, value_rect.y + value_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        keep_active,
+        &mut project,
+        &mut state,
+    ));
+    assert!(state.param_scrub.is_some(), "scrub should persist across frames");
+    assert_eq!(state.debug_scrub_code, 23);
+}
+
+#[test]
 fn insert_param_char_replaces_selection() {
     let mut edit = ParamEditState {
         node_id: 7,

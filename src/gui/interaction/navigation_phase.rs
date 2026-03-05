@@ -50,7 +50,9 @@ pub(super) fn apply_navigation_phase(
         state.link_cut = None;
         state.hover_param_target = None;
         state.hover_param = None;
-        clear_param_edit_state(state);
+        state.param_edit = None;
+        state.param_dropdown = None;
+        state.hover_dropdown_item = None;
         clear_timeline_edit_state(state);
         let _ = collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
         return InteractionPhaseControl::Finish(true);
