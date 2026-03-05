@@ -294,6 +294,31 @@ fn alt_cut_does_not_start_while_param_edit_is_active() {
 }
 
 #[test]
+fn alt_cut_does_not_start_while_alt_hover_targets_scrubbable_param() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let row_rect = {
+        let node = project.node(solid).expect("solid node should exist");
+        node_param_row_rect(node, 0).expect("row rect should exist")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.hover_alt_param = Some(HoverParamTarget {
+        node_id: solid,
+        param_index: 0,
+    });
+    let input = InputSnapshot {
+        alt_down: true,
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((row_rect.x + row_rect.w + 24, row_rect.y + row_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(!handle_link_cut(&input, &mut project, 420, 480, &mut state));
+    assert!(state.link_cut.is_none());
+}
+
+#[test]
 fn add_menu_toggle_shortcut_does_not_seed_query_text() {
     let config = V2Config::parse(Vec::new()).expect("config");
     let mut project = GuiProject::new_empty(640, 480);

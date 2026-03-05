@@ -379,6 +379,7 @@ fn handle_alt_param_drag(
         return (false, false);
     }
     let target = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
+        .or_else(|| hover_alt_param_scrub_target(project, state))
         .or_else(|| active_param_edit_scrub_target(project, state));
     let Some(target) = target else {
         return (false, false);
@@ -419,6 +420,21 @@ fn active_param_edit_scrub_target(
         node_id: edit.node_id,
         param_index: edit.param_index,
     })
+}
+
+/// Return Alt-hover target when it is still a valid scrubbable parameter.
+fn hover_alt_param_scrub_target(
+    project: &GuiProject,
+    state: &PreviewState,
+) -> Option<HoverParamTarget> {
+    let target = state.hover_alt_param?;
+    if !project.node_expanded(target.node_id) {
+        return None;
+    }
+    if !project.param_supports_text_edit(target.node_id, target.param_index) {
+        return None;
+    }
+    Some(target)
 }
 
 fn scrubbable_param_at_cursor(
@@ -690,6 +706,7 @@ fn handle_link_cut(
         && input.left_clicked
         && state.param_scrub.is_none()
         && state.param_edit.is_none()
+        && state.hover_alt_param.is_none()
         && !state.menu.open
         && !state.main_menu.open
         && !state.export_menu.open

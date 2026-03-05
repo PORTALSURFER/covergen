@@ -239,6 +239,35 @@ fn alt_drag_starts_from_active_param_edit_when_cursor_is_off_row() {
 }
 
 #[test]
+fn alt_drag_starts_from_hover_target_when_cursor_is_slightly_off_row() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let row_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_row_rect(node, 0).expect("row rect exists")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.hover_alt_param = Some(HoverParamTarget {
+        node_id: solid,
+        param_index: 0,
+    });
+
+    let start = InputSnapshot {
+        alt_down: true,
+        left_down: true,
+        left_clicked: true,
+        mouse_pos: Some((row_rect.x + row_rect.w + 24, row_rect.y + row_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_start, consumed_start) =
+        handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(changed_start || state.active_node == Some(solid));
+    assert!(state.param_scrub.is_some());
+}
+
+#[test]
 fn alt_hover_marks_scrubbable_param_target() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
