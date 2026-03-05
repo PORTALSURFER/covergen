@@ -741,7 +741,9 @@ impl TexPreviewRenderer {
 #[cfg(test)]
 mod tests {
     use super::{FeedbackHistoryKey, TexOpUniform};
-    use crate::gui::runtime::{TexRuntimeFeedbackHistoryBinding, TexRuntimeOp};
+    use crate::gui::runtime::{
+        PostProcessCategory, TexRuntimeFeedbackHistoryBinding, TexRuntimeOp,
+    };
 
     #[test]
     fn feedback_history_key_maps_internal_and_external_bindings() {
@@ -822,5 +824,37 @@ mod tests {
         assert_eq!(uniform.p2, [0.7, 0.1, 0.5, 0.85]);
         assert_eq!(uniform.p3, [0.6, 2.5, 0.8, 0.45]);
         assert_eq!(uniform.p4, [0.35, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn post_process_uniform_category_ids_match_shader_contract() {
+        let cases = [
+            (PostProcessCategory::ColorTone, 0.0),
+            (PostProcessCategory::EdgeStructure, 1.0),
+            (PostProcessCategory::BlurDiffusion, 2.0),
+            (PostProcessCategory::Distortion, 3.0),
+            (PostProcessCategory::Temporal, 4.0),
+            (PostProcessCategory::NoiseTexture, 5.0),
+            (PostProcessCategory::Lighting, 6.0),
+            (PostProcessCategory::ScreenSpace, 7.0),
+            (PostProcessCategory::Experimental, 8.0),
+        ];
+        for (category, expected_category_id) in cases {
+            let uniform = TexOpUniform::post_process(TexRuntimeOp::PostProcess {
+                category,
+                effect: 3.0,
+                amount: 0.45,
+                scale: 1.25,
+                threshold: 0.35,
+                speed: 2.0,
+                time: 9.5,
+                history: None,
+            });
+            assert_eq!(uniform.p0[0], expected_category_id);
+            assert_eq!(uniform.p0[1], 3.0);
+            assert_eq!(uniform.p0[2], 0.45);
+            assert_eq!(uniform.p0[3], 1.25);
+            assert_eq!(uniform.p1, [0.35, 2.0, 9.5, 0.0]);
+        }
     }
 }
