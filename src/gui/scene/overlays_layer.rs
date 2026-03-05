@@ -1,6 +1,7 @@
 //! Overlay-layer geometry composition helpers for [`SceneBuilder`].
 
 use super::*;
+use crate::gui::state::HoverParamTarget;
 use std::fmt::Write as _;
 
 impl SceneBuilder {
@@ -24,6 +25,7 @@ impl SceneBuilder {
         self.push_main_menu(state);
         self.push_export_menu(state);
         self.push_help_modal(state, panel_width, panel_height);
+        self.push_interaction_debug_hud(state);
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Overlays));
     }
 
@@ -350,6 +352,37 @@ impl SceneBuilder {
         }
     }
 
+    fn push_interaction_debug_hud(&mut self, state: &PreviewState) {
+        let mode = if state.param_scrub.is_some() {
+            "SCRUB"
+        } else if state.link_cut.is_some() {
+            "CUT"
+        } else {
+            "NONE"
+        };
+        let hover_alt = format_hover_param_target(state.hover_alt_param);
+        let scrub = state.param_scrub.map_or_else(
+            || "-".to_string(),
+            |scrub| format!("n{}:p{}", scrub.node_id, scrub.param_index),
+        );
+        let mut debug_line = String::new();
+        let _ = write!(
+            &mut debug_line,
+            "DBG mode={mode} alt={} lmb={} click={} hover_alt={} scrub={} cut={} edit={}",
+            bool_flag(state.debug_input_alt_down),
+            bool_flag(state.debug_input_left_down),
+            bool_flag(state.debug_input_left_clicked),
+            hover_alt,
+            scrub,
+            bool_flag(state.link_cut.is_some()),
+            bool_flag(state.param_edit.is_some()),
+        );
+        let rect = Rect::new(8, 8, 560, 20);
+        self.push_rect(rect, MENU_BG);
+        self.push_border(rect, MENU_BORDER);
+        self.push_text(rect.x + 6, rect.y + 6, debug_line.as_str(), HELP_HINT);
+    }
+
     fn push_link_cut(&mut self, state: &PreviewState) {
         let Some(cut) = state.link_cut else {
             return;
@@ -425,4 +458,19 @@ impl SceneBuilder {
             self.push_straight_wire_with_round_caps(x0, y0, x1, y1, PIN_HOVER);
         }
     }
+}
+
+fn bool_flag(value: bool) -> u8 {
+    if value {
+        1
+    } else {
+        0
+    }
+}
+
+fn format_hover_param_target(target: Option<HoverParamTarget>) -> String {
+    target.map_or_else(
+        || "-".to_string(),
+        |target| format!("n{}:p{}", target.node_id, target.param_index),
+    )
 }

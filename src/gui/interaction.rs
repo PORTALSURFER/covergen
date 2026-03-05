@@ -100,6 +100,19 @@ fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut Pre
     }
 }
 
+fn sync_debug_input_flags(input: &InputSnapshot, state: &mut PreviewState) -> bool {
+    let changed = state.debug_input_alt_down != input.alt_down
+        || state.debug_input_left_down != input.left_down
+        || state.debug_input_left_clicked != input.left_clicked;
+    if !changed {
+        return false;
+    }
+    state.debug_input_alt_down = input.alt_down;
+    state.debug_input_left_down = input.left_down;
+    state.debug_input_left_clicked = input.left_clicked;
+    true
+}
+
 use self::state_reset::{
     cancel_node_interaction_modes, clear_param_edit_state, clear_param_hover_state,
     clear_pointer_interactions, clear_timeline_edit_state, close_primary_menus,
@@ -220,6 +233,10 @@ pub(crate) fn apply_preview_actions(
 ) -> bool {
     let panel_ctx = context.panel_context();
     let mut changed = begin_interaction_frame(context.config, &input, project, state);
+    if sync_debug_input_flags(&input, state) {
+        state.invalidation.invalidate_overlays();
+        changed = true;
+    }
 
     if let InteractionPhaseControl::Finish(result) = apply_help_and_timeline_phase(
         &input,

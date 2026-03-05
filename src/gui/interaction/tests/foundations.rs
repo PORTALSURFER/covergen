@@ -109,6 +109,29 @@ fn apply_preview_actions_hover_updates_invalidate_only_nodes_when_overlay_state_
 }
 
 #[test]
+fn apply_preview_actions_debug_input_flag_change_invalidates_overlays() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let mut state = PreviewState::new(&config);
+    let before = state.invalidation;
+    let input = InputSnapshot {
+        alt_down: true,
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        input,
+        &mut project,
+        &mut state,
+    ));
+    assert!(state.debug_input_alt_down);
+    assert!(
+        state.invalidation.overlays != before.overlays,
+        "debug HUD input flags should invalidate overlays when they change"
+    );
+}
+
+#[test]
 fn insert_param_char_replaces_selection() {
     let mut edit = ParamEditState {
         node_id: 7,

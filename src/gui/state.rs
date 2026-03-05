@@ -266,6 +266,12 @@ pub(crate) struct PreviewState {
     pub(crate) pending_app_action: Option<PendingAppAction>,
     pub(crate) request_new_project: bool,
     pub(crate) help_modal: Option<HelpModalContent>,
+    /// Last processed `Alt` modifier state for interaction debug overlay.
+    pub(crate) debug_input_alt_down: bool,
+    /// Last processed left-button held state for interaction debug overlay.
+    pub(crate) debug_input_left_down: bool,
+    /// Last processed left-button edge click state for interaction debug overlay.
+    pub(crate) debug_input_left_clicked: bool,
     pub(crate) invalidation: GuiInvalidation,
 }
 
@@ -315,6 +321,9 @@ impl PreviewState {
             pending_app_action: None,
             request_new_project: false,
             help_modal: None,
+            debug_input_alt_down: false,
+            debug_input_left_down: false,
+            debug_input_left_clicked: false,
             invalidation: GuiInvalidation::initial_dirty(),
         }
     }
