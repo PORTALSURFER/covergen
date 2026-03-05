@@ -46,7 +46,7 @@ foreach ($raw in Get-Content -Path $manifestPath) {
         $isField = $line -match '^\s*pub(\(crate\))?\s+[A-Za-z_][A-Za-z0-9_]*\s*:'
 
         if (($isItem -or $isField) -and -not $sawDoc) {
-            $errors += "$relPath:$($i + 1) missing doc comment for '$($line.Trim())'"
+            $errors += "${relPath}:$($i + 1) missing doc comment for '$($line.Trim())'"
         }
 
         $sawDoc = $false

@@ -1,194 +1,181 @@
 # Cleanup ROI Backlog
 
-Status: Phase 2 complete (all ROI-ordered items implemented and validated).
-Date: 2026-03-04
+Status: Phase 2 in progress; items are being implemented in strict ROI order.
+Date: 2026-03-05
 
 ## Context Snapshot
-- Language/tooling: Rust (`cargo`), `wgpu`, Bash + PowerShell helper scripts.
-- Canonical local CI command: `scripts/ci_local.sh validate laptop_integrated`.
+- Language/tooling: Rust (`cargo`) with `wgpu`, plus Bash/PowerShell automation scripts.
+- Canonical local CI command (authoritative): `scripts/ci_local.sh validate laptop_integrated`.
 - Windows equivalent: `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`.
-- Audit inputs: `AGENTS.md`, `README.md`, `MEMORY.md`, `docs/plans/active/todo.md`, `docs/plans/index.md`, `scripts/lib/ci_local_steps.tsv`, `target/ci/structure_drift_report.txt`.
+- Audit inputs: `AGENTS.md`, `README.md`, `MEMORY.md`, `docs/plans/active/todo.md`, `docs/plans/index.md`, `docs/README.md`, `Cargo.toml`, and current `src/` + `scripts/` implementation.
 
 ## ROI-Ordered Backlog
 
-- [x] 1. Split `gui::scene` retained-layer assembly into smaller layer modules
-  - Completed: 2026-03-04 (`4a4f934`)
+- [x] 1. Fix Windows structure-drift lint script parse failure
+  - Completed: 2026-03-05 (pending commit hash)
+  - ROI: High
+  - Effort: S
+  - Why it matters:
+    - Windows-first local CI currently has a hard parser failure in the structure-drift stage, reducing trust in the canonical CI flow.
+  - Evidence:
+    - `pwsh -File scripts/lint/structure_drift_report.ps1` fails with `ParserError`.
+    - Problematic interpolated strings: `scripts/lint/structure_drift_report.ps1:59`, `scripts/lint/structure_drift_report.ps1:68`.
+    - This script is part of CI steps: `scripts/lib/ci_local_steps.tsv` (`structure drift report (warn gate)`).
+  - Recommended change:
+    - Fix PowerShell string interpolation (`${relative}` or `-f` formatting) and add a minimal script smoke test path in CI to prevent recurrence.
+  - Risk/tradeoffs:
+    - Low risk; localized script fix.
+  - Suggested validation:
+    - `pwsh -File scripts/lint/structure_drift_report.ps1`
+    - `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`
+
+- [ ] 2. Eliminate parameter-key drift risk by removing raw string literals from default param builders
+  - ROI: High
+  - Effort: M
+  - Why it matters:
+    - Runtime compilation uses canonical schema keys, but several default-parameter builders still hardcode string keys, creating silent mismatch risk during refactors.
+  - Evidence:
+    - Raw key literals in defaults: `src/gui/project/params/defaults/buffer.rs:5-37`, `src/gui/project/params/defaults/scene.rs:5-13`, `src/gui/project/params/defaults/texture.rs:5-171`.
+    - Canonical schema keys exist in `src/gui/project/param_schema.rs` (for example `solid`, `circle`, `buffer_noise`, `scene_entity`).
+  - Recommended change:
+    - Replace raw key strings with `param_schema::*` constants everywhere practical.
+    - Add/extend a test asserting every default slot key is present in the corresponding schema key list.
+  - Risk/tradeoffs:
+    - Medium risk if persisted compatibility keys (notably feedback history) are handled incorrectly.
+  - Suggested validation:
+    - `cargo test -q gui::project::tests --bin covergen`
+    - `cargo test -q gui::runtime::tests --bin covergen`
+
+- [ ] 3. Unify node-kind metadata into one source-of-truth registry used by menu/style/runtime compile
   - ROI: High
   - Effort: L
   - Why it matters:
-    - Scene construction remains the largest editor hotspot and still concentrates multiple layer concerns in one file.
-    - Large cross-domain methods increase regression risk and slow targeted optimization work.
+    - Node-kind information is duplicated across multiple static tables/matches, increasing drift risk whenever a node kind is added or changed.
   - Evidence:
-    - `src/gui/scene.rs` is 2521 LOC (`target/ci/structure_drift_report.txt`).
-    - Large layer methods remain in the same unit: `push_edges` (`src/gui/scene.rs:491`), `push_node_params` (`src/gui/scene.rs:972`), `push_param_links` (`src/gui/scene.rs:1575`).
+    - Registry table: `src/gui/project.rs:237` (`PROJECT_NODE_KIND_DESCRIPTORS`, 25 entries).
+    - Separate add-menu table: `src/gui/state/add_menu.rs:71` (`ADD_NODE_OPTIONS`, 25 entries).
+    - Separate runtime compile dispatch match: `src/gui/runtime/compile_stage.rs:40-357`.
+    - Separate style mapping match: `src/gui/scene/style.rs:80-115`.
   - Recommended change:
-    - Extract dedicated modules for node-parameter rows, edge wiring, and param-link rendering.
-    - Keep `scene.rs` focused on orchestration, cache ownership, and invalidation boundaries.
+    - Define shared metadata accessors keyed by `ProjectNodeKind` and derive menu grouping/compile behavior/style tags from centralized data.
+    - Keep behavior-specific transforms (for example compile dependency rules) layered on top of shared metadata.
   - Risk/tradeoffs:
-    - Medium risk around invalidation epoch ordering and retained-layer dirty flags.
+    - Medium risk during migration due to broad call-site touch points.
+  - Suggested validation:
+    - `cargo test -q gui::state::main_menu::tests --bin covergen`
+    - `cargo test -q gui::runtime::compile_stage::tests --bin covergen`
+    - `cargo test -q gui::interaction::tests --bin covergen`
+
+- [ ] 4. Continue decomposition of oversized GUI orchestration units (`scene` and `interaction`)
+  - ROI: High
+  - Effort: L
+  - Why it matters:
+    - These are high-churn modules with long functions and broad state coupling, making regressions likely and reviews expensive.
+  - Evidence:
+    - File sizes: `src/gui/scene.rs` (2027 LOC), `src/gui/interaction.rs` (1176 LOC).
+    - Long functions: `push_signal_scope` (`src/gui/scene.rs:539`), `sample_signal_scope_values` (`src/gui/scene.rs:642`), `collect_cut_links_for_target` (`src/gui/interaction.rs:973`).
+    - Repo-level complexity signal: 228 functions over 30 lines and 39 over 60 lines (current scan).
+  - Recommended change:
+    - Extract remaining large paths into focused submodules (signal-scope sampling, overlay/menu drawing, link-cut routing).
+    - Introduce small context structs to reduce argument counts and ownership ambiguity.
+  - Risk/tradeoffs:
+    - Medium risk of interaction precedence and retained-layer invalidation regressions.
   - Suggested validation:
     - `cargo test -q gui::scene::tests --bin covergen`
     - `cargo test -q gui::interaction::tests --bin covergen`
-    - `scripts/ci_local.sh`
 
-- [x] 2. Refactor `gui/project/params.rs` to eliminate mega-builder complexity
-  - Completed: 2026-03-04 (`5408e86`)
-  - ROI: High
-  - Effort: L
-  - Why it matters:
-    - Default parameter schema construction and slot mapping remain centralized in a single oversized module.
-    - Parameter additions are brittle because schema, dropdown behavior, and key mapping are tightly coupled.
-  - Evidence:
-    - `src/gui/project/params.rs` is 1470 LOC (`target/ci/structure_drift_report.txt`).
-    - Long hot-path methods: `node_param_slot_index` (`src/gui/project/params.rs:640`) and large default-parameter builder block around `src/gui/project/params.rs:838`.
-  - Recommended change:
-    - Split per-node-family parameter builders into focused submodules and keep one typed registry table.
-    - Preserve persisted-key compatibility and dropdown option mappings.
-  - Risk/tradeoffs:
-    - Medium risk of persisted-project key drift if migration guards are missed.
-  - Suggested validation:
-    - `cargo test -q gui::project::tests --bin covergen`
-    - `cargo test -q gui::runtime::tests --bin covergen`
-    - `scripts/ci_local.sh`
-
-- [x] 3. Decompose `gui/runtime.rs` evaluator surface and move inline tests into focused files
-  - Completed: 2026-03-04 (`733df8a`)
+- [ ] 5. Externalize tex-preview WGSL and split post-process shader logic from embedded Rust string
   - ROI: High
   - Effort: M
   - Why it matters:
-    - Runtime evaluate/emit logic still spans many concerns in one file (scene assembly, feedback, post-processing, output sizing).
-    - Inline tests inflate the production file and make behavior-specific maintenance harder.
+    - A very large embedded shader string and monolithic fragment logic are hard to review and easy to break while adding effects.
   - Evidence:
-    - `src/gui/runtime.rs` is 1809 LOC (`target/ci/structure_drift_report.txt`).
-    - Emission complexity is concentrated in long functions: `update_noise_mesh` (`src/gui/runtime.rs:520`), `emit_scene_pass` (`src/gui/runtime.rs:645`), `emit_feedback` (`src/gui/runtime.rs:778`), `emit_post_process` (`src/gui/runtime.rs:839`).
-    - Inline `mod tests` begins at `src/gui/runtime.rs:1035`.
+    - Embedded shader constant: `src/gui/renderer/tex_preview/pipeline.rs:81-651`.
+    - Long shader branch function (`fs_post_process`): `src/gui/renderer/tex_preview/pipeline.rs:434-594`.
+    - Current tests only assert entry-point text presence: `src/gui/renderer/tex_preview/pipeline.rs:657-684`.
   - Recommended change:
-    - Extract emitters by operator family into submodules and split tests into `runtime/tests/*` behavior files.
-    - Keep `runtime.rs` as compile/evaluate coordination layer.
+    - Move WGSL to dedicated `.wgsl` asset(s) and load/include them cleanly.
+    - Split post-process categories into helper WGSL functions and expand tests to validate effect/category mappings at host side.
   - Risk/tradeoffs:
-    - Medium risk of subtle op-order changes that affect preview determinism.
+    - Medium risk of shader compile/runtime binding regressions if entry points or bindings drift.
   - Suggested validation:
-    - `cargo test -q gui::runtime::tests --bin covergen`
-    - `cargo test v2_animation_movie_quality_metrics_within_bounds`
-    - `scripts/ci_local.sh`
-
-- [x] 4. Continue modularization of tex-preview execution path
-  - Completed: 2026-03-04 (`d2a8ed0`)
-  - ROI: High
-  - Effort: M
-  - Why it matters:
-    - Op planning, uniform encoding, pass encoding, and feedback history lifecycle still share one large execution unit.
-    - This remains a high-churn rendering path where accidental behavior drift is costly.
-  - Evidence:
-    - `src/gui/renderer/tex_preview/execution.rs` is 1607 LOC.
-    - Complex methods: `dispatch_planned_step` (`src/gui/renderer/tex_preview/execution.rs:284`), `encode_pass_for_op` (`:398`), `op_uniform_for_planned` (`:589`), `ensure_feedback_history_slot` (`:940`).
-  - Recommended change:
-    - Split into `plan`, `uniforms`, `passes`, and `history` submodules with explicit state contracts.
-    - Keep descriptor-driven op metadata authoritative.
-  - Risk/tradeoffs:
-    - Medium risk of binding-group or clear-policy regressions.
-  - Suggested validation:
-    - `cargo test -q gui::renderer::tex_preview::execution::tests --bin covergen`
+    - `cargo test -q gui::renderer::tex_preview::pipeline::tests --bin covergen`
     - `cargo test -q gui::tex_view::tests --bin covergen`
-    - `scripts/ci_local.sh`
 
-- [x] 5. Decompose `gui/interaction.rs` orchestration into phase-focused modules
-  - Completed: 2026-03-04 (`dc441fe`)
+- [ ] 6. Increase `gui::runtime::compile_stage` behavior coverage beyond current happy-path tests
   - ROI: Medium
   - Effort: M
   - Why it matters:
-    - The main interaction coordinator remains oversized even after test splitting and context-struct cleanup.
-    - Input-phase branching is still concentrated, increasing coupling across navigation/overlay/menu behaviors.
+    - Compile-stage dispatch controls whether graphs are executable; under-tested rejection/ordering paths can regress silently.
   - Evidence:
-    - `src/gui/interaction.rs` is 1482 LOC.
-    - Large phase methods remain in file scope: `apply_navigation_phase` (`src/gui/interaction.rs:372`), `apply_overlay_and_param_phase` (`:459`), `apply_menu_or_graph_phase` (`:536`).
+    - Compile dispatch spans most node kinds: `src/gui/runtime/compile_stage.rs:40-357`.
+    - Current tests are minimal: `src/gui/runtime/compile_stage/tests.rs:3-49` (2 tests).
   - Recommended change:
-    - Move each phase into submodules with clear inputs/outputs and keep top-level frame sequencing thin.
+    - Add table-driven tests for each node family’s required inputs, failure conditions, and deterministic step ordering (especially blend + feedback + scene chains).
   - Risk/tradeoffs:
-    - Medium risk of changed input-consumption precedence.
+    - Low-to-medium risk; mostly test authoring and fixture maintenance.
   - Suggested validation:
-    - `cargo test -q gui::interaction::tests --bin covergen`
-    - `scripts/ci_local.sh`
+    - `cargo test -q gui::runtime::compile_stage::tests --bin covergen`
+    - `cargo test -q gui::runtime::tests --bin covergen`
 
-- [x] 6. Add direct unit-test coverage for large untested modules
-  - Completed: 2026-03-04 (`f678471`)
+- [ ] 7. Reduce high-argument/high-length hot-path functions via typed context bundles
   - ROI: Medium
   - Effort: M
   - Why it matters:
-    - Several high-impact files still rely mostly on indirect coverage, increasing debugging and regression triage costs.
+    - Wide function signatures and long bodies increase local cognitive load and complicate future refactors.
   - Evidence:
-    - Oversized files with no local `#[cfg(test)]`/`mod tests`: `src/gui/project/state.rs` (971 LOC), `src/gui/interaction/param_edit.rs` (511), `src/gui/project/geometry.rs` (432), `src/gui/runtime/compile_stage.rs` (420), `src/node.rs` (486), `src/animation/backend.rs` (415).
+    - Very wide signatures: `execute_generate_layer` (`src/runtime_eval.rs:301`, 9 params), `rewire_or_clear_deleted_links` (`src/gui/project/state.rs:910`, 9 params), `encode_graph_pass` (`src/gpu_render/graph_ops.rs:399`, 8 params), `collect_cut_links_for_target` (`src/gui/interaction.rs:973`, 8 params).
   - Recommended change:
-    - Add targeted unit tests adjacent to each module for deterministic behavior, edge cases, and failure paths.
+    - Introduce cohesive context structs for related parameter groups and shrink top-level function signatures in rendering/runtime hot paths.
   - Risk/tradeoffs:
-    - Low risk; mostly fixture/setup effort.
+    - Medium risk when reorganizing mutable references.
   - Suggested validation:
-    - `cargo test -q gui::project::tests --bin covergen`
-    - `cargo test -q gui::interaction::tests --bin covergen`
     - `cargo test -q`
+    - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
 
-- [x] 7. Ratchet structure-drift oversized-file threshold to current baseline
-  - Completed: 2026-03-04 (`8bb84d7`)
+- [ ] 8. Ratchet structure-drift thresholds to current baseline to prevent silent regression creep
   - ROI: Medium
   - Effort: S
   - Why it matters:
-    - The current threshold still allows one oversized-file regression without warning escalation.
-    - Ratcheting keeps cleanup gains durable.
+    - Current thresholds have broad headroom relative to present counts and won’t flag moderate regressions quickly.
   - Evidence:
-    - Current oversized count is 38 while threshold is 39 (`target/ci/structure_drift_report.txt`, `docs/v2/benchmarks/structure_drift.thresholds.ini`).
+    - Current counts: oversized Rust files `33`, `allow(dead_code)` suppressions `10`, `allow(clippy::too_many_arguments)` suppressions `5`.
+    - Thresholds are looser: `docs/v2/benchmarks/structure_drift.thresholds.ini` (`max_oversized_files=38`, `max_dead_code_suppressions=40`, `max_too_many_arguments_suppressions=10`).
   - Recommended change:
-    - Reduce `max_oversized_files` from 39 to 38 once this plan’s next item tranche is stable.
+    - Ratchet thresholds close to current baseline with small safety margin and continue reducing gradually.
   - Risk/tradeoffs:
-    - Low process risk; may require immediate follow-up on any newly oversized file.
+    - Low process risk; may require immediate follow-up when new debt is introduced.
   - Suggested validation:
     - `scripts/lint/structure_drift_report.sh`
-    - `scripts/ci_local.sh`
+    - `scripts/ci_local.sh validate laptop_integrated`
 
-- [x] 8. Reduce remaining `dead_code` suppression hotspots
-  - Completed: 2026-03-04 (`e22342c`)
+- [ ] 9. Remove remaining dead-code suppressions by deleting or scoping legacy APIs
   - ROI: Medium
   - Effort: S
   - Why it matters:
-    - Remaining suppressions still mask useful lint signal and hide ownership uncertainty.
+    - Suppressions hide ownership uncertainty and reduce lint signal quality.
   - Evidence:
-    - 13 suppressions remain (`target/ci/structure_drift_report.txt`), including `src/gui/project.rs:157`, `:486`, `:877` and `src/gui/project/param_schema.rs:213`, `:311`.
+    - Remaining dead-code allows include `src/gui/project.rs:157`, `src/gui/project.rs:229`, `src/gui/project.rs:487`, `src/model.rs:120`, `src/model.rs:135`, `src/gui/theme.rs:34`.
   - Recommended change:
-    - Remove obsolete APIs or scope test-only helpers under `#[cfg(test)]` where possible.
+    - Remove unused enum fields/functions where obsolete; otherwise move test-only helpers behind `#[cfg(test)]` and document intentional retention.
   - Risk/tradeoffs:
-    - Low-to-medium risk if hidden external usage assumptions exist.
+    - Low-to-medium risk if dormant code is still indirectly depended on.
   - Suggested validation:
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
-    - `scripts/lint/structure_drift_report.sh`
 
-- [x] 9. Split `gui/project/param_schema.rs` tests into a sibling test module to keep schema file focused
-  - Completed: 2026-03-04 (`8019346`)
-  - ROI: Low
-  - Effort: S
-  - Why it matters:
-    - The schema source now exceeds the 400-line structure target after adding invariants.
-    - Keeping schema declarations and invariants separately improves readability and review focus.
-  - Evidence:
-    - `src/gui/project/param_schema.rs` is 455 LOC (`target/ci/structure_drift_report.txt`).
-  - Recommended change:
-    - Move invariant tests to `src/gui/project/param_schema/tests.rs` (or sibling module) while preserving behavior.
-  - Risk/tradeoffs:
-    - Low risk; organizational-only change.
-  - Suggested validation:
-    - `cargo test -q gui::project::param_schema::tests --bin covergen`
-    - `scripts/ci_local.sh`
-
-- [x] 10. Expand private-doc subset lint to include one staged runtime/scene target
-  - Completed: 2026-03-04 (`ac9e0a0`)
+- [ ] 10. Expand private-doc subset coverage to parameter-schema/defaults and style surfaces
   - ROI: Low
   - Effort: M
   - Why it matters:
-    - Private-doc gating now includes more GUI files, but the largest high-churn runtime/scene files are still outside staged enforcement.
+    - Several high-surface editor modules still have sparse private docs despite being primary maintenance hotspots.
   - Evidence:
-    - Manifest includes staged GUI files but not `src/gui/runtime.rs` / `src/gui/scene.rs` (`scripts/lint/private_docs_subset_files.txt`).
+    - `src/gui/project/param_schema.rs` has high symbol density (many constants) with limited descriptive docs.
+    - `src/gui/scene/style.rs` has many style constants with minimal rationale/context docs.
+    - Current subset list: `scripts/lint/private_docs_subset_files.txt` does not include these modules.
   - Recommended change:
-    - Add one file at a time (starting with `src/gui/runtime.rs`) and fix docs incrementally to keep CI noise manageable.
+    - Stage these modules into the private-doc subset lint and add concise intent/constraint docs around groups of constants and mapping rules.
   - Risk/tradeoffs:
-    - Medium process overhead during onboarding.
+    - Low risk; moderate documentation effort.
   - Suggested validation:
     - `scripts/lint/private_docs_subset.sh`
-    - `scripts/ci_local.sh`
+    - `scripts/ci_local.sh validate laptop_integrated`

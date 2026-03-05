@@ -402,10 +402,12 @@ impl RetainedGpuPost {
         Ok(())
     }
 
+    /// Return source accumulation pixel count for current retained dimensions.
     pub(crate) fn expected_pixels(&self) -> usize {
         (self.width as usize) * (self.height as usize)
     }
 
+    /// Return final output pixel count for current configured output dimensions.
     pub(crate) fn expected_output_pixels(&self) -> usize {
         (self.output_width as usize) * (self.output_height as usize)
     }

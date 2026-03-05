@@ -117,16 +117,25 @@ impl ArtStyle {
     }
 }
 
+/// Symmetry style selector for shader-space replication patterns.
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SymmetryStyle {
+    /// No symmetry replication.
     None,
+    /// Radial rotational symmetry.
     Radial,
+    /// Full mirror symmetry across both axes.
     Mirror,
+    /// Mirror symmetry across the X axis.
     MirrorX,
+    /// Mirror symmetry across the Y axis.
     MirrorY,
+    /// Mirror symmetry across the main diagonal.
     MirrorDiagonal,
+    /// Cross-style mirror symmetry with orthogonal axes.
     MirrorCross,
+    /// Grid-style tiled symmetry.
     Grid,
 }
 
@@ -161,17 +170,28 @@ impl SymmetryStyle {
     }
 }
 
+/// Blend operator used when compositing generated layers.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerBlendMode {
+    /// Standard alpha-over style blend.
     Normal,
+    /// Additive blend.
     Add,
+    /// Multiply blend.
     Multiply,
+    /// Screen blend.
     Screen,
+    /// Overlay blend.
     Overlay,
+    /// Absolute difference blend.
     Difference,
+    /// Lighten (max) blend.
     Lighten,
+    /// Darken (min) blend.
     Darken,
+    /// Glow-style highlight blend.
     Glow,
+    /// Shadow-style darkening blend.
     Shadow,
 }
 

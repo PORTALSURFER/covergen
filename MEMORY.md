@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-03-04 14:27:23 UTC
+Last Updated: 2026-03-05 08:09:47 UTC
 
 ## Current Mission
 Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
@@ -26,12 +26,13 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
 - Deep performance audit backlog is active in `tmp/perf_plan.md`; Phase 2 execution has completed items 1-11 in strict ROI order, and item 12 is blocked pending lock runs on representative `desktop_mid` and `laptop_integrated` hardware.
-- Deep cleanup audit backlog in `tmp/cleanup_plan.md` has completed Phase 2 execution in strict ROI order (items 1-10), with CI validation and per-item commits recorded.
+- Deep cleanup audit has a fresh Phase 1 ROI-ranked backlog in `tmp/cleanup_plan.md` (2026-03-05) and is awaiting explicit user confirmation before Phase 2 sequential implementation.
+- Windows local lint flow currently has a known parser failure in `scripts/lint/structure_drift_report.ps1`; remediation is ranked first in the new cleanup backlog.
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
 Performance execution backlog and approval-gated next steps are in `tmp/perf_plan.md`.
-Cleanup execution backlog history and completion record is in `tmp/cleanup_plan.md`.
+Cleanup audit backlog (Phase 1 ready, Phase 2 pending confirmation) is in `tmp/cleanup_plan.md`.
 
 ## Current Risks
 - Node-editor and tex-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.

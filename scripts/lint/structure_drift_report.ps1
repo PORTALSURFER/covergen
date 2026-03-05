@@ -56,7 +56,7 @@ $deadCodeLines = New-Object System.Collections.Generic.List[string]
 if ($deadCodeMatches) {
     foreach ($match in $deadCodeMatches) {
         $relative = $match.Path.Substring($repoRoot.Path.Length + 1).Replace("\", "/")
-        $deadCodeLines.Add("$relative:$($match.LineNumber):$($match.Line.Trim())")
+        $deadCodeLines.Add("${relative}:$($match.LineNumber):$($match.Line.Trim())")
     }
 }
 
@@ -65,7 +65,7 @@ $argLines = New-Object System.Collections.Generic.List[string]
 if ($argMatches) {
     foreach ($match in $argMatches) {
         $relative = $match.Path.Substring($repoRoot.Path.Length + 1).Replace("\", "/")
-        $argLines.Add("$relative:$($match.LineNumber):$($match.Line.Trim())")
+        $argLines.Add("${relative}:$($match.LineNumber):$($match.Line.Trim())")
     }
 }
 

@@ -2,6 +2,7 @@
 rustfmt check|cargo fmt --check|& cargo fmt --check
 clippy (warnings denied; private-doc lint reported separately)|cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items|& cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items
 rustdoc validity (warnings denied)|RUSTDOCFLAGS='-D warnings' cargo doc --no-deps|& { $env:RUSTDOCFLAGS='-D warnings'; cargo doc --no-deps }
+structure drift PowerShell parser smoke|if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -Command "$null = [ScriptBlock]::Create((Get-Content -Raw 'scripts/lint/structure_drift_report.ps1'))"; else echo "[ci_local] skipping pwsh parser smoke for structure_drift_report.ps1 (pwsh not installed)"; fi|& { $null = [ScriptBlock]::Create((Get-Content -Raw (Join-Path $repoRoot 'scripts/lint/structure_drift_report.ps1'))) }
 structure drift report (warn gate)|scripts/lint/structure_drift_report.sh|& (Join-Path $repoRoot 'scripts/lint/structure_drift_report.ps1')
 private-doc subset lint|scripts/lint/private_docs_subset.sh|& (Join-Path $repoRoot 'scripts/lint/private_docs_subset.ps1')
 full test suite|cargo test -q|& cargo test -q
