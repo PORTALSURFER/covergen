@@ -368,16 +368,18 @@ impl SceneBuilder {
         let mut debug_line = String::new();
         let _ = write!(
             &mut debug_line,
-            "DBG mode={mode} alt={} lmb={} click={} hover_alt={} scrub={} cut={} edit={}",
+            "DBG mode={mode} alt={} lmb={} click={} rmb={} rclick={} hover_alt={} scrub={} cut={} edit={}",
             bool_flag(state.debug_input_alt_down),
             bool_flag(state.debug_input_left_down),
             bool_flag(state.debug_input_left_clicked),
+            bool_flag(state.debug_input_right_down),
+            bool_flag(state.debug_input_right_clicked),
             hover_alt,
             scrub,
             bool_flag(state.link_cut.is_some()),
             bool_flag(state.param_edit.is_some()),
         );
-        let rect = Rect::new(8, 8, 560, 20);
+        let rect = Rect::new(8, 8, 700, 20);
         self.push_rect(rect, MENU_BG);
         self.push_border(rect, MENU_BORDER);
         self.push_text(rect.x + 6, rect.y + 6, debug_line.as_str(), HELP_HINT);

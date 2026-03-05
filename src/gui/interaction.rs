@@ -103,13 +103,17 @@ fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut Pre
 fn sync_debug_input_flags(input: &InputSnapshot, state: &mut PreviewState) -> bool {
     let changed = state.debug_input_alt_down != input.alt_down
         || state.debug_input_left_down != input.left_down
-        || state.debug_input_left_clicked != input.left_clicked;
+        || state.debug_input_left_clicked != input.left_clicked
+        || state.debug_input_right_down != input.right_down
+        || state.debug_input_right_clicked != input.right_clicked;
     if !changed {
         return false;
     }
     state.debug_input_alt_down = input.alt_down;
     state.debug_input_left_down = input.left_down;
     state.debug_input_left_clicked = input.left_clicked;
+    state.debug_input_right_down = input.right_down;
+    state.debug_input_right_clicked = input.right_clicked;
     true
 }
 
@@ -342,6 +346,8 @@ fn handle_alt_param_drag(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> (bool, bool) {
+    let pointer_down = input.left_down || input.right_down;
+    let pointer_clicked = input.left_clicked || input.right_clicked;
     if state.menu.open
         || state.main_menu.open
         || state.export_menu.open
@@ -354,7 +360,7 @@ fn handle_alt_param_drag(
     }
 
     if let Some(mut scrub) = state.param_scrub {
-        if !input.left_down {
+        if !pointer_down {
             state.param_scrub = None;
             return (true, true);
         }
@@ -386,9 +392,9 @@ fn handle_alt_param_drag(
         return (changed, true);
     }
 
-    let alt_latched_hover_start = input.left_clicked && state.hover_alt_param.is_some();
+    let alt_latched_hover_start = pointer_clicked && state.hover_alt_param.is_some();
     let can_start_scrub = (input.alt_down || alt_latched_hover_start)
-        && input.left_down
+        && pointer_down
         && state.link_cut.is_none()
         && state.drag.is_none()
         && state.wire_drag.is_none()

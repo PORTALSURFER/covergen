@@ -272,6 +272,10 @@ pub(crate) struct PreviewState {
     pub(crate) debug_input_left_down: bool,
     /// Last processed left-button edge click state for interaction debug overlay.
     pub(crate) debug_input_left_clicked: bool,
+    /// Last processed right-button held state for interaction debug overlay.
+    pub(crate) debug_input_right_down: bool,
+    /// Last processed right-button edge click state for interaction debug overlay.
+    pub(crate) debug_input_right_clicked: bool,
     pub(crate) invalidation: GuiInvalidation,
 }
 
@@ -324,6 +328,8 @@ impl PreviewState {
             debug_input_alt_down: false,
             debug_input_left_down: false,
             debug_input_left_clicked: false,
+            debug_input_right_down: false,
+            debug_input_right_clicked: false,
             invalidation: GuiInvalidation::initial_dirty(),
         }
     }
