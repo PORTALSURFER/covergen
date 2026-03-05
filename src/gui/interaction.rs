@@ -368,7 +368,14 @@ fn handle_alt_param_drag(
         return (changed, true);
     }
 
-    if !input.alt_down || !input.left_clicked {
+    let can_start_scrub = input.alt_down
+        && input.left_down
+        && state.link_cut.is_none()
+        && state.drag.is_none()
+        && state.wire_drag.is_none()
+        && state.pan_drag.is_none()
+        && state.right_marquee.is_none();
+    if !can_start_scrub {
         return (false, false);
     }
     let Some(target) = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
@@ -409,9 +416,6 @@ fn scrubbable_param_at_cursor(
     let (graph_x, graph_y) = screen_to_graph(mx, my, state);
     let node_id = project.node_at(graph_x, graph_y)?;
     let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
-    if !project.param_value_box_contains(node_id, param_index, graph_x, graph_y) {
-        return None;
-    }
     if !project.param_supports_text_edit(node_id, param_index) {
         return None;
     }

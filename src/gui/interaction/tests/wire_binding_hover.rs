@@ -129,6 +129,83 @@ fn alt_drag_over_param_value_starts_when_param_edit_is_active() {
 }
 
 #[test]
+fn alt_drag_over_param_row_label_scrubs_parameter_value() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let (row_rect, value_rect) = {
+        let node = project.node(solid).expect("solid node exists");
+        (
+            node_param_row_rect(node, 0).expect("row rect exists"),
+            node_param_value_rect(node, 0).expect("value rect exists"),
+        )
+    };
+    let row_x = row_rect.x + 8;
+    assert!(
+        row_x < value_rect.x,
+        "test expects label-side x to be left of value box"
+    );
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+
+    let start = InputSnapshot {
+        alt_down: true,
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_start, consumed_start) =
+        handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(changed_start || state.active_node == Some(solid));
+    assert!(state.param_scrub.is_some());
+
+    let drag = InputSnapshot {
+        alt_down: true,
+        left_down: true,
+        mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2 - 40)),
+        ..InputSnapshot::default()
+    };
+    let (changed_drag, consumed_drag) =
+        handle_alt_param_drag(&drag, &mut project, 420, 480, &mut state);
+    assert!(consumed_drag);
+    assert!(changed_drag);
+    let value = project
+        .node_param_raw_value(solid, 0)
+        .expect("param value should exist");
+    assert!(
+        value > 0.9,
+        "expected scrubbing to increase value, got {value}"
+    );
+}
+
+#[test]
+fn alt_drag_starts_without_fresh_click_when_left_is_already_down() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let row_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_row_rect(node, 0).expect("row rect exists")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.prev_left_down = true;
+
+    let start = InputSnapshot {
+        alt_down: true,
+        left_clicked: false,
+        left_down: true,
+        mouse_pos: Some((row_rect.x + 8, row_rect.y + row_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_start, consumed_start) =
+        handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(changed_start || state.active_node == Some(solid));
+    assert!(state.param_scrub.is_some());
+}
+
+#[test]
 fn alt_hover_marks_scrubbable_param_target() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
