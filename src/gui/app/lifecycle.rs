@@ -43,7 +43,7 @@ impl GuiApp {
             config.gui.vsync
         );
         println!(
-            "[gui] controls: Esc=quit, F11=fullscreen, Space=play/pause, Shift+A=add node menu, `=main menu, Tab=open node, F1=context help, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag=cut links, timeline(play/pause + scrub)"
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=play/pause, Shift+A=add node menu, `=main menu, Tab=open node, F1=context help, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag on param=scrub value, Alt+LMB drag elsewhere=cut links, timeline(play/pause + scrub)"
         );
         if let Some(limit) = benchmark_frame_limit {
             println!(

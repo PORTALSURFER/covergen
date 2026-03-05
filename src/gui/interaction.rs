@@ -378,8 +378,9 @@ fn handle_alt_param_drag(
     if !can_start_scrub {
         return (false, false);
     }
-    let Some(target) = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
-    else {
+    let target = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
+        .or_else(|| active_param_edit_scrub_target(project, state));
+    let Some(target) = target else {
         return (false, false);
     };
     let Some((_mx, my)) = input.mouse_pos else {
@@ -400,6 +401,24 @@ fn handle_alt_param_drag(
         project.select_param(target.node_id, target.param_index),
         true,
     )
+}
+
+/// Return active parameter-edit target when it can be converted into scrub mode.
+fn active_param_edit_scrub_target(
+    project: &GuiProject,
+    state: &PreviewState,
+) -> Option<HoverParamTarget> {
+    let edit = state.param_edit.as_ref()?;
+    if !project.node_expanded(edit.node_id) {
+        return None;
+    }
+    if !project.param_supports_text_edit(edit.node_id, edit.param_index) {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id: edit.node_id,
+        param_index: edit.param_index,
+    })
 }
 
 fn scrubbable_param_at_cursor(
@@ -670,6 +689,7 @@ fn handle_link_cut(
     if input.alt_down
         && input.left_clicked
         && state.param_scrub.is_none()
+        && state.param_edit.is_none()
         && !state.menu.open
         && !state.main_menu.open
         && !state.export_menu.open

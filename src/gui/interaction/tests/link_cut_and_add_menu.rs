@@ -266,6 +266,34 @@ fn add_menu_category_then_secondary_picker_spawns_node() {
 }
 
 #[test]
+fn alt_cut_does_not_start_while_param_edit_is_active() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node should exist");
+        node_param_value_rect(node, 0).expect("value rect should exist")
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    state.param_edit = Some(ParamEditState {
+        node_id: solid,
+        param_index: 0,
+        buffer: "0.90".to_string(),
+        cursor: 4,
+        anchor: 4,
+    });
+    let input = InputSnapshot {
+        alt_down: true,
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(!handle_link_cut(&input, &mut project, 420, 480, &mut state));
+    assert!(state.link_cut.is_none());
+}
+
+#[test]
 fn add_menu_toggle_shortcut_does_not_seed_query_text() {
     let config = V2Config::parse(Vec::new()).expect("config");
     let mut project = GuiProject::new_empty(640, 480);
