@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-03-04 16:23:14 UTC
+Last Updated: 2026-03-05 17:39:12 UTC
 
 ## Current Mission
 Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
@@ -25,12 +25,13 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - Housekeeping preflight runs through `scripts/run_agent_request.sh`.
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
-- Deep performance audit backlog is active in `tmp/perf_plan.md`; Phase 2 execution has completed items 1-11 in strict ROI order, and item 12 is blocked pending lock runs on representative `desktop_mid` and `laptop_integrated` hardware.
+- Deep performance audit backlog is refreshed in `tmp/perf_plan.md` with a new ROI-ranked Phase 1 list (12 items) based on current hot-path evidence in GUI interaction, scene build, tex-preview planning, startup, and runtime GPU dispatch.
+- Performance work is currently in approval-gated state: Phase 1 planning is complete and Phase 2 implementation has not started for the refreshed list.
 - Deep cleanup audit backlog is tracked in `tmp/cleanup_plan.md`; Phase 2 is complete and items 1-12 are complete (`5cef86b`, `3f9e6df`, `cc92cce`, `11a4639`, `7d7e044`, `6438d08`, `b078cf0`, `9853ed5`, `1693ba0`, `ea5583f`, `8b1e7bd`, `605bc08`).
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
-Performance execution backlog and approval-gated next steps are in `tmp/perf_plan.md`.
+Performance Phase 1 backlog and approval-gated Phase 2 sequence are in `tmp/perf_plan.md`.
 Cleanup execution backlog and next ROI-ordered implementation queue are in `tmp/cleanup_plan.md`.
 
 ## Current Risks
