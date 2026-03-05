@@ -139,7 +139,8 @@ Date: 2026-03-05
     - `cargo test -q`
     - `cargo clippy --all-targets --all-features -- -D warnings -A clippy::missing_docs_in_private_items`
 
-- [ ] 8. Ratchet structure-drift thresholds to current baseline to prevent silent regression creep
+- [x] 8. Ratchet structure-drift thresholds to current baseline to prevent silent regression creep
+  - Completed: 2026-03-05 (`7299596`)
   - ROI: Medium
   - Effort: S
   - Why it matters:
