@@ -87,7 +87,8 @@ Date: 2026-03-05
     - `cargo test -q gui::scene::tests --bin covergen`
     - `cargo test -q gui::interaction::tests --bin covergen`
 
-- [ ] 5. Externalize tex-preview WGSL and split post-process shader logic from embedded Rust string
+- [x] 5. Externalize tex-preview WGSL and split post-process shader logic from embedded Rust string
+  - Completed: 2026-03-05 (`0e66f0d`)
   - ROI: High
   - Effort: M
   - Why it matters:
