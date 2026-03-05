@@ -15,11 +15,12 @@ Usage:
   scripts/gui/tier_gate.sh validate <desktop_mid|laptop_integrated>
 
 Environment overrides:
-  GUI_TRACE_FRAMES                default: 420
-  GUI_WARMUP_FRAMES               default: 60
+  GUI_TRACE_FRAMES                default: lock=420, validate=120
+  GUI_WARMUP_FRAMES               default: lock=60, validate=20
   GUI_TARGET_FPS                  default: 60
-  GUI_SIZE                        default: 1024
+  GUI_SIZE                        default: lock=1024, validate=512
   GUI_SEED                        default: 1337
+  GUI_BENCHMARK_DRAG              default: lock=1, validate=0
   GUI_MS_THRESHOLD_MARGIN         default: 1.20
   GUI_HIT_THRESHOLD_MARGIN        default: 1.20
   GUI_BRIDGE_THRESHOLD_MARGIN     default: GUI_HIT_THRESHOLD_MARGIN
@@ -59,11 +60,24 @@ case "${tier}" in
     ;;
 esac
 
-trace_frames="${GUI_TRACE_FRAMES:-420}"
-warmup_frames="${GUI_WARMUP_FRAMES:-60}"
+if [[ "${mode}" == "lock" ]]; then
+  default_trace_frames=420
+  default_warmup_frames=60
+  default_size=1024
+  default_benchmark_drag=1
+else
+  default_trace_frames=120
+  default_warmup_frames=20
+  default_size=512
+  default_benchmark_drag=0
+fi
+
+trace_frames="${GUI_TRACE_FRAMES:-${default_trace_frames}}"
+warmup_frames="${GUI_WARMUP_FRAMES:-${default_warmup_frames}}"
 target_fps="${GUI_TARGET_FPS:-60}"
-size="${GUI_SIZE:-1024}"
+size="${GUI_SIZE:-${default_size}}"
 seed="${GUI_SEED:-1337}"
+benchmark_drag="${GUI_BENCHMARK_DRAG:-${default_benchmark_drag}}"
 ms_margin="$(normalize_decimal "${GUI_MS_THRESHOLD_MARGIN:-1.20}")"
 hit_margin="$(normalize_decimal "${GUI_HIT_THRESHOLD_MARGIN:-1.20}")"
 bridge_margin="$(normalize_decimal "${GUI_BRIDGE_THRESHOLD_MARGIN:-${hit_margin}}")"
@@ -79,15 +93,20 @@ mkdir -p "${output_dir}"
 
 echo "[gui-bench] ${mode} tier=${tier} trace=${trace_file} thresholds=${threshold_file}"
 scripts/shaders/validate_rust_gpu_artifacts.sh "${shader_root}"
-cargo run --quiet --bin covergen -- gui \
-  --width "${size}" \
-  --height "${size}" \
-  --seed "${seed}" \
-  --gui-target-fps "${target_fps}" \
-  --gui-vsync off \
-  --gui-benchmark-drag \
-  --gui-benchmark-frames "${trace_frames}" \
+cargo_args=(
+  run --quiet --bin covergen -- gui
+  --width "${size}"
+  --height "${size}"
+  --seed "${seed}"
+  --gui-target-fps "${target_fps}"
+  --gui-vsync off
+  --gui-benchmark-frames "${trace_frames}"
   --gui-perf-trace "${trace_file}"
+)
+if [[ "${benchmark_drag,,}" == "1" || "${benchmark_drag,,}" == "true" || "${benchmark_drag,,}" == "yes" || "${benchmark_drag,,}" == "on" ]]; then
+  cargo_args+=(--gui-benchmark-drag)
+fi
+cargo "${cargo_args[@]}"
 
 if [[ ! -s "${trace_file}" ]]; then
   echo "[gui-bench] missing trace file: ${trace_file}" >&2

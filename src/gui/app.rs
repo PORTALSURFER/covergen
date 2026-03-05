@@ -86,6 +86,11 @@ pub(crate) struct GuiApp {
 }
 
 impl GuiApp {
+    /// Return true when the app runs deterministic benchmark automation.
+    pub(crate) fn benchmark_mode(&self) -> bool {
+        is_benchmark_mode(&self.config)
+    }
+
     fn update_title(&mut self, now: Instant) {
         if now < self.title_deadline {
             return;

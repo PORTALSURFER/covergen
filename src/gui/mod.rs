@@ -68,7 +68,11 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
     );
 
     event_loop.run(move |event, target| {
-        target.set_control_flow(ControlFlow::WaitUntil(app.frame_deadline()));
+        if app.benchmark_mode() {
+            target.set_control_flow(ControlFlow::Poll);
+        } else {
+            target.set_control_flow(ControlFlow::WaitUntil(app.frame_deadline()));
+        }
         match event {
             Event::WindowEvent { window_id, event } if window_id == window.id() => {
                 if should_exit(&event) || app.handle_window_event(&event) {
@@ -78,7 +82,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                     target.exit();
                     return;
                 }
-                if matches!(event, WindowEvent::RedrawRequested) {
+                if matches!(event, WindowEvent::RedrawRequested) && !app.benchmark_mode() {
                     if let Err(err) = app.redraw() {
                         eprintln!("Error: {err}");
                         if let Err(shutdown_err) = app.shutdown() {
@@ -94,7 +98,22 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                 }
             }
             Event::AboutToWait => {
-                app.request_redraw_if_due();
+                if app.benchmark_mode() {
+                    if let Err(err) = app.redraw() {
+                        eprintln!("Error: {err}");
+                        if let Err(shutdown_err) = app.shutdown() {
+                            eprintln!("Error: failed to shutdown GUI state: {shutdown_err}");
+                        }
+                        target.exit();
+                    } else if app.should_exit() {
+                        if let Err(err) = app.shutdown() {
+                            eprintln!("Error: failed to shutdown GUI state: {err}");
+                        }
+                        target.exit();
+                    }
+                } else {
+                    app.request_redraw_if_due();
+                }
             }
             _ => {}
         }

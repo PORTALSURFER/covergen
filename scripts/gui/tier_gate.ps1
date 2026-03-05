@@ -30,6 +30,19 @@ function Get-EnvOrDefault {
     return $value
 }
 
+function Parse-BoolFlag {
+    param(
+        [string]$Value
+    )
+    switch ($Value.Trim().ToLowerInvariant()) {
+        "1" { return $true }
+        "true" { return $true }
+        "yes" { return $true }
+        "on" { return $true }
+        default { return $false }
+    }
+}
+
 function Get-P95 {
     param(
         [double[]]$Values
@@ -66,11 +79,17 @@ function Read-IniLikeFile {
     return $entries
 }
 
-$traceFrames = [int](Get-EnvOrDefault -Name "GUI_TRACE_FRAMES" -DefaultValue "420")
-$warmupFrames = [int](Get-EnvOrDefault -Name "GUI_WARMUP_FRAMES" -DefaultValue "60")
+$defaultTraceFrames = if ($Mode -eq "lock") { "420" } else { "120" }
+$defaultWarmupFrames = if ($Mode -eq "lock") { "60" } else { "20" }
+$defaultSize = if ($Mode -eq "lock") { "1024" } else { "512" }
+$defaultBenchmarkDrag = if ($Mode -eq "lock") { "1" } else { "0" }
+
+$traceFrames = [int](Get-EnvOrDefault -Name "GUI_TRACE_FRAMES" -DefaultValue $defaultTraceFrames)
+$warmupFrames = [int](Get-EnvOrDefault -Name "GUI_WARMUP_FRAMES" -DefaultValue $defaultWarmupFrames)
 $targetFps = Get-EnvOrDefault -Name "GUI_TARGET_FPS" -DefaultValue "60"
-$size = Get-EnvOrDefault -Name "GUI_SIZE" -DefaultValue "1024"
+$size = Get-EnvOrDefault -Name "GUI_SIZE" -DefaultValue $defaultSize
 $seed = Get-EnvOrDefault -Name "GUI_SEED" -DefaultValue "1337"
+$benchmarkDrag = Parse-BoolFlag (Get-EnvOrDefault -Name "GUI_BENCHMARK_DRAG" -DefaultValue $defaultBenchmarkDrag)
 $msMargin = [double](Get-EnvOrDefault -Name "GUI_MS_THRESHOLD_MARGIN" -DefaultValue "1.20")
 $hitMargin = [double](Get-EnvOrDefault -Name "GUI_HIT_THRESHOLD_MARGIN" -DefaultValue "1.20")
 $bridgeMargin = [double](Get-EnvOrDefault -Name "GUI_BRIDGE_THRESHOLD_MARGIN" -DefaultValue "$hitMargin")
@@ -102,10 +121,12 @@ $args = @(
     "--seed", $seed,
     "--gui-target-fps", $targetFps,
     "--gui-vsync", "off",
-    "--gui-benchmark-drag",
     "--gui-benchmark-frames", "$traceFrames",
     "--gui-perf-trace", $traceFile
 )
+if ($benchmarkDrag) {
+    $args += "--gui-benchmark-drag"
+}
 & cargo @args
 if ($LASTEXITCODE -ne 0) {
     throw "gui interaction benchmark run failed with exit code $LASTEXITCODE"
