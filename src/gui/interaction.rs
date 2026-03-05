@@ -327,7 +327,6 @@ fn handle_alt_param_drag(
     if state.menu.open
         || state.main_menu.open
         || state.export_menu.open
-        || state.param_edit.is_some()
         || state.timeline_bpm_edit.is_some()
         || state.timeline_bar_edit.is_some()
         || state.param_dropdown.is_some()
