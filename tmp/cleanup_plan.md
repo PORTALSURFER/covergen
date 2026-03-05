@@ -47,7 +47,8 @@ Date: 2026-03-05
     - `cargo test -q gui::project::tests --bin covergen`
     - `cargo test -q gui::runtime::tests --bin covergen`
 
-- [ ] 3. Unify node-kind metadata into one source-of-truth registry used by menu/style/runtime compile
+- [x] 3. Unify node-kind metadata into one source-of-truth registry used by menu/style/runtime compile
+  - Completed: 2026-03-05 (`1e7b2bf`)
   - ROI: High
   - Effort: L
   - Why it matters:
