@@ -258,17 +258,29 @@ fn drift_lfo_is_slow_soft_and_non_repeating() {
 fn circle_nurbs_arc_style_uses_dropdown_options() {
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 40, 40, 420, 480);
-    assert!(project.param_is_dropdown(circle, 3));
-    assert!(!project.param_supports_text_edit(circle, 3));
+    let arc_style_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::ARC_STYLE)
+        .expect("arc style slot should exist");
+    assert!(project.param_is_dropdown(circle, arc_style_slot));
+    assert!(!project.param_supports_text_edit(circle, arc_style_slot));
     let options = project
-        .node_param_dropdown_options(circle, 3)
+        .node_param_dropdown_options(circle, arc_style_slot)
         .expect("dropdown options should exist");
     assert_eq!(options.len(), 2);
-    assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
-    assert!(project.set_param_dropdown_index(circle, 3, 1));
-    assert_eq!(project.node_param_raw_text(circle, 3), Some("open_arc"));
-    assert!(project.adjust_param(circle, 3, -1.0));
-    assert_eq!(project.node_param_raw_text(circle, 3), Some("closed"));
+    assert_eq!(
+        project.node_param_raw_text(circle, arc_style_slot),
+        Some("closed")
+    );
+    assert!(project.set_param_dropdown_index(circle, arc_style_slot, 1));
+    assert_eq!(
+        project.node_param_raw_text(circle, arc_style_slot),
+        Some("open_arc")
+    );
+    assert!(project.adjust_param(circle, arc_style_slot, -1.0));
+    assert_eq!(
+        project.node_param_raw_text(circle, arc_style_slot),
+        Some("closed")
+    );
 }
 
 #[test]

@@ -282,7 +282,7 @@ pub(super) fn compile_node(
                     base_source_id,
                     layer_source_id,
                 },
-                &param_schema::blend::KEYS,
+                &param_schema::blend::RUNTIME_KEYS,
             ));
             true
         }

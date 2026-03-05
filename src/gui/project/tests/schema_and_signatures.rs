@@ -18,41 +18,88 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     }
 
     let mut project = GuiProject::new_empty(640, 480);
-    let circle = project.add_node(ProjectNodeKind::TexCircle, 40, 40, 420, 480);
-    let transform = project.add_node(ProjectNodeKind::TexTransform2D, 220, 40, 420, 480);
-    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 400, 40, 420, 480);
-    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 580, 40, 420, 480);
-    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 760, 40, 420, 480);
-    assert_kind_keys(
-        &project,
-        circle,
-        &param_schema::circle::KEYS,
-        ProjectNodeKind::TexCircle,
-    );
-    assert_kind_keys(
-        &project,
-        transform,
-        &param_schema::transform_2d::KEYS,
-        ProjectNodeKind::TexTransform2D,
-    );
-    assert_kind_keys(
-        &project,
-        feedback,
-        &param_schema::feedback::KEYS,
-        ProjectNodeKind::TexFeedback,
-    );
-    assert_kind_keys(
-        &project,
-        scene_pass,
-        &param_schema::render_scene_pass::KEYS,
-        ProjectNodeKind::RenderScenePass,
-    );
-    assert_kind_keys(
-        &project,
-        lfo,
-        &param_schema::ctl_lfo::KEYS,
-        ProjectNodeKind::CtlLfo,
-    );
+    let cases: &[(ProjectNodeKind, &[&'static str])] = &[
+        (ProjectNodeKind::TexSolid, &param_schema::solid::KEYS),
+        (ProjectNodeKind::TexCircle, &param_schema::circle::KEYS),
+        (
+            ProjectNodeKind::BufSphere,
+            &param_schema::sphere_buffer::KEYS,
+        ),
+        (
+            ProjectNodeKind::BufCircleNurbs,
+            &param_schema::circle_nurbs_buffer::KEYS,
+        ),
+        (ProjectNodeKind::BufNoise, &param_schema::buffer_noise::KEYS),
+        (
+            ProjectNodeKind::TexTransform2D,
+            &param_schema::transform_2d::KEYS,
+        ),
+        (ProjectNodeKind::TexLevel, &param_schema::level::KEYS),
+        (ProjectNodeKind::TexFeedback, &param_schema::feedback::KEYS),
+        (
+            ProjectNodeKind::TexReactionDiffusion,
+            &param_schema::reaction_diffusion::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostColorTone,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostEdgeStructure,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostBlurDiffusion,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostDistortion,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostTemporal,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostNoiseTexture,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostLighting,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostScreenSpace,
+            &param_schema::post_process::KEYS,
+        ),
+        (
+            ProjectNodeKind::TexPostExperimental,
+            &param_schema::post_process::KEYS,
+        ),
+        (ProjectNodeKind::TexBlend, &param_schema::blend::KEYS),
+        (
+            ProjectNodeKind::SceneEntity,
+            &param_schema::scene_entity::KEYS,
+        ),
+        (ProjectNodeKind::SceneBuild, &[]),
+        (
+            ProjectNodeKind::RenderCamera,
+            &param_schema::render_camera::KEYS,
+        ),
+        (
+            ProjectNodeKind::RenderScenePass,
+            &param_schema::render_scene_pass::KEYS,
+        ),
+        (ProjectNodeKind::CtlLfo, &param_schema::ctl_lfo::KEYS),
+        (ProjectNodeKind::IoWindowOut, &[]),
+    ];
+
+    let mut x = 40;
+    for (kind, expected) in cases {
+        let node_id = project.add_node(*kind, x, 40, 420, 480);
+        x += 24;
+        assert_kind_keys(&project, node_id, expected, *kind);
+    }
 }
 
 #[test]

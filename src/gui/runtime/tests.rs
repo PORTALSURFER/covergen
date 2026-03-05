@@ -604,12 +604,31 @@ fn circle_nurbs_params_propagate_to_circle_op() {
     assert!(project.connect_image_link(scene, pass));
     assert!(project.connect_image_link(pass, out));
 
-    assert!(project.set_param_value(circle, 1, 30.0));
-    assert!(project.set_param_value(circle, 2, 150.0));
-    assert!(project.set_param_value(circle, 3, 1.0));
-    assert!(project.set_param_value(circle, 4, 0.006));
-    assert!(project.set_param_value(circle, 5, 2.0));
-    assert!(project.set_param_value(circle, 6, 12.0));
+    let arc_start_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::ARC_START)
+        .expect("arc_start slot should exist");
+    let arc_end_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::ARC_END)
+        .expect("arc_end slot should exist");
+    let line_width_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::LINE_WIDTH)
+        .expect("line_width slot should exist");
+    let order_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::ORDER)
+        .expect("order slot should exist");
+    let divisions_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::DIVISIONS)
+        .expect("divisions slot should exist");
+    let arc_style_slot = project
+        .node_param_slot_index(circle, param_schema::circle_nurbs_buffer::ARC_STYLE)
+        .expect("arc_style slot should exist");
+
+    assert!(project.set_param_value(circle, arc_start_slot, 30.0));
+    assert!(project.set_param_value(circle, arc_end_slot, 150.0));
+    assert!(project.set_param_value(circle, line_width_slot, 0.006));
+    assert!(project.set_param_value(circle, order_slot, 2.0));
+    assert!(project.set_param_value(circle, divisions_slot, 12.0));
+    assert!(project.set_param_dropdown_index(circle, arc_style_slot, 1));
 
     let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
     let mut eval_stack = SignalEvalStack::default();

@@ -87,7 +87,7 @@ fn index_constants_match_declared_key_order() {
         ],
     );
     assert_index_map(
-        &blend::KEYS,
+        &blend::RUNTIME_KEYS,
         &[
             (blend::MODE_INDEX, blend::MODE),
             (blend::OPACITY_INDEX, blend::OPACITY),

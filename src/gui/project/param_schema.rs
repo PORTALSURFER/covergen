@@ -46,8 +46,11 @@ pub(crate) mod circle {
 /// Canonical keys for `buf.sphere`.
 pub(crate) mod sphere_buffer {
     pub(crate) const RADIUS: &str = "radius";
+    pub(crate) const SEGMENTS: &str = "segments";
+    pub(crate) const RINGS: &str = "rings";
+
     pub(crate) const RADIUS_INDEX: usize = 0;
-    pub(crate) const KEYS: [&str; 1] = [RADIUS];
+    pub(crate) const KEYS: [&str; 3] = [RADIUS, SEGMENTS, RINGS];
 }
 
 /// Canonical keys for `buf.circle_nurbs`.
@@ -271,6 +274,9 @@ pub(crate) mod post_process {
 
 /// Canonical keys for `tex.blend`.
 pub(crate) mod blend {
+    use super::super::BLEND_LAYER_PARAM_KEY;
+
+    pub(crate) const LAYER: &str = BLEND_LAYER_PARAM_KEY;
     pub(crate) const MODE: &str = "blend_mode";
     pub(crate) const OPACITY: &str = "opacity";
     pub(crate) const BG_R: &str = "bg_r";
@@ -285,7 +291,11 @@ pub(crate) mod blend {
     pub(crate) const BG_B_INDEX: usize = 4;
     pub(crate) const BG_A_INDEX: usize = 5;
 
-    pub(crate) const KEYS: [&str; 6] = [MODE, OPACITY, BG_R, BG_G, BG_B, BG_A];
+    /// Editor/default-slot key order (includes optional secondary texture binding).
+    #[cfg(test)]
+    pub(crate) const KEYS: [&str; 7] = [LAYER, MODE, OPACITY, BG_R, BG_G, BG_B, BG_A];
+    /// Runtime compile-time key order (numeric controls only, no texture target).
+    pub(crate) const RUNTIME_KEYS: [&str; 6] = [MODE, OPACITY, BG_R, BG_G, BG_B, BG_A];
 }
 
 /// Canonical keys for `ctl.lfo`.

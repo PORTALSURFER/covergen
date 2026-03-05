@@ -2,14 +2,70 @@ use super::*;
 
 pub(super) fn scene_entity_params() -> Vec<NodeParamSlot> {
     vec![
-        param("pos_x", "pos_x", 0.5, 0.0, 1.0, 0.01),
-        param("pos_y", "pos_y", 0.5, 0.0, 1.0, 0.01),
-        param("scale", "scale", 1.0, 0.1, 2.0, 0.01),
-        param("ambient", "ambient", 0.2, 0.0, 1.0, 0.01),
-        param("color_r", "color_r", 0.9, 0.0, 1.0, 0.01),
-        param("color_g", "color_g", 0.9, 0.0, 1.0, 0.01),
-        param("color_b", "color_b", 0.9, 0.0, 1.0, 0.01),
-        param("alpha", "alpha", 1.0, 0.0, 1.0, 0.01),
+        param(
+            param_schema::scene_entity::POS_X,
+            "pos_x",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::POS_Y,
+            "pos_y",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::SCALE,
+            "scale",
+            1.0,
+            0.1,
+            2.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::AMBIENT,
+            "ambient",
+            0.2,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::COLOR_R,
+            "color_r",
+            0.9,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::COLOR_G,
+            "color_g",
+            0.9,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::COLOR_B,
+            "color_b",
+            0.9,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::scene_entity::ALPHA,
+            "alpha",
+            1.0,
+            0.0,
+            1.0,
+            0.01,
+        ),
     ]
 }
 
@@ -18,7 +74,14 @@ pub(super) fn scene_build_params() -> Vec<NodeParamSlot> {
 }
 
 pub(super) fn render_camera_params() -> Vec<NodeParamSlot> {
-    vec![param("zoom", "zoom", 1.0, 0.1, 8.0, 0.05)]
+    vec![param(
+        param_schema::render_camera::ZOOM,
+        "zoom",
+        1.0,
+        0.1,
+        8.0,
+        0.05,
+    )]
 }
 
 pub(super) fn render_scene_pass_params() -> Vec<NodeParamSlot> {
