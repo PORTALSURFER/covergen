@@ -30,7 +30,7 @@ use super::project::{
     SignalSampleMemo,
 };
 use super::state::{
-    AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
+    add_node_options, AddNodeMenuEntry, ExportMenuItem, MainMenuItem, PreviewState, MENU_BLOCK_GAP,
     MENU_INNER_PADDING,
 };
 use super::text::GuiTextRenderer;
@@ -963,7 +963,7 @@ impl SceneBuilder {
                 }
                 AddNodeMenuEntry::Back => ("< Categories", MENU_CATEGORY_TEXT),
                 AddNodeMenuEntry::Option(option_index) => {
-                    let option = ADD_NODE_OPTIONS[option_index];
+                    let option = add_node_options()[option_index];
                     if state.menu.query.is_empty() {
                         (option.label(), MENU_TEXT)
                     } else {

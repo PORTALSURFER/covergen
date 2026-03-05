@@ -14,14 +14,14 @@ use super::{
 use crate::gui::geometry::Rect;
 use crate::gui::project::{
     collapsed_param_entry_pin_center, input_pin_center, node_param_dropdown_rect,
-    node_param_row_rect, node_param_value_rect, output_pin_center, GuiProject, ProjectNodeKind,
-    NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
+    node_param_row_rect, node_param_value_rect, output_pin_center, AddNodeCategory, GuiProject,
+    ProjectNodeKind, NODE_PARAM_DROPDOWN_ROW_HEIGHT, NODE_WIDTH,
 };
 use crate::gui::scene::wire_route;
 use crate::gui::state::{
-    AddNodeCategory, AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink,
+    add_node_options, AddNodeMenuState, DragState, ExportMenuState, HoverInsertLink,
     HoverParamTarget, InputSnapshot, LinkCutState, ParamEditState, PendingAppAction, PreviewState,
-    WireDragState, ADD_NODE_OPTIONS,
+    WireDragState,
 };
 use crate::gui::timeline::{editor_panel_height, timeline_control_layout, timeline_rect};
 use crate::runtime_config::V2Config;

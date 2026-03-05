@@ -8,8 +8,7 @@ mod main_menu;
 mod popup_list;
 
 pub(crate) use add_menu::{
-    AddNodeCategory, AddNodeMenuEntry, AddNodeMenuState, ADD_NODE_OPTIONS, MENU_BLOCK_GAP,
-    MENU_INNER_PADDING,
+    add_node_options, AddNodeMenuEntry, AddNodeMenuState, MENU_BLOCK_GAP, MENU_INNER_PADDING,
 };
 pub(crate) use main_menu::{
     ExportMenuItem, ExportMenuState, MainMenuItem, MainMenuState, MAIN_MENU_WIDTH,

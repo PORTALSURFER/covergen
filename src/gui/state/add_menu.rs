@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use super::popup_list;
 use crate::gui::geometry::Rect;
-use crate::gui::project::ProjectNodeKind;
+use crate::gui::project::{AddNodeCategory, ProjectNodeKind};
 
 /// Add-node popup geometry constants.
 pub(crate) const MENU_WIDTH: i32 = 260;
@@ -15,43 +15,6 @@ pub(crate) const MENU_INNER_PADDING: i32 = 6;
 pub(crate) const MENU_ITEM_HEIGHT: i32 = 22;
 pub(crate) const MENU_BLOCK_GAP: i32 = 4;
 const MENU_BOTTOM_PAD: i32 = 8;
-
-/// Category for one add-node menu option.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AddNodeCategory {
-    Texture,
-    Buffer,
-    Scene,
-    Render,
-    Control,
-    Io,
-}
-
-impl AddNodeCategory {
-    /// Return display label used in category rows.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Texture => "Texture",
-            Self::Buffer => "Buffer",
-            Self::Scene => "Scene",
-            Self::Render => "Render",
-            Self::Control => "Control",
-            Self::Io => "IO",
-        }
-    }
-
-    /// Return a lowercase category label used for query filtering.
-    const fn normalized_label(self) -> &'static str {
-        match self {
-            Self::Texture => "texture",
-            Self::Buffer => "buffer",
-            Self::Scene => "scene",
-            Self::Render => "render",
-            Self::Control => "control",
-            Self::Io => "io",
-        }
-    }
-}
 
 /// One add-node menu option.
 #[derive(Clone, Copy, Debug)]
@@ -68,117 +31,19 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 25] = [
-    AddNodeOption {
-        kind: ProjectNodeKind::TexSolid,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexCircle,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufSphere,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufCircleNurbs,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::BufNoise,
-        category: AddNodeCategory::Buffer,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::SceneEntity,
-        category: AddNodeCategory::Scene,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::SceneBuild,
-        category: AddNodeCategory::Scene,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::RenderCamera,
-        category: AddNodeCategory::Render,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::RenderScenePass,
-        category: AddNodeCategory::Render,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexTransform2D,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexLevel,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexFeedback,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexReactionDiffusion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostColorTone,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostEdgeStructure,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostBlurDiffusion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostDistortion,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostTemporal,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostNoiseTexture,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostLighting,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostScreenSpace,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexPostExperimental,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::TexBlend,
-        category: AddNodeCategory::Texture,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::CtlLfo,
-        category: AddNodeCategory::Control,
-    },
-    AddNodeOption {
-        kind: ProjectNodeKind::IoWindowOut,
-        category: AddNodeCategory::Io,
-    },
-];
-
-const ADD_NODE_CATEGORIES: [AddNodeCategory; 6] = [
-    AddNodeCategory::Texture,
-    AddNodeCategory::Buffer,
-    AddNodeCategory::Scene,
-    AddNodeCategory::Render,
-    AddNodeCategory::Control,
-    AddNodeCategory::Io,
-];
+pub(crate) fn add_node_options() -> &'static [AddNodeOption] {
+    static ADD_NODE_OPTIONS: OnceLock<Vec<AddNodeOption>> = OnceLock::new();
+    ADD_NODE_OPTIONS
+        .get_or_init(|| {
+            ProjectNodeKind::all()
+                .map(|kind| AddNodeOption {
+                    kind,
+                    category: kind.add_menu_category(),
+                })
+                .collect()
+        })
+        .as_slice()
+}
 
 /// One visible row in the add-node popup list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,7 +282,7 @@ impl AddNodeMenuState {
         let Some(category) = key_category else {
             cache
                 .entries
-                .extend(ADD_NODE_CATEGORIES.into_iter().filter_map(|candidate| {
+                .extend(AddNodeCategory::ALL.into_iter().filter_map(|candidate| {
                     if key_query.is_empty() || category_matches_query(candidate, key_query) {
                         Some(AddNodeMenuEntry::Category(candidate))
                     } else {
@@ -427,7 +292,7 @@ impl AddNodeMenuState {
             return;
         };
         cache.entries.push(AddNodeMenuEntry::Back);
-        for (index, option) in ADD_NODE_OPTIONS.iter().copied().enumerate() {
+        for (index, option) in add_node_options().iter().copied().enumerate() {
             if option.category != category {
                 continue;
             }
@@ -452,12 +317,12 @@ fn menu_height_for_entries(entry_count: usize) -> i32 {
 
 /// Return maximum popup menu height across all stages.
 fn max_menu_height() -> i32 {
-    let row_count = (ADD_NODE_OPTIONS.len() + 1).max(category_count());
+    let row_count = (add_node_options().len() + 1).max(category_count());
     menu_height_for_entries(row_count)
 }
 
 fn category_count() -> usize {
-    ADD_NODE_CATEGORIES.len()
+    AddNodeCategory::ALL.len()
 }
 
 fn option_matches_query(option_index: usize, option: AddNodeOption, query: &str) -> bool {
@@ -476,7 +341,7 @@ fn normalized_option_label(index: usize) -> &'static str {
     static NORMALIZED_OPTION_LABELS: OnceLock<Vec<String>> = OnceLock::new();
     NORMALIZED_OPTION_LABELS
         .get_or_init(|| {
-            ADD_NODE_OPTIONS
+            add_node_options()
                 .iter()
                 .map(|option| option.label().to_lowercase())
                 .collect()
@@ -528,7 +393,7 @@ mod tests {
             panic!("selected option expected after filtering");
         };
         assert_eq!(
-            super::ADD_NODE_OPTIONS[option_index].kind,
+            super::add_node_options()[option_index].kind,
             ProjectNodeKind::CtlLfo
         );
         assert!(menu.close_category());
@@ -545,7 +410,7 @@ mod tests {
             panic!("selected option expected after filtering");
         };
         assert_eq!(
-            super::ADD_NODE_OPTIONS[option_index].kind,
+            super::add_node_options()[option_index].kind,
             ProjectNodeKind::BufCircleNurbs
         );
     }
@@ -560,7 +425,7 @@ mod tests {
             panic!("selected option expected after filtering");
         };
         assert_eq!(
-            super::ADD_NODE_OPTIONS[option_index].kind,
+            super::add_node_options()[option_index].kind,
             ProjectNodeKind::BufNoise
         );
     }
@@ -589,7 +454,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|entry| matches!(entry, AddNodeMenuEntry::Option(option_index) if super::ADD_NODE_OPTIONS[*option_index].kind == ProjectNodeKind::TexFeedback))
+                .any(|entry| matches!(entry, AddNodeMenuEntry::Option(option_index) if super::add_node_options()[*option_index].kind == ProjectNodeKind::TexFeedback))
         );
     }
 

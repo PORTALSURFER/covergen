@@ -173,7 +173,7 @@ fn add_menu_drop_on_wire_inserts_new_node_between_link() {
     state.menu =
         AddNodeMenuState::open_at(drop_point.0, drop_point.1, 420, editor_panel_height(480));
     assert!(state.menu.open_category(AddNodeCategory::Texture));
-    let option_index = ADD_NODE_OPTIONS
+    let option_index = add_node_options()
         .iter()
         .position(|option| option.kind == ProjectNodeKind::TexTransform2D)
         .expect("transform option should exist");

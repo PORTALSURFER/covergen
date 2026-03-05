@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::gui::theme::AGIO;
 use options::*;
 use serde::{Deserialize, Serialize};
 
@@ -221,6 +222,65 @@ pub(crate) enum ProjectNodeKind {
     IoWindowOut,
 }
 
+/// Canonical add-menu category grouping for one node kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AddNodeCategory {
+    Texture,
+    Buffer,
+    Scene,
+    Render,
+    Control,
+    Io,
+}
+
+impl AddNodeCategory {
+    /// Ordered category list used by staged add-menu rendering.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Texture,
+        Self::Buffer,
+        Self::Scene,
+        Self::Render,
+        Self::Control,
+        Self::Io,
+    ];
+
+    /// Return display label used in category rows.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Texture => "Texture",
+            Self::Buffer => "Buffer",
+            Self::Scene => "Scene",
+            Self::Render => "Render",
+            Self::Control => "Control",
+            Self::Io => "IO",
+        }
+    }
+
+    /// Return a lowercase category label used for query filtering.
+    pub(crate) const fn normalized_label(self) -> &'static str {
+        match self {
+            Self::Texture => "texture",
+            Self::Buffer => "buffer",
+            Self::Scene => "scene",
+            Self::Render => "render",
+            Self::Control => "control",
+            Self::Io => "io",
+        }
+    }
+
+    /// Return one canonical accent color (ARGB) for menu category chips.
+    pub(crate) fn menu_chip_color_argb(self) -> u32 {
+        match self {
+            Self::Texture => ProjectNodeKind::TexSolid.header_color_argb(),
+            Self::Buffer => ProjectNodeKind::BufSphere.header_color_argb(),
+            Self::Scene => ProjectNodeKind::SceneEntity.header_color_argb(),
+            Self::Render => ProjectNodeKind::RenderScenePass.header_color_argb(),
+            Self::Control => ProjectNodeKind::CtlLfo.header_color_argb(),
+            Self::Io => ProjectNodeKind::IoWindowOut.header_color_argb(),
+        }
+    }
+}
+
 /// Metadata descriptor for one `ProjectNodeKind`.
 #[derive(Clone, Copy, Debug)]
 struct ProjectNodeKindDescriptor {
@@ -228,8 +288,11 @@ struct ProjectNodeKindDescriptor {
     stable_id: &'static str,
     #[allow(dead_code)]
     execution_kind: ExecutionKind,
+    add_menu_category: AddNodeCategory,
+    header_color_argb: u32,
     input_resource_kind: Option<ResourceKind>,
     output_resource_kind: Option<ResourceKind>,
+    runtime_param_keys: &'static [&'static str],
     accepts_signal_bindings: bool,
     shows_signal_preview: bool,
 }
@@ -239,8 +302,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_solid,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::solid::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -248,8 +314,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexCircle,
         stable_id: "tex.circle",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_circle,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::circle::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -257,8 +326,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::BufSphere,
         stable_id: "buf.sphere",
         execution_kind: ExecutionKind::Cpu,
+        add_menu_category: AddNodeCategory::Buffer,
+        header_color_argb: AGIO.node_header_buf_sphere,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Buffer),
+        runtime_param_keys: &param_schema::sphere_buffer::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -266,8 +338,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::BufCircleNurbs,
         stable_id: "buf.circle_nurbs",
         execution_kind: ExecutionKind::Cpu,
+        add_menu_category: AddNodeCategory::Buffer,
+        header_color_argb: AGIO.node_header_buf_circle_nurbs,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Buffer),
+        runtime_param_keys: &param_schema::circle_nurbs_buffer::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -275,8 +350,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::BufNoise,
         stable_id: "buf.noise",
         execution_kind: ExecutionKind::Cpu,
+        add_menu_category: AddNodeCategory::Buffer,
+        header_color_argb: AGIO.node_header_buf_noise,
         input_resource_kind: Some(ResourceKind::Buffer),
         output_resource_kind: Some(ResourceKind::Buffer),
+        runtime_param_keys: &param_schema::buffer_noise::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -284,8 +362,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexTransform2D,
         stable_id: "tex.transform_2d",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_transform_2d,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::transform_2d::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -293,8 +374,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexLevel,
         stable_id: "tex.level",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_level,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::level::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -302,8 +386,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexFeedback,
         stable_id: "tex.feedback",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_feedback,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::feedback::RUNTIME_KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -311,8 +398,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexReactionDiffusion,
         stable_id: "tex.reaction_diffusion",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_reaction_diffusion,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::reaction_diffusion::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -320,8 +410,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostColorTone,
         stable_id: "tex.post_color_tone",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_color_tone,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -329,8 +422,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostEdgeStructure,
         stable_id: "tex.post_edge_structure",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_edge_structure,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -338,8 +434,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostBlurDiffusion,
         stable_id: "tex.post_blur_diffusion",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_blur_diffusion,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -347,8 +446,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostDistortion,
         stable_id: "tex.post_distortion",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_distortion,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -356,8 +458,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostTemporal,
         stable_id: "tex.post_temporal",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_temporal,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -365,8 +470,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostNoiseTexture,
         stable_id: "tex.post_noise_texture",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_noise_texture,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -374,8 +482,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostLighting,
         stable_id: "tex.post_lighting",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_lighting,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -383,8 +494,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostScreenSpace,
         stable_id: "tex.post_screen_space",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_screen_space,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -392,8 +506,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexPostExperimental,
         stable_id: "tex.post_experimental",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_post_experimental,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::post_process::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -401,8 +518,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::TexBlend,
         stable_id: "tex.blend",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Texture,
+        header_color_argb: AGIO.node_header_tex_blend,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::blend::RUNTIME_KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -410,8 +530,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::SceneEntity,
         stable_id: "scene.entity",
         execution_kind: ExecutionKind::Control,
+        add_menu_category: AddNodeCategory::Scene,
+        header_color_argb: AGIO.node_header_scene_entity,
         input_resource_kind: Some(ResourceKind::Buffer),
         output_resource_kind: Some(ResourceKind::Entity),
+        runtime_param_keys: &param_schema::scene_entity::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -419,8 +542,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::SceneBuild,
         stable_id: "scene.build",
         execution_kind: ExecutionKind::Control,
+        add_menu_category: AddNodeCategory::Scene,
+        header_color_argb: AGIO.node_header_scene_build,
         input_resource_kind: Some(ResourceKind::Entity),
         output_resource_kind: Some(ResourceKind::Scene),
+        runtime_param_keys: &[],
         accepts_signal_bindings: false,
         shows_signal_preview: false,
     },
@@ -428,8 +554,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::RenderCamera,
         stable_id: "render.camera",
         execution_kind: ExecutionKind::Control,
+        add_menu_category: AddNodeCategory::Render,
+        header_color_argb: AGIO.node_header_render_camera,
         input_resource_kind: Some(ResourceKind::Scene),
         output_resource_kind: Some(ResourceKind::Scene),
+        runtime_param_keys: &param_schema::render_camera::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -437,8 +566,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::RenderScenePass,
         stable_id: "render.scene_pass",
         execution_kind: ExecutionKind::Render,
+        add_menu_category: AddNodeCategory::Render,
+        header_color_argb: AGIO.node_header_render_scene_pass,
         input_resource_kind: Some(ResourceKind::Scene),
         output_resource_kind: Some(ResourceKind::Texture2D),
+        runtime_param_keys: &param_schema::render_scene_pass::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: false,
     },
@@ -446,8 +578,11 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::CtlLfo,
         stable_id: "ctl.lfo",
         execution_kind: ExecutionKind::Control,
+        add_menu_category: AddNodeCategory::Control,
+        header_color_argb: AGIO.node_header_ctl_lfo,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Signal),
+        runtime_param_keys: &param_schema::ctl_lfo::KEYS,
         accepts_signal_bindings: true,
         shows_signal_preview: true,
     },
@@ -455,14 +590,24 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         kind: ProjectNodeKind::IoWindowOut,
         stable_id: "io.window_out",
         execution_kind: ExecutionKind::Io,
+        add_menu_category: AddNodeCategory::Io,
+        header_color_argb: AGIO.node_header_io_window_out,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: None,
+        runtime_param_keys: &[],
         accepts_signal_bindings: false,
         shows_signal_preview: false,
     },
 ];
 
 impl ProjectNodeKind {
+    /// Iterate over node kinds in canonical registry order.
+    pub(crate) fn all() -> impl Iterator<Item = Self> {
+        PROJECT_NODE_KIND_DESCRIPTORS
+            .iter()
+            .map(|descriptor| descriptor.kind)
+    }
+
     fn descriptor(self) -> &'static ProjectNodeKindDescriptor {
         PROJECT_NODE_KIND_DESCRIPTORS
             .iter()
@@ -487,6 +632,16 @@ impl ProjectNodeKind {
     #[allow(dead_code)]
     pub(crate) fn execution_kind(self) -> ExecutionKind {
         self.descriptor().execution_kind
+    }
+
+    /// Return canonical add-menu category for this node kind.
+    pub(crate) fn add_menu_category(self) -> AddNodeCategory {
+        self.descriptor().add_menu_category
+    }
+
+    /// Return canonical node-header accent color (ARGB) for this node kind.
+    pub(crate) fn header_color_argb(self) -> u32 {
+        self.descriptor().header_color_argb
     }
 
     /// Return short display label used by node and menu UI.
@@ -530,6 +685,11 @@ impl ProjectNodeKind {
     /// Return output resource kind when this node publishes one.
     pub(crate) fn output_resource_kind(self) -> Option<ResourceKind> {
         self.descriptor().output_resource_kind
+    }
+
+    /// Return canonical runtime slot-key order used by compiler slot resolution.
+    pub(crate) fn runtime_param_keys(self) -> &'static [&'static str] {
+        self.descriptor().runtime_param_keys
     }
 }
 

@@ -318,7 +318,6 @@ pub(crate) mod ctl_lfo {
     pub(crate) const LFO_TYPE_INDEX: usize = 6;
     pub(crate) const SHAPE_INDEX: usize = 7;
 
-    #[cfg(test)]
     pub(crate) const KEYS: [&str; 8] = [
         RATE_HZ, AMPLITUDE, PHASE, BIAS, SYNC_MODE, BEAT_MUL, LFO_TYPE, SHAPE,
     ];

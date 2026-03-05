@@ -1,8 +1,7 @@
 //! Scene color/style constants and category/node palette helpers.
 
 use crate::gui::geometry::Rect;
-use crate::gui::project::ProjectNodeKind;
-use crate::gui::state::AddNodeCategory;
+use crate::gui::project::{AddNodeCategory, ProjectNodeKind};
 use crate::gui::theme::AGIO;
 
 use super::Color;
@@ -78,53 +77,12 @@ pub(super) const GRAPH_TEXT_HIDE_ZOOM: f32 = 0.58;
 
 /// Return the header color assigned to one node kind.
 pub(super) fn node_top_color(kind: ProjectNodeKind) -> Color {
-    match kind {
-        ProjectNodeKind::TexSolid => Color::argb(AGIO.node_header_tex_solid),
-        ProjectNodeKind::TexCircle => Color::argb(AGIO.node_header_tex_circle),
-        ProjectNodeKind::BufSphere => Color::argb(AGIO.node_header_buf_sphere),
-        ProjectNodeKind::BufCircleNurbs => Color::argb(AGIO.node_header_buf_circle_nurbs),
-        ProjectNodeKind::BufNoise => Color::argb(AGIO.node_header_buf_noise),
-        ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
-        ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
-        ProjectNodeKind::TexFeedback => Color::argb(AGIO.node_header_tex_feedback),
-        ProjectNodeKind::TexReactionDiffusion => {
-            Color::argb(AGIO.node_header_tex_reaction_diffusion)
-        }
-        ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
-        ProjectNodeKind::TexPostEdgeStructure => {
-            Color::argb(AGIO.node_header_tex_post_edge_structure)
-        }
-        ProjectNodeKind::TexPostBlurDiffusion => {
-            Color::argb(AGIO.node_header_tex_post_blur_diffusion)
-        }
-        ProjectNodeKind::TexPostDistortion => Color::argb(AGIO.node_header_tex_post_distortion),
-        ProjectNodeKind::TexPostTemporal => Color::argb(AGIO.node_header_tex_post_temporal),
-        ProjectNodeKind::TexPostNoiseTexture => {
-            Color::argb(AGIO.node_header_tex_post_noise_texture)
-        }
-        ProjectNodeKind::TexPostLighting => Color::argb(AGIO.node_header_tex_post_lighting),
-        ProjectNodeKind::TexPostScreenSpace => Color::argb(AGIO.node_header_tex_post_screen_space),
-        ProjectNodeKind::TexPostExperimental => Color::argb(AGIO.node_header_tex_post_experimental),
-        ProjectNodeKind::TexBlend => Color::argb(AGIO.node_header_tex_blend),
-        ProjectNodeKind::SceneEntity => Color::argb(AGIO.node_header_scene_entity),
-        ProjectNodeKind::SceneBuild => Color::argb(AGIO.node_header_scene_build),
-        ProjectNodeKind::RenderCamera => Color::argb(AGIO.node_header_render_camera),
-        ProjectNodeKind::RenderScenePass => Color::argb(AGIO.node_header_render_scene_pass),
-        ProjectNodeKind::CtlLfo => Color::argb(AGIO.node_header_ctl_lfo),
-        ProjectNodeKind::IoWindowOut => Color::argb(AGIO.node_header_io_window_out),
-    }
+    Color::argb(kind.header_color_argb())
 }
 
 /// Return one menu accent color for an add-node category.
 pub(super) fn category_menu_color(category: AddNodeCategory) -> Color {
-    match category {
-        AddNodeCategory::Texture => Color::argb(AGIO.node_header_tex_solid),
-        AddNodeCategory::Buffer => Color::argb(AGIO.node_header_buf_sphere),
-        AddNodeCategory::Scene => Color::argb(AGIO.node_header_scene_entity),
-        AddNodeCategory::Render => Color::argb(AGIO.node_header_render_scene_pass),
-        AddNodeCategory::Control => Color::argb(AGIO.node_header_ctl_lfo),
-        AddNodeCategory::Io => Color::argb(AGIO.node_header_io_window_out),
-    }
+    Color::argb(category.menu_chip_color_argb())
 }
 
 /// Return the rounded chip rectangle inside one category menu row.

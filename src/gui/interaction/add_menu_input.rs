@@ -2,8 +2,8 @@
 
 use crate::gui::project::GuiProject;
 use crate::gui::state::{
-    AddNodeMenuEntry, AddNodeMenuState, InputSnapshot, MainMenuState, PreviewState,
-    ADD_NODE_OPTIONS,
+    add_node_options, AddNodeMenuEntry, AddNodeMenuState, InputSnapshot, MainMenuState,
+    PreviewState,
 };
 use crate::gui::timeline::editor_panel_height;
 
@@ -126,7 +126,7 @@ fn activate_add_menu_selection(
             changed
         }
         AddNodeMenuEntry::Option(option_index) => {
-            let option = ADD_NODE_OPTIONS[option_index];
+            let option = add_node_options()[option_index];
             let drop_cursor_x = state.menu.open_cursor_x;
             let drop_cursor_y = state.menu.open_cursor_y;
             let (spawn_x, spawn_y) = super::screen_to_graph(drop_cursor_x, drop_cursor_y, state);

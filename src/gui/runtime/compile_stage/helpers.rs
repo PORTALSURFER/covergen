@@ -24,6 +24,9 @@ pub(super) fn compile_post_process_node(
     traversal: &mut CompileTraversalState,
     out_steps: &mut Vec<CompiledStep>,
 ) -> bool {
+    let Some(node_kind) = project.node(node_id).map(|node| node.kind()) else {
+        return false;
+    };
     let Some(source_id) = project.input_source_node_id(node_id) else {
         return false;
     };
@@ -34,7 +37,7 @@ pub(super) fn compile_post_process_node(
         project,
         node_id,
         CompiledStepKind::PostProcess { category },
-        &param_schema::post_process::KEYS,
+        node_kind.runtime_param_keys(),
     ));
     true
 }

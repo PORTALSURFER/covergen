@@ -37,13 +37,14 @@ pub(super) fn compile_node(
         return false;
     };
     traversal.visiting.insert(node_id);
-    let ok = match node.kind() {
+    let node_kind = node.kind();
+    let ok = match node_kind {
         ProjectNodeKind::TexSolid => {
             out_steps.push(compiled_step(
                 project,
                 node_id,
                 CompiledStepKind::Solid,
-                &param_schema::solid::KEYS,
+                node_kind.runtime_param_keys(),
             ));
             true
         }
@@ -52,7 +53,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::Circle,
-                &param_schema::circle::KEYS,
+                node_kind.runtime_param_keys(),
             ));
             true
         }
@@ -61,7 +62,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::SphereBuffer,
-                &param_schema::sphere_buffer::KEYS,
+                node_kind.runtime_param_keys(),
             ));
             true
         }
@@ -70,7 +71,7 @@ pub(super) fn compile_node(
                 project,
                 node_id,
                 CompiledStepKind::CircleNurbsBuffer,
-                &param_schema::circle_nurbs_buffer::KEYS,
+                node_kind.runtime_param_keys(),
             ));
             true
         }
@@ -86,7 +87,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::BufferNoise,
-                    &param_schema::buffer_noise::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -103,7 +104,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Transform,
-                    &param_schema::transform_2d::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -120,7 +121,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Level,
-                    &param_schema::level::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -137,7 +138,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Feedback,
-                    &param_schema::feedback::RUNTIME_KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -154,7 +155,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::ReactionDiffusion,
-                    &param_schema::reaction_diffusion::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -282,7 +283,7 @@ pub(super) fn compile_node(
                     base_source_id,
                     layer_source_id,
                 },
-                &param_schema::blend::RUNTIME_KEYS,
+                node_kind.runtime_param_keys(),
             ));
             true
         }
@@ -298,7 +299,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::SceneEntity,
-                    &param_schema::scene_entity::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -332,7 +333,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::Camera,
-                    &param_schema::render_camera::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
@@ -349,7 +350,7 @@ pub(super) fn compile_node(
                     project,
                     node_id,
                     CompiledStepKind::ScenePass,
-                    &param_schema::render_scene_pass::KEYS,
+                    node_kind.runtime_param_keys(),
                 ));
                 true
             }
