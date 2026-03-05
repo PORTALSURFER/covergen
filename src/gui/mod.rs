@@ -68,7 +68,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
     );
 
     event_loop.run(move |event, target| {
-        if app.benchmark_mode() {
+        if app.benchmark_drag_mode() {
             target.set_control_flow(ControlFlow::Poll);
         } else {
             target.set_control_flow(ControlFlow::WaitUntil(app.frame_deadline()));
@@ -82,7 +82,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                     target.exit();
                     return;
                 }
-                if matches!(event, WindowEvent::RedrawRequested) && !app.benchmark_mode() {
+                if matches!(event, WindowEvent::RedrawRequested) && !app.benchmark_drag_mode() {
                     if let Err(err) = app.redraw() {
                         eprintln!("Error: {err}");
                         if let Err(shutdown_err) = app.shutdown() {
@@ -98,7 +98,7 @@ pub(crate) async fn run_gui_preview(args: V2Args) -> Result<(), Box<dyn Error>> 
                 }
             }
             Event::AboutToWait => {
-                if app.benchmark_mode() {
+                if app.benchmark_drag_mode() {
                     if let Err(err) = app.redraw() {
                         eprintln!("Error: {err}");
                         if let Err(shutdown_err) = app.shutdown() {

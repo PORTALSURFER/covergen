@@ -86,9 +86,9 @@ pub(crate) struct GuiApp {
 }
 
 impl GuiApp {
-    /// Return true when the app runs deterministic benchmark automation.
-    pub(crate) fn benchmark_mode(&self) -> bool {
-        is_benchmark_mode(&self.config)
+    /// Return true when benchmark mode actively drives synthetic drag input.
+    pub(crate) fn benchmark_drag_mode(&self) -> bool {
+        self.config.gui.benchmark_drag
     }
 
     fn update_title(&mut self, now: Instant) {
