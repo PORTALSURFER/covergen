@@ -336,7 +336,7 @@ fn handle_alt_param_drag(
     }
 
     if let Some(mut scrub) = state.param_scrub {
-        if !input.left_down || !input.alt_down {
+        if !input.left_down {
             state.param_scrub = None;
             return (true, true);
         }
@@ -368,7 +368,8 @@ fn handle_alt_param_drag(
         return (changed, true);
     }
 
-    let can_start_scrub = input.alt_down
+    let alt_latched_hover_start = input.left_clicked && state.hover_alt_param.is_some();
+    let can_start_scrub = (input.alt_down || alt_latched_hover_start)
         && input.left_down
         && state.link_cut.is_none()
         && state.drag.is_none()
