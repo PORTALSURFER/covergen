@@ -189,6 +189,7 @@ fn state_has_transient_ui(state: &PreviewState) -> bool {
         || state.link_cut.is_some()
         || state.pan_drag.is_some()
         || state.right_marquee.is_some()
+        || state.param_scrub.is_some()
         || state.timeline_scrub_active
         || state.timeline_volume_drag_active
         || state.param_edit.is_some()
