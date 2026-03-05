@@ -44,12 +44,17 @@ function Test-PlaceholderThresholds {
     return ($content -match "0\.001000" -or $content -match "1000000\.000000")
 }
 
-$samples = Get-EnvOrDefault -Name "SAMPLES" -DefaultValue "8"
-$animationSamples = Get-EnvOrDefault -Name "ANIMATION_SAMPLES" -DefaultValue "4"
-$size = Get-EnvOrDefault -Name "SIZE" -DefaultValue "1024"
+$defaultSamples = if ($Mode -eq "lock") { "8" } else { "3" }
+$defaultAnimationSamples = if ($Mode -eq "lock") { "4" } else { "1" }
+$defaultSize = if ($Mode -eq "lock") { "1024" } else { "512" }
+$defaultSeconds = if ($Mode -eq "lock") { "6" } else { "1" }
+
+$samples = Get-EnvOrDefault -Name "SAMPLES" -DefaultValue $defaultSamples
+$animationSamples = Get-EnvOrDefault -Name "ANIMATION_SAMPLES" -DefaultValue $defaultAnimationSamples
+$size = Get-EnvOrDefault -Name "SIZE" -DefaultValue $defaultSize
 $seconds = Get-EnvOrDefault -Name "BENCH_SECONDS" -DefaultValue ""
 if ([string]::IsNullOrWhiteSpace($seconds)) {
-    $seconds = Get-EnvOrDefault -Name "COVERGEN_SECONDS" -DefaultValue "6"
+    $seconds = Get-EnvOrDefault -Name "COVERGEN_SECONDS" -DefaultValue $defaultSeconds
 }
 $fps = Get-EnvOrDefault -Name "FPS" -DefaultValue "24"
 $preset = Get-EnvOrDefault -Name "PRESET" -DefaultValue "mask-atlas"
