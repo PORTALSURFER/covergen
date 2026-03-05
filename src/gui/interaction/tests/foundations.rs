@@ -132,6 +132,55 @@ fn apply_preview_actions_debug_input_flag_change_invalidates_overlays() {
 }
 
 #[test]
+fn apply_preview_actions_alt_hover_change_invalidates_overlays_for_debug_hud() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 80, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let value_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_value_rect(node, 0).expect("value rect exists")
+    };
+    let mut state = PreviewState::new(&config);
+
+    let warmup = InputSnapshot {
+        alt_down: true,
+        mouse_pos: Some((16, 16)),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        warmup,
+        &mut project,
+        &mut state,
+    ));
+    let before = state.invalidation;
+
+    let hover = InputSnapshot {
+        alt_down: true,
+        mouse_pos: Some((value_rect.x + 2, value_rect.y + 2)),
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        hover,
+        &mut project,
+        &mut state,
+    ));
+    assert_eq!(
+        state.hover_alt_param,
+        Some(HoverParamTarget {
+            node_id: solid,
+            param_index: 0,
+        })
+    );
+    assert!(
+        state.invalidation.overlays != before.overlays,
+        "alt-hover changes should invalidate overlays so debug HUD stays live"
+    );
+}
+
+#[test]
 fn insert_param_char_replaces_selection() {
     let mut edit = ParamEditState {
         node_id: 7,

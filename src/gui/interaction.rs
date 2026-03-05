@@ -216,6 +216,7 @@ impl HoverInvalidationSnapshot {
             || self.hover_main_menu_item != next.hover_main_menu_item
             || self.hover_export_menu_item != next.hover_export_menu_item
             || self.hover_export_menu_close != next.hover_export_menu_close
+            || self.hover_alt_param != next.hover_alt_param
             || (wire_drag_active
                 && (self.hover_input_pin != next.hover_input_pin
                     || self.hover_param_target != next.hover_param_target))
