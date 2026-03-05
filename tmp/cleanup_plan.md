@@ -106,7 +106,8 @@ Date: 2026-03-05
     - `cargo test -q gui::renderer::tex_preview::pipeline::tests --bin covergen`
     - `cargo test -q gui::tex_view::tests --bin covergen`
 
-- [ ] 6. Increase `gui::runtime::compile_stage` behavior coverage beyond current happy-path tests
+- [x] 6. Increase `gui::runtime::compile_stage` behavior coverage beyond current happy-path tests
+  - Completed: 2026-03-05 (`5e3a2ff`)
   - ROI: Medium
   - Effort: M
   - Why it matters:
