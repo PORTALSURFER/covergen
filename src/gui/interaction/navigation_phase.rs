@@ -27,6 +27,7 @@ pub(super) fn apply_navigation_phase(
         return InteractionPhaseControl::Finish(true);
     }
 
+    let scrub_code_before = state.debug_scrub_code;
     let (param_scrub_changed, param_scrub_active) = handle_alt_param_drag(
         input,
         project,
@@ -34,6 +35,10 @@ pub(super) fn apply_navigation_phase(
         panel_ctx.panel_height,
         state,
     );
+    if state.debug_scrub_code != scrub_code_before {
+        *changed = true;
+        state.invalidation.invalidate_overlays();
+    }
     *changed |= param_scrub_changed;
     if param_scrub_changed {
         state.invalidation.invalidate_nodes();

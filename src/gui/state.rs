@@ -276,6 +276,8 @@ pub(crate) struct PreviewState {
     pub(crate) debug_input_right_down: bool,
     /// Last processed right-button edge click state for interaction debug overlay.
     pub(crate) debug_input_right_clicked: bool,
+    /// Last scrub state transition code for interaction debugging.
+    pub(crate) debug_scrub_code: u8,
     pub(crate) invalidation: GuiInvalidation,
 }
 
@@ -330,6 +332,7 @@ impl PreviewState {
             debug_input_left_clicked: false,
             debug_input_right_down: false,
             debug_input_right_clicked: false,
+            debug_scrub_code: 0,
             invalidation: GuiInvalidation::initial_dirty(),
         }
     }

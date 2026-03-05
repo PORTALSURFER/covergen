@@ -368,7 +368,7 @@ impl SceneBuilder {
         let mut debug_line = String::new();
         let _ = write!(
             &mut debug_line,
-            "DBG mode={mode} alt={} lmb={} click={} rmb={} rclick={} hover_alt={} scrub={} cut={} edit={} drag={} wire={} pan={}",
+            "DBG mode={mode} alt={} lmb={} click={} rmb={} rclick={} hover_alt={} scrub={} cut={} edit={} drag={} wire={} pan={} scode={}",
             bool_flag(state.debug_input_alt_down),
             bool_flag(state.debug_input_left_down),
             bool_flag(state.debug_input_left_clicked),
@@ -381,8 +381,9 @@ impl SceneBuilder {
             bool_flag(state.drag.is_some()),
             bool_flag(state.wire_drag.is_some()),
             bool_flag(state.pan_drag.is_some()),
+            state.debug_scrub_code,
         );
-        let rect = Rect::new(8, 8, 860, 20);
+        let rect = Rect::new(8, 8, 920, 20);
         self.push_rect(rect, MENU_BG);
         self.push_border(rect, MENU_BORDER);
         self.push_text(rect.x + 6, rect.y + 6, debug_line.as_str(), HELP_HINT);

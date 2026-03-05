@@ -355,20 +355,24 @@ fn handle_alt_param_drag(
         || state.timeline_bar_edit.is_some()
         || state.param_dropdown.is_some()
     {
+        state.debug_scrub_code = 10;
         let ended = state.param_scrub.take().is_some();
         return (ended, ended);
     }
 
     if let Some(mut scrub) = state.param_scrub {
         if !pointer_down {
+            state.debug_scrub_code = 20;
             state.param_scrub = None;
             return (true, true);
         }
         let Some((mx, my)) = input.mouse_pos else {
+            state.debug_scrub_code = 21;
             state.param_scrub = Some(scrub);
             return (false, true);
         };
         if !inside_panel(mx, my, panel_width, panel_height) {
+            state.debug_scrub_code = 22;
             state.param_scrub = Some(scrub);
             return (false, true);
         }
@@ -387,6 +391,9 @@ fn handle_alt_param_drag(
                 node_id: scrub.node_id,
                 param_index: scrub.param_index,
             });
+            state.debug_scrub_code = 24;
+        } else {
+            state.debug_scrub_code = 23;
         }
         state.param_scrub = Some(scrub);
         return (changed, true);
@@ -394,15 +401,22 @@ fn handle_alt_param_drag(
 
     let alt_latched_hover_start = pointer_clicked && state.hover_alt_param.is_some();
     if !(input.alt_down || alt_latched_hover_start) || !pointer_down {
+        state.debug_scrub_code = if input.alt_down || pointer_down || pointer_clicked {
+            30
+        } else {
+            0
+        };
         return (false, false);
     }
     let target = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
         .or_else(|| hover_alt_param_scrub_target(project, state))
         .or_else(|| active_param_edit_scrub_target(project, state));
     let Some(target) = target else {
+        state.debug_scrub_code = 31;
         return (false, false);
     };
     let Some((_mx, my)) = input.mouse_pos else {
+        state.debug_scrub_code = 32;
         return (false, false);
     };
     state.param_scrub = Some(super::state::ParamScrubState {
@@ -421,6 +435,7 @@ fn handle_alt_param_drag(
     state.hover_alt_param = Some(target);
     state.hover_dropdown_item = None;
     state.param_edit = None;
+    state.debug_scrub_code = 40;
     (
         project.select_param(target.node_id, target.param_index),
         true,
