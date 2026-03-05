@@ -393,14 +393,7 @@ fn handle_alt_param_drag(
     }
 
     let alt_latched_hover_start = pointer_clicked && state.hover_alt_param.is_some();
-    let can_start_scrub = (input.alt_down || alt_latched_hover_start)
-        && pointer_down
-        && state.link_cut.is_none()
-        && state.drag.is_none()
-        && state.wire_drag.is_none()
-        && state.pan_drag.is_none()
-        && state.right_marquee.is_none();
-    if !can_start_scrub {
+    if !(input.alt_down || alt_latched_hover_start) || !pointer_down {
         return (false, false);
     }
     let target = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
@@ -418,9 +411,14 @@ fn handle_alt_param_drag(
         last_mouse_y: my,
         pixel_remainder: 0.0,
     });
+    // Scrub takes ownership over competing pointer interactions.
+    state.drag = None;
+    state.wire_drag = None;
+    state.pan_drag = None;
+    state.right_marquee = None;
+    state.link_cut = None;
     state.active_node = Some(target.node_id);
     state.hover_alt_param = Some(target);
-    state.link_cut = None;
     state.hover_dropdown_item = None;
     state.param_edit = None;
     (
