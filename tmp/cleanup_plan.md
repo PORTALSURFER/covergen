@@ -12,7 +12,7 @@ Date: 2026-03-05
 ## ROI-Ordered Backlog
 
 - [x] 1. Fix Windows structure-drift lint script parse failure
-  - Completed: 2026-03-05 (pending commit hash)
+  - Completed: 2026-03-05 (`2ca6bee`)
   - ROI: High
   - Effort: S
   - Why it matters:
