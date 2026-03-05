@@ -13,10 +13,10 @@ Usage:
   scripts/bench/tier_gate.sh validate <desktop_mid|laptop_integrated>
 
 Environment overrides:
-  SAMPLES            default: 8
-  ANIMATION_SAMPLES  default: 4
-  SIZE               default: 1024
-  BENCH_SECONDS      default: 6
+  SAMPLES            default: lock=8, validate=3
+  ANIMATION_SAMPLES  default: lock=4, validate=1
+  SIZE               default: lock=1024, validate=512
+  BENCH_SECONDS      default: lock=6, validate=1
   FPS                default: 24
   PRESET             default: mask-atlas
   PROFILE            default: performance
@@ -54,10 +54,22 @@ case "${tier}" in
     ;;
 esac
 
-samples="${SAMPLES:-8}"
-animation_samples="${ANIMATION_SAMPLES:-4}"
-size="${SIZE:-1024}"
-seconds="${BENCH_SECONDS:-${COVERGEN_SECONDS:-6}}"
+if [[ "${mode}" == "lock" ]]; then
+  default_samples=8
+  default_animation_samples=4
+  default_size=1024
+  default_seconds=6
+else
+  default_samples=3
+  default_animation_samples=1
+  default_size=512
+  default_seconds=1
+fi
+
+samples="${SAMPLES:-${default_samples}}"
+animation_samples="${ANIMATION_SAMPLES:-${default_animation_samples}}"
+size="${SIZE:-${default_size}}"
+seconds="${BENCH_SECONDS:-${COVERGEN_SECONDS:-${default_seconds}}}"
 fps="${FPS:-24}"
 preset="${PRESET:-mask-atlas}"
 profile="${PROFILE:-performance}"

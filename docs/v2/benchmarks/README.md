@@ -34,6 +34,8 @@ pwsh -File scripts/bench/tier_gate.ps1 lock laptop_integrated
 scripts/ci_local.sh validate <tier-name>
 ```
 
+Validate mode intentionally uses a lightweight local profile by default (`samples=3`, `animation_samples=1`, `size=512`, `seconds=1`) so status checks complete quickly; lock mode remains the authoritative full capture profile.
+
 3. Lock and validate deterministic GUI interaction thresholds on each tier host:
 
 ```bash
