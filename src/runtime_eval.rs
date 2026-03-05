@@ -90,6 +90,10 @@ fn evaluate_mixed_graph(
     modulation: Option<GraphTimeInput>,
 ) -> Result<(), Box<dyn Error>> {
     let pixels = pixel_count(compiled.width, compiled.height)?;
+    let generate_layer_ctx = GenerateLayerStaticContext {
+        compiled,
+        seed_offset,
+    };
     let mut values = DenseRuntimeValues::new(compiled.steps.len());
     // Test-only fallback feedback memory. Production persistent feedback uses GPU buffers.
     let mut feedback_state = DenseFeedbackState::new(compiled.steps.len());
@@ -104,12 +108,13 @@ fn evaluate_mixed_graph(
                 execute_generate_layer(
                     step,
                     effective,
-                    compiled,
-                    seed_offset,
-                    renderer.as_deref_mut(),
-                    buffers,
-                    &mut values,
-                    &mut arena,
+                    generate_layer_ctx,
+                    GenerateLayerMutableContext {
+                        renderer: renderer.as_deref_mut(),
+                        buffers,
+                        values: &mut values,
+                        arena: &mut arena,
+                    },
                 )?;
             }
             CompiledOp::SourceNoise(spec) => {
@@ -297,25 +302,43 @@ fn evaluate_mixed_graph(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy)]
+struct GenerateLayerStaticContext<'a> {
+    compiled: &'a CompiledGraph,
+    seed_offset: u32,
+}
+
+struct GenerateLayerMutableContext<'a> {
+    renderer: Option<&'a mut GpuLayerRenderer>,
+    buffers: &'a mut RuntimeBuffers,
+    values: &'a mut DenseRuntimeValues,
+    arena: &'a mut AliasedResourceArena,
+}
+
 fn execute_generate_layer(
     step: &CompiledNodeStep,
     layer: super::node::GenerateLayerNode,
-    compiled: &CompiledGraph,
-    seed_offset: u32,
-    renderer: Option<&mut GpuLayerRenderer>,
-    buffers: &mut RuntimeBuffers,
-    values: &mut DenseRuntimeValues,
-    arena: &mut AliasedResourceArena,
+    static_ctx: GenerateLayerStaticContext<'_>,
+    mut_ctx: GenerateLayerMutableContext<'_>,
 ) -> Result<(), Box<dyn Error>> {
+    let GenerateLayerMutableContext {
+        renderer,
+        buffers,
+        values,
+        arena,
+    } = mut_ctx;
     let renderer = renderer.ok_or("generate-layer node requires GPU renderer")?;
-    let params = layer.to_params(compiled.width, compiled.height, seed_offset);
+    let params = layer.to_params(
+        static_ctx.compiled.width,
+        static_ctx.compiled.height,
+        static_ctx.seed_offset,
+    );
     let gpu_start = Instant::now();
     renderer.render_layer(&params, &mut buffers.layer_scratch)?;
     telemetry::record_timing("v2.gpu.node.generate_layer", gpu_start.elapsed());
     apply_contrast(&mut buffers.layer_scratch, layer.contrast);
 
-    let lifetime = required_lifetime(&compiled.resource_plan, step.node_id)?;
+    let lifetime = required_lifetime(&static_ctx.compiled.resource_plan, step.node_id)?;
     let mut out = arena.acquire_for(lifetime);
     if step.inputs.is_empty() {
         out.copy_from_slice(&buffers.layer_scratch);

@@ -100,6 +100,13 @@ pub(super) struct DecodeLayerDispatch<'a> {
     pub(super) contrast: f32,
 }
 
+/// Device/queue/encoder tuple for one graph-op encode call.
+struct GraphEncodeContext<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    encoder: &'a mut wgpu::CommandEncoder,
+}
+
 /// Cache key for graph-op bind groups that share the same storage bindings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct GraphBindGroupKey {
@@ -245,9 +252,11 @@ impl GpuGraphOps {
         height: u32,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.copy_pipeline,
             buffers,
             GraphOpUniforms::sized(width, height),
@@ -263,7 +272,15 @@ impl GpuGraphOps {
     ) -> u64 {
         let mut uniforms = GraphOpUniforms::sized(dispatch.width, dispatch.height);
         uniforms.p0 = dispatch.contrast;
-        self.encode_decode_pass(device, queue, encoder, dispatch.buffers, uniforms)
+        self.encode_decode_pass(
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
+            dispatch.buffers,
+            uniforms,
+        )
     }
 
     pub(super) fn encode_source_noise(
@@ -275,9 +292,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.source_noise_pipeline,
             buffers,
             uniforms,
@@ -293,9 +312,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.mask_pipeline,
             buffers,
             uniforms,
@@ -311,9 +332,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.blend_pipeline,
             buffers,
             uniforms,
@@ -329,9 +352,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.tone_map_pipeline,
             buffers,
             uniforms,
@@ -351,9 +376,11 @@ impl GpuGraphOps {
         uniforms.mode = 0;
         uniforms.flags &= !0x1;
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.blend_pipeline,
             buffers,
             uniforms,
@@ -369,9 +396,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.top_camera_pipeline,
             buffers,
             uniforms,
@@ -387,9 +416,11 @@ impl GpuGraphOps {
         uniforms: GraphOpUniforms,
     ) -> u64 {
         self.encode_graph_pass(
-            device,
-            queue,
-            encoder,
+            GraphEncodeContext {
+                device,
+                queue,
+                encoder,
+            },
             &self.warp_pipeline,
             buffers,
             uniforms,
@@ -398,13 +429,16 @@ impl GpuGraphOps {
 
     fn encode_graph_pass(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
+        context: GraphEncodeContext<'_>,
         pipeline: &wgpu::ComputePipeline,
         buffers: GraphBuffers<'_>,
         uniforms: GraphOpUniforms,
     ) -> u64 {
+        let GraphEncodeContext {
+            device,
+            queue,
+            encoder,
+        } = context;
         let uploaded = std::mem::size_of::<GraphOpUniforms>() as u64;
         queue.write_buffer(&self.graph_uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         let bind_group = self.cached_graph_bind_group(device, buffers);
@@ -421,12 +455,15 @@ impl GpuGraphOps {
 
     fn encode_decode_pass(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
+        context: GraphEncodeContext<'_>,
         buffers: DecodeBuffers<'_>,
         uniforms: GraphOpUniforms,
     ) -> u64 {
+        let GraphEncodeContext {
+            device,
+            queue,
+            encoder,
+        } = context;
         let uploaded = std::mem::size_of::<GraphOpUniforms>() as u64;
         queue.write_buffer(
             &self.decode_uniform_buffer,
