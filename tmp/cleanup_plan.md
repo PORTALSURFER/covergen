@@ -29,7 +29,8 @@ Date: 2026-03-05
     - `pwsh -File scripts/lint/structure_drift_report.ps1`
     - `pwsh -File scripts/ci_local.ps1 validate laptop_integrated`
 
-- [ ] 2. Eliminate parameter-key drift risk by removing raw string literals from default param builders
+- [x] 2. Eliminate parameter-key drift risk by removing raw string literals from default param builders
+  - Completed: 2026-03-05 (`d63fc94`)
   - ROI: High
   - Effort: M
   - Why it matters:
