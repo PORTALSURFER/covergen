@@ -123,7 +123,8 @@ Date: 2026-03-05
     - `cargo test -q gui::runtime::compile_stage::tests --bin covergen`
     - `cargo test -q gui::runtime::tests --bin covergen`
 
-- [ ] 7. Reduce high-argument/high-length hot-path functions via typed context bundles
+- [x] 7. Reduce high-argument/high-length hot-path functions via typed context bundles
+  - Completed: 2026-03-05 (`df118e5`)
   - ROI: Medium
   - Effort: M
   - Why it matters:
