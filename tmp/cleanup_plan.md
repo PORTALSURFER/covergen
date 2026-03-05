@@ -68,7 +68,8 @@ Date: 2026-03-05
     - `cargo test -q gui::runtime::compile_stage::tests --bin covergen`
     - `cargo test -q gui::interaction::tests --bin covergen`
 
-- [ ] 4. Continue decomposition of oversized GUI orchestration units (`scene` and `interaction`)
+- [x] 4. Continue decomposition of oversized GUI orchestration units (`scene` and `interaction`)
+  - Completed: 2026-03-05 (`c12a52b`)
   - ROI: High
   - Effort: L
   - Why it matters:
