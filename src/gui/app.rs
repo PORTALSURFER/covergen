@@ -1,5 +1,6 @@
 //! GUI application state and frame orchestration.
 
+mod autosave_load;
 mod export_session;
 mod frame_loop;
 mod lifecycle;
@@ -9,7 +10,8 @@ mod project_io;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use winit::event::{ElementState, WindowEvent};
@@ -38,7 +40,7 @@ use super::timeline::{clamp_frame, editor_panel_height};
 use export_session::GuiExportSession;
 use panel_resize::{clamp_panel_width, launch_panel_width, PanelResizeDrag};
 use project_io::{
-    autosave_project_path, is_wav_path, load_autosaved_project, load_project_file,
+    autosave_project_path, is_wav_path, load_autosaved_project_payload, load_project_file,
     load_status_message, log_project_load_warnings, pick_load_project_path, pick_save_project_path,
     save_autosaved_project, save_project_file,
 };
@@ -53,6 +55,13 @@ const GUI_PROJECT_SAVE_FILE: &str = "covergen_gui_project.json";
 #[cfg(test)]
 const GUI_PROJECT_SAVE_FILE_LEGACY: &str = ".covergen_gui_project.json";
 
+/// Background autosave payload load that should not block first-frame startup.
+struct PendingAutosaveLoad {
+    started_at: Instant,
+    launch_project_invalidation: GuiProjectInvalidation,
+    rx: mpsc::Receiver<Result<Option<PersistedGuiProject>, String>>,
+}
+
 /// Frame scheduler and state owner for the realtime GUI loop.
 pub(crate) struct GuiApp {
     config: V2Config,
@@ -62,6 +71,7 @@ pub(crate) struct GuiApp {
     window: Arc<Window>,
     renderer: GuiRenderer,
     project: GuiProject,
+    pending_autosave_load: Option<PendingAutosaveLoad>,
     state: PreviewState,
     input: InputCollector,
     scene: SceneBuilder,
@@ -176,7 +186,8 @@ impl GuiApp {
             || state_has_transient_ui(&self.state)
             || self.panel_resize_drag.is_some()
             || self.export_session.is_some()
-            || self.start_export_requested;
+            || self.start_export_requested
+            || self.pending_autosave_load.is_some();
         if self.config.gui.benchmark_drag || self.benchmark_frame_limit.is_some() {
             self.continuous_redraw = true;
         }

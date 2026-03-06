@@ -100,11 +100,12 @@ impl GuiApp {
         frame_delta: Duration,
     ) -> Result<FrameUpdatePhase, Box<dyn Error>> {
         let update_start = Instant::now();
+        let mut scene_dirty = self.try_apply_pending_autosave_load()?;
         let capture_scene_invalidation = self.should_capture_scene_invalidation_snapshot(snapshot);
         let scene_invalidation_before =
             capture_scene_invalidation.then(|| SceneInvalidationSnapshot::capture(&self.project));
         let (resize_changed, consume_editor_input) = self.apply_panel_resize_input(snapshot);
-        let mut scene_dirty = resize_changed;
+        scene_dirty |= resize_changed;
         scene_dirty |= self
             .project
             .set_lfo_sync_bpm(self.state.export_menu.parsed_bpm());

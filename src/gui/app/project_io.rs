@@ -92,18 +92,11 @@ fn manual_project_load_candidates_in(base_dir: &Path) -> [PathBuf; 3] {
     ]
 }
 
-/// Load autosaved GUI graph if present.
-pub(super) fn load_autosaved_project(
-    panel_width: usize,
-    panel_height: usize,
-) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
+/// Load the autosave payload without rebuilding the full GUI project on this thread.
+pub(super) fn load_autosaved_project_payload() -> Result<Option<PersistedGuiProject>, Box<dyn Error>>
+{
     let path = autosave_project_path();
-    load_project_with_options(
-        path.as_path(),
-        panel_width,
-        panel_height,
-        ProjectLoadOptions::autosave(),
-    )
+    load_project_payload_with_options(path.as_path(), ProjectLoadOptions::autosave())
 }
 
 /// Load the first existing project candidate from one directory.
@@ -162,6 +155,17 @@ fn load_project_with_options(
     panel_height: usize,
     options: ProjectLoadOptions,
 ) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
+    let Some(persisted) = load_project_payload_with_options(path, options)? else {
+        return Ok(None);
+    };
+    build_project_from_payload(path, persisted, panel_width, panel_height, options)
+}
+
+/// Read and parse one persisted project payload while preserving autosave quarantine behavior.
+fn load_project_payload_with_options(
+    path: &Path,
+    options: ProjectLoadOptions,
+) -> Result<Option<PersistedGuiProject>, Box<dyn Error>> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == ErrorKind::NotFound && options.allow_missing => return Ok(None),
@@ -169,44 +173,48 @@ fn load_project_with_options(
     };
     let persisted = match serde_json::from_slice::<PersistedGuiProject>(bytes.as_slice()) {
         Ok(value) => value,
-        Err(err) => {
-            if options.quarantine_corrupt_autosave
-                && path.exists()
-                && should_quarantine_autosave_load_error(&err)
-            {
-                let quarantined = quarantine_corrupt_autosave(path)?;
-                telemetry::record_counter_u64("gui.project.autosave_quarantined", 1);
-                eprintln!(
-                    "[gui] quarantined corrupt autosave {} -> {} ({err})",
-                    path.display(),
-                    quarantined.display()
-                );
-                return Ok(None);
-            }
-            return Err(Box::new(err));
-        }
+        Err(err) => return handle_corrupt_project_load(path, options, err),
     };
-    let project =
-        match GuiProject::from_persisted_with_warnings(persisted, panel_width, panel_height) {
-            Ok(value) => value,
-            Err(err) => {
-                if options.quarantine_corrupt_autosave
-                    && path.exists()
-                    && should_quarantine_autosave_load_error(&err)
-                {
-                    let quarantined = quarantine_corrupt_autosave(path)?;
-                    telemetry::record_counter_u64("gui.project.autosave_quarantined", 1);
-                    eprintln!(
-                        "[gui] quarantined corrupt autosave {} -> {} ({err})",
-                        path.display(),
-                        quarantined.display()
-                    );
-                    return Ok(None);
-                }
-                return Err(Box::new(err));
-            }
-        };
-    Ok(Some(project))
+    Ok(Some(persisted))
+}
+
+/// Rebuild one in-memory GUI project from a persisted payload with autosave quarantine fallback.
+fn build_project_from_payload(
+    path: &Path,
+    persisted: PersistedGuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    options: ProjectLoadOptions,
+) -> Result<Option<PersistedProjectLoadOutcome>, Box<dyn Error>> {
+    match GuiProject::from_persisted_with_warnings(persisted, panel_width, panel_height) {
+        Ok(value) => Ok(Some(value)),
+        Err(err) => handle_corrupt_project_load(path, options, err),
+    }
+}
+
+/// Quarantine one malformed autosave when the error class indicates broken project contents.
+fn handle_corrupt_project_load<T, E>(
+    path: &Path,
+    options: ProjectLoadOptions,
+    err: E,
+) -> Result<Option<T>, Box<dyn Error>>
+where
+    E: Error + 'static,
+{
+    if options.quarantine_corrupt_autosave
+        && path.exists()
+        && should_quarantine_autosave_load_error(&err)
+    {
+        let quarantined = quarantine_corrupt_autosave(path)?;
+        telemetry::record_counter_u64("gui.project.autosave_quarantined", 1);
+        eprintln!(
+            "[gui] quarantined corrupt autosave {} -> {} ({err})",
+            path.display(),
+            quarantined.display()
+        );
+        return Ok(None);
+    }
+    Err(Box::new(err))
 }
 
 /// Move one malformed autosave to a timestamped quarantine path.

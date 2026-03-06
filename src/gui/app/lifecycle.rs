@@ -7,51 +7,15 @@ impl GuiApp {
     pub(crate) async fn new(config: V2Config, window: Arc<Window>) -> Result<Self, Box<dyn Error>> {
         let renderer = GuiRenderer::new(window.clone(), config.gui.vsync).await?;
         let panel_width = clamp_panel_width(launch_panel_width(renderer.width()), renderer.width());
-        let project_load_begin = Instant::now();
         let benchmark_mode = is_benchmark_mode(&config);
-        let mut project = if benchmark_mode {
-            GuiProject::new_empty(config.width, config.height)
-        } else {
-            match load_autosaved_project(panel_width, renderer.height()) {
-                Ok(Some(loaded)) => {
-                    println!(
-                        "[gui] loaded autosave from {}",
-                        autosave_project_path().display()
-                    );
-                    log_project_load_warnings(autosave_project_path().as_path(), &loaded.warnings);
-                    loaded.project
-                }
-                Ok(None) => GuiProject::new_empty(config.width, config.height),
-                Err(err) => {
-                    eprintln!("[gui] failed to load autosave: {err}");
-                    GuiProject::new_empty(config.width, config.height)
-                }
-            }
-        };
+        let mut project = GuiProject::new_empty(config.width, config.height);
         let benchmark_node =
             maybe_seed_benchmark_nodes(&config, &mut project, panel_width, renderer.height());
-        telemetry::record_timing("gui.startup.project_load", project_load_begin.elapsed());
         let state = PreviewState::new(&config);
         let frame_budget = frame_budget(GUI_LOCKED_FPS);
         let benchmark_frame_limit = benchmark_frame_limit(&config);
         let now = Instant::now();
-        println!(
-            "[gui] {}x{} @ {}hz locked ({:?})",
-            renderer.width(),
-            renderer.height(),
-            GUI_LOCKED_FPS,
-            config.gui.vsync
-        );
-        println!(
-            "[gui] controls: Esc=quit, F11=fullscreen, Space=play/pause, Shift+A=add node menu, `=main menu, Tab=open node, F1=context help, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag on param=scrub value, Alt+LMB drag elsewhere=cut links, timeline(play/pause + scrub)"
-        );
-        if let Some(limit) = benchmark_frame_limit {
-            println!(
-                "[gui-bench] benchmark mode active; auto-exit after {} frames",
-                limit
-            );
-        }
-        Ok(Self {
+        let mut app = Self {
             config,
             panel_width,
             panel_resize_drag: None,
@@ -59,6 +23,7 @@ impl GuiApp {
             window,
             renderer,
             project,
+            pending_autosave_load: None,
             state,
             input: InputCollector::default(),
             scene: SceneBuilder::default(),
@@ -81,7 +46,29 @@ impl GuiApp {
             title_deadline: now,
             last_title: String::new(),
         }
-        .with_perf_trace())
+        .with_perf_trace();
+        if benchmark_mode {
+            telemetry::record_timing("gui.startup.project_load", Duration::ZERO);
+        } else {
+            app.pending_autosave_load = app.spawn_pending_autosave_load();
+        }
+        println!(
+            "[gui] {}x{} @ {}hz locked ({:?})",
+            app.renderer.width(),
+            app.renderer.height(),
+            GUI_LOCKED_FPS,
+            app.config.gui.vsync
+        );
+        println!(
+            "[gui] controls: Esc=quit, F11=fullscreen, Space=play/pause, Shift+A=add node menu, `=main menu, Tab=open node, F1=context help, RMB=select, RMB drag=marquee, RMB on bound param value=unbind, Delete=remove selected, Toggle box=expand/collapse, Arrows=param select/adjust, Alt+LMB drag on param=scrub value, Alt+LMB drag elsewhere=cut links, timeline(play/pause + scrub)"
+        );
+        if let Some(limit) = benchmark_frame_limit {
+            println!(
+                "[gui-bench] benchmark mode active; auto-exit after {} frames",
+                limit
+            );
+        }
+        Ok(app)
     }
 
     /// Return current redraw deadline for the event loop.
@@ -244,11 +231,8 @@ impl GuiApp {
                 match load_project_file(path.as_path(), self.panel_width, self.renderer.height()) {
                     Ok(loaded) => {
                         let warning_count = loaded.warnings.len();
-                        self.project = loaded.project;
-                        self.state = PreviewState::new(&self.config);
-                        self.state.invalidation.invalidate_all();
-                        self.start_export_requested = false;
-                        let _ = self.stop_export_session("stopped");
+                        self.pending_autosave_load = None;
+                        self.replace_loaded_project(loaded.project);
                         self.state
                             .export_menu
                             .set_status(load_status_message(path.as_path(), warning_count));
