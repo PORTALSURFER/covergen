@@ -629,21 +629,12 @@ impl TexPreviewRenderer {
         Some(())
     }
 
-    fn has_blend_alias_target(&self, target: RenderTargetRef) -> bool {
-        self.blend_source_aliases_by_target
-            .get(&target)
-            .map(|source_ids| !source_ids.is_empty())
-            .unwrap_or(false)
-    }
-
     fn choose_intermediate_target(
         &self,
         scratch_flip: &mut bool,
         source_target: Option<RenderTargetRef>,
     ) -> RenderTargetRef {
-        choose_intermediate_target_impl(scratch_flip, source_target, |target| {
-            self.has_blend_alias_target(target)
-        })
+        choose_intermediate_target_impl(scratch_flip, source_target)
     }
 
     fn bind_blend_source_alias(&mut self, texture_node_id: u32, target: RenderTargetRef) {
@@ -804,7 +795,6 @@ where
 fn choose_intermediate_target_impl(
     scratch_flip: &mut bool,
     source_target: Option<RenderTargetRef>,
-    has_blend_alias_target: impl Fn(RenderTargetRef) -> bool,
 ) -> RenderTargetRef {
     let preferred = if *scratch_flip {
         RenderTargetRef::ScratchB
@@ -812,9 +802,7 @@ fn choose_intermediate_target_impl(
         RenderTargetRef::ScratchA
     };
     *scratch_flip = !*scratch_flip;
-    let target_is_available = |target| {
-        source_target != Some(target) && !has_blend_alias_target(target)
-    };
+    let target_is_available = |target| source_target != Some(target);
     if target_is_available(preferred) {
         return preferred;
     }
@@ -1050,11 +1038,14 @@ mod tests {
     #[test]
     fn intermediate_target_selection_avoids_current_source_target() {
         let mut scratch_flip = true;
-        let chosen = choose_intermediate_target_impl(
-            &mut scratch_flip,
-            Some(RenderTargetRef::ScratchB),
-            |_| false,
-        );
+        let chosen = choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
+        assert_eq!(chosen, RenderTargetRef::ScratchA);
+    }
+
+    #[test]
+    fn intermediate_target_selection_reuses_non_source_scratch_targets() {
+        let mut scratch_flip = false;
+        let chosen = choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
         assert_eq!(chosen, RenderTargetRef::ScratchA);
     }
 }
