@@ -75,7 +75,8 @@ Plan path: `tmp/perf_plan.md`
     - `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Track lower allocation noise and improved `scene.edges_ms_p95` on dense graphs.
 
-- [ ] 4. Fuse tex-op evaluation and signature computation into one pass
+- [x] 4. Fuse tex-op evaluation and signature computation into one pass
+  - Completed: 2026-03-06 (`bdab8cd` `perf: hash tex preview ops in one pass`)
   - ROI: High
   - Effort: M
   - Expected impact: frame time, CPU
