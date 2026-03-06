@@ -57,7 +57,8 @@ Plan path: `tmp/perf_plan.md`
     - `scripts/gui/tier_gate.sh validate desktop_mid`
     - Compare drag traces for lower `update_ms_p95` with stable hover/cut behavior.
 
-- [ ] 3. Reuse blocked-rect scratch in wire router search windows
+- [x] 3. Reuse blocked-rect scratch in wire router search windows
+  - Completed: 2026-03-06 (`22ecdc2` `perf: reuse blocked rect scratch in wire routing`)
   - ROI: High
   - Effort: M
   - Expected impact: frame time, CPU, memory churn
