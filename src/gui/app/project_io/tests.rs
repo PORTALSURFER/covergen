@@ -200,6 +200,38 @@ fn bundled_circle_noise_feedback_example_loads() {
 }
 
 #[test]
+fn bundled_marbled_ink_example_loads() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/graphs/marbled_ink_monochrome.json");
+    let loaded = load_project_file(path.as_path(), 1280, 720).expect("load example project");
+    assert!(loaded.warnings.is_empty());
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
+            .any(|node| node.kind().stable_id() == "tex.source_noise"),
+        "example graph should include tex.source_noise"
+    );
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
+            .any(|node| node.kind().stable_id() == "tex.tone_map"),
+        "example graph should include tex.tone_map"
+    );
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
+            .any(|node| node.kind().stable_id() == "tex.warp_transform"),
+        "example graph should include tex.warp_transform"
+    );
+}
+
+#[test]
 fn save_project_file_cleans_tmp_when_destination_is_invalid() {
     let dir = temp_dir("save_invalid_destination");
     let invalid_destination = dir.join("project.json");

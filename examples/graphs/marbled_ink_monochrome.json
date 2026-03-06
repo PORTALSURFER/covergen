@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "name": "Marbled Ink Monochrome",
+  "preview_width": 1024,
+  "preview_height": 1024,
+  "nodes": [
+    {
+      "id": 1,
+      "kind": "tex.source_noise",
+      "x": -1280,
+      "y": 120,
+      "texture_input": null,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        { "key": "seed", "value": 13.0, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 2.8, "signal_source": null, "texture_source": null },
+        { "key": "octaves", "value": 5.0, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 1.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "tex.source_noise",
+      "x": -1280,
+      "y": 420,
+      "texture_input": null,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        { "key": "seed", "value": 91.0, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 9.0, "signal_source": null, "texture_source": null },
+        { "key": "octaves", "value": 3.0, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 0.55, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "tex.mask",
+      "x": -980,
+      "y": 420,
+      "texture_input": 2,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "threshold", "value": 0.58, "signal_source": null, "texture_source": null },
+        { "key": "softness", "value": 0.18, "signal_source": null, "texture_source": null },
+        { "key": "invert", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "tex.blend",
+      "x": -760,
+      "y": 240,
+      "texture_input": 1,
+      "selected_param": 2,
+      "expanded": true,
+      "params": [
+        { "key": "blend_tex", "value": 0.0, "signal_source": null, "texture_source": 3 },
+        { "key": "blend_mode", "value": 8.0, "signal_source": null, "texture_source": null },
+        { "key": "opacity", "value": 0.72, "signal_source": null, "texture_source": null },
+        { "key": "bg_r", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "bg_g", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "bg_b", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "bg_a", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 5,
+      "kind": "tex.reaction_diffusion",
+      "x": -480,
+      "y": 240,
+      "texture_input": 4,
+      "selected_param": 2,
+      "expanded": true,
+      "params": [
+        { "key": "diff_a", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "diff_b", "value": 0.46, "signal_source": null, "texture_source": null },
+        { "key": "feed", "value": 0.044, "signal_source": 15, "texture_source": null },
+        { "key": "kill", "value": 0.061, "signal_source": null, "texture_source": null },
+        { "key": "dt", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "seed_mix", "value": 0.16, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 6,
+      "kind": "tex.warp_transform",
+      "x": -180,
+      "y": 240,
+      "texture_input": 5,
+      "selected_param": 2,
+      "expanded": true,
+      "params": [
+        { "key": "strength", "value": 0.42, "signal_source": null, "texture_source": null },
+        { "key": "frequency", "value": 2.4, "signal_source": null, "texture_source": null },
+        { "key": "phase", "value": 0.18, "signal_source": 14, "texture_source": null }
+      ]
+    },
+    {
+      "id": 7,
+      "kind": "tex.feedback",
+      "x": 120,
+      "y": 240,
+      "texture_input": 6,
+      "selected_param": 1,
+      "expanded": true,
+      "params": [
+        { "key": "accumulation_tex", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "feedback", "value": 0.92, "signal_source": null, "texture_source": null },
+        { "key": "frame_gap", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "reset", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 8,
+      "kind": "tex.post_experimental",
+      "x": 420,
+      "y": 240,
+      "texture_input": 7,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "effect", "value": 6.0, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.28, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 2.0, "signal_source": null, "texture_source": null },
+        { "key": "thresh", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "speed", "value": 0.22, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 9,
+      "kind": "tex.post_blur_diffusion",
+      "x": 720,
+      "y": 240,
+      "texture_input": 8,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "effect", "value": 2.0, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.18, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 1.2, "signal_source": null, "texture_source": null },
+        { "key": "thresh", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "speed", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 10,
+      "kind": "tex.post_edge_structure",
+      "x": 1020,
+      "y": 240,
+      "texture_input": 9,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "effect", "value": 2.0, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.12, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 0.8, "signal_source": null, "texture_source": null },
+        { "key": "thresh", "value": 0.3, "signal_source": null, "texture_source": null },
+        { "key": "speed", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 11,
+      "kind": "tex.tone_map",
+      "x": 1320,
+      "y": 240,
+      "texture_input": 10,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "contrast", "value": 1.6, "signal_source": null, "texture_source": null },
+        { "key": "low_pct", "value": 0.08, "signal_source": null, "texture_source": null },
+        { "key": "high_pct", "value": 0.92, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 12,
+      "kind": "tex.transform_2d",
+      "x": 1620,
+      "y": 240,
+      "texture_input": 11,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "brightness", "value": 1.05, "signal_source": null, "texture_source": null },
+        { "key": "gain_r", "value": 0.78, "signal_source": null, "texture_source": null },
+        { "key": "gain_g", "value": 0.84, "signal_source": null, "texture_source": null },
+        { "key": "gain_b", "value": 0.90, "signal_source": null, "texture_source": null },
+        { "key": "alpha_mul", "value": 1.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 13,
+      "kind": "io.window_out",
+      "x": 1900,
+      "y": 240,
+      "texture_input": 12,
+      "selected_param": 0,
+      "expanded": false,
+      "params": []
+    },
+    {
+      "id": 14,
+      "kind": "ctl.lfo",
+      "x": -180,
+      "y": -60,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "rate_hz", "value": 0.03, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 0.08, "signal_source": null, "texture_source": null },
+        { "key": "phase", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "bias", "value": 0.18, "signal_source": null, "texture_source": null },
+        { "key": "sync_mode", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "beat_mul", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "lfo_type", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "shape", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 15,
+      "kind": "ctl.lfo",
+      "x": -480,
+      "y": -60,
+      "texture_input": null,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "rate_hz", "value": 0.01, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 0.004, "signal_source": null, "texture_source": null },
+        { "key": "phase", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "bias", "value": 0.044, "signal_source": null, "texture_source": null },
+        { "key": "sync_mode", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "beat_mul", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "lfo_type", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "shape", "value": 0.0, "signal_source": null, "texture_source": null }
+      ]
+    }
+  ]
+}

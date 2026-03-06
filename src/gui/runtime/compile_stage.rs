@@ -56,6 +56,15 @@ pub(super) fn compile_node(
             ));
             true
         }
+        ProjectNodeKind::TexSourceNoise => {
+            out_steps.push(compiled_step(
+                project,
+                node_id,
+                CompiledStepKind::SourceNoise,
+                &param_schema::source_noise::KEYS,
+            ));
+            true
+        }
         ProjectNodeKind::BufSphere => {
             out_steps.push(compiled_step(
                 project,
@@ -125,6 +134,40 @@ pub(super) fn compile_node(
                 true
             }
         }
+        ProjectNodeKind::TexMask => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, traversal, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::Mask,
+                    &param_schema::mask::KEYS,
+                ));
+                true
+            }
+        }
+        ProjectNodeKind::TexToneMap => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, traversal, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::ToneMap,
+                    &param_schema::tone_map::KEYS,
+                ));
+                true
+            }
+        }
         ProjectNodeKind::TexFeedback => {
             let source_id = project.input_source_node_id(node_id);
             let Some(source_id) = source_id else {
@@ -155,6 +198,23 @@ pub(super) fn compile_node(
                     node_id,
                     CompiledStepKind::ReactionDiffusion,
                     &param_schema::reaction_diffusion::KEYS,
+                ));
+                true
+            }
+        }
+        ProjectNodeKind::TexWarpTransform => {
+            let source_id = project.input_source_node_id(node_id);
+            let Some(source_id) = source_id else {
+                return false;
+            };
+            if !compile_node(project, source_id, traversal, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::WarpTransform,
+                    &param_schema::warp_transform::KEYS,
                 ));
                 true
             }

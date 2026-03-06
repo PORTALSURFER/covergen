@@ -19,15 +19,25 @@ fn runtime_param_schema_matches_default_editor_param_order() {
 
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::TexCircle, 40, 40, 420, 480);
-    let transform = project.add_node(ProjectNodeKind::TexTransform2D, 220, 40, 420, 480);
-    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 400, 40, 420, 480);
-    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 580, 40, 420, 480);
-    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 760, 40, 420, 480);
+    let source_noise = project.add_node(ProjectNodeKind::TexSourceNoise, 220, 40, 420, 480);
+    let transform = project.add_node(ProjectNodeKind::TexTransform2D, 400, 40, 420, 480);
+    let mask = project.add_node(ProjectNodeKind::TexMask, 580, 40, 420, 480);
+    let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 760, 40, 420, 480);
+    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 940, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 1120, 40, 420, 480);
+    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 1300, 40, 420, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 1480, 40, 420, 480);
     assert_kind_keys(
         &project,
         circle,
         &param_schema::circle::KEYS,
         ProjectNodeKind::TexCircle,
+    );
+    assert_kind_keys(
+        &project,
+        source_noise,
+        &param_schema::source_noise::KEYS,
+        ProjectNodeKind::TexSourceNoise,
     );
     assert_kind_keys(
         &project,
@@ -37,9 +47,27 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     );
     assert_kind_keys(
         &project,
+        mask,
+        &param_schema::mask::KEYS,
+        ProjectNodeKind::TexMask,
+    );
+    assert_kind_keys(
+        &project,
+        tone_map,
+        &param_schema::tone_map::KEYS,
+        ProjectNodeKind::TexToneMap,
+    );
+    assert_kind_keys(
+        &project,
         feedback,
         &param_schema::feedback::KEYS,
         ProjectNodeKind::TexFeedback,
+    );
+    assert_kind_keys(
+        &project,
+        warp,
+        &param_schema::warp_transform::KEYS,
+        ProjectNodeKind::TexWarpTransform,
     );
     assert_kind_keys(
         &project,
@@ -61,13 +89,17 @@ fn all_default_parameter_labels_fit_length_budget() {
     let kinds = [
         ProjectNodeKind::TexSolid,
         ProjectNodeKind::TexCircle,
+        ProjectNodeKind::TexSourceNoise,
         ProjectNodeKind::BufSphere,
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
+        ProjectNodeKind::TexMask,
+        ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,
         ProjectNodeKind::TexPostBlurDiffusion,
@@ -106,13 +138,17 @@ fn signal_preview_is_limited_to_signal_nodes() {
     let kinds_without_preview = [
         ProjectNodeKind::TexSolid,
         ProjectNodeKind::TexCircle,
+        ProjectNodeKind::TexSourceNoise,
         ProjectNodeKind::BufSphere,
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
+        ProjectNodeKind::TexMask,
+        ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,
         ProjectNodeKind::TexPostBlurDiffusion,

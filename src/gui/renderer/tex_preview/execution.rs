@@ -75,10 +75,14 @@ enum RuntimeOpPipelineKind {
     Solid,
     Circle,
     Sphere,
+    SourceNoise,
     Transform,
     Level,
+    Mask,
+    ToneMap,
     Feedback,
     ReactionDiffusion,
+    WarpTransform,
     PostProcess,
 }
 

@@ -40,6 +40,18 @@ Blue channel multiplier for circle fill color.
 ### Param `alpha`
 Alpha channel multiplier for circle fill color.
 
+## Node `tex.source_noise`
+Generates deterministic monochrome procedural noise.
+Use this as a seed field for masks, reaction-diffusion, and warp-driven organic textures.
+### Param `seed`
+Deterministic noise seed controlling the sampled pattern.
+### Param `scale`
+Spatial scale of the noise field; higher values add denser features.
+### Param `octaves`
+Number of layered octave bands used in the noise sum.
+### Param `amplitude`
+Output gain applied after octave normalization.
+
 ## Node `buf.sphere`
 Creates sphere geometry in buffer space.
 Commonly routed into `scene.entity` for scene assembly.
@@ -118,6 +130,26 @@ Output low remap target.
 ### Param `out_high`
 Output high remap target.
 
+## Node `tex.mask`
+Extracts a soft threshold mask from incoming texture luma.
+Use this to isolate veins, voids, or bright detail before compositing.
+### Param `threshold`
+Luma threshold pivot used for mask extraction.
+### Param `softness`
+Transition width around the threshold edge.
+### Param `invert`
+Flips the mask so dark regions become selected instead of bright ones.
+
+## Node `tex.tone_map`
+Applies percentile clamping and contrast shaping to input luma.
+Use this after structure-building stages to push marbled forms into cleaner dark/light separation.
+### Param `contrast`
+Contrast multiplier applied after percentile normalization.
+### Param `low_pct`
+Lower percentile-style clamp controlling the black point.
+### Param `high_pct`
+Upper percentile-style clamp controlling the white point.
+
 ## Node `tex.feedback`
 Outputs delayed persistent history (feedback tap).
 Input pin writes the next history frame; displayed output is prior history.
@@ -146,6 +178,16 @@ Kill rate removing reagent `B`.
 Per-frame integration step multiplier.
 ### Param `seed_mix`
 Blend amount for injecting source concentrations into the evolving state.
+
+## Node `tex.warp_transform`
+Applies a lightweight deterministic UV warp to the input texture.
+Use this to bend diffusion structures and feed subtle directional flow into feedback.
+### Param `strength`
+Overall UV offset strength of the warp.
+### Param `frequency`
+Spatial frequency of the sinusoidal warp field.
+### Param `phase`
+Phase offset used to animate or offset the warp pattern.
 
 ## Node `tex.post_color_tone`
 Color and tone post-processing category node.

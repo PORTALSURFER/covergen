@@ -71,6 +71,43 @@ pub(super) fn tex_circle_params() -> Vec<NodeParamSlot> {
     ]
 }
 
+pub(super) fn tex_source_noise_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::source_noise::SEED,
+            "seed",
+            1.0,
+            0.0,
+            65535.0,
+            1.0,
+        ),
+        param(
+            param_schema::source_noise::SCALE,
+            "scale",
+            4.0,
+            0.05,
+            32.0,
+            0.05,
+        ),
+        param(
+            param_schema::source_noise::OCTAVES,
+            "octaves",
+            4.0,
+            1.0,
+            8.0,
+            1.0,
+        ),
+        param(
+            param_schema::source_noise::AMPLITUDE,
+            "amplitude",
+            1.0,
+            0.0,
+            2.0,
+            0.01,
+        ),
+    ]
+}
+
 pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
     vec![
         // Keep transform as identity by default so inserting this node
@@ -130,6 +167,62 @@ pub(super) fn tex_level_params() -> Vec<NodeParamSlot> {
     ]
 }
 
+pub(super) fn tex_mask_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::mask::THRESHOLD,
+            "threshold",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::mask::SOFTNESS,
+            "softness",
+            0.1,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param_dropdown(
+            param_schema::mask::INVERT,
+            "invert",
+            0,
+            &TEX_MASK_INVERT_OPTIONS,
+        ),
+    ]
+}
+
+pub(super) fn tex_tone_map_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::tone_map::CONTRAST,
+            "contrast",
+            1.0,
+            1.0,
+            3.0,
+            0.01,
+        ),
+        param(
+            param_schema::tone_map::LOW_PCT,
+            "low_pct",
+            0.0,
+            0.0,
+            0.9,
+            0.01,
+        ),
+        param(
+            param_schema::tone_map::HIGH_PCT,
+            "high_pct",
+            1.0,
+            0.01,
+            1.0,
+            0.01,
+        ),
+    ]
+}
+
 pub(super) fn tex_feedback_params() -> Vec<NodeParamSlot> {
     vec![
         // Optional external accumulation-history binding for feedback.
@@ -169,6 +262,35 @@ pub(super) fn tex_reaction_diffusion_params() -> Vec<NodeParamSlot> {
         param("dt", "dt", 1.0, 0.0, 2.0, 0.01),
         // Blend amount for injecting source texture concentrations.
         param("seed_mix", "seed_mix", 0.04, 0.0, 1.0, 0.01),
+    ]
+}
+
+pub(super) fn tex_warp_transform_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::warp_transform::STRENGTH,
+            "strength",
+            0.5,
+            0.0,
+            2.4,
+            0.01,
+        ),
+        param(
+            param_schema::warp_transform::FREQUENCY,
+            "freq",
+            2.0,
+            0.05,
+            12.0,
+            0.05,
+        ),
+        param(
+            param_schema::warp_transform::PHASE,
+            "phase",
+            0.0,
+            -64.0,
+            64.0,
+            0.01,
+        ),
     ]
 }
 

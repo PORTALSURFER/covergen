@@ -19,6 +19,11 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
             source_binding: RuntimeSourceBinding::Dummy,
             feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
+        TexViewerOp::SourceNoise { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::SourceNoise,
+            source_binding: RuntimeSourceBinding::Dummy,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
         TexViewerOp::Transform { .. } => RuntimeOpDescriptor {
             pipeline: RuntimeOpPipelineKind::Transform,
             source_binding: RuntimeSourceBinding::SourceTarget,
@@ -26,6 +31,16 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
         },
         TexViewerOp::Level { .. } => RuntimeOpDescriptor {
             pipeline: RuntimeOpPipelineKind::Level,
+            source_binding: RuntimeSourceBinding::SourceTarget,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
+        TexViewerOp::Mask { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::Mask,
+            source_binding: RuntimeSourceBinding::SourceTarget,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
+        TexViewerOp::ToneMap { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::ToneMap,
             source_binding: RuntimeSourceBinding::SourceTarget,
             feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
@@ -38,6 +53,11 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
             pipeline: RuntimeOpPipelineKind::ReactionDiffusion,
             source_binding: RuntimeSourceBinding::SourceTarget,
             feedback_binding: RuntimeFeedbackBinding::HistoryRequired,
+        },
+        TexViewerOp::WarpTransform { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::WarpTransform,
+            source_binding: RuntimeSourceBinding::SourceTarget,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
         TexViewerOp::PostProcess { history, .. } => RuntimeOpDescriptor {
             pipeline: RuntimeOpPipelineKind::PostProcess,
@@ -62,10 +82,14 @@ pub(super) fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform
         }
         TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
         TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
+        TexViewerOp::SourceNoise { .. } => TexOpUniform::source_noise(runtime_op),
         TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
         TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
+        TexViewerOp::Mask { .. } => TexOpUniform::mask(runtime_op),
+        TexViewerOp::ToneMap { .. } => TexOpUniform::tone_map(runtime_op),
         TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
         TexViewerOp::ReactionDiffusion { .. } => TexOpUniform::reaction_diffusion(runtime_op),
+        TexViewerOp::WarpTransform { .. } => TexOpUniform::warp_transform(runtime_op),
         TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
         TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),
     }

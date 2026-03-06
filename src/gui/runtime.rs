@@ -80,6 +80,13 @@ pub(crate) enum TexRuntimeOp {
         alpha: f32,
         alpha_clip: bool,
     },
+    /// `tex.source_noise` procedural noise source operation.
+    SourceNoise {
+        seed: f32,
+        scale: f32,
+        octaves: f32,
+        amplitude: f32,
+    },
     /// `render.scene_pass` sphere shading operation.
     Sphere {
         center_x: f32,
@@ -117,6 +124,18 @@ pub(crate) enum TexRuntimeOp {
         out_low: f32,
         out_high: f32,
     },
+    /// `tex.mask` operation.
+    Mask {
+        threshold: f32,
+        softness: f32,
+        invert: f32,
+    },
+    /// `tex.tone_map` operation.
+    ToneMap {
+        contrast: f32,
+        low_pct: f32,
+        high_pct: f32,
+    },
     /// `tex.feedback` delayed history output operation with optional frame-gap decimation.
     Feedback {
         mix: f32,
@@ -132,6 +151,12 @@ pub(crate) enum TexRuntimeOp {
         dt: f32,
         seed_mix: f32,
         history: TexRuntimeFeedbackHistoryBinding,
+    },
+    /// `tex.warp_transform` operation.
+    WarpTransform {
+        strength: f32,
+        frequency: f32,
+        phase: f32,
     },
     /// Category post-process operation with shared controls.
     PostProcess {
@@ -190,6 +215,7 @@ struct CompiledStep {
 enum CompiledStepKind {
     Solid,
     Circle,
+    SourceNoise,
     SphereBuffer,
     CircleNurbsBuffer,
     BufferNoise,
@@ -199,8 +225,11 @@ enum CompiledStepKind {
     ScenePass,
     Transform,
     Level,
+    Mask,
+    ToneMap,
     Feedback,
     ReactionDiffusion,
+    WarpTransform,
     PostProcess {
         category: PostProcessCategory,
     },
@@ -349,6 +378,7 @@ impl GuiCompiledRuntime {
         match step.kind {
             CompiledStepKind::Solid => Self::emit_solid(step, ctx),
             CompiledStepKind::Circle => Self::emit_circle(step, ctx),
+            CompiledStepKind::SourceNoise => Self::emit_source_noise(step, ctx),
             CompiledStepKind::SphereBuffer => Self::update_sphere_mesh(step, step_state, ctx),
             CompiledStepKind::CircleNurbsBuffer => {
                 Self::update_circle_nurbs_mesh(step, step_state, ctx)
@@ -360,8 +390,11 @@ impl GuiCompiledRuntime {
             CompiledStepKind::ScenePass => Self::emit_scene_pass(step, step_state, ctx),
             CompiledStepKind::Transform => Self::emit_transform(step, ctx),
             CompiledStepKind::Level => Self::emit_level(step, ctx),
+            CompiledStepKind::Mask => Self::emit_mask(step, ctx),
+            CompiledStepKind::ToneMap => Self::emit_tone_map(step, ctx),
             CompiledStepKind::Feedback => Self::emit_feedback(step, ctx),
             CompiledStepKind::ReactionDiffusion => Self::emit_reaction_diffusion(step, ctx),
+            CompiledStepKind::WarpTransform => Self::emit_warp_transform(step, ctx),
             CompiledStepKind::PostProcess { category } => {
                 Self::emit_post_process(step, category, ctx)
             }
@@ -439,6 +472,33 @@ impl GuiCompiledRuntime {
             color_b,
             alpha,
             alpha_clip: false,
+        });
+    }
+
+    fn emit_source_noise(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let seed = ctx
+            .param(step, param_schema::source_noise::SEED_INDEX)
+            .unwrap_or(1.0)
+            .round()
+            .clamp(0.0, 65535.0);
+        let scale = ctx
+            .param(step, param_schema::source_noise::SCALE_INDEX)
+            .unwrap_or(4.0)
+            .clamp(0.05, 32.0);
+        let octaves = ctx
+            .param(step, param_schema::source_noise::OCTAVES_INDEX)
+            .unwrap_or(4.0)
+            .round()
+            .clamp(1.0, 8.0);
+        let amplitude = ctx
+            .param(step, param_schema::source_noise::AMPLITUDE_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        ctx.out_ops.push(TexRuntimeOp::SourceNoise {
+            seed,
+            scale,
+            octaves,
+            amplitude,
         });
     }
 
@@ -625,6 +685,47 @@ impl GuiCompiledRuntime {
         });
     }
 
+    fn emit_mask(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let threshold = ctx
+            .param(step, param_schema::mask::THRESHOLD_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        let softness = ctx
+            .param(step, param_schema::mask::SOFTNESS_INDEX)
+            .unwrap_or(0.1)
+            .clamp(0.0, 1.0);
+        let invert = ctx
+            .param(step, param_schema::mask::INVERT_INDEX)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::Mask {
+            threshold,
+            softness,
+            invert,
+        });
+    }
+
+    fn emit_tone_map(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let low_pct = ctx
+            .param(step, param_schema::tone_map::LOW_PCT_INDEX)
+            .unwrap_or(0.0)
+            .clamp(0.0, 0.9);
+        let high_pct = ctx
+            .param(step, param_schema::tone_map::HIGH_PCT_INDEX)
+            .unwrap_or(1.0)
+            .clamp((low_pct + 0.01).min(1.0), 1.0);
+        let contrast = ctx
+            .param(step, param_schema::tone_map::CONTRAST_INDEX)
+            .unwrap_or(1.0)
+            .clamp(1.0, 3.0);
+        ctx.out_ops.push(TexRuntimeOp::ToneMap {
+            contrast,
+            low_pct,
+            high_pct,
+        });
+    }
+
     fn emit_blend(
         step: &CompiledStep,
         base_source_id: u32,
@@ -665,6 +766,25 @@ impl GuiCompiledRuntime {
             bg_a,
             base_texture_node_id: base_source_id,
             layer_texture_node_id: layer_source_id,
+        });
+    }
+
+    fn emit_warp_transform(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let strength = ctx
+            .param(step, param_schema::warp_transform::STRENGTH_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 2.4);
+        let frequency = ctx
+            .param(step, param_schema::warp_transform::FREQUENCY_INDEX)
+            .unwrap_or(2.0)
+            .clamp(0.05, 12.0);
+        let phase = ctx
+            .param(step, param_schema::warp_transform::PHASE_INDEX)
+            .unwrap_or(0.0);
+        ctx.out_ops.push(TexRuntimeOp::WarpTransform {
+            strength,
+            frequency,
+            phase,
         });
     }
 

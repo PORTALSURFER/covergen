@@ -28,6 +28,34 @@ fn supported_graph_emits_gpu_ops_payload() {
 }
 
 #[test]
+fn source_noise_node_emits_source_noise_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 60, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 220, 80, 420, 480);
+    assert!(project.connect_image_link(noise, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+}
+
+#[test]
 fn transform_chain_produces_solid_then_transform_ops() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
@@ -56,6 +84,37 @@ fn transform_chain_produces_solid_then_transform_ops() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
     assert!(matches!(ops[1], TexViewerOp::Transform { .. }));
+}
+
+#[test]
+fn mask_chain_produces_source_noise_then_mask_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 80, 420, 480);
+    let mask = project.add_node(ProjectNodeKind::TexMask, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(noise, mask));
+    assert!(project.connect_image_link(mask, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexViewerOp::Mask { .. }));
 }
 
 #[test]
@@ -90,6 +149,37 @@ fn level_chain_produces_solid_then_level_ops() {
 }
 
 #[test]
+fn tone_map_chain_produces_source_noise_then_tone_map_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 80, 420, 480);
+    let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(noise, tone_map));
+    assert!(project.connect_image_link(tone_map, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexViewerOp::ToneMap { .. }));
+}
+
+#[test]
 fn feedback_chain_produces_solid_then_feedback_ops() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
@@ -118,6 +208,37 @@ fn feedback_chain_produces_solid_then_feedback_ops() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
     assert!(matches!(ops[1], TexViewerOp::Feedback { .. }));
+}
+
+#[test]
+fn warp_transform_chain_produces_source_noise_then_warp_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 80, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(noise, warp));
+    assert!(project.connect_image_link(warp, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexViewerOp::WarpTransform { .. }));
 }
 
 #[test]

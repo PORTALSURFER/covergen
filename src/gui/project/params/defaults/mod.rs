@@ -24,9 +24,13 @@ impl KindParamDefaults {
     }
 }
 
-const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 25] = [
+const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 29] = [
     KindParamDefaults::new(ProjectNodeKind::TexSolid, texture::tex_solid_params),
     KindParamDefaults::new(ProjectNodeKind::TexCircle, texture::tex_circle_params),
+    KindParamDefaults::new(
+        ProjectNodeKind::TexSourceNoise,
+        texture::tex_source_noise_params,
+    ),
     KindParamDefaults::new(ProjectNodeKind::BufSphere, buffer::buf_sphere_params),
     KindParamDefaults::new(
         ProjectNodeKind::BufCircleNurbs,
@@ -38,10 +42,16 @@ const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 25] = [
         texture::tex_transform_2d_params,
     ),
     KindParamDefaults::new(ProjectNodeKind::TexLevel, texture::tex_level_params),
+    KindParamDefaults::new(ProjectNodeKind::TexMask, texture::tex_mask_params),
+    KindParamDefaults::new(ProjectNodeKind::TexToneMap, texture::tex_tone_map_params),
     KindParamDefaults::new(ProjectNodeKind::TexFeedback, texture::tex_feedback_params),
     KindParamDefaults::new(
         ProjectNodeKind::TexReactionDiffusion,
         texture::tex_reaction_diffusion_params,
+    ),
+    KindParamDefaults::new(
+        ProjectNodeKind::TexWarpTransform,
+        texture::tex_warp_transform_params,
     ),
     KindParamDefaults::new(
         ProjectNodeKind::TexPostColorTone,

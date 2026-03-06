@@ -95,12 +95,16 @@ impl TexPreviewRenderer {
             RuntimeOpPipelineKind::Solid => self.op_solid_pipeline.as_ref(),
             RuntimeOpPipelineKind::Circle => self.op_circle_pipeline.as_ref(),
             RuntimeOpPipelineKind::Sphere => self.op_sphere_pipeline.as_ref(),
+            RuntimeOpPipelineKind::SourceNoise => self.op_source_noise_pipeline.as_ref(),
             RuntimeOpPipelineKind::Transform => self.op_transform_pipeline.as_ref(),
             RuntimeOpPipelineKind::Level => self.op_level_pipeline.as_ref(),
+            RuntimeOpPipelineKind::Mask => self.op_mask_pipeline.as_ref(),
+            RuntimeOpPipelineKind::ToneMap => self.op_tone_map_pipeline.as_ref(),
             RuntimeOpPipelineKind::Feedback => self.op_feedback_pipeline.as_ref(),
             RuntimeOpPipelineKind::ReactionDiffusion => {
                 self.op_reaction_diffusion_pipeline.as_ref()
             }
+            RuntimeOpPipelineKind::WarpTransform => self.op_warp_transform_pipeline.as_ref(),
             RuntimeOpPipelineKind::PostProcess => self.op_post_process_pipeline.as_ref(),
         }
     }

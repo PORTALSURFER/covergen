@@ -135,6 +135,7 @@ fn is_temporal_node_kind(kind: ProjectNodeKind) -> bool {
         kind,
         ProjectNodeKind::TexFeedback
             | ProjectNodeKind::TexReactionDiffusion
+            | ProjectNodeKind::TexWarpTransform
             | ProjectNodeKind::TexPostColorTone
             | ProjectNodeKind::TexPostEdgeStructure
             | ProjectNodeKind::TexPostBlurDiffusion

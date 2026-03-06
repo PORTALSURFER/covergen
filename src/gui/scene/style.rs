@@ -81,15 +81,19 @@ pub(super) fn node_top_color(kind: ProjectNodeKind) -> Color {
     match kind {
         ProjectNodeKind::TexSolid => Color::argb(AGIO.node_header_tex_solid),
         ProjectNodeKind::TexCircle => Color::argb(AGIO.node_header_tex_circle),
+        ProjectNodeKind::TexSourceNoise => Color::argb(AGIO.node_header_tex_source_noise),
         ProjectNodeKind::BufSphere => Color::argb(AGIO.node_header_buf_sphere),
         ProjectNodeKind::BufCircleNurbs => Color::argb(AGIO.node_header_buf_circle_nurbs),
         ProjectNodeKind::BufNoise => Color::argb(AGIO.node_header_buf_noise),
         ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
         ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
+        ProjectNodeKind::TexMask => Color::argb(AGIO.node_header_tex_mask),
+        ProjectNodeKind::TexToneMap => Color::argb(AGIO.node_header_tex_tone_map),
         ProjectNodeKind::TexFeedback => Color::argb(AGIO.node_header_tex_feedback),
         ProjectNodeKind::TexReactionDiffusion => {
             Color::argb(AGIO.node_header_tex_reaction_diffusion)
         }
+        ProjectNodeKind::TexWarpTransform => Color::argb(AGIO.node_header_tex_warp_transform),
         ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
         ProjectNodeKind::TexPostEdgeStructure => {
             Color::argb(AGIO.node_header_tex_post_edge_structure)

@@ -43,6 +43,21 @@ pub(crate) mod circle {
     pub(crate) const ALPHA_INDEX: usize = 7;
 }
 
+/// Canonical keys for `tex.source_noise`.
+pub(crate) mod source_noise {
+    pub(crate) const SEED: &str = "seed";
+    pub(crate) const SCALE: &str = "scale";
+    pub(crate) const OCTAVES: &str = "octaves";
+    pub(crate) const AMPLITUDE: &str = "amplitude";
+
+    pub(crate) const SEED_INDEX: usize = 0;
+    pub(crate) const SCALE_INDEX: usize = 1;
+    pub(crate) const OCTAVES_INDEX: usize = 2;
+    pub(crate) const AMPLITUDE_INDEX: usize = 3;
+
+    pub(crate) const KEYS: [&str; 4] = [SEED, SCALE, OCTAVES, AMPLITUDE];
+}
+
 /// Canonical keys for `buf.sphere`.
 pub(crate) mod sphere_buffer {
     pub(crate) const RADIUS: &str = "radius";
@@ -195,6 +210,32 @@ pub(crate) mod level {
     pub(crate) const KEYS: [&str; 5] = [IN_LOW, IN_HIGH, GAMMA, OUT_LOW, OUT_HIGH];
 }
 
+/// Canonical keys for `tex.mask`.
+pub(crate) mod mask {
+    pub(crate) const THRESHOLD: &str = "threshold";
+    pub(crate) const SOFTNESS: &str = "softness";
+    pub(crate) const INVERT: &str = "invert";
+
+    pub(crate) const THRESHOLD_INDEX: usize = 0;
+    pub(crate) const SOFTNESS_INDEX: usize = 1;
+    pub(crate) const INVERT_INDEX: usize = 2;
+
+    pub(crate) const KEYS: [&str; 3] = [THRESHOLD, SOFTNESS, INVERT];
+}
+
+/// Canonical keys for `tex.tone_map`.
+pub(crate) mod tone_map {
+    pub(crate) const CONTRAST: &str = "contrast";
+    pub(crate) const LOW_PCT: &str = "low_pct";
+    pub(crate) const HIGH_PCT: &str = "high_pct";
+
+    pub(crate) const CONTRAST_INDEX: usize = 0;
+    pub(crate) const LOW_PCT_INDEX: usize = 1;
+    pub(crate) const HIGH_PCT_INDEX: usize = 2;
+
+    pub(crate) const KEYS: [&str; 3] = [CONTRAST, LOW_PCT, HIGH_PCT];
+}
+
 /// Canonical keys for `tex.feedback`.
 pub(crate) mod feedback {
     use super::super::{
@@ -250,6 +291,19 @@ pub(crate) mod reaction_diffusion {
     pub(crate) const SEED_MIX_INDEX: usize = 5;
 
     pub(crate) const KEYS: [&str; 6] = [DIFF_A, DIFF_B, FEED, KILL, DT, SEED_MIX];
+}
+
+/// Canonical keys for `tex.warp_transform`.
+pub(crate) mod warp_transform {
+    pub(crate) const STRENGTH: &str = "strength";
+    pub(crate) const FREQUENCY: &str = "frequency";
+    pub(crate) const PHASE: &str = "phase";
+
+    pub(crate) const STRENGTH_INDEX: usize = 0;
+    pub(crate) const FREQUENCY_INDEX: usize = 1;
+    pub(crate) const PHASE_INDEX: usize = 2;
+
+    pub(crate) const KEYS: [&str; 3] = [STRENGTH, FREQUENCY, PHASE];
 }
 
 /// Canonical keys for `tex.post_*` nodes.

@@ -40,6 +40,8 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_tex_solid: u32,
     /// Header color for `tex.circle` nodes.
     pub(crate) node_header_tex_circle: u32,
+    /// Header color for `tex.source_noise` nodes.
+    pub(crate) node_header_tex_source_noise: u32,
     /// Header color for `buf.sphere` nodes.
     pub(crate) node_header_buf_sphere: u32,
     /// Header color for `buf.circle_nurbs` nodes.
@@ -50,10 +52,16 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_tex_transform_2d: u32,
     /// Header color for `tex.level` nodes.
     pub(crate) node_header_tex_level: u32,
+    /// Header color for `tex.mask` nodes.
+    pub(crate) node_header_tex_mask: u32,
+    /// Header color for `tex.tone_map` nodes.
+    pub(crate) node_header_tex_tone_map: u32,
     /// Header color for `tex.feedback` nodes.
     pub(crate) node_header_tex_feedback: u32,
     /// Header color for `tex.reaction_diffusion` nodes.
     pub(crate) node_header_tex_reaction_diffusion: u32,
+    /// Header color for `tex.warp_transform` nodes.
+    pub(crate) node_header_tex_warp_transform: u32,
     /// Header color for `tex.post_color_tone` nodes.
     pub(crate) node_header_tex_post_color_tone: u32,
     /// Header color for `tex.post_edge_structure` nodes.
@@ -106,13 +114,17 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     highlight_accent: 0xFFA855F7,
     node_header_tex_solid: 0xFF355C7D,
     node_header_tex_circle: 0xFF2C4F6D,
+    node_header_tex_source_noise: 0xFF435C78,
     node_header_buf_sphere: 0xFF5B4A78,
     node_header_buf_circle_nurbs: 0xFF6A557C,
     node_header_buf_noise: 0xFF7A4E68,
     node_header_tex_transform_2d: 0xFF2A9D8F,
     node_header_tex_level: 0xFF2E8B6F,
+    node_header_tex_mask: 0xFF2F7463,
+    node_header_tex_tone_map: 0xFF367D61,
     node_header_tex_feedback: 0xFF2F7A7A,
     node_header_tex_reaction_diffusion: 0xFF2A6F5A,
+    node_header_tex_warp_transform: 0xFF3B6F96,
     node_header_tex_post_color_tone: 0xFF4A7E66,
     node_header_tex_post_edge_structure: 0xFF4B6D77,
     node_header_tex_post_blur_diffusion: 0xFF467A8F,

@@ -172,6 +172,8 @@ pub(crate) enum ProjectNodeKind {
     TexSolid,
     /// `tex.circle` source node.
     TexCircle,
+    /// `tex.source_noise` procedural monochrome noise source node.
+    TexSourceNoise,
     /// `buf.sphere` mesh buffer source node.
     BufSphere,
     /// `buf.circle_nurbs` curve buffer source node.
@@ -182,10 +184,16 @@ pub(crate) enum ProjectNodeKind {
     TexTransform2D,
     /// `tex.level` render node for input/output remapping and gamma shaping.
     TexLevel,
+    /// `tex.mask` render node for soft threshold mask extraction.
+    TexMask,
+    /// `tex.tone_map` render node for percentile remap and contrast shaping.
+    TexToneMap,
     /// `tex.feedback` delayed texture feedback node with optional frame-gap stepping.
     TexFeedback,
     /// `tex.reaction_diffusion` temporal Gray-Scott simulation node.
     TexReactionDiffusion,
+    /// `tex.warp_transform` render node for lightweight UV warping.
+    TexWarpTransform,
     /// `tex.post_color_tone` category post-process node.
     TexPostColorTone,
     /// `tex.post_edge_structure` category post-process node.
@@ -232,7 +240,7 @@ struct ProjectNodeKindDescriptor {
     shows_signal_preview: bool,
 }
 
-const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 29] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
@@ -245,6 +253,15 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexCircle,
         stable_id: "tex.circle",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexSourceNoise,
+        stable_id: "tex.source_noise",
         execution_kind: ExecutionKind::Render,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -297,6 +314,24 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
         shows_signal_preview: false,
     },
     ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexMask,
+        stable_id: "tex.mask",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexToneMap,
+        stable_id: "tex.tone_map",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexFeedback,
         stable_id: "tex.feedback",
         execution_kind: ExecutionKind::Render,
@@ -308,6 +343,15 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 25] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexReactionDiffusion,
         stable_id: "tex.reaction_diffusion",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexWarpTransform,
+        stable_id: "tex.warp_transform",
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),

@@ -111,6 +111,17 @@ pub(super) const TEX_BLEND_MODE_OPTIONS: [NodeParamOption; 9] = [
         value: 8.0,
     },
 ];
+/// Invert-mode options exposed by the `tex.mask` node.
+pub(super) const TEX_MASK_INVERT_OPTIONS: [NodeParamOption; 2] = [
+    NodeParamOption {
+        label: "off",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "on",
+        value: 1.0,
+    },
+];
 /// Effect options exposed by the `tex.post_color_tone` node.
 pub(super) const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 10] = [
     NodeParamOption {

@@ -85,6 +85,29 @@ fn transform_defaults_are_identity() {
 }
 
 #[test]
+fn source_noise_defaults_compile_to_expected_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 180, 40, 420, 480);
+    assert!(project.connect_image_link(noise, out));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(
+        ops[0],
+        TexRuntimeOp::SourceNoise {
+            seed,
+            scale,
+            octaves,
+            amplitude,
+        } if seed == 1.0 && scale == 4.0 && octaves == 4.0 && amplitude == 1.0
+    ));
+}
+
+#[test]
 fn level_defaults_are_identity() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
@@ -112,6 +135,29 @@ fn level_defaults_are_identity() {
             && out_low == 0.0
             && out_high == 1.0
     ));
+}
+
+#[test]
+fn mask_tone_map_and_warp_nodes_compile_in_order() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
+    let mask = project.add_node(ProjectNodeKind::TexMask, 180, 40, 420, 480);
+    let tone = project.add_node(ProjectNodeKind::TexToneMap, 340, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(noise, mask));
+    assert!(project.connect_image_link(mask, tone));
+    assert!(project.connect_image_link(tone, warp));
+    assert!(project.connect_image_link(warp, out));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert!(matches!(ops[0], TexRuntimeOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexRuntimeOp::Mask { .. }));
+    assert!(matches!(ops[2], TexRuntimeOp::ToneMap { .. }));
+    assert!(matches!(ops[3], TexRuntimeOp::WarpTransform { .. }));
 }
 
 #[test]

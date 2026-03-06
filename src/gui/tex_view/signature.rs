@@ -117,6 +117,18 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 }
                 uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
             }
+            TexViewerOp::SourceNoise {
+                seed,
+                scale,
+                octaves,
+                amplitude,
+            } => {
+                plan_hash = fnv1a(plan_hash, 11);
+                uniform_hash = fnv1a(uniform_hash, 11);
+                for value in [seed, scale, octaves, amplitude] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+            }
             TexViewerOp::Transform {
                 brightness,
                 gain_r,
@@ -140,6 +152,28 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 plan_hash = fnv1a(plan_hash, 5);
                 uniform_hash = fnv1a(uniform_hash, 5);
                 for value in [in_low, in_high, gamma, out_low, out_high] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+            }
+            TexViewerOp::Mask {
+                threshold,
+                softness,
+                invert,
+            } => {
+                plan_hash = fnv1a(plan_hash, 12);
+                uniform_hash = fnv1a(uniform_hash, 12);
+                for value in [threshold, softness, invert] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+            }
+            TexViewerOp::ToneMap {
+                contrast,
+                low_pct,
+                high_pct,
+            } => {
+                plan_hash = fnv1a(plan_hash, 13);
+                uniform_hash = fnv1a(uniform_hash, 13);
+                for value in [contrast, low_pct, high_pct] {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
@@ -171,6 +205,17 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }
                 uniform_hash = hash_feedback_binding(uniform_hash, history);
+            }
+            TexViewerOp::WarpTransform {
+                strength,
+                frequency,
+                phase,
+            } => {
+                plan_hash = fnv1a(plan_hash, 14);
+                uniform_hash = fnv1a(uniform_hash, 14);
+                for value in [strength, frequency, phase] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
             }
             TexViewerOp::PostProcess {
                 category,

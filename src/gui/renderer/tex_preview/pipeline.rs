@@ -142,6 +142,33 @@ fn seamless_angular_noise(theta: f32, freq: f32, phase: f32) -> f32 {
     return mix(low_wave, high_wave, freq_blend);
 }
 
+fn hash12(p: vec2<f32>) -> f32 {
+    let h = dot(p, vec2<f32>(127.1, 311.7));
+    return fract(sin(h) * 43758.5453123);
+}
+
+fn smooth3(t: f32) -> f32 {
+    return t * t * (3.0 - 2.0 * t);
+}
+
+fn value_noise_2d(p: vec2<f32>, seed: f32) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = vec2<f32>(smooth3(f.x), smooth3(f.y));
+    let n00 = hash12(i + vec2<f32>(seed * 0.013, seed * 0.021));
+    let n10 = hash12(i + vec2<f32>(1.0, 0.0) + vec2<f32>(seed * 0.013, seed * 0.021));
+    let n01 = hash12(i + vec2<f32>(0.0, 1.0) + vec2<f32>(seed * 0.013, seed * 0.021));
+    let n11 = hash12(i + vec2<f32>(1.0, 1.0) + vec2<f32>(seed * 0.013, seed * 0.021));
+    let x0 = mix(n00, n10, u.x);
+    let x1 = mix(n01, n11, u.x);
+    return mix(x0, x1, u.y);
+}
+
+fn sample_luma(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>) -> f32 {
+    let src = textureSample(tex, samp, uv);
+    return dot(src.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
 @fragment
 fn fs_solid(v: VertexOut) -> @location(0) vec4<f32> {
     let fg = clamp(u_op.p0.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -276,6 +303,34 @@ fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_source_noise(v: VertexOut) -> @location(0) vec4<f32> {
+    let seed = u_op.p0.x;
+    let scale = max(u_op.p0.y, 0.001);
+    let octaves = clamp(round(u_op.p0.z), 1.0, 8.0);
+    let amplitude = clamp(u_op.p0.w, 0.0, 2.0);
+
+    var sum = 0.0;
+    var norm = 0.0;
+    var frequency = 1.0;
+    var octave_amp = 1.0;
+    var octave = 0.0;
+    loop {
+        if (octave >= octaves) {
+            break;
+        }
+        let octave_seed = seed + octave * 9779.0;
+        sum = sum + value_noise_2d(v.uv * scale * frequency, octave_seed) * octave_amp;
+        norm = norm + octave_amp;
+        frequency = frequency * 2.0;
+        octave_amp = octave_amp * 0.5;
+        octave = octave + 1.0;
+    }
+    let normalized = select(0.0, sum / norm, norm > 0.0);
+    let luma = clamp(normalized * amplitude, 0.0, 1.0);
+    return vec4<f32>(vec3<f32>(luma), 1.0);
+}
+
+@fragment
 fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);
     let brightness = u_op.p0.x;
@@ -310,6 +365,40 @@ fn fs_level(v: VertexOut) -> @location(0) vec4<f32> {
     let shaped = pow(normalized, vec3<f32>(1.0 / gamma));
     let leveled = mix(vec3<f32>(out_low), vec3<f32>(out_high), shaped);
     return vec4<f32>(leveled, src.a);
+}
+
+@fragment
+fn fs_mask(v: VertexOut) -> @location(0) vec4<f32> {
+    let luma = sample_luma(t_src, s_src, v.uv);
+    let threshold = clamp(u_op.p0.x, 0.0, 1.0);
+    let softness = max(u_op.p0.y, 0.0);
+    let invert = u_op.p0.z >= 0.5;
+    let half_softness = softness * 0.5;
+    let edge_min = threshold - half_softness;
+    let edge_max = threshold + half_softness;
+    var mask = 0.0;
+    if (softness <= 1e-6) {
+        mask = select(0.0, 1.0, luma >= threshold);
+    } else {
+        mask = smoothstep(edge_min, edge_max, luma);
+    }
+    if (invert) {
+        mask = 1.0 - mask;
+    }
+    let out_value = clamp(mask, 0.0, 1.0);
+    return vec4<f32>(vec3<f32>(out_value), 1.0);
+}
+
+@fragment
+fn fs_tone_map(v: VertexOut) -> @location(0) vec4<f32> {
+    let src = textureSample(t_src, s_src, v.uv);
+    let contrast = clamp(u_op.p0.x, 1.0, 3.0);
+    let low_pct = clamp(u_op.p0.y, 0.0, 0.9);
+    let high_pct = clamp(u_op.p0.z, low_pct + 0.01, 1.0);
+    let input_range = max(high_pct - low_pct, 1e-4);
+    let normalized = clamp((src.rgb - vec3<f32>(low_pct)) / vec3<f32>(input_range), vec3<f32>(0.0), vec3<f32>(1.0));
+    let contrasted = clamp((normalized - 0.5) * contrast + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(contrasted, src.a);
 }
 
 fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) -> vec4<f32> {
@@ -405,6 +494,18 @@ fn fs_reaction_diffusion(v: VertexOut) -> @location(0) vec4<f32> {
     let next = mix(vec2<f32>(next_a, next_b), seed, seed_mix);
     let display = vec3<f32>(next.x, next.y, clamp(next.x - next.y * 0.5, 0.0, 1.0));
     return vec4<f32>(display, 1.0);
+}
+
+@fragment
+fn fs_warp_transform(v: VertexOut) -> @location(0) vec4<f32> {
+    let strength = clamp(u_op.p0.x, 0.0, 2.4) * 0.02;
+    let frequency = max(u_op.p0.y, 0.01);
+    let phase = u_op.p0.z;
+    let dx = sin((v.uv.y * frequency + phase) * 6.28318530718) * strength;
+    let dy = cos((v.uv.x * frequency * 0.87 + phase * 1.13) * 6.28318530718) * strength;
+    let uv = clamp(v.uv + vec2<f32>(dx, dy), vec2<f32>(0.0), vec2<f32>(1.0));
+    let src = textureSample(t_src, s_src, uv);
+    return vec4<f32>(src.rgb, src.a);
 }
 
 fn pp_luma(rgb: vec3<f32>) -> f32 {
@@ -661,11 +762,15 @@ mod tests {
             "fn fs_solid(",
             "fn fs_circle(",
             "fn fs_sphere(",
+            "fn fs_source_noise(",
             "fn fs_transform(",
             "fn fs_level(",
+            "fn fs_mask(",
+            "fn fs_tone_map(",
             "fn fs_transform_fused(",
             "fn fs_feedback(",
             "fn fs_reaction_diffusion(",
+            "fn fs_warp_transform(",
             "fn fs_post_process(",
             "fn fs_blend(",
         ];

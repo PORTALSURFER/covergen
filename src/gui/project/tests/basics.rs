@@ -117,6 +117,20 @@ fn feedback_node_supports_in_and_out_links() {
 }
 
 #[test]
+fn source_noise_node_supports_out_links() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 160, 40, 420, 480);
+    assert!(project.connect_image_link(noise, out));
+    assert_eq!(project.edge_count(), 1);
+    let source_id = project
+        .window_out_input_node_id()
+        .expect("window-out input must exist");
+    let source = project.node(source_id).expect("source node must exist");
+    assert_eq!(source.kind(), ProjectNodeKind::TexSourceNoise);
+}
+
+#[test]
 fn reaction_diffusion_node_supports_in_and_out_links() {
     let mut project = GuiProject::new_empty(640, 480);
     let source = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
@@ -130,6 +144,25 @@ fn reaction_diffusion_node_supports_in_and_out_links() {
         .expect("window-out input must exist");
     let source = project.node(source_id).expect("source node must exist");
     assert_eq!(source.kind(), ProjectNodeKind::TexReactionDiffusion);
+}
+
+#[test]
+fn mask_tone_map_and_warp_nodes_support_in_and_out_links() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let source = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
+    let mask = project.add_node(ProjectNodeKind::TexMask, 180, 40, 420, 480);
+    let tone = project.add_node(ProjectNodeKind::TexToneMap, 340, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(source, mask));
+    assert!(project.connect_image_link(mask, tone));
+    assert!(project.connect_image_link(tone, warp));
+    assert!(project.connect_image_link(warp, out));
+    let source_id = project
+        .window_out_input_node_id()
+        .expect("window-out input must exist");
+    let source = project.node(source_id).expect("source node must exist");
+    assert_eq!(source.kind(), ProjectNodeKind::TexWarpTransform);
 }
 
 #[test]

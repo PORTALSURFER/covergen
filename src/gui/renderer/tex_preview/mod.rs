@@ -123,6 +123,25 @@ impl TexOpUniform {
         }
     }
 
+    fn source_noise(op: TexViewerOp) -> Self {
+        let TexViewerOp::SourceNoise {
+            seed,
+            scale,
+            octaves,
+            amplitude,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [seed, scale, octaves, amplitude],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
     fn transform(op: TexViewerOp) -> Self {
         let TexViewerOp::Transform {
             brightness,
@@ -163,6 +182,42 @@ impl TexOpUniform {
         }
     }
 
+    fn mask(op: TexViewerOp) -> Self {
+        let TexViewerOp::Mask {
+            threshold,
+            softness,
+            invert,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [threshold, softness, invert, 0.0],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn tone_map(op: TexViewerOp) -> Self {
+        let TexViewerOp::ToneMap {
+            contrast,
+            low_pct,
+            high_pct,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [contrast, low_pct, high_pct, 0.0],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
     fn feedback(op: TexViewerOp) -> Self {
         let TexViewerOp::Feedback { mix, .. } = op else {
             return Self::zeroed();
@@ -192,6 +247,24 @@ impl TexOpUniform {
         Self {
             p0: [diffusion_a, diffusion_b, feed, kill],
             p1: [seed_mix, dt, 0.0, 0.0],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn warp_transform(op: TexViewerOp) -> Self {
+        let TexViewerOp::WarpTransform {
+            strength,
+            frequency,
+            phase,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [strength, frequency, phase, 0.0],
+            p1: [0.0; 4],
             p2: [0.0; 4],
             p3: [0.0; 4],
             p4: [0.0; 4],
@@ -339,11 +412,15 @@ pub(super) struct TexPreviewRenderer {
     op_solid_pipeline: Option<wgpu::RenderPipeline>,
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
+    op_source_noise_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_pipeline: Option<wgpu::RenderPipeline>,
     op_level_pipeline: Option<wgpu::RenderPipeline>,
+    op_mask_pipeline: Option<wgpu::RenderPipeline>,
+    op_tone_map_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
+    op_warp_transform_pipeline: Option<wgpu::RenderPipeline>,
     op_post_process_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
 
@@ -432,11 +509,15 @@ impl TexPreviewRenderer {
         if self.op_solid_pipeline.is_some()
             && self.op_circle_pipeline.is_some()
             && self.op_sphere_pipeline.is_some()
+            && self.op_source_noise_pipeline.is_some()
             && self.op_transform_pipeline.is_some()
             && self.op_level_pipeline.is_some()
+            && self.op_mask_pipeline.is_some()
+            && self.op_tone_map_pipeline.is_some()
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_reaction_diffusion_pipeline.is_some()
+            && self.op_warp_transform_pipeline.is_some()
             && self.op_post_process_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
         {
@@ -476,6 +557,13 @@ impl TexPreviewRenderer {
             "fs_sphere",
             self.op_surface_format,
         ));
+        self.op_source_noise_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_source_noise",
+            self.op_surface_format,
+        ));
         self.op_transform_pipeline = Some(create_op_pipeline(
             device,
             &op_shader,
@@ -488,6 +576,20 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_level",
+            self.op_surface_format,
+        ));
+        self.op_mask_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_mask",
+            self.op_surface_format,
+        ));
+        self.op_tone_map_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_tone_map",
             self.op_surface_format,
         ));
         self.op_transform_fused_pipeline = Some(create_op_pipeline(
@@ -509,6 +611,13 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_reaction_diffusion",
+            self.op_surface_format,
+        ));
+        self.op_warp_transform_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_warp_transform",
             self.op_surface_format,
         ));
         self.op_post_process_pipeline = Some(create_op_pipeline(
@@ -638,11 +747,15 @@ impl TexPreviewRenderer {
             op_solid_pipeline: None,
             op_circle_pipeline: None,
             op_sphere_pipeline: None,
+            op_source_noise_pipeline: None,
             op_transform_pipeline: None,
             op_level_pipeline: None,
+            op_mask_pipeline: None,
+            op_tone_map_pipeline: None,
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_reaction_diffusion_pipeline: None,
+            op_warp_transform_pipeline: None,
             op_post_process_pipeline: None,
             op_blend_pipeline: None,
             dummy_texture: None,
@@ -822,5 +935,26 @@ mod tests {
         assert_eq!(uniform.p2, [0.7, 0.1, 0.5, 0.85]);
         assert_eq!(uniform.p3, [0.6, 2.5, 0.8, 0.45]);
         assert_eq!(uniform.p4, [0.35, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn source_noise_uniform_maps_seed_scale_octaves_and_amplitude() {
+        let uniform = TexOpUniform::source_noise(TexRuntimeOp::SourceNoise {
+            seed: 13.0,
+            scale: 2.8,
+            octaves: 5.0,
+            amplitude: 0.7,
+        });
+        assert_eq!(uniform.p0, [13.0, 2.8, 5.0, 0.7]);
+    }
+
+    #[test]
+    fn tone_map_uniform_maps_contrast_and_percentiles() {
+        let uniform = TexOpUniform::tone_map(TexRuntimeOp::ToneMap {
+            contrast: 1.6,
+            low_pct: 0.08,
+            high_pct: 0.92,
+        });
+        assert_eq!(uniform.p0, [1.6, 0.08, 0.92, 0.0]);
     }
 }
