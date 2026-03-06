@@ -217,6 +217,7 @@ impl TexPreviewRenderer {
             self.dispatch_planned_step(
                 &mut dispatch,
                 step,
+                request.ops,
                 planned_render_ops.as_slice(),
                 &mut state,
             )?;
@@ -248,9 +249,9 @@ impl TexPreviewRenderer {
         self.blend_source_aliases.clear();
         self.blend_source_aliases_by_target.clear();
         let plan_changed = self.cached_plan_signature != Some(request.plan_signature);
-        self.cached_plan_ops.clear();
-        self.cached_plan_ops.extend_from_slice(request.ops);
         if plan_changed {
+            self.cached_plan_ops.clear();
+            self.cached_plan_ops.extend_from_slice(request.ops);
             self.cached_plan_steps.clear();
             self.cached_plan_render_ops.clear();
             build_execution_plan(
@@ -271,7 +272,7 @@ impl TexPreviewRenderer {
         self.ensure_op_uniform_capacity(device, render_op_count);
         let upload_bytes = if self.op_uniform_signature != Some(request.uniform_signature) {
             let render_ops = std::mem::take(&mut self.cached_plan_render_ops);
-            let bytes = self.write_planned_op_uniforms(queue, render_ops.as_slice());
+            let bytes = self.write_planned_op_uniforms(queue, request.ops, render_ops.as_slice());
             self.cached_plan_render_ops = render_ops;
             self.op_uniform_signature = Some(request.uniform_signature);
             bytes
@@ -289,6 +290,7 @@ impl TexPreviewRenderer {
         &mut self,
         dispatch: &mut DispatchContext<'_>,
         step: PlannedStep,
+        runtime_ops: &[TexViewerOp],
         render_ops: &[PlannedRenderOp],
         state: &mut GpuDispatchState,
     ) -> Option<()> {
@@ -310,16 +312,26 @@ impl TexPreviewRenderer {
         };
         let planned_op = *render_ops.get(render_index)?;
         let source_target_before = state.source_target;
-        let prepared =
-            self.prepare_targets_for_op(dispatch, planned_op, render_ops.len(), state)?;
-        self.encode_pass_for_op(dispatch.encoder, prepared, source_target_before)?;
-        if self.is_feedback_history_tap_op(prepared.planned_op) {
+        let prepared = self.prepare_targets_for_op(
+            dispatch,
+            planned_op,
+            runtime_ops,
+            render_ops.len(),
+            state,
+        )?;
+        self.encode_pass_for_op(
+            dispatch.encoder,
+            prepared,
+            runtime_ops,
+            source_target_before,
+        )?;
+        if self.is_feedback_history_tap_op(runtime_ops, prepared.planned_op) {
             let history_key = prepared.feedback_history_key?;
             let source_target = source_target_before?;
-            let frame_gap = self.feedback_frame_gap_for_planned(prepared.planned_op);
+            let frame_gap = self.feedback_frame_gap_for_planned(runtime_ops, prepared.planned_op);
             if self.should_write_feedback_history(history_key, frame_gap)? {
                 if let Some(texture_node_id) =
-                    self.external_feedback_accumulation_texture(prepared.planned_op)
+                    self.external_feedback_accumulation_texture(runtime_ops, prepared.planned_op)
                 {
                     state
                         .pending_external_feedback_writes
@@ -358,10 +370,11 @@ impl TexPreviewRenderer {
         &mut self,
         dispatch: &mut DispatchContext<'_>,
         planned_op: PlannedRenderOp,
+        runtime_ops: &[TexViewerOp],
         render_op_count: usize,
         state: &mut GpuDispatchState,
     ) -> Option<PreparedRenderOp> {
-        let feedback_history_key = self.feedback_key_for_planned(planned_op);
+        let feedback_history_key = self.feedback_key_for_planned(runtime_ops, planned_op);
         if let Some(history_key) = feedback_history_key {
             self.ensure_feedback_history_slot(
                 dispatch.device,
@@ -377,7 +390,9 @@ impl TexPreviewRenderer {
         } else {
             self.choose_intermediate_target(&mut state.scratch_flip)
         };
-        if feedback_history_key.is_some() && !self.is_feedback_history_tap_op(planned_op) {
+        if feedback_history_key.is_some()
+            && !self.is_feedback_history_tap_op(runtime_ops, planned_op)
+        {
             let history_key = feedback_history_key?;
             target = self.feedback_history_write_target(history_key)?;
         }
@@ -435,25 +450,33 @@ impl TexPreviewRenderer {
         Some([brightness, gain_r, gain_g, gain_b, alpha_mul])
     }
 
-    fn runtime_op_for_planned(&self, op: PlannedRenderOp) -> Option<TexViewerOp> {
+    fn runtime_op_for_planned(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> Option<TexViewerOp> {
         let PlannedRenderOp::Runtime { op_index } = op else {
             return None;
         };
-        self.cached_plan_ops.get(op_index).copied()
+        runtime_ops.get(op_index).copied()
     }
 
-    fn op_uniform_for_planned(&self, op: PlannedRenderOp) -> Option<TexOpUniform> {
+    fn op_uniform_for_planned(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> Option<TexOpUniform> {
         match op {
             PlannedRenderOp::Runtime { .. } => {
-                let runtime_op = self.runtime_op_for_planned(op)?;
+                let runtime_op = self.runtime_op_for_planned(runtime_ops, op)?;
                 Some(op_uniform_for_runtime_op(runtime_op))
             }
             PlannedRenderOp::TransformPair {
                 first_op_index,
                 second_op_index,
             } => {
-                let first = self.cached_plan_ops.get(first_op_index).copied()?;
-                let second = self.cached_plan_ops.get(second_op_index).copied()?;
+                let first = runtime_ops.get(first_op_index).copied()?;
+                let second = runtime_ops.get(second_op_index).copied()?;
                 let first = Self::transform_components(first)?;
                 let second = Self::transform_components(second)?;
                 Some(Self::op_uniform_for_fused_transform_pair(first, second))
@@ -464,6 +487,7 @@ impl TexPreviewRenderer {
     fn write_planned_op_uniforms(
         &mut self,
         queue: &wgpu::Queue,
+        runtime_ops: &[TexViewerOp],
         planned_render_ops: &[PlannedRenderOp],
     ) -> u64 {
         if planned_render_ops.is_empty() {
@@ -473,7 +497,7 @@ impl TexPreviewRenderer {
         let upload_len = stride.saturating_mul(planned_render_ops.len());
         self.op_uniform_staging.resize(upload_len, 0);
         for (index, op) in planned_render_ops.iter().copied().enumerate() {
-            let Some(uniform) = self.op_uniform_for_planned(op) else {
+            let Some(uniform) = self.op_uniform_for_planned(runtime_ops, op) else {
                 continue;
             };
             let offset = stride.saturating_mul(index);
@@ -489,31 +513,47 @@ impl TexPreviewRenderer {
         upload_len as u64
     }
 
-    fn feedback_key_for_planned(&self, op: PlannedRenderOp) -> Option<FeedbackHistoryKey> {
-        self.runtime_op_for_planned(op)
+    fn feedback_key_for_planned(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> Option<FeedbackHistoryKey> {
+        self.runtime_op_for_planned(runtime_ops, op)
             .and_then(feedback_key_for_runtime_op)
     }
 
-    fn op_clear_color_for_planned(&self, op: PlannedRenderOp) -> wgpu::Color {
-        let Some(runtime_op) = self.runtime_op_for_planned(op) else {
+    fn op_clear_color_for_planned(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> wgpu::Color {
+        let Some(runtime_op) = self.runtime_op_for_planned(runtime_ops, op) else {
             return PREVIEW_BG;
         };
         op_clear_color(runtime_op)
     }
 
-    fn is_feedback_history_tap_op(&self, op: PlannedRenderOp) -> bool {
-        self.runtime_op_for_planned(op)
+    fn is_feedback_history_tap_op(&self, runtime_ops: &[TexViewerOp], op: PlannedRenderOp) -> bool {
+        self.runtime_op_for_planned(runtime_ops, op)
             .map(is_feedback_history_tap_runtime_op)
             .unwrap_or(false)
     }
 
-    fn external_feedback_accumulation_texture(&self, op: PlannedRenderOp) -> Option<u32> {
-        self.runtime_op_for_planned(op)
+    fn external_feedback_accumulation_texture(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> Option<u32> {
+        self.runtime_op_for_planned(runtime_ops, op)
             .and_then(external_feedback_accumulation_texture_for_runtime_op)
     }
 
-    fn feedback_frame_gap_for_planned(&self, op: PlannedRenderOp) -> u32 {
-        self.runtime_op_for_planned(op)
+    fn feedback_frame_gap_for_planned(
+        &self,
+        runtime_ops: &[TexViewerOp],
+        op: PlannedRenderOp,
+    ) -> u32 {
+        self.runtime_op_for_planned(runtime_ops, op)
             .map(feedback_frame_gap_for_runtime_op)
             .unwrap_or(0)
     }

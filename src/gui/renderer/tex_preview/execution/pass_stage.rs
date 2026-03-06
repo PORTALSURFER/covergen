@@ -8,9 +8,10 @@ impl TexPreviewRenderer {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         prepared: PreparedRenderOp,
+        runtime_ops: &[TexViewerOp],
         source_target: Option<RenderTargetRef>,
     ) -> Option<()> {
-        let clear_color = self.op_clear_color_for_planned(prepared.planned_op);
+        let clear_color = self.op_clear_color_for_planned(runtime_ops, prepared.planned_op);
         let timestamp_parts = self.op_pass_timestamps.next_render_pass_parts();
         let timestamp_writes = timestamp_parts.as_ref().map(|(query_set, begin, end)| {
             wgpu::RenderPassTimestampWrites {
@@ -36,7 +37,7 @@ impl TexPreviewRenderer {
         });
         match prepared.planned_op {
             PlannedRenderOp::Runtime { .. } => {
-                let runtime_op = self.runtime_op_for_planned(prepared.planned_op)?;
+                let runtime_op = self.runtime_op_for_planned(runtime_ops, prepared.planned_op)?;
                 match runtime_op {
                     TexViewerOp::Blend {
                         base_texture_node_id,
