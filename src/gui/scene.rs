@@ -20,7 +20,9 @@ mod timeline_layer;
 pub(super) mod wire_route;
 mod wires;
 
-use std::{collections::HashMap, collections::HashSet, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap, collections::HashSet, collections::VecDeque, sync::Arc, time::Instant,
+};
 
 use super::geometry::Rect;
 use super::project::{
@@ -38,9 +40,10 @@ use super::timeline::editor_panel_height;
 use layers::{active_scene_layer_mut, ActiveLayer};
 use layout::*;
 use menus::{
-    FittedLabelCacheBucketKey, TextWidthPrefixCacheBucketKey, TextWidthPrefixEntry,
-    FITTED_LABEL_CACHE_MAX_BUCKETS, FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET,
-    TEXT_WIDTH_PREFIX_CACHE_MAX_BUCKETS, TEXT_WIDTH_PREFIX_CACHE_MAX_ENTRIES_PER_BUCKET,
+    FittedLabelCacheBucket, FittedLabelCacheBucketKey, TextWidthPrefixCacheBucketKey,
+    TextWidthPrefixEntry, FITTED_LABEL_CACHE_MAX_BUCKETS,
+    FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET, TEXT_WIDTH_PREFIX_CACHE_MAX_BUCKETS,
+    TEXT_WIDTH_PREFIX_CACHE_MAX_ENTRIES_PER_BUCKET,
 };
 use route_context::{
     collect_graph_node_obstacles, edge_route_obstacle_epoch, param_route_obstacle_epoch,
@@ -237,7 +240,8 @@ pub(crate) struct SceneBuilder {
     text_renderer: GuiTextRenderer,
     label_scratch: String,
     fitted_label_scratch: String,
-    fitted_label_cache: HashMap<FittedLabelCacheBucketKey, HashMap<String, String>>,
+    fitted_label_cache: HashMap<FittedLabelCacheBucketKey, FittedLabelCacheBucket>,
+    fitted_label_bucket_order: VecDeque<FittedLabelCacheBucketKey>,
     text_width_prefix_cache:
         HashMap<TextWidthPrefixCacheBucketKey, HashMap<String, TextWidthPrefixEntry>>,
     signal_eval_stack: SignalEvalStack,
@@ -1250,7 +1254,7 @@ impl SceneBuilder {
             max_width,
             zoom_bits: zoom.to_bits(),
         })?;
-        bucket.get(text).map(String::as_str)
+        bucket.get(text)
     }
 
     /// Return cached cumulative char widths for one text/zoom tuple.
@@ -1320,16 +1324,18 @@ impl SceneBuilder {
             max_width,
             zoom_bits: zoom.to_bits(),
         };
-        if !self.fitted_label_cache.contains_key(&key)
-            && self.fitted_label_cache.len() >= FITTED_LABEL_CACHE_MAX_BUCKETS
-        {
-            self.fitted_label_cache.clear();
+        if !self.fitted_label_cache.contains_key(&key) {
+            if self.fitted_label_cache.len() >= FITTED_LABEL_CACHE_MAX_BUCKETS {
+                while let Some(oldest) = self.fitted_label_bucket_order.pop_front() {
+                    if self.fitted_label_cache.remove(&oldest).is_some() {
+                        break;
+                    }
+                }
+            }
+            self.fitted_label_bucket_order.push_back(key);
         }
         let bucket = self.fitted_label_cache.entry(key).or_default();
-        if !bucket.contains_key(text) && bucket.len() >= FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET {
-            bucket.clear();
-        }
-        bucket.insert(text.to_owned(), fitted.to_owned());
+        bucket.insert_bounded(text, fitted, FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET);
     }
 
     fn layer_capacity(&self, layer: ActiveLayer) -> (usize, usize) {
@@ -1368,7 +1374,7 @@ mod tests {
     use super::{
         signal_scope_range, signal_scope_y, timeline_beat_indicator_on, FittedLabelCacheBucketKey,
         Rect, SceneBuildRequest, SceneBuilder, TextWidthPrefixCacheBucketKey,
-        SIGNAL_SCOPE_MAX_SAMPLES,
+        FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET, SIGNAL_SCOPE_MAX_SAMPLES,
     };
     use crate::gui::project::{
         collapsed_param_entry_pin_center, output_pin_center, GuiProject, ProjectNodeKind,
@@ -1574,6 +1580,40 @@ mod tests {
         assert!(
             second.len() >= first.len(),
             "wider label fit should keep at least as much text as the narrower fit"
+        );
+    }
+
+    #[test]
+    fn fitted_label_cache_eviction_keeps_bucket_warm_instead_of_clearing_all_entries() {
+        let mut scene = SceneBuilder::default();
+        let zoom = 1.0;
+        let max_width = 96;
+        for index in 0..=FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET {
+            let text = format!("label-{index}");
+            scene.store_fitted_label(text.as_str(), max_width, zoom, text.as_str());
+        }
+
+        let bucket = scene
+            .fitted_label_cache
+            .get(&FittedLabelCacheBucketKey {
+                max_width,
+                zoom_bits: zoom.to_bits(),
+            })
+            .expect("fitted label bucket should exist");
+        assert_eq!(
+            bucket.len(),
+            FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET,
+            "bucket should evict incrementally instead of clearing wholesale"
+        );
+        assert!(
+            bucket.contains_key("label-1"),
+            "incremental eviction should keep warm entries after capacity rollover"
+        );
+        assert!(
+            bucket.contains_key(&format!(
+                "label-{FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET}"
+            )),
+            "newest entry should remain cached after bounded eviction"
         );
     }
 

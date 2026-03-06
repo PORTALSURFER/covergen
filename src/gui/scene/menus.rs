@@ -1,5 +1,7 @@
 //! Label-fit cache controls for menu and node text rendering.
 
+use std::collections::{HashMap, VecDeque};
+
 /// Maximum number of fitted-label cache buckets by width/zoom tuple.
 pub(super) const FITTED_LABEL_CACHE_MAX_BUCKETS: usize = 32;
 /// Maximum number of cached text fits per bucket.
@@ -14,6 +16,45 @@ pub(super) const TEXT_WIDTH_PREFIX_CACHE_MAX_ENTRIES_PER_BUCKET: usize = 512;
 pub(super) struct FittedLabelCacheBucketKey {
     pub(super) max_width: i32,
     pub(super) zoom_bits: u32,
+}
+
+/// Cached fitted-label entries for one width/zoom bucket.
+#[derive(Clone, Debug, Default)]
+pub(super) struct FittedLabelCacheBucket {
+    entries: HashMap<String, String>,
+    entry_order: VecDeque<String>,
+}
+
+impl FittedLabelCacheBucket {
+    /// Return one cached fitted label, if present.
+    pub(super) fn get(&self, text: &str) -> Option<&str> {
+        self.entries.get(text).map(String::as_str)
+    }
+
+    /// Return true when this bucket already contains `text`.
+    pub(super) fn contains_key(&self, text: &str) -> bool {
+        self.entries.contains_key(text)
+    }
+
+    /// Return the number of cached fitted labels in this bucket.
+    pub(super) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Insert or update one fitted label while evicting at most one oldest entry.
+    pub(super) fn insert_bounded(&mut self, text: &str, fitted: &str, max_entries: usize) {
+        if !self.entries.contains_key(text) {
+            if self.entries.len() >= max_entries {
+                while let Some(oldest) = self.entry_order.pop_front() {
+                    if self.entries.remove(oldest.as_str()).is_some() {
+                        break;
+                    }
+                }
+            }
+            self.entry_order.push_back(text.to_owned());
+        }
+        self.entries.insert(text.to_owned(), fitted.to_owned());
+    }
 }
 
 /// Prefix-width cache partition key for one text zoom bucket.
