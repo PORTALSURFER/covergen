@@ -247,6 +247,102 @@ fn alt_drag_over_param_row_label_scrubs_parameter_value() {
 }
 
 #[test]
+fn label_drag_over_param_row_scrubs_parameter_value_without_alt() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let (row_rect, value_rect) = {
+        let node = project.node(solid).expect("solid node exists");
+        (
+            node_param_row_rect(node, 0).expect("row rect exists"),
+            node_param_value_rect(node, 0).expect("value rect exists"),
+        )
+    };
+    let row_x = row_rect.x + 8;
+    assert!(
+        row_x < value_rect.x,
+        "test expects label-side x to be left of value box"
+    );
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+
+    let start = InputSnapshot {
+        left_clicked: true,
+        left_down: true,
+        mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2)),
+        ..InputSnapshot::default()
+    };
+    let (changed_start, consumed_start) =
+        handle_alt_param_drag(&start, &mut project, 420, 480, &mut state);
+    assert!(consumed_start);
+    assert!(changed_start || state.active_node == Some(solid));
+    assert!(state.param_scrub.is_some());
+
+    let drag = InputSnapshot {
+        left_down: true,
+        mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2 - 40)),
+        ..InputSnapshot::default()
+    };
+    let (changed_drag, consumed_drag) =
+        handle_alt_param_drag(&drag, &mut project, 420, 480, &mut state);
+    assert!(consumed_drag);
+    assert!(changed_drag);
+    let value = project
+        .node_param_raw_value(solid, 0)
+        .expect("param value should exist");
+    assert!(
+        value > 0.9,
+        "expected scrubbing to increase value, got {value}"
+    );
+}
+
+#[test]
+fn apply_preview_actions_label_drag_scrubs_without_starting_node_drag() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(solid, 420, 480));
+    let row_rect = {
+        let node = project.node(solid).expect("solid node exists");
+        node_param_row_rect(node, 0).expect("row rect exists")
+    };
+    let row_x = row_rect.x + 8;
+    let mut state = PreviewState::new(&config);
+
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        &InputSnapshot {
+            left_clicked: true,
+            left_down: true,
+            mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2)),
+            ..InputSnapshot::default()
+        },
+        &mut project,
+        &mut state,
+    ));
+    assert!(state.param_scrub.is_some());
+    assert!(state.drag.is_none());
+
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        &InputSnapshot {
+            left_down: true,
+            mouse_pos: Some((row_x, row_rect.y + row_rect.h / 2 - 40)),
+            ..InputSnapshot::default()
+        },
+        &mut project,
+        &mut state,
+    ));
+    assert!(state.drag.is_none());
+    let value = project
+        .node_param_raw_value(solid, 0)
+        .expect("param value should exist");
+    assert!(
+        value > 0.9,
+        "expected scrubbing to increase value, got {value}"
+    );
+}
+
+#[test]
 fn alt_drag_starts_without_fresh_click_when_left_is_already_down() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 220, 80, 420, 480);

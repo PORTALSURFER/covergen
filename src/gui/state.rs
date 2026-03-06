@@ -205,12 +205,28 @@ pub(crate) struct ParamEditState {
 }
 
 /// Active Alt+drag parameter scrub session for one numeric parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ParamScrubPointerButton {
+    Left,
+    Right,
+}
+
+/// Activation source for one active parameter scrub session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ParamScrubMode {
+    AltDrag,
+    LabelDrag,
+}
+
+/// Active pointer-drag parameter scrub session for one numeric parameter.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ParamScrubState {
     pub(crate) node_id: u32,
     pub(crate) param_index: usize,
     pub(crate) last_mouse_y: i32,
     pub(crate) pixel_remainder: f32,
+    pub(crate) button: ParamScrubPointerButton,
+    pub(crate) mode: ParamScrubMode,
 }
 
 /// Active dropdown session for one node parameter.

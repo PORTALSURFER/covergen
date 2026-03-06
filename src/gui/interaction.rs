@@ -50,8 +50,8 @@ use super::project::{
 use super::state::AddNodeMenuEntry;
 use super::state::{
     HoverInsertLink, HoverParamTarget, InputSnapshot, LinkCutState, PanDragState,
-    ParamDropdownState, ParamEditState, PendingAppAction, PreviewState, RightMarqueeState,
-    WireDragState,
+    ParamDropdownState, ParamEditState, ParamScrubMode, ParamScrubPointerButton, PendingAppAction,
+    PreviewState, RightMarqueeState, WireDragState,
 };
 use super::timeline::{editor_panel_height, next_looped_frame};
 
@@ -413,7 +413,11 @@ fn handle_alt_param_drag(
     }
 
     if let Some(mut scrub) = state.param_scrub {
-        if !pointer_down || !input.alt_down {
+        let active_button_down = match scrub.button {
+            ParamScrubPointerButton::Left => input.left_down,
+            ParamScrubPointerButton::Right => input.right_down,
+        };
+        if !active_button_down {
             state.debug_scrub_code = 20;
             state.param_scrub = None;
             return (true, true);
@@ -451,18 +455,36 @@ fn handle_alt_param_drag(
         return (changed, true);
     }
 
+    let label_drag_start =
+        label_scrubbable_param_at_cursor(input, project, panel_width, panel_height, state);
     let alt_latched_hover_start = pointer_clicked && state.hover_alt_param.is_some();
-    if !(input.alt_down || alt_latched_hover_start) || !pointer_down {
+    let (target, button, mode) = if (input.alt_down || alt_latched_hover_start) && pointer_down {
+        let button = if input.right_down && !input.left_down {
+            ParamScrubPointerButton::Right
+        } else {
+            ParamScrubPointerButton::Left
+        };
+        (
+            scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
+                .or_else(|| hover_alt_param_scrub_target(project, state))
+                .or_else(|| active_param_edit_scrub_target(project, state)),
+            button,
+            ParamScrubMode::AltDrag,
+        )
+    } else if input.left_down {
+        (
+            label_drag_start,
+            ParamScrubPointerButton::Left,
+            ParamScrubMode::LabelDrag,
+        )
+    } else {
         state.debug_scrub_code = if input.alt_down || pointer_down || pointer_clicked {
             30
         } else {
             0
         };
         return (false, false);
-    }
-    let target = scrubbable_param_at_cursor(input, project, panel_width, panel_height, state)
-        .or_else(|| hover_alt_param_scrub_target(project, state))
-        .or_else(|| active_param_edit_scrub_target(project, state));
+    };
     let Some(target) = target else {
         state.debug_scrub_code = 31;
         return (false, false);
@@ -476,6 +498,8 @@ fn handle_alt_param_drag(
         param_index: target.param_index,
         last_mouse_y: my,
         pixel_remainder: 0.0,
+        button,
+        mode,
     });
     // Scrub takes ownership over competing pointer interactions.
     state.drag = None;
@@ -542,6 +566,31 @@ fn scrubbable_param_at_cursor(
     let node_id = project.node_at(graph_x, graph_y)?;
     let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
     if !project.param_supports_text_edit(node_id, param_index) {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id,
+        param_index,
+    })
+}
+
+fn label_scrubbable_param_at_cursor(
+    input: &InputSnapshot,
+    project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+) -> Option<HoverParamTarget> {
+    let (mx, my) = input.mouse_pos?;
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return None;
+    }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let node_id = project.node_at(graph_x, graph_y)?;
+    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
+    if !project.param_supports_text_edit(node_id, param_index)
+        || project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
+    {
         return None;
     }
     Some(HoverParamTarget {
