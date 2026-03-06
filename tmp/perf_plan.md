@@ -164,7 +164,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::scene`
     - Long interactive sessions with zoom/label changes; check reduced alloc spikes.
 
-- [ ] 9. Remove per-frame `InputSnapshot` clone in interaction dispatch
+- [x] 9. Remove per-frame `InputSnapshot` clone in interaction dispatch
+  - Completed: 2026-03-06 (`58ea0e3` `perf: borrow input snapshots during interaction dispatch`)
   - ROI: Medium
   - Effort: S
   - Expected impact: p95 interaction latency, CPU, minor alloc
