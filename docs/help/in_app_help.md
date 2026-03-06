@@ -205,7 +205,7 @@ Phase offset used to animate or offset the warp pattern.
 
 ## Node `tex.post_color_tone`
 Color and tone post-processing category node.
-Use `effect` to choose bloom/tone-map/grading style operators.
+Use `effect` to choose bloom/tone-map/grading style operators. `mono` is the direct grayscale conversion mode.
 ### Param `effect`
 Selects color/tone effect preset for this category node.
 ### Param `amount`

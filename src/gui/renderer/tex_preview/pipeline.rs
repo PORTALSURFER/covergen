@@ -597,6 +597,10 @@ fn fs_post_process(v: VertexOut) -> @location(0) vec4<f32> {
             let b = vec3<f32>(1.0, 0.85, 0.35);
             let t = pow(luma, mix(2.0, 0.6, amount));
             return vec4<f32>(mix(a, b, t), src.a);
+        } else if (effect == 10) {
+            let mono = vec3<f32>(luma);
+            let curved = pow(mono, vec3<f32>(mix(1.6, 0.7, amount)));
+            return vec4<f32>(mix(src.rgb, curved, amount), src.a);
         }
         let contrast = mix(1.0, 2.5, amount);
         let graded = clamp((src.rgb - 0.5) * contrast + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));

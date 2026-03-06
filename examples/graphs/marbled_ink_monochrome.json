@@ -14,7 +14,7 @@
       "expanded": true,
       "params": [
         { "key": "seed", "value": 13.0, "signal_source": null, "texture_source": null },
-        { "key": "scale", "value": 1.9, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 1.75, "signal_source": null, "texture_source": null },
         { "key": "octaves", "value": 6.0, "signal_source": null, "texture_source": null },
         { "key": "amplitude", "value": 1.0, "signal_source": null, "texture_source": null }
       ]
@@ -29,9 +29,9 @@
       "expanded": true,
       "params": [
         { "key": "seed", "value": 91.0, "signal_source": null, "texture_source": null },
-        { "key": "scale", "value": 17.0, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 19.0, "signal_source": null, "texture_source": null },
         { "key": "octaves", "value": 4.0, "signal_source": null, "texture_source": null },
-        { "key": "amplitude", "value": 0.36, "signal_source": null, "texture_source": null }
+        { "key": "amplitude", "value": 0.32, "signal_source": null, "texture_source": null }
       ]
     },
     {
@@ -43,8 +43,8 @@
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "threshold", "value": 0.42, "signal_source": null, "texture_source": null },
-        { "key": "softness", "value": 0.28, "signal_source": null, "texture_source": null },
+        { "key": "threshold", "value": 0.44, "signal_source": null, "texture_source": null },
+        { "key": "softness", "value": 0.3, "signal_source": null, "texture_source": null },
         { "key": "invert", "value": 1.0, "signal_source": null, "texture_source": null }
       ]
     },
@@ -59,7 +59,7 @@
       "params": [
         { "key": "blend_tex", "value": 0.0, "signal_source": null, "texture_source": 3 },
         { "key": "blend_mode", "value": 8.0, "signal_source": null, "texture_source": null },
-        { "key": "opacity", "value": 0.58, "signal_source": null, "texture_source": null },
+        { "key": "opacity", "value": 0.52, "signal_source": null, "texture_source": null },
         { "key": "bg_r", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "bg_g", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "bg_b", "value": 0.0, "signal_source": null, "texture_source": null },
@@ -76,11 +76,11 @@
       "expanded": true,
       "params": [
         { "key": "diff_a", "value": 1.0, "signal_source": null, "texture_source": null },
-        { "key": "diff_b", "value": 0.38, "signal_source": null, "texture_source": null },
-        { "key": "feed", "value": 0.036, "signal_source": 16, "texture_source": null },
-        { "key": "kill", "value": 0.058, "signal_source": null, "texture_source": null },
+        { "key": "diff_b", "value": 0.36, "signal_source": null, "texture_source": null },
+        { "key": "feed", "value": 0.034, "signal_source": 16, "texture_source": null },
+        { "key": "kill", "value": 0.057, "signal_source": null, "texture_source": null },
         { "key": "dt", "value": 1.0, "signal_source": null, "texture_source": null },
-        { "key": "seed_mix", "value": 0.08, "signal_source": null, "texture_source": null }
+        { "key": "seed_mix", "value": 0.06, "signal_source": null, "texture_source": null }
       ]
     },
     {
@@ -93,9 +93,9 @@
       "expanded": true,
       "params": [
         { "key": "warp_tex", "value": 0.0, "signal_source": null, "texture_source": 2 },
-        { "key": "strength", "value": 0.42, "signal_source": null, "texture_source": null },
-        { "key": "frequency", "value": 3.8, "signal_source": null, "texture_source": null },
-        { "key": "rotation", "value": -22.0, "signal_source": null, "texture_source": null },
+        { "key": "strength", "value": 0.48, "signal_source": null, "texture_source": null },
+        { "key": "frequency", "value": 4.2, "signal_source": null, "texture_source": null },
+        { "key": "rotation", "value": -28.0, "signal_source": null, "texture_source": null },
         { "key": "octaves", "value": 4.0, "signal_source": null, "texture_source": null }
       ]
     },
@@ -108,9 +108,9 @@
       "selected_param": 2,
       "expanded": true,
       "params": [
-        { "key": "strength", "value": 0.16, "signal_source": null, "texture_source": null },
-        { "key": "frequency", "value": 1.1, "signal_source": null, "texture_source": null },
-        { "key": "phase", "value": 0.14, "signal_source": 15, "texture_source": null }
+        { "key": "strength", "value": 0.12, "signal_source": null, "texture_source": null },
+        { "key": "frequency", "value": 0.9, "signal_source": null, "texture_source": null },
+        { "key": "phase", "value": 0.12, "signal_source": 15, "texture_source": null }
       ]
     },
     {
@@ -123,7 +123,7 @@
       "expanded": true,
       "params": [
         { "key": "accumulation_tex", "value": 0.0, "signal_source": null, "texture_source": null },
-        { "key": "feedback", "value": 0.965, "signal_source": null, "texture_source": null },
+        { "key": "feedback", "value": 0.972, "signal_source": null, "texture_source": null },
         { "key": "frame_gap", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "reset", "value": 0.0, "signal_source": null, "texture_source": null }
       ]
@@ -138,10 +138,10 @@
       "expanded": true,
       "params": [
         { "key": "effect", "value": 6.0, "signal_source": null, "texture_source": null },
-        { "key": "amount", "value": 0.46, "signal_source": null, "texture_source": null },
-        { "key": "scale", "value": 3.8, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.52, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 4.2, "signal_source": null, "texture_source": null },
         { "key": "thresh", "value": 0.0, "signal_source": null, "texture_source": null },
-        { "key": "speed", "value": 0.08, "signal_source": null, "texture_source": null }
+        { "key": "speed", "value": 0.06, "signal_source": null, "texture_source": null }
       ]
     },
     {
@@ -153,8 +153,8 @@
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "strength", "value": 0.07, "signal_source": null, "texture_source": null },
-        { "key": "frequency", "value": 6.4, "signal_source": null, "texture_source": null },
+        { "key": "strength", "value": 0.06, "signal_source": null, "texture_source": null },
+        { "key": "frequency", "value": 7.2, "signal_source": null, "texture_source": null },
         { "key": "phase", "value": 0.0, "signal_source": null, "texture_source": null }
       ]
     },
@@ -168,8 +168,8 @@
       "expanded": true,
       "params": [
         { "key": "effect", "value": 2.0, "signal_source": null, "texture_source": null },
-        { "key": "amount", "value": 0.09, "signal_source": null, "texture_source": null },
-        { "key": "scale", "value": 1.1, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.07, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 1.0, "signal_source": null, "texture_source": null },
         { "key": "thresh", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "speed", "value": 0.0, "signal_source": null, "texture_source": null }
       ]
@@ -184,40 +184,40 @@
       "expanded": true,
       "params": [
         { "key": "effect", "value": 2.0, "signal_source": null, "texture_source": null },
-        { "key": "amount", "value": 0.22, "signal_source": null, "texture_source": null },
-        { "key": "scale", "value": 0.95, "signal_source": null, "texture_source": null },
-        { "key": "thresh", "value": 0.16, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 0.24, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "thresh", "value": 0.12, "signal_source": null, "texture_source": null },
         { "key": "speed", "value": 0.0, "signal_source": null, "texture_source": null }
       ]
     },
     {
       "id": 13,
-      "kind": "tex.tone_map",
+      "kind": "tex.post_color_tone",
       "x": 1920,
       "y": 240,
       "texture_input": 12,
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "contrast", "value": 2.25, "signal_source": null, "texture_source": null },
-        { "key": "low_pct", "value": 0.03, "signal_source": null, "texture_source": null },
-        { "key": "high_pct", "value": 0.82, "signal_source": null, "texture_source": null }
+        { "key": "effect", "value": 10.0, "signal_source": null, "texture_source": null },
+        { "key": "amount", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "scale", "value": 1.0, "signal_source": null, "texture_source": null },
+        { "key": "thresh", "value": 0.0, "signal_source": null, "texture_source": null },
+        { "key": "speed", "value": 0.0, "signal_source": null, "texture_source": null }
       ]
     },
     {
       "id": 14,
-      "kind": "tex.transform_2d",
+      "kind": "tex.tone_map",
       "x": 2220,
       "y": 240,
       "texture_input": 13,
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "brightness", "value": 0.92, "signal_source": null, "texture_source": null },
-        { "key": "gain_r", "value": 0.78, "signal_source": null, "texture_source": null },
-        { "key": "gain_g", "value": 0.84, "signal_source": null, "texture_source": null },
-        { "key": "gain_b", "value": 0.88, "signal_source": null, "texture_source": null },
-        { "key": "alpha_mul", "value": 1.0, "signal_source": null, "texture_source": null }
+        { "key": "contrast", "value": 2.55, "signal_source": null, "texture_source": null },
+        { "key": "low_pct", "value": 0.18, "signal_source": null, "texture_source": null },
+        { "key": "high_pct", "value": 0.74, "signal_source": null, "texture_source": null }
       ]
     },
     {
@@ -229,10 +229,10 @@
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "rate_hz", "value": 0.021, "signal_source": null, "texture_source": null },
-        { "key": "amplitude", "value": 0.05, "signal_source": null, "texture_source": null },
+        { "key": "rate_hz", "value": 0.018, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 0.04, "signal_source": null, "texture_source": null },
         { "key": "phase", "value": 0.0, "signal_source": null, "texture_source": null },
-        { "key": "bias", "value": 0.14, "signal_source": null, "texture_source": null },
+        { "key": "bias", "value": 0.12, "signal_source": null, "texture_source": null },
         { "key": "sync_mode", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "beat_mul", "value": 1.0, "signal_source": null, "texture_source": null },
         { "key": "lfo_type", "value": 0.0, "signal_source": null, "texture_source": null },
@@ -248,10 +248,10 @@
       "selected_param": 0,
       "expanded": true,
       "params": [
-        { "key": "rate_hz", "value": 0.008, "signal_source": null, "texture_source": null },
-        { "key": "amplitude", "value": 0.003, "signal_source": null, "texture_source": null },
+        { "key": "rate_hz", "value": 0.007, "signal_source": null, "texture_source": null },
+        { "key": "amplitude", "value": 0.0025, "signal_source": null, "texture_source": null },
         { "key": "phase", "value": 0.0, "signal_source": null, "texture_source": null },
-        { "key": "bias", "value": 0.036, "signal_source": null, "texture_source": null },
+        { "key": "bias", "value": 0.034, "signal_source": null, "texture_source": null },
         { "key": "sync_mode", "value": 0.0, "signal_source": null, "texture_source": null },
         { "key": "beat_mul", "value": 1.0, "signal_source": null, "texture_source": null },
         { "key": "lfo_type", "value": 0.0, "signal_source": null, "texture_source": null },
@@ -260,10 +260,26 @@
     },
     {
       "id": 17,
-      "kind": "io.window_out",
-      "x": 2500,
+      "kind": "tex.transform_2d",
+      "x": 2520,
       "y": 240,
       "texture_input": 14,
+      "selected_param": 0,
+      "expanded": true,
+      "params": [
+        { "key": "brightness", "value": 0.85, "signal_source": null, "texture_source": null },
+        { "key": "gain_r", "value": 0.9, "signal_source": null, "texture_source": null },
+        { "key": "gain_g", "value": 0.92, "signal_source": null, "texture_source": null },
+        { "key": "gain_b", "value": 0.96, "signal_source": null, "texture_source": null },
+        { "key": "alpha_mul", "value": 1.0, "signal_source": null, "texture_source": null }
+      ]
+    },
+    {
+      "id": 18,
+      "kind": "io.window_out",
+      "x": 2800,
+      "y": 240,
+      "texture_input": 17,
       "selected_param": 0,
       "expanded": false,
       "params": []

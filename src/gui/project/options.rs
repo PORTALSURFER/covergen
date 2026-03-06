@@ -123,7 +123,7 @@ pub(super) const TEX_MASK_INVERT_OPTIONS: [NodeParamOption; 2] = [
     },
 ];
 /// Effect options exposed by the `tex.post_color_tone` node.
-pub(super) const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 10] = [
+pub(super) const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 11] = [
     NodeParamOption {
         label: "bloom",
         value: 0.0,
@@ -163,6 +163,10 @@ pub(super) const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 10] = [
     NodeParamOption {
         label: "duotone",
         value: 9.0,
+    },
+    NodeParamOption {
+        label: "mono",
+        value: 10.0,
     },
 ];
 /// Effect options exposed by the `tex.post_edge_structure` node.

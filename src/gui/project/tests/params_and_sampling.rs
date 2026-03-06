@@ -314,8 +314,8 @@ fn post_color_tone_effect_uses_dropdown_options() {
     let options = project
         .node_param_dropdown_options(post, 0)
         .expect("dropdown options should exist");
-    assert_eq!(options.len(), 10);
+    assert_eq!(options.len(), 11);
     assert_eq!(project.node_param_raw_text(post, 0), Some("bloom"));
-    assert!(project.set_param_dropdown_index(post, 0, 9));
-    assert_eq!(project.node_param_raw_text(post, 0), Some("duotone"));
+    assert!(project.set_param_dropdown_index(post, 0, 10));
+    assert_eq!(project.node_param_raw_text(post, 0), Some("mono"));
 }
