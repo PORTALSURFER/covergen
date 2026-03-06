@@ -253,6 +253,26 @@ impl TexOpUniform {
         }
     }
 
+    fn domain_warp(op: TexViewerOp) -> Self {
+        let TexViewerOp::DomainWarp {
+            strength,
+            frequency,
+            rotation,
+            octaves,
+            ..
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [strength, frequency, rotation, octaves],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
     fn warp_transform(op: TexViewerOp) -> Self {
         let TexViewerOp::WarpTransform {
             strength,
@@ -420,6 +440,7 @@ pub(super) struct TexPreviewRenderer {
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
+    op_domain_warp_pipeline: Option<wgpu::RenderPipeline>,
     op_warp_transform_pipeline: Option<wgpu::RenderPipeline>,
     op_post_process_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
@@ -517,6 +538,7 @@ impl TexPreviewRenderer {
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_reaction_diffusion_pipeline.is_some()
+            && self.op_domain_warp_pipeline.is_some()
             && self.op_warp_transform_pipeline.is_some()
             && self.op_post_process_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
@@ -611,6 +633,13 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_reaction_diffusion",
+            self.op_surface_format,
+        ));
+        self.op_domain_warp_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_domain_warp",
             self.op_surface_format,
         ));
         self.op_warp_transform_pipeline = Some(create_op_pipeline(
@@ -755,6 +784,7 @@ impl TexPreviewRenderer {
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_reaction_diffusion_pipeline: None,
+            op_domain_warp_pipeline: None,
             op_warp_transform_pipeline: None,
             op_post_process_pipeline: None,
             op_blend_pipeline: None,
@@ -956,5 +986,18 @@ mod tests {
             high_pct: 0.92,
         });
         assert_eq!(uniform.p0, [1.6, 0.08, 0.92, 0.0]);
+    }
+
+    #[test]
+    fn domain_warp_uniform_maps_strength_frequency_rotation_and_octaves() {
+        let uniform = TexOpUniform::domain_warp(TexRuntimeOp::DomainWarp {
+            strength: 0.42,
+            frequency: 3.2,
+            rotation: 24.0,
+            octaves: 4.0,
+            base_texture_node_id: 7,
+            warp_texture_node_id: Some(9),
+        });
+        assert_eq!(uniform.p0, [0.42, 3.2, 24.0, 4.0]);
     }
 }

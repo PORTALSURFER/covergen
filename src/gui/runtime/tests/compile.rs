@@ -161,6 +161,53 @@ fn mask_tone_map_and_warp_nodes_compile_in_order() {
 }
 
 #[test]
+fn domain_warp_pipeline_compiles_to_store_and_domain_warp_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 180, 40, 420, 480);
+    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 340, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
+    assert!(project.connect_image_link(solid, domain_warp));
+    assert!(project.connect_texture_link_to_param(noise, domain_warp, 0));
+    assert!(project.connect_image_link(domain_warp, out));
+    assert!(project.set_param_value(domain_warp, 1, 0.42));
+    assert!(project.set_param_value(domain_warp, 2, 3.2));
+    assert!(project.set_param_value(domain_warp, 3, 24.0));
+    assert!(project.set_param_value(domain_warp, 4, 4.0));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert!(matches!(ops[0], TexRuntimeOp::Solid { .. }));
+    assert!(matches!(
+        ops[1],
+        TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
+    ));
+    assert!(matches!(ops[2], TexRuntimeOp::SourceNoise { .. }));
+    assert!(matches!(
+        ops[3],
+        TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == noise
+    ));
+    assert!(matches!(
+        ops[4],
+        TexRuntimeOp::DomainWarp {
+            strength,
+            frequency,
+            rotation,
+            octaves,
+            base_texture_node_id,
+            warp_texture_node_id: Some(warp_id),
+        } if (strength - 0.42).abs() < 1e-6
+            && (frequency - 3.2).abs() < 1e-6
+            && (rotation - 24.0).abs() < 1e-6
+            && octaves == 4.0
+            && base_texture_node_id == solid
+            && warp_id == noise
+    ));
+}
+
+#[test]
 fn blend_pipeline_compiles_to_store_and_blend_ops() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);

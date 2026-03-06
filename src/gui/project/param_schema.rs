@@ -294,6 +294,26 @@ pub(crate) mod reaction_diffusion {
 }
 
 /// Canonical keys for `tex.warp_transform`.
+pub(crate) mod domain_warp {
+    use super::super::DOMAIN_WARP_TEXTURE_PARAM_KEY;
+
+    pub(crate) const WARP_TEXTURE: &str = DOMAIN_WARP_TEXTURE_PARAM_KEY;
+    pub(crate) const STRENGTH: &str = "strength";
+    pub(crate) const FREQUENCY: &str = "frequency";
+    pub(crate) const ROTATION: &str = "rotation";
+    pub(crate) const OCTAVES: &str = "octaves";
+
+    #[cfg(test)]
+    pub(crate) const WARP_TEXTURE_INDEX: usize = 0;
+    pub(crate) const STRENGTH_INDEX: usize = 1;
+    pub(crate) const FREQUENCY_INDEX: usize = 2;
+    pub(crate) const ROTATION_INDEX: usize = 3;
+    pub(crate) const OCTAVES_INDEX: usize = 4;
+
+    pub(crate) const KEYS: [&str; 5] = [WARP_TEXTURE, STRENGTH, FREQUENCY, ROTATION, OCTAVES];
+}
+
+/// Canonical keys for `tex.warp_transform`.
 pub(crate) mod warp_transform {
     pub(crate) const STRENGTH: &str = "strength";
     pub(crate) const FREQUENCY: &str = "frequency";

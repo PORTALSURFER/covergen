@@ -93,6 +93,7 @@ pub(super) fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::TexReactionDiffusion => {
             Color::argb(AGIO.node_header_tex_reaction_diffusion)
         }
+        ProjectNodeKind::TexDomainWarp => Color::argb(AGIO.node_header_tex_domain_warp),
         ProjectNodeKind::TexWarpTransform => Color::argb(AGIO.node_header_tex_warp_transform),
         ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
         ProjectNodeKind::TexPostEdgeStructure => {

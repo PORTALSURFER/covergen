@@ -61,6 +61,9 @@ const FEEDBACK_RESET_PARAM_LABEL: &str = "reset";
 /// Stable parameter key for `tex.blend` secondary texture input.
 pub(crate) const BLEND_LAYER_PARAM_KEY: &str = "blend_tex";
 const BLEND_LAYER_PARAM_LABEL: &str = "blend_tex";
+/// Stable parameter key for `tex.domain_warp` warp-field texture input.
+pub(crate) const DOMAIN_WARP_TEXTURE_PARAM_KEY: &str = "warp_tex";
+const DOMAIN_WARP_TEXTURE_PARAM_LABEL: &str = "warp_tex";
 const SIGNATURE_DOMAIN_UI: u64 = 0x5549_5f53_4947_4e5f;
 
 /// Per-frame signal sampling memo keyed by `(node_id, quantized_time_bucket)`.
@@ -192,6 +195,8 @@ pub(crate) enum ProjectNodeKind {
     TexFeedback,
     /// `tex.reaction_diffusion` temporal Gray-Scott simulation node.
     TexReactionDiffusion,
+    /// `tex.domain_warp` two-texture warp node driven by a sampled warp field.
+    TexDomainWarp,
     /// `tex.warp_transform` render node for lightweight UV warping.
     TexWarpTransform,
     /// `tex.post_color_tone` category post-process node.
@@ -240,7 +245,7 @@ struct ProjectNodeKindDescriptor {
     shows_signal_preview: bool,
 }
 
-const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 29] = [
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 30] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
@@ -343,6 +348,15 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 29] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexReactionDiffusion,
         stable_id: "tex.reaction_diffusion",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexDomainWarp,
+        stable_id: "tex.domain_warp",
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),

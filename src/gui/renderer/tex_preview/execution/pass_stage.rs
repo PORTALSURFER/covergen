@@ -62,6 +62,29 @@ impl TexPreviewRenderer {
                         pass.set_bind_group(1, base_bind_group, &[]);
                         pass.set_bind_group(2, layer_bind_group, &[]);
                     }
+                    TexViewerOp::DomainWarp {
+                        base_texture_node_id,
+                        warp_texture_node_id,
+                        ..
+                    } => {
+                        let base_bind_group = self
+                            .blend_source_bind_group_for_texture(base_texture_node_id)
+                            .or_else(|| {
+                                source_target
+                                    .and_then(|target_ref| self.target_bind_group(target_ref))
+                            })?;
+                        let warp_bind_group = warp_texture_node_id
+                            .and_then(|id| self.blend_source_bind_group_for_texture(id))
+                            .unwrap_or(base_bind_group);
+                        pass.set_pipeline(self.op_domain_warp_pipeline.as_ref()?);
+                        pass.set_bind_group(
+                            0,
+                            &self.op_uniform_bind_group,
+                            &[prepared.dynamic_offset],
+                        );
+                        pass.set_bind_group(1, base_bind_group, &[]);
+                        pass.set_bind_group(2, warp_bind_group, &[]);
+                    }
                     TexViewerOp::StoreTexture { .. } => {
                         return None;
                     }

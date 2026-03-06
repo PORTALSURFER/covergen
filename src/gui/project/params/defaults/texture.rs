@@ -265,6 +265,48 @@ pub(super) fn tex_reaction_diffusion_params() -> Vec<NodeParamSlot> {
     ]
 }
 
+pub(super) fn tex_domain_warp_params() -> Vec<NodeParamSlot> {
+    vec![
+        // Optional warp field sampled to derive domain offsets.
+        param_texture_target(
+            DOMAIN_WARP_TEXTURE_PARAM_KEY,
+            DOMAIN_WARP_TEXTURE_PARAM_LABEL,
+        ),
+        param(
+            param_schema::domain_warp::STRENGTH,
+            "strength",
+            0.28,
+            0.0,
+            2.0,
+            0.01,
+        ),
+        param(
+            param_schema::domain_warp::FREQUENCY,
+            "freq",
+            2.5,
+            0.05,
+            16.0,
+            0.05,
+        ),
+        param(
+            param_schema::domain_warp::ROTATION,
+            "rotate",
+            0.0,
+            -180.0,
+            180.0,
+            1.0,
+        ),
+        param(
+            param_schema::domain_warp::OCTAVES,
+            "octaves",
+            3.0,
+            1.0,
+            6.0,
+            1.0,
+        ),
+    ]
+}
+
 pub(super) fn tex_warp_transform_params() -> Vec<NodeParamSlot> {
     vec![
         param(

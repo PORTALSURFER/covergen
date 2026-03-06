@@ -16,9 +16,10 @@ This directory contains ready-to-load GUI project graphs.
     1. `tex.source_noise` creates coarse and fine seed fields.
     2. `tex.mask` extracts sparse detail pockets from the fine noise.
     3. `tex.blend` combines those fields into a reaction-diffusion seed.
-    4. `tex.reaction_diffusion`, `tex.warp_transform`, and `tex.feedback` build evolving tendrils.
-    5. `tex.post_experimental`, `tex.post_blur_diffusion`, `tex.post_edge_structure`, and `tex.tone_map` shape the final ink texture.
-    6. Slow `ctl.lfo` modulation animates warp phase and diffusion feed for subtle living motion.
+    4. `tex.reaction_diffusion` grows the base membrane/tendril structure.
+    5. `tex.domain_warp` and two `tex.warp_transform` passes provide coherent transport before and after feedback.
+    6. `tex.feedback`, `tex.post_experimental`, `tex.post_blur_diffusion`, `tex.post_edge_structure`, and `tex.tone_map` push the result toward dark marbled ink.
+    7. Slow `ctl.lfo` modulation animates warp phase and diffusion feed for subtle living motion.
 
 ## Load In GUI
 

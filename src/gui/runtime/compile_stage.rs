@@ -202,6 +202,70 @@ pub(super) fn compile_node(
                 true
             }
         }
+        ProjectNodeKind::TexDomainWarp => {
+            let Some(base_source_id) = project.input_source_node_id(node_id) else {
+                return false;
+            };
+            let warp_source_id = project
+                .node_param_slot_index(node_id, DOMAIN_WARP_TEXTURE_PARAM_KEY)
+                .and_then(|slot_index| project.texture_source_for_param(node_id, slot_index));
+            let compile_warp_first = warp_source_id
+                .map(|warp_id| node_depends_on(project, base_source_id, warp_id))
+                .unwrap_or(false);
+            if compile_warp_first {
+                if let Some(warp_id) = warp_source_id {
+                    if !compile_node(project, warp_id, traversal, out_steps) {
+                        return false;
+                    }
+                    out_steps.push(compiled_step(
+                        project,
+                        warp_id,
+                        CompiledStepKind::StoreTexture,
+                        &[],
+                    ));
+                }
+                if !compile_node(project, base_source_id, traversal, out_steps) {
+                    return false;
+                }
+                out_steps.push(compiled_step(
+                    project,
+                    base_source_id,
+                    CompiledStepKind::StoreTexture,
+                    &[],
+                ));
+            } else {
+                if !compile_node(project, base_source_id, traversal, out_steps) {
+                    return false;
+                }
+                out_steps.push(compiled_step(
+                    project,
+                    base_source_id,
+                    CompiledStepKind::StoreTexture,
+                    &[],
+                ));
+                if let Some(warp_id) = warp_source_id {
+                    if !compile_node(project, warp_id, traversal, out_steps) {
+                        return false;
+                    }
+                    out_steps.push(compiled_step(
+                        project,
+                        warp_id,
+                        CompiledStepKind::StoreTexture,
+                        &[],
+                    ));
+                }
+            }
+            out_steps.push(compiled_step(
+                project,
+                node_id,
+                CompiledStepKind::DomainWarp {
+                    base_source_id,
+                    warp_source_id,
+                },
+                &param_schema::domain_warp::KEYS,
+            ));
+            true
+        }
         ProjectNodeKind::TexWarpTransform => {
             let source_id = project.input_source_node_id(node_id);
             let Some(source_id) = source_id else {

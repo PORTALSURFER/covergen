@@ -496,6 +496,42 @@ fn fs_reaction_diffusion(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(display, 1.0);
 }
 
+fn rotate2(v: vec2<f32>, degrees: f32) -> vec2<f32> {
+    let radians = degrees * 0.017453292519943295;
+    let c = cos(radians);
+    let s = sin(radians);
+    return vec2<f32>(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
+@fragment
+fn fs_domain_warp(v: VertexOut) -> @location(0) vec4<f32> {
+    let strength = clamp(u_op.p0.x, 0.0, 2.0) * 0.035;
+    let frequency = max(u_op.p0.y, 0.05);
+    let rotation = u_op.p0.z;
+    let octaves = clamp(round(u_op.p0.w), 1.0, 6.0);
+
+    var offset = vec2<f32>(0.0);
+    var amp = 1.0;
+    var norm = 0.0;
+    var octave = 0.0;
+    loop {
+        if (octave >= octaves) {
+            break;
+        }
+        let octave_freq = frequency * exp2(octave);
+        let sample_uv = fract(v.uv * octave_freq);
+        let warp = textureSample(t_feedback, s_feedback, sample_uv).rg * 2.0 - vec2<f32>(1.0);
+        let rotated = rotate2(warp, rotation + octave * 17.0);
+        offset = offset + rotated * amp;
+        norm = norm + amp;
+        amp = amp * 0.5;
+        octave = octave + 1.0;
+    }
+    let normalized_offset = select(vec2<f32>(0.0), offset / norm, norm > 0.0);
+    let uv = clamp(v.uv + normalized_offset * strength, vec2<f32>(0.0), vec2<f32>(1.0));
+    return textureSample(t_src, s_src, uv);
+}
+
 @fragment
 fn fs_warp_transform(v: VertexOut) -> @location(0) vec4<f32> {
     let strength = clamp(u_op.p0.x, 0.0, 2.4) * 0.02;

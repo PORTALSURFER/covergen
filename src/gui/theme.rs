@@ -60,6 +60,8 @@ pub(crate) struct GuiTheme {
     pub(crate) node_header_tex_feedback: u32,
     /// Header color for `tex.reaction_diffusion` nodes.
     pub(crate) node_header_tex_reaction_diffusion: u32,
+    /// Header color for `tex.domain_warp` nodes.
+    pub(crate) node_header_tex_domain_warp: u32,
     /// Header color for `tex.warp_transform` nodes.
     pub(crate) node_header_tex_warp_transform: u32,
     /// Header color for `tex.post_color_tone` nodes.
@@ -124,6 +126,7 @@ pub(crate) const AGIO: GuiTheme = GuiTheme {
     node_header_tex_tone_map: 0xFF367D61,
     node_header_tex_feedback: 0xFF2F7A7A,
     node_header_tex_reaction_diffusion: 0xFF2A6F5A,
+    node_header_tex_domain_warp: 0xFF365E8A,
     node_header_tex_warp_transform: 0xFF3B6F96,
     node_header_tex_post_color_tone: 0xFF4A7E66,
     node_header_tex_post_edge_structure: 0xFF4B6D77,

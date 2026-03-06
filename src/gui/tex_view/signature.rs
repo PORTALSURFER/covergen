@@ -206,6 +206,24 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 }
                 uniform_hash = hash_feedback_binding(uniform_hash, history);
             }
+            TexViewerOp::DomainWarp {
+                strength,
+                frequency,
+                rotation,
+                octaves,
+                base_texture_node_id,
+                warp_texture_node_id,
+            } => {
+                plan_hash = fnv1a(plan_hash, 15);
+                plan_hash = fnv1a(plan_hash, base_texture_node_id as u64);
+                plan_hash = fnv1a(plan_hash, warp_texture_node_id.unwrap_or(0) as u64);
+                uniform_hash = fnv1a(uniform_hash, 15);
+                for value in [strength, frequency, rotation, octaves] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+                uniform_hash = fnv1a(uniform_hash, base_texture_node_id as u64);
+                uniform_hash = fnv1a(uniform_hash, warp_texture_node_id.unwrap_or(0) as u64);
+            }
             TexViewerOp::WarpTransform {
                 strength,
                 frequency,

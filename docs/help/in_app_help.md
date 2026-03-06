@@ -179,6 +179,20 @@ Per-frame integration step multiplier.
 ### Param `seed_mix`
 Blend amount for injecting source concentrations into the evolving state.
 
+## Node `tex.domain_warp`
+Samples a secondary warp texture and uses it as a UV displacement field for the primary input.
+Use this when you need richer, less periodic transport than `tex.warp_transform` provides.
+### Param `warp_tex`
+Secondary texture input used to derive warp offsets. If unbound, the node self-warps the primary input.
+### Param `strength`
+Overall UV displacement strength.
+### Param `frequency`
+Tiling frequency applied to the sampled warp field.
+### Param `rotation`
+Rotation in degrees applied to the sampled warp vectors.
+### Param `octaves`
+Number of layered warp-field samples mixed together.
+
 ## Node `tex.warp_transform`
 Applies a lightweight deterministic UV warp to the input texture.
 Use this to bend diffusion structures and feed subtle directional flow into feedback.

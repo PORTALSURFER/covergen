@@ -24,7 +24,7 @@ impl KindParamDefaults {
     }
 }
 
-const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 29] = [
+const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 30] = [
     KindParamDefaults::new(ProjectNodeKind::TexSolid, texture::tex_solid_params),
     KindParamDefaults::new(ProjectNodeKind::TexCircle, texture::tex_circle_params),
     KindParamDefaults::new(
@@ -48,6 +48,10 @@ const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 29] = [
     KindParamDefaults::new(
         ProjectNodeKind::TexReactionDiffusion,
         texture::tex_reaction_diffusion_params,
+    ),
+    KindParamDefaults::new(
+        ProjectNodeKind::TexDomainWarp,
+        texture::tex_domain_warp_params,
     ),
     KindParamDefaults::new(
         ProjectNodeKind::TexWarpTransform,

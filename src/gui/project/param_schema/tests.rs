@@ -32,6 +32,7 @@ fn schema_key_arrays_have_unique_entries() {
         &feedback::KEYS,
         &feedback::RUNTIME_KEYS,
         &reaction_diffusion::KEYS,
+        &domain_warp::KEYS,
         &post_process::KEYS,
         &blend::KEYS,
         &ctl_lfo::KEYS,
@@ -84,6 +85,16 @@ fn index_constants_match_declared_key_order() {
             (render_scene_pass::LIGHT_X_INDEX, render_scene_pass::LIGHT_X),
             (render_scene_pass::LIGHT_Y_INDEX, render_scene_pass::LIGHT_Y),
             (render_scene_pass::LIGHT_Z_INDEX, render_scene_pass::LIGHT_Z),
+        ],
+    );
+    assert_index_map(
+        &domain_warp::KEYS,
+        &[
+            (domain_warp::WARP_TEXTURE_INDEX, domain_warp::WARP_TEXTURE),
+            (domain_warp::STRENGTH_INDEX, domain_warp::STRENGTH),
+            (domain_warp::FREQUENCY_INDEX, domain_warp::FREQUENCY),
+            (domain_warp::ROTATION_INDEX, domain_warp::ROTATION),
+            (domain_warp::OCTAVES_INDEX, domain_warp::OCTAVES),
         ],
     );
     assert_index_map(

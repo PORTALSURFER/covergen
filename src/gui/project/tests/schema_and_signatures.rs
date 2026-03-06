@@ -24,9 +24,10 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     let mask = project.add_node(ProjectNodeKind::TexMask, 580, 40, 420, 480);
     let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 760, 40, 420, 480);
     let feedback = project.add_node(ProjectNodeKind::TexFeedback, 940, 40, 420, 480);
-    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 1120, 40, 420, 480);
-    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 1300, 40, 420, 480);
-    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 1480, 40, 420, 480);
+    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 1120, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 1300, 40, 420, 480);
+    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 1480, 40, 420, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 1660, 40, 420, 480);
     assert_kind_keys(
         &project,
         circle,
@@ -65,6 +66,12 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     );
     assert_kind_keys(
         &project,
+        domain_warp,
+        &param_schema::domain_warp::KEYS,
+        ProjectNodeKind::TexDomainWarp,
+    );
+    assert_kind_keys(
+        &project,
         warp,
         &param_schema::warp_transform::KEYS,
         ProjectNodeKind::TexWarpTransform,
@@ -99,6 +106,7 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexDomainWarp,
         ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,
@@ -148,6 +156,7 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
+        ProjectNodeKind::TexDomainWarp,
         ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,

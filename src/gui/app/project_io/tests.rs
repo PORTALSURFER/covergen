@@ -226,6 +226,14 @@ fn bundled_marbled_ink_example_loads() {
             .project
             .nodes()
             .iter()
+            .any(|node| node.kind().stable_id() == "tex.domain_warp"),
+        "example graph should include tex.domain_warp"
+    );
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
             .any(|node| node.kind().stable_id() == "tex.warp_transform"),
         "example graph should include tex.warp_transform"
     );

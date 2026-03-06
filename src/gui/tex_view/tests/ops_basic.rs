@@ -242,6 +242,42 @@ fn warp_transform_chain_produces_source_noise_then_warp_ops() {
 }
 
 #[test]
+fn domain_warp_chain_produces_store_and_domain_warp_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 180, 80, 420, 480);
+    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 320, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 460, 80, 420, 480);
+    assert!(project.connect_image_link(solid, domain_warp));
+    assert!(project.connect_texture_link_to_param(noise, domain_warp, 0));
+    assert!(project.connect_image_link(domain_warp, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 5);
+    assert!(matches!(ops[0], TexViewerOp::Solid { .. }));
+    assert!(matches!(ops[1], TexViewerOp::StoreTexture { .. }));
+    assert!(matches!(ops[2], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[3], TexViewerOp::StoreTexture { .. }));
+    assert!(matches!(ops[4], TexViewerOp::DomainWarp { .. }));
+}
+
+#[test]
 fn reaction_diffusion_chain_produces_solid_then_reaction_diffusion_ops() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);

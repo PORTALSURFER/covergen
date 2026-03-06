@@ -54,6 +54,9 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
             source_binding: RuntimeSourceBinding::SourceTarget,
             feedback_binding: RuntimeFeedbackBinding::HistoryRequired,
         },
+        TexViewerOp::DomainWarp { .. } => {
+            return None;
+        }
         TexViewerOp::WarpTransform { .. } => RuntimeOpDescriptor {
             pipeline: RuntimeOpPipelineKind::WarpTransform,
             source_binding: RuntimeSourceBinding::SourceTarget,
@@ -89,6 +92,7 @@ pub(super) fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform
         TexViewerOp::ToneMap { .. } => TexOpUniform::tone_map(runtime_op),
         TexViewerOp::Feedback { .. } => TexOpUniform::feedback(runtime_op),
         TexViewerOp::ReactionDiffusion { .. } => TexOpUniform::reaction_diffusion(runtime_op),
+        TexViewerOp::DomainWarp { .. } => TexOpUniform::domain_warp(runtime_op),
         TexViewerOp::WarpTransform { .. } => TexOpUniform::warp_transform(runtime_op),
         TexViewerOp::PostProcess { .. } => TexOpUniform::post_process(runtime_op),
         TexViewerOp::Blend { .. } => TexOpUniform::blend(runtime_op),

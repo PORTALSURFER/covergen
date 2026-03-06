@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use super::project::{
     param_schema, GuiProject, ProjectNodeKind, SignalEvalPath, SignalEvalStack,
-    BLEND_LAYER_PARAM_KEY,
+    BLEND_LAYER_PARAM_KEY, DOMAIN_WARP_TEXTURE_PARAM_KEY,
 };
 use crate::telemetry;
 use compile_stage::compile_node;
@@ -152,6 +152,15 @@ pub(crate) enum TexRuntimeOp {
         seed_mix: f32,
         history: TexRuntimeFeedbackHistoryBinding,
     },
+    /// `tex.domain_warp` warp-field driven UV distortion operation.
+    DomainWarp {
+        strength: f32,
+        frequency: f32,
+        rotation: f32,
+        octaves: f32,
+        base_texture_node_id: u32,
+        warp_texture_node_id: Option<u32>,
+    },
     /// `tex.warp_transform` operation.
     WarpTransform {
         strength: f32,
@@ -229,6 +238,10 @@ enum CompiledStepKind {
     ToneMap,
     Feedback,
     ReactionDiffusion,
+    DomainWarp {
+        base_source_id: u32,
+        warp_source_id: Option<u32>,
+    },
     WarpTransform,
     PostProcess {
         category: PostProcessCategory,
@@ -394,6 +407,10 @@ impl GuiCompiledRuntime {
             CompiledStepKind::ToneMap => Self::emit_tone_map(step, ctx),
             CompiledStepKind::Feedback => Self::emit_feedback(step, ctx),
             CompiledStepKind::ReactionDiffusion => Self::emit_reaction_diffusion(step, ctx),
+            CompiledStepKind::DomainWarp {
+                base_source_id,
+                warp_source_id,
+            } => Self::emit_domain_warp(step, base_source_id, warp_source_id, ctx),
             CompiledStepKind::WarpTransform => Self::emit_warp_transform(step, ctx),
             CompiledStepKind::PostProcess { category } => {
                 Self::emit_post_process(step, category, ctx)
@@ -785,6 +802,39 @@ impl GuiCompiledRuntime {
             strength,
             frequency,
             phase,
+        });
+    }
+
+    fn emit_domain_warp(
+        step: &CompiledStep,
+        base_source_id: u32,
+        warp_source_id: Option<u32>,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let strength = ctx
+            .param(step, param_schema::domain_warp::STRENGTH_INDEX)
+            .unwrap_or(0.28)
+            .clamp(0.0, 2.0);
+        let frequency = ctx
+            .param(step, param_schema::domain_warp::FREQUENCY_INDEX)
+            .unwrap_or(2.5)
+            .clamp(0.05, 16.0);
+        let rotation = ctx
+            .param(step, param_schema::domain_warp::ROTATION_INDEX)
+            .unwrap_or(0.0)
+            .clamp(-180.0, 180.0);
+        let octaves = ctx
+            .param(step, param_schema::domain_warp::OCTAVES_INDEX)
+            .unwrap_or(3.0)
+            .round()
+            .clamp(1.0, 6.0);
+        ctx.out_ops.push(TexRuntimeOp::DomainWarp {
+            strength,
+            frequency,
+            rotation,
+            octaves,
+            base_texture_node_id: base_source_id,
+            warp_texture_node_id: warp_source_id,
         });
     }
 

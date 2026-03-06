@@ -731,17 +731,28 @@ fn collect_active_cache_keys(
         if let Some(key) = feedback_key_for_runtime_op(runtime_op) {
             let _ = active_feedback.insert(key);
         }
-        let TexViewerOp::Blend {
-            base_texture_node_id,
-            layer_texture_node_id,
-            ..
-        } = runtime_op
-        else {
-            continue;
-        };
-        let _ = active_blend_sources.insert(base_texture_node_id);
-        if let Some(layer_id) = layer_texture_node_id {
-            let _ = active_blend_sources.insert(layer_id);
+        match runtime_op {
+            TexViewerOp::Blend {
+                base_texture_node_id,
+                layer_texture_node_id,
+                ..
+            } => {
+                let _ = active_blend_sources.insert(base_texture_node_id);
+                if let Some(layer_id) = layer_texture_node_id {
+                    let _ = active_blend_sources.insert(layer_id);
+                }
+            }
+            TexViewerOp::DomainWarp {
+                base_texture_node_id,
+                warp_texture_node_id,
+                ..
+            } => {
+                let _ = active_blend_sources.insert(base_texture_node_id);
+                if let Some(warp_id) = warp_texture_node_id {
+                    let _ = active_blend_sources.insert(warp_id);
+                }
+            }
+            _ => {}
         }
     }
     for step in planned_steps {
@@ -823,9 +834,9 @@ fn choose_intermediate_target_impl(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_active_cache_keys, consume_feedback_write_cooldown,
-        external_feedback_accumulation_texture_for_runtime_op, is_feedback_history_tap_runtime_op,
-        choose_intermediate_target_impl, prune_keyed_cache, runtime_op_descriptor,
+        choose_intermediate_target_impl, collect_active_cache_keys,
+        consume_feedback_write_cooldown, external_feedback_accumulation_texture_for_runtime_op,
+        is_feedback_history_tap_runtime_op, prune_keyed_cache, runtime_op_descriptor,
         PlannedRenderOp, PlannedStep, RuntimeFeedbackBinding, RuntimeOpPipelineKind,
         RuntimeSourceBinding,
     };
@@ -952,11 +963,20 @@ mod tests {
                 base_texture_node_id: 7,
                 layer_texture_node_id: Some(9),
             },
+            TexViewerOp::DomainWarp {
+                strength: 0.4,
+                frequency: 3.0,
+                rotation: 15.0,
+                octaves: 4.0,
+                base_texture_node_id: 11,
+                warp_texture_node_id: Some(13),
+            },
         ];
         let render_ops = vec![
             PlannedRenderOp::Runtime { op_index: 0 },
             PlannedRenderOp::Runtime { op_index: 1 },
             PlannedRenderOp::Runtime { op_index: 2 },
+            PlannedRenderOp::Runtime { op_index: 3 },
         ];
         let steps = vec![
             PlannedStep::StoreTexture { texture_node_id: 7 },
@@ -971,9 +991,10 @@ mod tests {
             planned_ops.as_slice(),
         );
         assert_eq!(active_feedback.len(), 2);
-        assert_eq!(active_blend.len(), 3);
+        assert_eq!(active_blend.len(), 4);
         assert!(active_blend.contains(&7));
         assert!(active_blend.contains(&9));
+        assert!(active_blend.contains(&11));
         assert!(active_blend.contains(&13));
     }
 
@@ -1038,14 +1059,16 @@ mod tests {
     #[test]
     fn intermediate_target_selection_avoids_current_source_target() {
         let mut scratch_flip = true;
-        let chosen = choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
+        let chosen =
+            choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
         assert_eq!(chosen, RenderTargetRef::ScratchA);
     }
 
     #[test]
     fn intermediate_target_selection_reuses_non_source_scratch_targets() {
         let mut scratch_flip = false;
-        let chosen = choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
+        let chosen =
+            choose_intermediate_target_impl(&mut scratch_flip, Some(RenderTargetRef::ScratchB));
         assert_eq!(chosen, RenderTargetRef::ScratchA);
     }
 }
