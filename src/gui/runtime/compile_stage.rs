@@ -74,6 +74,24 @@ pub(super) fn compile_node(
             ));
             true
         }
+        ProjectNodeKind::BufBox => {
+            out_steps.push(compiled_step(
+                project,
+                node_id,
+                CompiledStepKind::BoxBuffer,
+                &param_schema::box_buffer::KEYS,
+            ));
+            true
+        }
+        ProjectNodeKind::BufGrid => {
+            out_steps.push(compiled_step(
+                project,
+                node_id,
+                CompiledStepKind::GridBuffer,
+                &param_schema::grid_buffer::KEYS,
+            ));
+            true
+        }
         ProjectNodeKind::BufCircleNurbs => {
             out_steps.push(compiled_step(
                 project,

@@ -67,6 +67,36 @@ pub(crate) mod sphere_buffer {
     pub(crate) const KEYS: [&str; 1] = [RADIUS];
 }
 
+/// Canonical keys for `buf.box`.
+pub(crate) mod box_buffer {
+    pub(crate) const SIZE_X: &str = "size_x";
+    pub(crate) const SIZE_Y: &str = "size_y";
+    pub(crate) const CORNER: &str = "corner";
+
+    pub(crate) const SIZE_X_INDEX: usize = 0;
+    pub(crate) const SIZE_Y_INDEX: usize = 1;
+    pub(crate) const CORNER_INDEX: usize = 2;
+
+    pub(crate) const KEYS: [&str; 3] = [SIZE_X, SIZE_Y, CORNER];
+}
+
+/// Canonical keys for `buf.grid`.
+pub(crate) mod grid_buffer {
+    pub(crate) const SIZE_X: &str = "size_x";
+    pub(crate) const SIZE_Y: &str = "size_y";
+    pub(crate) const CELLS_X: &str = "cells_x";
+    pub(crate) const CELLS_Y: &str = "cells_y";
+    pub(crate) const LINE_WIDTH: &str = "line_width";
+
+    pub(crate) const SIZE_X_INDEX: usize = 0;
+    pub(crate) const SIZE_Y_INDEX: usize = 1;
+    pub(crate) const CELLS_X_INDEX: usize = 2;
+    pub(crate) const CELLS_Y_INDEX: usize = 3;
+    pub(crate) const LINE_WIDTH_INDEX: usize = 4;
+
+    pub(crate) const KEYS: [&str; 5] = [SIZE_X, SIZE_Y, CELLS_X, CELLS_Y, LINE_WIDTH];
+}
+
 /// Canonical keys for `buf.circle_nurbs`.
 pub(crate) mod circle_nurbs_buffer {
     pub(crate) const RADIUS: &str = "radius";

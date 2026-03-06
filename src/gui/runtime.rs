@@ -88,6 +88,46 @@ pub(crate) enum TexRuntimeOp {
         amplitude: f32,
         mode: f32,
     },
+    /// `render.scene_pass` box shading operation.
+    Box {
+        center_x: f32,
+        center_y: f32,
+        size_x: f32,
+        size_y: f32,
+        corner_radius: f32,
+        edge_softness: f32,
+        noise_amount: f32,
+        noise_freq: f32,
+        noise_phase: f32,
+        noise_twist: f32,
+        noise_stretch: f32,
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+        alpha: f32,
+        alpha_clip: bool,
+    },
+    /// `render.scene_pass` grid shading operation.
+    Grid {
+        center_x: f32,
+        center_y: f32,
+        size_x: f32,
+        size_y: f32,
+        cells_x: f32,
+        cells_y: f32,
+        line_width: f32,
+        edge_softness: f32,
+        noise_amount: f32,
+        noise_freq: f32,
+        noise_phase: f32,
+        noise_twist: f32,
+        noise_stretch: f32,
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+        alpha: f32,
+        alpha_clip: bool,
+    },
     /// `render.scene_pass` sphere shading operation.
     Sphere {
         center_x: f32,
@@ -236,6 +276,8 @@ enum CompiledStepKind {
     Circle,
     SourceNoise,
     SphereBuffer,
+    BoxBuffer,
+    GridBuffer,
     CircleNurbsBuffer,
     BufferNoise,
     SceneEntity,
@@ -280,6 +322,8 @@ struct SceneEntityState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SceneMeshProfile {
     Sphere,
+    Box,
+    Grid,
     CircleNurbs,
 }
 
@@ -287,9 +331,14 @@ enum SceneMeshProfile {
 struct SceneMeshState {
     profile: SceneMeshProfile,
     radius: f32,
+    size_x: f32,
+    size_y: f32,
+    corner_radius: f32,
     arc_start_deg: f32,
     arc_end_deg: f32,
     line_width: f32,
+    cells_x: f32,
+    cells_y: f32,
     noise_amount: f32,
     noise_freq: f32,
     noise_phase: f32,
@@ -405,6 +454,8 @@ impl GuiCompiledRuntime {
             CompiledStepKind::Circle => Self::emit_circle(step, ctx),
             CompiledStepKind::SourceNoise => Self::emit_source_noise(step, ctx),
             CompiledStepKind::SphereBuffer => Self::update_sphere_mesh(step, step_state, ctx),
+            CompiledStepKind::BoxBuffer => Self::update_box_mesh(step, step_state, ctx),
+            CompiledStepKind::GridBuffer => Self::update_grid_mesh(step, step_state, ctx),
             CompiledStepKind::CircleNurbsBuffer => {
                 Self::update_circle_nurbs_mesh(step, step_state, ctx)
             }
@@ -551,15 +602,110 @@ impl GuiCompiledRuntime {
         step_state.mesh = Some(SceneMeshState {
             profile: SceneMeshProfile::Sphere,
             radius,
+            size_x: radius * 2.0,
+            size_y: radius * 2.0,
+            corner_radius: 0.0,
             arc_start_deg: 0.0,
             arc_end_deg: 360.0,
             line_width: 0.0,
+            cells_x: 1.0,
+            cells_y: 1.0,
             noise_amount: 0.0,
             noise_freq: 1.0,
             noise_phase: 0.0,
             noise_twist: 0.0,
             noise_stretch: 0.0,
             order: 3.0,
+            segment_count: 0.0,
+            arc_open: false,
+        });
+        step_state.scene_ready = false;
+    }
+
+    fn update_box_mesh(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let size_x = ctx
+            .param(step, param_schema::box_buffer::SIZE_X_INDEX)
+            .unwrap_or(0.52)
+            .max(0.01);
+        let size_y = ctx
+            .param(step, param_schema::box_buffer::SIZE_Y_INDEX)
+            .unwrap_or(0.52)
+            .max(0.01);
+        let corner_radius = ctx
+            .param(step, param_schema::box_buffer::CORNER_INDEX)
+            .unwrap_or(0.02)
+            .clamp(0.0, size_x.min(size_y) * 0.5);
+        step_state.mesh = Some(SceneMeshState {
+            profile: SceneMeshProfile::Box,
+            radius: size_x.max(size_y) * 0.5,
+            size_x,
+            size_y,
+            corner_radius,
+            arc_start_deg: 0.0,
+            arc_end_deg: 360.0,
+            line_width: 0.0,
+            cells_x: 1.0,
+            cells_y: 1.0,
+            noise_amount: 0.0,
+            noise_freq: 1.0,
+            noise_phase: 0.0,
+            noise_twist: 0.0,
+            noise_stretch: 0.0,
+            order: 0.0,
+            segment_count: 0.0,
+            arc_open: false,
+        });
+        step_state.scene_ready = false;
+    }
+
+    fn update_grid_mesh(
+        step: &CompiledStep,
+        step_state: &mut RuntimeEvalState,
+        ctx: &mut RuntimeEvalContext<'_>,
+    ) {
+        let size_x = ctx
+            .param(step, param_schema::grid_buffer::SIZE_X_INDEX)
+            .unwrap_or(0.84)
+            .max(0.01);
+        let size_y = ctx
+            .param(step, param_schema::grid_buffer::SIZE_Y_INDEX)
+            .unwrap_or(0.84)
+            .max(0.01);
+        let cells_x = ctx
+            .param(step, param_schema::grid_buffer::CELLS_X_INDEX)
+            .unwrap_or(8.0)
+            .round()
+            .clamp(1.0, 64.0);
+        let cells_y = ctx
+            .param(step, param_schema::grid_buffer::CELLS_Y_INDEX)
+            .unwrap_or(8.0)
+            .round()
+            .clamp(1.0, 64.0);
+        let line_width = ctx
+            .param(step, param_schema::grid_buffer::LINE_WIDTH_INDEX)
+            .unwrap_or(0.01)
+            .clamp(0.0005, 0.2);
+        step_state.mesh = Some(SceneMeshState {
+            profile: SceneMeshProfile::Grid,
+            radius: size_x.max(size_y) * 0.5,
+            size_x,
+            size_y,
+            corner_radius: 0.0,
+            arc_start_deg: 0.0,
+            arc_end_deg: 360.0,
+            line_width,
+            cells_x,
+            cells_y,
+            noise_amount: 0.0,
+            noise_freq: 1.0,
+            noise_phase: 0.0,
+            noise_twist: 0.0,
+            noise_stretch: 0.0,
+            order: 0.0,
             segment_count: 0.0,
             arc_open: false,
         });
@@ -602,9 +748,14 @@ impl GuiCompiledRuntime {
         step_state.mesh = Some(SceneMeshState {
             profile: SceneMeshProfile::CircleNurbs,
             radius,
+            size_x: radius * 2.0,
+            size_y: radius * 2.0,
+            corner_radius: 0.0,
             arc_start_deg,
             arc_end_deg,
             line_width,
+            cells_x: 1.0,
+            cells_y: 1.0,
             noise_amount: 0.0,
             noise_freq: 1.0,
             noise_phase: 0.0,

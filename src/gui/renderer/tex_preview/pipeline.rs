@@ -388,6 +388,83 @@ fn fs_circle(v: VertexOut) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_box(v: VertexOut) -> @location(0) vec4<f32> {
+    let center = u_op.p0.xy;
+    let half_size = max(u_op.p0.zw * 0.5, vec2<f32>(0.005, 0.005));
+    let max_corner = max(min(half_size.x, half_size.y) - 0.0005, 0.0);
+    let corner = clamp(u_op.p1.x, 0.0, max_corner);
+    let edge_softness = max(u_op.p1.y, 0.0005);
+    let noise_amount = clamp(u_op.p1.z, 0.0, 2.0);
+    let noise_freq = max(u_op.p1.w, 0.01);
+    let noise_phase = u_op.p2.x;
+    let noise_twist = u_op.p2.y;
+    let noise_stretch = clamp(u_op.p2.z, 0.0, 1.0);
+    let base_delta = v.uv - center;
+    let safe_radius = max(max(half_size.x, half_size.y), 0.0001);
+    let theta = atan2(base_delta.y, base_delta.x);
+    let twist_theta = theta + noise_twist * (length(base_delta) / safe_radius);
+    let c = cos(twist_theta);
+    let s = sin(twist_theta);
+    let rotated = vec2(
+        c * base_delta.x + s * base_delta.y,
+        -s * base_delta.x + c * base_delta.y
+    );
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(theta + noise_phase));
+    let delta = vec2(rotated.x * stretch_scale, rotated.y / stretch_scale);
+    let noise = value_noise_2d(delta * noise_freq * 9.0 + vec2<f32>(noise_phase, noise_phase * 0.73), 31.0);
+    let noisy_corner = clamp(corner + (noise * 2.0 - 1.0) * noise_amount * 0.03, 0.0, max_corner);
+    let corner_extent = max(half_size - vec2<f32>(noisy_corner, noisy_corner), vec2<f32>(0.0005, 0.0005));
+    let q = abs(delta) - corner_extent;
+    let sdf = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - noisy_corner;
+    let shape = 1.0 - smoothstep(-edge_softness, edge_softness, sdf);
+    let alpha = clamp(shape * clamp(u_op.p3.w, 0.0, 1.0), 0.0, 1.0);
+    let fg = clamp(u_op.p3.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(fg, alpha);
+}
+
+@fragment
+fn fs_grid(v: VertexOut) -> @location(0) vec4<f32> {
+    let center = u_op.p0.xy;
+    let half_size = max(u_op.p0.zw * 0.5, vec2<f32>(0.005, 0.005));
+    let cells = max(round(u_op.p1.xy), vec2<f32>(1.0, 1.0));
+    let line_width = max(u_op.p1.z, 0.0005);
+    let edge_softness = max(u_op.p1.w, 0.0005);
+    let noise_amount = clamp(u_op.p2.x, 0.0, 2.0);
+    let noise_freq = max(u_op.p2.y, 0.01);
+    let noise_phase = u_op.p2.z;
+    let noise_twist = u_op.p2.w;
+    let noise_stretch = clamp(u_op.p3.x, 0.0, 1.0);
+    let color = clamp(u_op.p3.yzw, vec3<f32>(0.0), vec3<f32>(1.0));
+    let alpha_gain = clamp(u_op.p4.x, 0.0, 1.0);
+    let base_delta = v.uv - center;
+    let safe_radius = max(max(half_size.x, half_size.y), 0.0001);
+    let theta = atan2(base_delta.y, base_delta.x);
+    let twist_theta = theta + noise_twist * (length(base_delta) / safe_radius);
+    let c = cos(twist_theta);
+    let s = sin(twist_theta);
+    let rotated = vec2(
+        c * base_delta.x + s * base_delta.y,
+        -s * base_delta.x + c * base_delta.y
+    );
+    let stretch_scale = max(0.2, 1.0 + noise_stretch * sin(theta + noise_phase));
+    var delta = vec2(rotated.x * stretch_scale, rotated.y / stretch_scale);
+    let warp = (value_noise_2d(delta * noise_freq * 7.0 + vec2<f32>(noise_phase, 0.0), 41.0) - 0.5) * noise_amount;
+    delta = delta + vec2<f32>(warp * 0.04, -warp * 0.04);
+    let q = abs(delta) - half_size;
+    let rect_sdf = max(q.x, q.y);
+    let rect_mask = 1.0 - smoothstep(-edge_softness, edge_softness, rect_sdf);
+    let local = delta + half_size;
+    let cell_size = max((half_size * 2.0) / cells, vec2<f32>(0.0005, 0.0005));
+    let dist_x = abs(fract(local.x / cell_size.x + 0.5) - 0.5) * cell_size.x;
+    let dist_y = abs(fract(local.y / cell_size.y + 0.5) - 0.5) * cell_size.y;
+    let line_half = line_width * 0.5;
+    let line_x = 1.0 - smoothstep(line_half, line_half + edge_softness, dist_x);
+    let line_y = 1.0 - smoothstep(line_half, line_half + edge_softness, dist_y);
+    let shape = clamp(max(line_x, line_y) * rect_mask, 0.0, 1.0);
+    return vec4<f32>(color, shape * alpha_gain);
+}
+
+@fragment
 fn fs_sphere(v: VertexOut) -> @location(0) vec4<f32> {
     let center = u_op.p0.xy;
     let radius = max(u_op.p0.z, 0.01);
@@ -995,6 +1072,8 @@ mod tests {
             "fn vs_fullscreen(",
             "fn fs_solid(",
             "fn fs_circle(",
+            "fn fs_box(",
+            "fn fs_grid(",
             "fn fs_sphere(",
             "fn fs_source_noise(",
             "fn fs_transform(",

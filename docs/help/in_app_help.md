@@ -64,6 +64,30 @@ Horizontal tessellation count; higher values increase detail and cost.
 ### Param `rings`
 Vertical tessellation count; higher values increase detail and cost.
 
+## Node `buf.box`
+Creates an analytic box primitive in buffer space.
+Use this for panels, blocks, masks, and rectilinear staged forms before scene rendering.
+### Param `size_x`
+Box width in buffer/object space units.
+### Param `size_y`
+Box height in buffer/object space units.
+### Param `corner`
+Rounded-corner radius used by the box silhouette.
+
+## Node `buf.grid`
+Creates an analytic rectangular grid primitive in buffer space.
+Use this for scaffolds, graph-paper layouts, stage floors, and repeated line structures.
+### Param `size_x`
+Overall grid width in buffer/object space units.
+### Param `size_y`
+Overall grid height in buffer/object space units.
+### Param `cells_x`
+Number of vertical cell divisions across the grid width.
+### Param `cells_y`
+Number of horizontal cell divisions across the grid height.
+### Param `line_width`
+Thickness of the rendered grid lines.
+
 ## Node `buf.circle_nurbs`
 Generates circle/arc curve geometry with configurable tessellation.
 Useful for line/curve based scene elements.

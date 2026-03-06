@@ -14,6 +14,16 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
             source_binding: RuntimeSourceBinding::Dummy,
             feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
+        TexViewerOp::Box { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::Box,
+            source_binding: RuntimeSourceBinding::Dummy,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
+        TexViewerOp::Grid { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::Grid,
+            source_binding: RuntimeSourceBinding::Dummy,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
         TexViewerOp::Sphere { .. } => RuntimeOpDescriptor {
             pipeline: RuntimeOpPipelineKind::Sphere,
             source_binding: RuntimeSourceBinding::Dummy,
@@ -94,6 +104,8 @@ pub(super) fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform
             TexOpUniform::solid(runtime_op)
         }
         TexViewerOp::Circle { .. } => TexOpUniform::circle(runtime_op),
+        TexViewerOp::Box { .. } => TexOpUniform::box_shape(runtime_op),
+        TexViewerOp::Grid { .. } => TexOpUniform::grid(runtime_op),
         TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
         TexViewerOp::SourceNoise { .. } => TexOpUniform::source_noise(runtime_op),
         TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
@@ -153,6 +165,12 @@ pub(super) fn feedback_frame_gap_for_runtime_op(runtime_op: TexViewerOp) -> u32 
 pub(super) fn op_clear_color(op: TexViewerOp) -> wgpu::Color {
     match op {
         TexViewerOp::Sphere {
+            alpha_clip: true, ..
+        }
+        | TexViewerOp::Box {
+            alpha_clip: true, ..
+        }
+        | TexViewerOp::Grid {
             alpha_clip: true, ..
         }
         | TexViewerOp::Circle {

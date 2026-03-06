@@ -101,6 +101,44 @@ impl GuiCompiledRuntime {
             .unwrap_or(0.01)
             .max(0.0);
         match mesh_state.profile {
+            SceneMeshProfile::Box => ctx.out_ops.push(TexRuntimeOp::Box {
+                center_x,
+                center_y,
+                size_x: (mesh_state.size_x * entity_state.scale * zoom).max(0.01),
+                size_y: (mesh_state.size_y * entity_state.scale * zoom).max(0.01),
+                corner_radius: (mesh_state.corner_radius * entity_state.scale * zoom).max(0.0),
+                edge_softness: edge_softness * zoom,
+                noise_amount: mesh_state.noise_amount,
+                noise_freq: mesh_state.noise_freq,
+                noise_phase: mesh_state.noise_phase,
+                noise_twist: mesh_state.noise_twist,
+                noise_stretch: mesh_state.noise_stretch,
+                color_r: entity_state.color_r,
+                color_g: entity_state.color_g,
+                color_b: entity_state.color_b,
+                alpha: entity_state.alpha,
+                alpha_clip,
+            }),
+            SceneMeshProfile::Grid => ctx.out_ops.push(TexRuntimeOp::Grid {
+                center_x,
+                center_y,
+                size_x: (mesh_state.size_x * entity_state.scale * zoom).max(0.01),
+                size_y: (mesh_state.size_y * entity_state.scale * zoom).max(0.01),
+                cells_x: mesh_state.cells_x,
+                cells_y: mesh_state.cells_y,
+                line_width: (mesh_state.line_width * entity_state.scale * zoom).max(0.0005),
+                edge_softness: edge_softness * zoom,
+                noise_amount: mesh_state.noise_amount,
+                noise_freq: mesh_state.noise_freq,
+                noise_phase: mesh_state.noise_phase,
+                noise_twist: mesh_state.noise_twist,
+                noise_stretch: mesh_state.noise_stretch,
+                color_r: entity_state.color_r,
+                color_g: entity_state.color_g,
+                color_b: entity_state.color_b,
+                alpha: entity_state.alpha,
+                alpha_clip,
+            }),
             SceneMeshProfile::Sphere => {
                 let light_x = ctx
                     .param(step, param_schema::render_scene_pass::LIGHT_X_INDEX)

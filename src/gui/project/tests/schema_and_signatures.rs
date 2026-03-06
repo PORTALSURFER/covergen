@@ -20,6 +20,8 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::TexCircle, 40, 40, 420, 480);
     let source_noise = project.add_node(ProjectNodeKind::TexSourceNoise, 220, 40, 420, 480);
+    let box_node = project.add_node(ProjectNodeKind::BufBox, 310, 40, 420, 480);
+    let grid_node = project.add_node(ProjectNodeKind::BufGrid, 400, 40, 420, 480);
     let transform = project.add_node(ProjectNodeKind::TexTransform2D, 400, 40, 420, 480);
     let mask = project.add_node(ProjectNodeKind::TexMask, 580, 40, 420, 480);
     let morphology = project.add_node(ProjectNodeKind::TexMorphology, 760, 40, 420, 480);
@@ -41,6 +43,18 @@ fn runtime_param_schema_matches_default_editor_param_order() {
         source_noise,
         &param_schema::source_noise::KEYS,
         ProjectNodeKind::TexSourceNoise,
+    );
+    assert_kind_keys(
+        &project,
+        box_node,
+        &param_schema::box_buffer::KEYS,
+        ProjectNodeKind::BufBox,
+    );
+    assert_kind_keys(
+        &project,
+        grid_node,
+        &param_schema::grid_buffer::KEYS,
+        ProjectNodeKind::BufGrid,
     );
     assert_kind_keys(
         &project,
@@ -112,6 +126,8 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::TexCircle,
         ProjectNodeKind::TexSourceNoise,
         ProjectNodeKind::BufSphere,
+        ProjectNodeKind::BufBox,
+        ProjectNodeKind::BufGrid,
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,
@@ -164,6 +180,8 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::TexCircle,
         ProjectNodeKind::TexSourceNoise,
         ProjectNodeKind::BufSphere,
+        ProjectNodeKind::BufBox,
+        ProjectNodeKind::BufGrid,
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,

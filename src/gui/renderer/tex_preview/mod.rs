@@ -90,6 +90,70 @@ impl TexOpUniform {
         }
     }
 
+    fn box_shape(op: TexViewerOp) -> Self {
+        let TexViewerOp::Box {
+            center_x,
+            center_y,
+            size_x,
+            size_y,
+            corner_radius,
+            edge_softness,
+            noise_amount,
+            noise_freq,
+            noise_phase,
+            noise_twist,
+            noise_stretch,
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+            ..
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [center_x, center_y, size_x, size_y],
+            p1: [corner_radius, edge_softness, noise_amount, noise_freq],
+            p2: [noise_phase, noise_twist, noise_stretch, 0.0],
+            p3: [color_r, color_g, color_b, alpha],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn grid(op: TexViewerOp) -> Self {
+        let TexViewerOp::Grid {
+            center_x,
+            center_y,
+            size_x,
+            size_y,
+            cells_x,
+            cells_y,
+            line_width,
+            edge_softness,
+            noise_amount,
+            noise_freq,
+            noise_phase,
+            noise_twist,
+            noise_stretch,
+            color_r,
+            color_g,
+            color_b,
+            alpha,
+            ..
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [center_x, center_y, size_x, size_y],
+            p1: [cells_x, cells_y, line_width, edge_softness],
+            p2: [noise_amount, noise_freq, noise_phase, noise_twist],
+            p3: [noise_stretch, color_r, color_g, color_b],
+            p4: [alpha, 0.0, 0.0, 0.0],
+        }
+    }
+
     fn sphere(op: TexViewerOp) -> Self {
         let TexViewerOp::Sphere {
             center_x,
@@ -469,6 +533,8 @@ pub(super) struct TexPreviewRenderer {
     op_uniform_signature: Option<u64>,
     op_solid_pipeline: Option<wgpu::RenderPipeline>,
     op_circle_pipeline: Option<wgpu::RenderPipeline>,
+    op_box_pipeline: Option<wgpu::RenderPipeline>,
+    op_grid_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
     op_source_noise_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_pipeline: Option<wgpu::RenderPipeline>,
@@ -569,6 +635,8 @@ impl TexPreviewRenderer {
     fn ensure_op_pipelines(&mut self, device: &wgpu::Device) {
         if self.op_solid_pipeline.is_some()
             && self.op_circle_pipeline.is_some()
+            && self.op_box_pipeline.is_some()
+            && self.op_grid_pipeline.is_some()
             && self.op_sphere_pipeline.is_some()
             && self.op_source_noise_pipeline.is_some()
             && self.op_transform_pipeline.is_some()
@@ -612,6 +680,20 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_circle",
+            self.op_surface_format,
+        ));
+        self.op_box_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_box",
+            self.op_surface_format,
+        ));
+        self.op_grid_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_grid",
             self.op_surface_format,
         ));
         self.op_sphere_pipeline = Some(create_op_pipeline(
@@ -831,6 +913,8 @@ impl TexPreviewRenderer {
             op_uniform_signature: None,
             op_solid_pipeline: None,
             op_circle_pipeline: None,
+            op_box_pipeline: None,
+            op_grid_pipeline: None,
             op_sphere_pipeline: None,
             op_source_noise_pipeline: None,
             op_transform_pipeline: None,
@@ -994,6 +1078,61 @@ mod tests {
         assert_eq!(uniform.p2, [15.0, 290.0, 7.0, 1.0]);
         assert_eq!(uniform.p3, [0.08, 0.45, 3.0, 0.5]);
         assert_eq!(uniform.p4, [0.35, 0.2, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn box_uniform_maps_size_corner_noise_and_color_fields() {
+        let uniform = TexOpUniform::box_shape(TexRuntimeOp::Box {
+            center_x: 0.5,
+            center_y: 0.4,
+            size_x: 0.7,
+            size_y: 0.3,
+            corner_radius: 0.08,
+            edge_softness: 0.02,
+            noise_amount: 0.4,
+            noise_freq: 2.6,
+            noise_phase: 0.7,
+            noise_twist: 0.2,
+            noise_stretch: 0.15,
+            color_r: 0.8,
+            color_g: 0.6,
+            color_b: 0.4,
+            alpha: 0.9,
+            alpha_clip: false,
+        });
+        assert_eq!(uniform.p0, [0.5, 0.4, 0.7, 0.3]);
+        assert_eq!(uniform.p1, [0.08, 0.02, 0.4, 2.6]);
+        assert_eq!(uniform.p2, [0.7, 0.2, 0.15, 0.0]);
+        assert_eq!(uniform.p3, [0.8, 0.6, 0.4, 0.9]);
+    }
+
+    #[test]
+    fn grid_uniform_maps_size_cells_line_and_color_fields() {
+        let uniform = TexOpUniform::grid(TexRuntimeOp::Grid {
+            center_x: 0.5,
+            center_y: 0.5,
+            size_x: 0.8,
+            size_y: 0.6,
+            cells_x: 10.0,
+            cells_y: 6.0,
+            line_width: 0.015,
+            edge_softness: 0.01,
+            noise_amount: 0.35,
+            noise_freq: 1.9,
+            noise_phase: 0.4,
+            noise_twist: 0.3,
+            noise_stretch: 0.2,
+            color_r: 0.7,
+            color_g: 0.8,
+            color_b: 0.9,
+            alpha: 0.85,
+            alpha_clip: true,
+        });
+        assert_eq!(uniform.p0, [0.5, 0.5, 0.8, 0.6]);
+        assert_eq!(uniform.p1, [10.0, 6.0, 0.015, 0.01]);
+        assert_eq!(uniform.p2, [0.35, 1.9, 0.4, 0.3]);
+        assert_eq!(uniform.p3, [0.2, 0.7, 0.8, 0.9]);
+        assert_eq!(uniform.p4, [0.85, 0.0, 0.0, 0.0]);
     }
 
     #[test]

@@ -27,11 +27,13 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
 - Deep performance backlog remains documented in `tmp/perf_plan.md`; the latest ROI-ranked performance tranche is already implemented and the plan file reflects completed status.
 - Deep cleanup backlog is refreshed in `tmp/cleanup_plan.md`; Phase 1 audit is complete, Phase 2 has not started, and execution is awaiting explicit approval.
+- Geometry-node expansion is tracked in `docs/plans/active/geometry_nodes.md`; current implementation focus is Phase 1 analytic primitives.
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
 Performance backlog and completed ROI history are in `tmp/perf_plan.md`.
 Cleanup audit backlog and next ROI-ordered implementation queue are in `tmp/cleanup_plan.md`.
+Geometry-node roadmap and phase order are in `docs/plans/active/geometry_nodes.md`.
 
 ## Current Risks
 - Node-editor and tex-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.

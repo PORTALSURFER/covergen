@@ -168,6 +168,59 @@ pub(crate) enum ExecutionKind {
     Io,
 }
 
+/// Add-node menu category for one GUI node kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NodeMenuCategory {
+    /// Texture-domain nodes.
+    Texture,
+    /// Buffer-domain nodes.
+    Buffer,
+    /// Scene-domain nodes.
+    Scene,
+    /// Render-domain nodes.
+    Render,
+    /// Control/signal-domain nodes.
+    Control,
+    /// IO boundary nodes.
+    Io,
+}
+
+impl NodeMenuCategory {
+    /// Return display label used in add-node category rows.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Texture => "Texture",
+            Self::Buffer => "Buffer",
+            Self::Scene => "Scene",
+            Self::Render => "Render",
+            Self::Control => "Control",
+            Self::Io => "IO",
+        }
+    }
+
+    /// Return lowercase label used for menu filtering.
+    pub(crate) const fn normalized_label(self) -> &'static str {
+        match self {
+            Self::Texture => "texture",
+            Self::Buffer => "buffer",
+            Self::Scene => "scene",
+            Self::Render => "render",
+            Self::Control => "control",
+            Self::Io => "io",
+        }
+    }
+}
+
+/// Ordered add-node categories exposed by the menu UI.
+pub(crate) const NODE_MENU_CATEGORIES: [NodeMenuCategory; 6] = [
+    NodeMenuCategory::Texture,
+    NodeMenuCategory::Buffer,
+    NodeMenuCategory::Scene,
+    NodeMenuCategory::Render,
+    NodeMenuCategory::Control,
+    NodeMenuCategory::Io,
+];
+
 /// Minimal set of node kinds exposed by the Add Node menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ProjectNodeKind {
@@ -179,6 +232,10 @@ pub(crate) enum ProjectNodeKind {
     TexSourceNoise,
     /// `buf.sphere` mesh buffer source node.
     BufSphere,
+    /// `buf.box` box primitive source node.
+    BufBox,
+    /// `buf.grid` grid primitive source node.
+    BufGrid,
     /// `buf.circle_nurbs` curve buffer source node.
     BufCircleNurbs,
     /// `buf.noise` mesh deformation node.
@@ -239,9 +296,10 @@ pub(crate) enum ProjectNodeKind {
 
 /// Metadata descriptor for one `ProjectNodeKind`.
 #[derive(Clone, Copy, Debug)]
-struct ProjectNodeKindDescriptor {
+pub(crate) struct ProjectNodeKindDescriptor {
     kind: ProjectNodeKind,
     stable_id: &'static str,
+    menu_category: NodeMenuCategory,
     execution_kind: ExecutionKind,
     input_resource_kind: Option<ResourceKind>,
     output_resource_kind: Option<ResourceKind>,
@@ -249,10 +307,11 @@ struct ProjectNodeKindDescriptor {
     shows_signal_preview: bool,
 }
 
-const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 34] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -262,6 +321,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexCircle,
         stable_id: "tex.circle",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -271,6 +331,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSourceNoise,
         stable_id: "tex.source_noise",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -280,6 +341,27 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::BufSphere,
         stable_id: "buf.sphere",
+        menu_category: NodeMenuCategory::Buffer,
+        execution_kind: ExecutionKind::Cpu,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Buffer),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::BufBox,
+        stable_id: "buf.box",
+        menu_category: NodeMenuCategory::Buffer,
+        execution_kind: ExecutionKind::Cpu,
+        input_resource_kind: None,
+        output_resource_kind: Some(ResourceKind::Buffer),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::BufGrid,
+        stable_id: "buf.grid",
+        menu_category: NodeMenuCategory::Buffer,
         execution_kind: ExecutionKind::Cpu,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Buffer),
@@ -289,6 +371,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::BufCircleNurbs,
         stable_id: "buf.circle_nurbs",
+        menu_category: NodeMenuCategory::Buffer,
         execution_kind: ExecutionKind::Cpu,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Buffer),
@@ -298,6 +381,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::BufNoise,
         stable_id: "buf.noise",
+        menu_category: NodeMenuCategory::Buffer,
         execution_kind: ExecutionKind::Cpu,
         input_resource_kind: Some(ResourceKind::Buffer),
         output_resource_kind: Some(ResourceKind::Buffer),
@@ -307,6 +391,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexTransform2D,
         stable_id: "tex.transform_2d",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -316,6 +401,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexLevel,
         stable_id: "tex.level",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -325,6 +411,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexMask,
         stable_id: "tex.mask",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -334,6 +421,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexMorphology,
         stable_id: "tex.morphology",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -343,6 +431,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexToneMap,
         stable_id: "tex.tone_map",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -352,6 +441,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexFeedback,
         stable_id: "tex.feedback",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -361,6 +451,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexReactionDiffusion,
         stable_id: "tex.reaction_diffusion",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -370,6 +461,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexDomainWarp,
         stable_id: "tex.domain_warp",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -379,6 +471,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexDirectionalSmear,
         stable_id: "tex.directional_smear",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -388,6 +481,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexWarpTransform,
         stable_id: "tex.warp_transform",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -397,6 +491,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostColorTone,
         stable_id: "tex.post_color_tone",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -406,6 +501,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostEdgeStructure,
         stable_id: "tex.post_edge_structure",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -415,6 +511,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostBlurDiffusion,
         stable_id: "tex.post_blur_diffusion",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -424,6 +521,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostDistortion,
         stable_id: "tex.post_distortion",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -433,6 +531,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostTemporal,
         stable_id: "tex.post_temporal",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -442,6 +541,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostNoiseTexture,
         stable_id: "tex.post_noise_texture",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -451,6 +551,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostLighting,
         stable_id: "tex.post_lighting",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -460,6 +561,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostScreenSpace,
         stable_id: "tex.post_screen_space",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -469,6 +571,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexPostExperimental,
         stable_id: "tex.post_experimental",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -478,6 +581,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexBlend,
         stable_id: "tex.blend",
+        menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -487,6 +591,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::SceneEntity,
         stable_id: "scene.entity",
+        menu_category: NodeMenuCategory::Scene,
         execution_kind: ExecutionKind::Control,
         input_resource_kind: Some(ResourceKind::Buffer),
         output_resource_kind: Some(ResourceKind::Entity),
@@ -496,6 +601,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::SceneBuild,
         stable_id: "scene.build",
+        menu_category: NodeMenuCategory::Scene,
         execution_kind: ExecutionKind::Control,
         input_resource_kind: Some(ResourceKind::Entity),
         output_resource_kind: Some(ResourceKind::Scene),
@@ -505,6 +611,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::RenderCamera,
         stable_id: "render.camera",
+        menu_category: NodeMenuCategory::Render,
         execution_kind: ExecutionKind::Control,
         input_resource_kind: Some(ResourceKind::Scene),
         output_resource_kind: Some(ResourceKind::Scene),
@@ -514,6 +621,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::RenderScenePass,
         stable_id: "render.scene_pass",
+        menu_category: NodeMenuCategory::Render,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Scene),
         output_resource_kind: Some(ResourceKind::Texture2D),
@@ -523,6 +631,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::CtlLfo,
         stable_id: "ctl.lfo",
+        menu_category: NodeMenuCategory::Control,
         execution_kind: ExecutionKind::Control,
         input_resource_kind: None,
         output_resource_kind: Some(ResourceKind::Signal),
@@ -532,6 +641,7 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::IoWindowOut,
         stable_id: "io.window_out",
+        menu_category: NodeMenuCategory::Io,
         execution_kind: ExecutionKind::Io,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: None,
@@ -541,6 +651,12 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
 ];
 
 impl ProjectNodeKind {
+    /// Return ordered registry descriptors for every GUI node kind.
+    #[cfg(test)]
+    pub(crate) const fn descriptors() -> &'static [ProjectNodeKindDescriptor] {
+        &PROJECT_NODE_KIND_DESCRIPTORS
+    }
+
     fn descriptor(self) -> &'static ProjectNodeKindDescriptor {
         PROJECT_NODE_KIND_DESCRIPTORS
             .iter()
@@ -564,6 +680,11 @@ impl ProjectNodeKind {
     /// Return execution kind for this node.
     pub(crate) fn execution_kind(self) -> ExecutionKind {
         self.descriptor().execution_kind
+    }
+
+    /// Return add-node menu category for this node kind.
+    pub(crate) fn menu_category(self) -> NodeMenuCategory {
+        self.descriptor().menu_category
     }
 
     /// Return short display label used by node and menu UI.

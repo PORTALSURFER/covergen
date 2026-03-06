@@ -72,6 +72,92 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 }
                 uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
             }
+            TexViewerOp::Box {
+                center_x,
+                center_y,
+                size_x,
+                size_y,
+                corner_radius,
+                edge_softness,
+                noise_amount,
+                noise_freq,
+                noise_phase,
+                noise_twist,
+                noise_stretch,
+                color_r,
+                color_g,
+                color_b,
+                alpha,
+                alpha_clip,
+            } => {
+                plan_hash = fnv1a(plan_hash, 18);
+                uniform_hash = fnv1a(uniform_hash, 18);
+                for value in [
+                    center_x,
+                    center_y,
+                    size_x,
+                    size_y,
+                    corner_radius,
+                    edge_softness,
+                    noise_amount,
+                    noise_freq,
+                    noise_phase,
+                    noise_twist,
+                    noise_stretch,
+                    color_r,
+                    color_g,
+                    color_b,
+                    alpha,
+                ] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+                uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
+            }
+            TexViewerOp::Grid {
+                center_x,
+                center_y,
+                size_x,
+                size_y,
+                cells_x,
+                cells_y,
+                line_width,
+                edge_softness,
+                noise_amount,
+                noise_freq,
+                noise_phase,
+                noise_twist,
+                noise_stretch,
+                color_r,
+                color_g,
+                color_b,
+                alpha,
+                alpha_clip,
+            } => {
+                plan_hash = fnv1a(plan_hash, 19);
+                uniform_hash = fnv1a(uniform_hash, 19);
+                for value in [
+                    center_x,
+                    center_y,
+                    size_x,
+                    size_y,
+                    cells_x,
+                    cells_y,
+                    line_width,
+                    edge_softness,
+                    noise_amount,
+                    noise_freq,
+                    noise_phase,
+                    noise_twist,
+                    noise_stretch,
+                    color_r,
+                    color_g,
+                    color_b,
+                    alpha,
+                ] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+                uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
+            }
             TexViewerOp::Sphere {
                 center_x,
                 center_y,

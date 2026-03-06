@@ -8,6 +8,7 @@
 
 ## Active Plans
 - `plans/active/todo.md`: immediate ordered next tasks.
+- `plans/active/geometry_nodes.md`: phased geometry-node roadmap and current implementation order.
 
 ## V2 Design Docs
 - `v2/engine-v1-playground.md` (canonical v1 engine model and node registry)

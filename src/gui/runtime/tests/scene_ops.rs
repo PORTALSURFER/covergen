@@ -124,6 +124,124 @@ fn circle_nurbs_buffer_pipeline_compiles_to_circle_op() {
 }
 
 #[test]
+fn box_buffer_pipeline_compiles_to_box_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let box_node = project.add_node(ProjectNodeKind::BufBox, 20, 40, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(box_node, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexRuntimeOp::Box { .. }));
+}
+
+#[test]
+fn box_params_propagate_to_box_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let box_node = project.add_node(ProjectNodeKind::BufBox, 20, 40, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(box_node, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+    assert!(project.set_param_value(box_node, 0, 0.7));
+    assert!(project.set_param_value(box_node, 1, 0.44));
+    assert!(project.set_param_value(box_node, 2, 0.08));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    match ops[0] {
+        TexRuntimeOp::Box {
+            size_x,
+            size_y,
+            corner_radius,
+            ..
+        } => {
+            assert_eq!(size_x, 0.7);
+            assert_eq!(size_y, 0.44);
+            assert_eq!(corner_radius, 0.08);
+        }
+        _ => panic!("expected box op"),
+    }
+}
+
+#[test]
+fn grid_buffer_pipeline_compiles_to_grid_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let grid = project.add_node(ProjectNodeKind::BufGrid, 20, 40, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(grid, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert_eq!(ops.len(), 1);
+    assert!(matches!(ops[0], TexRuntimeOp::Grid { .. }));
+}
+
+#[test]
+fn grid_params_propagate_to_grid_op() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let grid = project.add_node(ProjectNodeKind::BufGrid, 20, 40, 420, 480);
+    let entity = project.add_node(ProjectNodeKind::SceneEntity, 180, 40, 420, 480);
+    let scene = project.add_node(ProjectNodeKind::SceneBuild, 340, 40, 420, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 500, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    assert!(project.connect_image_link(grid, entity));
+    assert!(project.connect_image_link(entity, scene));
+    assert!(project.connect_image_link(scene, pass));
+    assert!(project.connect_image_link(pass, out));
+    assert!(project.set_param_value(grid, 0, 0.9));
+    assert!(project.set_param_value(grid, 1, 0.6));
+    assert!(project.set_param_value(grid, 2, 12.0));
+    assert!(project.set_param_value(grid, 3, 5.0));
+    assert!(project.set_param_value(grid, 4, 0.02));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    match ops[0] {
+        TexRuntimeOp::Grid {
+            size_x,
+            size_y,
+            cells_x,
+            cells_y,
+            line_width,
+            ..
+        } => {
+            assert_eq!(size_x, 0.9);
+            assert_eq!(size_y, 0.6);
+            assert_eq!(cells_x, 12.0);
+            assert_eq!(cells_y, 5.0);
+            assert_eq!(line_width, 0.02);
+        }
+        _ => panic!("expected grid op"),
+    }
+}
+
+#[test]
 fn circle_nurbs_params_propagate_to_circle_op() {
     let mut project = GuiProject::new_empty(640, 480);
     let circle = project.add_node(ProjectNodeKind::BufCircleNurbs, 20, 40, 420, 480);

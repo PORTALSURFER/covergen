@@ -8,6 +8,24 @@ pub(super) fn buf_sphere_params() -> Vec<NodeParamSlot> {
     ]
 }
 
+pub(super) fn buf_box_params() -> Vec<NodeParamSlot> {
+    vec![
+        param("size_x", "size_x", 0.52, 0.05, 1.5, 0.01),
+        param("size_y", "size_y", 0.52, 0.05, 1.5, 0.01),
+        param("corner", "corner", 0.02, 0.0, 0.35, 0.005),
+    ]
+}
+
+pub(super) fn buf_grid_params() -> Vec<NodeParamSlot> {
+    vec![
+        param("size_x", "size_x", 0.84, 0.05, 1.8, 0.01),
+        param("size_y", "size_y", 0.84, 0.05, 1.8, 0.01),
+        param("cells_x", "cells_x", 8.0, 1.0, 64.0, 1.0),
+        param("cells_y", "cells_y", 8.0, 1.0, 64.0, 1.0),
+        param("line_width", "line_w", 0.01, 0.001, 0.2, 0.001),
+    ]
+}
+
 pub(super) fn buf_circle_nurbs_params() -> Vec<NodeParamSlot> {
     vec![
         param("radius", "radius", 0.28, 0.02, 0.95, 0.005),

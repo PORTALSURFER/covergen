@@ -117,6 +117,8 @@ impl TexPreviewRenderer {
         match pipeline {
             RuntimeOpPipelineKind::Solid => self.op_solid_pipeline.as_ref(),
             RuntimeOpPipelineKind::Circle => self.op_circle_pipeline.as_ref(),
+            RuntimeOpPipelineKind::Box => self.op_box_pipeline.as_ref(),
+            RuntimeOpPipelineKind::Grid => self.op_grid_pipeline.as_ref(),
             RuntimeOpPipelineKind::Sphere => self.op_sphere_pipeline.as_ref(),
             RuntimeOpPipelineKind::SourceNoise => self.op_source_noise_pipeline.as_ref(),
             RuntimeOpPipelineKind::Transform => self.op_transform_pipeline.as_ref(),

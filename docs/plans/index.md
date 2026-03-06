@@ -2,6 +2,7 @@
 
 ## Active
 - `active/todo.md` — immediate execution queue for Windows-first, GPU-only core delivery under the engine-centric V1 model.
+- `active/geometry_nodes.md` — phased geometry-node roadmap starting with analytic buffer primitives.
 
 ## Scope of Current Plan
 - Deliver a node-graph shader/video playground workflow focused on generative art authoring.

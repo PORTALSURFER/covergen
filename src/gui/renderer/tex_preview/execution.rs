@@ -74,6 +74,8 @@ struct GpuOpsRequest<'a> {
 enum RuntimeOpPipelineKind {
     Solid,
     Circle,
+    Box,
+    Grid,
     Sphere,
     SourceNoise,
     Transform,

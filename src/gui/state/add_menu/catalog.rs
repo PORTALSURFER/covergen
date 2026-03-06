@@ -1,49 +1,14 @@
 //! Static add-node catalog declarations and category metadata.
 
-use crate::gui::project::ProjectNodeKind;
+use crate::gui::project::{NodeMenuCategory, ProjectNodeKind, NODE_MENU_CATEGORIES};
 
-/// Category for one add-node menu option.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AddNodeCategory {
-    Texture,
-    Buffer,
-    Scene,
-    Render,
-    Control,
-    Io,
-}
-
-impl AddNodeCategory {
-    /// Return display label used in category rows.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Texture => "Texture",
-            Self::Buffer => "Buffer",
-            Self::Scene => "Scene",
-            Self::Render => "Render",
-            Self::Control => "Control",
-            Self::Io => "IO",
-        }
-    }
-
-    /// Return a lowercase category label used for query filtering.
-    pub(super) const fn normalized_label(self) -> &'static str {
-        match self {
-            Self::Texture => "texture",
-            Self::Buffer => "buffer",
-            Self::Scene => "scene",
-            Self::Render => "render",
-            Self::Control => "control",
-            Self::Io => "io",
-        }
-    }
-}
+/// Add-node category alias sourced from the project node-kind registry.
+pub(crate) type AddNodeCategory = NodeMenuCategory;
 
 /// One add-node menu option.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AddNodeOption {
     pub(crate) kind: ProjectNodeKind,
-    pub(crate) category: AddNodeCategory,
 }
 
 impl AddNodeOption {
@@ -51,149 +16,160 @@ impl AddNodeOption {
     pub(crate) fn label(self) -> &'static str {
         self.kind.label()
     }
+
+    /// Return add-node menu category for this option.
+    pub(crate) fn category(self) -> AddNodeCategory {
+        self.kind.menu_category()
+    }
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 32] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 34] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexCircle,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexSourceNoise,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::BufSphere,
-        category: AddNodeCategory::Buffer,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::BufBox,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::BufGrid,
     },
     AddNodeOption {
         kind: ProjectNodeKind::BufCircleNurbs,
-        category: AddNodeCategory::Buffer,
     },
     AddNodeOption {
         kind: ProjectNodeKind::BufNoise,
-        category: AddNodeCategory::Buffer,
     },
     AddNodeOption {
         kind: ProjectNodeKind::SceneEntity,
-        category: AddNodeCategory::Scene,
     },
     AddNodeOption {
         kind: ProjectNodeKind::SceneBuild,
-        category: AddNodeCategory::Scene,
     },
     AddNodeOption {
         kind: ProjectNodeKind::RenderCamera,
-        category: AddNodeCategory::Render,
     },
     AddNodeOption {
         kind: ProjectNodeKind::RenderScenePass,
-        category: AddNodeCategory::Render,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexTransform2D,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexLevel,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexMask,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexMorphology,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexToneMap,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexFeedback,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexReactionDiffusion,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexDomainWarp,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexDirectionalSmear,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexWarpTransform,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostColorTone,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostEdgeStructure,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostBlurDiffusion,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostDistortion,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostTemporal,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostNoiseTexture,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostLighting,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostScreenSpace,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexPostExperimental,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexBlend,
-        category: AddNodeCategory::Texture,
     },
     AddNodeOption {
         kind: ProjectNodeKind::CtlLfo,
-        category: AddNodeCategory::Control,
     },
     AddNodeOption {
         kind: ProjectNodeKind::IoWindowOut,
-        category: AddNodeCategory::Io,
     },
 ];
 
-pub(super) const ADD_NODE_CATEGORIES: [AddNodeCategory; 6] = [
-    AddNodeCategory::Texture,
-    AddNodeCategory::Buffer,
-    AddNodeCategory::Scene,
-    AddNodeCategory::Render,
-    AddNodeCategory::Control,
-    AddNodeCategory::Io,
-];
+pub(super) const ADD_NODE_CATEGORIES: [AddNodeCategory; 6] = NODE_MENU_CATEGORIES;
 
 pub(super) fn category_count() -> usize {
     ADD_NODE_CATEGORIES.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddNodeCategory, ADD_NODE_CATEGORIES, ADD_NODE_OPTIONS};
+    use crate::gui::project::{ProjectNodeKind, NODE_MENU_CATEGORIES};
+
+    #[test]
+    fn add_node_options_follow_project_registry_category_metadata() {
+        assert_eq!(
+            ADD_NODE_OPTIONS.len(),
+            ProjectNodeKind::descriptors().len(),
+            "add-node options should track the full project node-kind registry"
+        );
+
+        for option in ADD_NODE_OPTIONS {
+            assert_eq!(
+                option.category(),
+                option.kind.menu_category(),
+                "add-node option category should come from the project registry"
+            );
+        }
+    }
+
+    #[test]
+    fn add_node_categories_match_project_registry_order() {
+        assert_eq!(ADD_NODE_CATEGORIES, NODE_MENU_CATEGORIES);
+        assert_eq!(
+            ADD_NODE_CATEGORIES,
+            [
+                AddNodeCategory::Texture,
+                AddNodeCategory::Buffer,
+                AddNodeCategory::Scene,
+                AddNodeCategory::Render,
+                AddNodeCategory::Control,
+                AddNodeCategory::Io,
+            ]
+        );
+    }
 }
