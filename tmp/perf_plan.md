@@ -219,7 +219,8 @@ Plan path: `tmp/perf_plan.md`
     - `scripts/bench/tier_gate.sh validate desktop_mid`
     - Compare CPU time and `submit_count`/`upload_bytes` metrics.
 
-- [ ] 12. Add bounded eviction to graph/decode bind-group caches
+- [x] 12. Add bounded eviction to graph/decode bind-group caches
+  - Completed: 2026-03-06 (`053d039` `perf: bound graph bind group cache eviction`)
   - ROI: Low
   - Effort: S
   - Expected impact: memory stability, long-session responsiveness
