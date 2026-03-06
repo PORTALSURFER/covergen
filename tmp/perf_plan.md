@@ -182,7 +182,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::interaction`
     - Manual keyboard/text-entry sanity check in parameter editors.
 
-- [ ] 10. Make autosave load non-blocking for first-frame responsiveness
+- [x] 10. Make autosave load non-blocking for first-frame responsiveness
+  - Completed: 2026-03-06 (`b179968` `perf: defer autosave restore until after first frame`)
   - ROI: Medium
   - Effort: M
   - Expected impact: startup latency, interaction readiness
