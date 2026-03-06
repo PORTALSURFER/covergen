@@ -147,7 +147,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::scene`
     - Manual zoom + long-label checks to confirm identical truncation behavior.
 
-- [ ] 8. Replace full-clear fitted-label cache eviction with bounded LRU
+- [x] 8. Replace full-clear fitted-label cache eviction with bounded LRU
+  - Completed: 2026-03-06 (`edc5480` `perf: bound fitted label cache eviction`)
   - ROI: Medium
   - Effort: S
   - Expected impact: frame pacing, memory churn
