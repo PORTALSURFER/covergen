@@ -69,6 +69,7 @@ pub(crate) struct InputSnapshot {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GuiInvalidation {
     pub(crate) nodes: u64,
+    pub(crate) signal_scopes: u64,
     pub(crate) wires: u64,
     pub(crate) overlays: u64,
     pub(crate) timeline: u64,
@@ -80,6 +81,7 @@ impl GuiInvalidation {
     pub(crate) const fn initial_dirty() -> Self {
         Self {
             nodes: 1,
+            signal_scopes: 1,
             wires: 1,
             overlays: 1,
             timeline: 1,
@@ -90,6 +92,7 @@ impl GuiInvalidation {
     /// Mark all retained scene subtrees and tex evaluation as dirty.
     pub(crate) fn invalidate_all(&mut self) {
         self.invalidate_nodes();
+        self.invalidate_signal_scopes();
         self.invalidate_wires();
         self.invalidate_overlays();
         self.invalidate_timeline();
@@ -99,6 +102,11 @@ impl GuiInvalidation {
     /// Mark node-card subtree dirty.
     pub(crate) fn invalidate_nodes(&mut self) {
         self.nodes = self.nodes.wrapping_add(1);
+    }
+
+    /// Mark animated signal-scope subtree dirty.
+    pub(crate) fn invalidate_signal_scopes(&mut self) {
+        self.signal_scopes = self.signal_scopes.wrapping_add(1);
     }
 
     /// Mark wire/edge subtree dirty.

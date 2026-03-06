@@ -315,6 +315,7 @@ pub(crate) struct GuiRenderer {
     static_panel_geometry: LayerGpuGeometry,
     edges_geometry: LayerGpuGeometry,
     nodes_geometry: LayerGpuGeometry,
+    signal_scopes_geometry: LayerGpuGeometry,
     param_wires_geometry: LayerGpuGeometry,
     overlays_geometry: LayerGpuGeometry,
     timeline_geometry: LayerGpuGeometry,
@@ -410,6 +411,7 @@ impl GuiRenderer {
         let static_panel_geometry = LayerGpuGeometry::new(&device, "static-panel", 1024);
         let edges_geometry = LayerGpuGeometry::new(&device, "edges", 2048);
         let nodes_geometry = LayerGpuGeometry::new(&device, "nodes", 8192);
+        let signal_scopes_geometry = LayerGpuGeometry::new(&device, "signal-scopes", 4096);
         let param_wires_geometry = LayerGpuGeometry::new(&device, "param-wires", 2048);
         let overlays_geometry = LayerGpuGeometry::new(&device, "overlays", 2048);
         let timeline_geometry = LayerGpuGeometry::new(&device, "timeline", 1024);
@@ -435,6 +437,7 @@ impl GuiRenderer {
             static_panel_geometry,
             edges_geometry,
             nodes_geometry,
+            signal_scopes_geometry,
             param_wires_geometry,
             overlays_geometry,
             timeline_geometry,
@@ -793,6 +796,17 @@ impl GuiRenderer {
             stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
             stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
         }
+        if frame.dirty.signal_scopes {
+            let layer = self.signal_scopes_geometry.rebuild(
+                &self.device,
+                &self.queue,
+                &frame.signal_scopes,
+                source_camera,
+                "signal-scopes",
+            );
+            stats.upload_bytes = stats.upload_bytes.saturating_add(layer.upload_bytes);
+            stats.alloc_bytes = stats.alloc_bytes.saturating_add(layer.alloc_bytes);
+        }
         if frame.dirty.param_wires {
             let layer = self.param_wires_geometry.rebuild(
                 &self.device,
@@ -909,6 +923,7 @@ impl GuiRenderer {
             self.draw_layer(&mut pass, &self.static_panel_geometry);
             self.draw_layer(&mut pass, &self.edges_geometry);
             self.draw_layer(&mut pass, &self.nodes_geometry);
+            self.draw_layer(&mut pass, &self.signal_scopes_geometry);
             self.draw_layer(&mut pass, &self.param_wires_geometry);
             self.draw_layer(&mut pass, &self.overlays_geometry);
 

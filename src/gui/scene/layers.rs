@@ -9,6 +9,7 @@ pub(super) enum ActiveLayer {
     Edges,
     #[default]
     Nodes,
+    SignalScopes,
     ParamWires,
     Overlays,
     Timeline,
@@ -23,6 +24,7 @@ pub(super) fn active_scene_layer_mut(
         ActiveLayer::StaticPanel => &mut frame.static_panel,
         ActiveLayer::Edges => &mut frame.edges,
         ActiveLayer::Nodes => &mut frame.nodes,
+        ActiveLayer::SignalScopes => &mut frame.signal_scopes,
         ActiveLayer::ParamWires => &mut frame.param_wires,
         ActiveLayer::Overlays => &mut frame.overlays,
         ActiveLayer::Timeline => &mut frame.timeline,

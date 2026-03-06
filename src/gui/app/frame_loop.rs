@@ -177,7 +177,7 @@ impl GuiApp {
                 scene_dirty = true;
                 self.state.invalidation.invalidate_timeline();
                 if self.project.has_signal_preview_nodes() {
-                    self.state.invalidation.invalidate_nodes();
+                    self.state.invalidation.invalidate_signal_scopes();
                 }
             }
             if !self.state.paused {
@@ -195,7 +195,7 @@ impl GuiApp {
                 scene_dirty = true;
                 self.state.invalidation.invalidate_timeline();
                 if self.project.has_signal_preview_nodes() {
-                    self.state.invalidation.invalidate_nodes();
+                    self.state.invalidation.invalidate_signal_scopes();
                 }
             }
         }
@@ -216,7 +216,7 @@ impl GuiApp {
             if timeline_advanced {
                 self.state.invalidation.invalidate_timeline();
                 if self.project.has_signal_preview_nodes() {
-                    self.state.invalidation.invalidate_nodes();
+                    self.state.invalidation.invalidate_signal_scopes();
                 }
             }
         }
@@ -226,7 +226,7 @@ impl GuiApp {
             scene_dirty = true;
             self.state.invalidation.invalidate_timeline();
             if self.project.has_signal_preview_nodes() {
-                self.state.invalidation.invalidate_nodes();
+                self.state.invalidation.invalidate_signal_scopes();
             }
         }
         if self.export_session.is_none()
@@ -403,6 +403,7 @@ impl GuiApp {
             let project_after = self.project.invalidation();
             if snapshot_before.project.nodes != project_after.nodes {
                 self.state.invalidation.invalidate_nodes();
+                self.state.invalidation.invalidate_signal_scopes();
             }
             if snapshot_before.project.wires != project_after.wires {
                 self.state.invalidation.invalidate_wires();
@@ -410,11 +411,15 @@ impl GuiApp {
             }
             if snapshot_before.project.tex_eval != project_after.tex_eval {
                 self.state.invalidation.invalidate_tex_eval();
+                if self.project.has_signal_preview_nodes() {
+                    self.state.invalidation.invalidate_signal_scopes();
+                }
             }
         }
 
         if resize_changed {
             self.state.invalidation.invalidate_nodes();
+            self.state.invalidation.invalidate_signal_scopes();
             self.state.invalidation.invalidate_wires();
             self.state.invalidation.invalidate_overlays();
             self.state.invalidation.invalidate_timeline();

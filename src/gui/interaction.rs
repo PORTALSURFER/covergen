@@ -89,6 +89,7 @@ enum InteractionPhaseControl {
 
 fn invalidate_graph_layers(state: &mut PreviewState) {
     state.invalidation.invalidate_nodes();
+    state.invalidation.invalidate_signal_scopes();
     state.invalidation.invalidate_wires();
     state.invalidation.invalidate_overlays();
 }
@@ -96,7 +97,7 @@ fn invalidate_graph_layers(state: &mut PreviewState) {
 fn invalidate_timeline_and_signal_previews(project: &GuiProject, state: &mut PreviewState) {
     state.invalidation.invalidate_timeline();
     if project.has_signal_preview_nodes() {
-        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_signal_scopes();
     }
 }
 

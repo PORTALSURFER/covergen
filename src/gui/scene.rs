@@ -2,8 +2,8 @@
 //!
 //! The builder partitions GUI geometry into retained layers and marks only
 //! changed layers dirty each update (`static_panel`, `edges`, `nodes`,
-//! `param_wires`, `overlays`). Rendering stays on GPU and unchanged layers are
-//! reused.
+//! `signal_scopes`, `param_wires`, `overlays`). Rendering stays on GPU and
+//! unchanged layers are reused.
 
 mod edge_layer;
 mod layers;
@@ -117,6 +117,7 @@ pub(crate) struct SceneFrame {
     pub(crate) static_panel: SceneLayer,
     pub(crate) edges: SceneLayer,
     pub(crate) nodes: SceneLayer,
+    pub(crate) signal_scopes: SceneLayer,
     pub(crate) param_wires: SceneLayer,
     pub(crate) overlays: SceneLayer,
     pub(crate) timeline: SceneLayer,
@@ -146,6 +147,7 @@ pub(crate) struct SceneLayerDirty {
     pub(crate) static_panel: bool,
     pub(crate) edges: bool,
     pub(crate) nodes: bool,
+    pub(crate) signal_scopes: bool,
     pub(crate) param_wires: bool,
     pub(crate) overlays: bool,
     pub(crate) timeline: bool,
@@ -157,6 +159,7 @@ impl SceneLayerDirty {
         self.static_panel
             || self.edges
             || self.nodes
+            || self.signal_scopes
             || self.param_wires
             || self.overlays
             || self.timeline
@@ -180,6 +183,14 @@ struct ParamRouteCacheKey {
     obstacle_epoch: u64,
     start_tail_cells: i32,
     end_tail_cells: i32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SignalScopeLayout {
+    scope: Rect,
+    inner: Rect,
+    window_secs: f32,
+    sample_count: usize,
 }
 
 /// Stateful cache and scratch storage for wire-route planning.
@@ -215,6 +226,7 @@ pub(crate) struct SceneBuilder {
     active_space: CoordSpace,
     cached_static_key: Option<(usize, usize, usize)>,
     cached_nodes_epoch: Option<u64>,
+    cached_signal_scopes_epoch: Option<u64>,
     cached_edges_epoch: Option<u64>,
     cached_param_wires_epoch: Option<u64>,
     cached_param_wires_overlay_epoch: Option<u64>,
@@ -320,8 +332,20 @@ impl SceneBuilder {
             self.cached_nodes_epoch = Some(nodes_epoch);
             self.frame.dirty.nodes = true;
             let start = Instant::now();
-            self.rebuild_nodes_layer(project, state, request.timeline_fps);
+            self.rebuild_nodes_layer(project, state);
             self.frame.nodes_ms = start.elapsed().as_secs_f64() * 1000.0;
+        }
+
+        let signal_scopes_epoch = state.invalidation.signal_scopes;
+        if self.cached_signal_scopes_epoch != Some(signal_scopes_epoch) {
+            self.cached_signal_scopes_epoch = Some(signal_scopes_epoch);
+            self.frame.dirty.signal_scopes = true;
+            self.rebuild_signal_scopes_layer(
+                project,
+                state,
+                request.timeline_fps,
+                project.invalidation().tex_eval,
+            );
         }
 
         let edges_epoch = state.invalidation.wires;
@@ -389,28 +413,33 @@ impl SceneBuilder {
         self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::StaticPanel));
     }
 
-    fn rebuild_nodes_layer(
-        &mut self,
-        project: &GuiProject,
-        state: &PreviewState,
-        timeline_fps: u32,
-    ) {
+    fn rebuild_nodes_layer(&mut self, project: &GuiProject, state: &PreviewState) {
         let before = self.layer_capacity(ActiveLayer::Nodes);
         self.set_active_layer(ActiveLayer::Nodes);
         self.set_active_space(CoordSpace::Screen);
         self.clear_active_layer();
-        self.live_signal_scope_nodes.clear();
         self.push_header(project);
         self.set_active_space(CoordSpace::Graph);
-        self.push_nodes(
-            project,
-            state,
-            timeline_fps,
-            project.invalidation().tex_eval,
-        );
+        self.push_nodes(project, state);
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
+    }
+
+    fn rebuild_signal_scopes_layer(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        timeline_fps: u32,
+        tex_eval_epoch: u64,
+    ) {
+        let before = self.layer_capacity(ActiveLayer::SignalScopes);
+        self.set_active_layer(ActiveLayer::SignalScopes);
+        self.set_active_space(CoordSpace::Graph);
+        self.clear_active_layer();
+        self.live_signal_scope_nodes.clear();
+        self.push_signal_scopes(project, state, timeline_fps, tex_eval_epoch);
         self.signal_scope_cache
             .retain(|node_id, _| self.live_signal_scope_nodes.contains(node_id));
-        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::Nodes));
+        self.bump_layer_alloc_growth(before, self.layer_capacity(ActiveLayer::SignalScopes));
     }
 
     fn rebuild_edges_layer(&mut self, project: &GuiProject, state: &PreviewState) {
@@ -468,13 +497,7 @@ impl SceneBuilder {
         self.push_text(rect.x + 8, rect.y + 7, project.name.as_str(), HEADER_TEXT);
     }
 
-    fn push_nodes(
-        &mut self,
-        project: &GuiProject,
-        state: &PreviewState,
-        timeline_fps: u32,
-        tex_eval_epoch: u64,
-    ) {
+    fn push_nodes(&mut self, project: &GuiProject, state: &PreviewState) {
         let mut selected_nodes_lookup = std::mem::take(&mut self.selected_nodes_lookup_scratch);
         selected_nodes_lookup.clear();
         selected_nodes_lookup.extend(state.selected_nodes.iter().copied());
@@ -502,7 +525,7 @@ impl SceneBuilder {
             self.push_graph_text(title_x, title_y, node.kind().label(), NODE_TEXT, state);
             self.push_node_toggle(node, state);
             if node.kind().shows_signal_preview() {
-                self.push_signal_scope(project, node, state, timeline_fps, tex_eval_epoch);
+                self.push_signal_scope_chrome(node, state);
             }
             if node.expanded() {
                 self.push_node_params(node, state);
@@ -511,6 +534,26 @@ impl SceneBuilder {
         }
         selected_nodes_lookup.clear();
         self.selected_nodes_lookup_scratch = selected_nodes_lookup;
+    }
+
+    fn push_signal_scopes(
+        &mut self,
+        project: &GuiProject,
+        state: &PreviewState,
+        timeline_fps: u32,
+        tex_eval_epoch: u64,
+    ) {
+        for node in project.nodes() {
+            self.push_signal_scope(project, node, state, timeline_fps, tex_eval_epoch);
+        }
+    }
+
+    fn push_signal_scope_chrome(&mut self, node: &ProjectNode, state: &PreviewState) {
+        let Some(layout) = Self::signal_scope_layout(node, state) else {
+            return;
+        };
+        self.push_rect(layout.scope, NODE_SIGNAL_SCOPE_BG);
+        self.push_border(layout.scope, NODE_SIGNAL_SCOPE_BORDER);
     }
 
     fn push_signal_scope(
@@ -525,6 +568,65 @@ impl SceneBuilder {
             return;
         }
         self.live_signal_scope_nodes.insert(node.id());
+        let Some(layout) = Self::signal_scope_layout(node, state) else {
+            return;
+        };
+        let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
+        let eval_start = Instant::now();
+        let mut signal_scope_line_scratch = std::mem::take(&mut self.signal_scope_line_scratch);
+        let (value_min, value_max) = {
+            signal_scope_line_scratch.clear();
+            let values = self.sample_signal_scope_values(
+                project,
+                node.id(),
+                time_now,
+                layout.window_secs,
+                layout.sample_count,
+                tex_eval_epoch,
+            );
+            let (value_min, value_max) = signal_scope_range(values);
+            for step in 0..layout.sample_count.saturating_sub(1) {
+                let t0 = step as f32 / layout.sample_count.saturating_sub(1).max(1) as f32;
+                let t1 = (step + 1) as f32 / layout.sample_count.saturating_sub(1).max(1) as f32;
+                let v0 = values[step];
+                let v1 = values[step + 1];
+                let x0 = layout.inner.x + ((layout.inner.w - 1) as f32 * t0).round() as i32;
+                let x1 = layout.inner.x + ((layout.inner.w - 1) as f32 * t1).round() as i32;
+                let y0 = signal_scope_y(v0, value_min, value_max, layout.inner);
+                let y1 = signal_scope_y(v1, value_min, value_max, layout.inner);
+                signal_scope_line_scratch.push((x0, y0, x1, y1));
+            }
+            (value_min, value_max)
+        };
+        let eval_ms = eval_start.elapsed().as_secs_f64() * 1000.0;
+        let y_zero = signal_scope_y(0.0, value_min, value_max, layout.inner);
+        let y_one = signal_scope_y(1.0, value_min, value_max, layout.inner);
+        self.push_line(
+            layout.inner.x,
+            y_zero,
+            layout.inner.x + layout.inner.w - 1,
+            y_zero,
+            NODE_SIGNAL_SCOPE_GUIDE_ZERO,
+        );
+        self.push_line(
+            layout.inner.x,
+            y_one,
+            layout.inner.x + layout.inner.w - 1,
+            y_one,
+            NODE_SIGNAL_SCOPE_GUIDE_ONE,
+        );
+        for (x0, y0, x1, y1) in signal_scope_line_scratch.iter().copied() {
+            self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
+        }
+        signal_scope_line_scratch.clear();
+        self.signal_scope_line_scratch = signal_scope_line_scratch;
+        self.frame.signal_scope_eval_ms += eval_ms;
+    }
+
+    fn signal_scope_layout(node: &ProjectNode, state: &PreviewState) -> Option<SignalScopeLayout> {
+        if !node.kind().shows_signal_preview() {
+            return None;
+        }
         let rect = node_rect(node, state);
         let mut scope_h = if node.expanded() {
             ((26.0 * state.zoom).round() as i32).clamp(14, 44)
@@ -544,7 +646,7 @@ impl SceneBuilder {
         let scope_bottom = rect.y + rect.h - pad_y;
         let max_scope_h = scope_bottom - scope_top_min;
         if max_scope_h < 8 {
-            return;
+            return None;
         }
         scope_h = scope_h.min(max_scope_h);
         let scope_y = (scope_bottom - scope_h).max(scope_top_min);
@@ -554,66 +656,16 @@ impl SceneBuilder {
             (rect.w - (pad_x * 2)).max(12),
             scope_h,
         );
-        self.push_rect(scope, NODE_SIGNAL_SCOPE_BG);
-        self.push_border(scope, NODE_SIGNAL_SCOPE_BORDER);
-
         let inner = Rect::new(scope.x + 2, scope.y + 2, scope.w - 4, scope.h - 4);
         if inner.w < 8 || inner.h < 4 {
-            return;
+            return None;
         }
-
-        let window_secs = if node.expanded() { 2.0 } else { 1.2 };
-        let time_now = state.frame_index as f32 / timeline_fps.max(1) as f32;
-        let samples = (inner.w.max(16) as usize).min(SIGNAL_SCOPE_MAX_SAMPLES);
-        let eval_start = Instant::now();
-        let mut signal_scope_line_scratch = std::mem::take(&mut self.signal_scope_line_scratch);
-        let (value_min, value_max) = {
-            signal_scope_line_scratch.clear();
-            let values = self.sample_signal_scope_values(
-                project,
-                node.id(),
-                time_now,
-                window_secs,
-                samples,
-                tex_eval_epoch,
-            );
-            let (value_min, value_max) = signal_scope_range(values);
-            for step in 0..samples.saturating_sub(1) {
-                let t0 = step as f32 / samples.saturating_sub(1).max(1) as f32;
-                let t1 = (step + 1) as f32 / samples.saturating_sub(1).max(1) as f32;
-                let v0 = values[step];
-                let v1 = values[step + 1];
-                let x0 = inner.x + ((inner.w - 1) as f32 * t0).round() as i32;
-                let x1 = inner.x + ((inner.w - 1) as f32 * t1).round() as i32;
-                let y0 = signal_scope_y(v0, value_min, value_max, inner);
-                let y1 = signal_scope_y(v1, value_min, value_max, inner);
-                signal_scope_line_scratch.push((x0, y0, x1, y1));
-            }
-            (value_min, value_max)
-        };
-        let eval_ms = eval_start.elapsed().as_secs_f64() * 1000.0;
-        let y_zero = signal_scope_y(0.0, value_min, value_max, inner);
-        let y_one = signal_scope_y(1.0, value_min, value_max, inner);
-        self.push_line(
-            inner.x,
-            y_zero,
-            inner.x + inner.w - 1,
-            y_zero,
-            NODE_SIGNAL_SCOPE_GUIDE_ZERO,
-        );
-        self.push_line(
-            inner.x,
-            y_one,
-            inner.x + inner.w - 1,
-            y_one,
-            NODE_SIGNAL_SCOPE_GUIDE_ONE,
-        );
-        for (x0, y0, x1, y1) in signal_scope_line_scratch.iter().copied() {
-            self.push_line(x0, y0, x1, y1, NODE_SIGNAL_SCOPE_WAVE);
-        }
-        signal_scope_line_scratch.clear();
-        self.signal_scope_line_scratch = signal_scope_line_scratch;
-        self.frame.signal_scope_eval_ms += eval_ms;
+        Some(SignalScopeLayout {
+            scope,
+            inner,
+            window_secs: if node.expanded() { 2.0 } else { 1.2 },
+            sample_count: (inner.w.max(16) as usize).min(SIGNAL_SCOPE_MAX_SAMPLES),
+        })
     }
 
     fn sample_signal_scope_values(
@@ -1229,6 +1281,7 @@ impl SceneBuilder {
             ActiveLayer::StaticPanel => &self.frame.static_panel,
             ActiveLayer::Edges => &self.frame.edges,
             ActiveLayer::Nodes => &self.frame.nodes,
+            ActiveLayer::SignalScopes => &self.frame.signal_scopes,
             ActiveLayer::ParamWires => &self.frame.param_wires,
             ActiveLayer::Overlays => &self.frame.overlays,
             ActiveLayer::Timeline => &self.frame.timeline,
@@ -1354,7 +1407,6 @@ mod tests {
         let mut project = GuiProject::new_empty(640, 480);
         let _lfo = project.add_node(ProjectNodeKind::CtlLfo, 80, 80, 640, 480);
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
-        state.invalidation.invalidate_nodes();
         let mut scene = SceneBuilder::default();
 
         let frame = scene.build(&project, &state, default_scene_build_request());
@@ -1365,8 +1417,16 @@ mod tests {
         );
 
         state.frame_index = 1;
-        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_signal_scopes();
         let frame = scene.build(&project, &state, default_scene_build_request());
+        assert!(
+            !frame.dirty.nodes,
+            "timeline-only scope tick should not rebuild the node layer"
+        );
+        assert!(
+            frame.dirty.signal_scopes,
+            "timeline-only scope tick should rebuild the signal scope layer"
+        );
         assert!(
             frame.signal_scope_samples < initial_samples,
             "incremental update should evaluate fewer samples than full rebuild"
@@ -1398,7 +1458,6 @@ mod tests {
         let _lfo = project.add_node(ProjectNodeKind::CtlLfo, 80, 80, 640, 480);
         let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
         state.zoom = 4.0;
-        state.invalidation.invalidate_nodes();
         let mut scene = SceneBuilder::default();
 
         let frame = scene.build(&project, &state, default_scene_build_request());
