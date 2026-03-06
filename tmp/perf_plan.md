@@ -200,7 +200,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::app`
     - Measure `gui.startup.first_frame.total` and `gui.startup.project_load` before/after.
 
-- [ ] 11. Batch graph-op uniforms to reduce per-op queue writes (runtime GPU architecture)
+- [x] 11. Batch graph-op uniforms to reduce per-op queue writes (runtime GPU architecture)
+  - Completed: 2026-03-06 (`583003f` `perf: batch graph op uniform uploads`)
   - ROI: Medium
   - Effort: L
   - Expected impact: frame time, CPU, GPU submission efficiency
