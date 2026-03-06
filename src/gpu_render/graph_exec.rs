@@ -37,6 +37,7 @@ impl GpuLayerRenderer {
                 bind_group_creates,
             };
         }
+        self.graph_ops.flush_pending_uniform_uploads(&self.queue);
         self.main_pass_timestamps
             .resolve_and_reset(&mut frame.encoder);
         let encoder = frame.encoder;

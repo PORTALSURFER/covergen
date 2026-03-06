@@ -1,5 +1,8 @@
 //! Pipeline/bind-group layout helpers for V2 graph GPU ops.
 
+use super::GraphOpUniforms;
+use std::num::NonZeroU64;
+
 pub(super) fn create_graph_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("v2 graph op bind group layout"),
@@ -43,8 +46,11 @@ fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         visibility: wgpu::ShaderStages::COMPUTE,
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
+            has_dynamic_offset: true,
+            min_binding_size: Some(
+                NonZeroU64::new(std::mem::size_of::<GraphOpUniforms>() as u64)
+                    .expect("graph uniform size must be non-zero"),
+            ),
         },
         count: None,
     }
