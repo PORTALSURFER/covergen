@@ -66,7 +66,7 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        input,
+        &input,
         &mut project,
         &mut state,
     ));

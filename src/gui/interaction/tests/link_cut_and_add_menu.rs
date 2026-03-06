@@ -376,7 +376,7 @@ fn add_menu_toggle_shortcut_does_not_seed_query_text() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        input,
+        &input,
         &mut project,
         &mut state
     ));

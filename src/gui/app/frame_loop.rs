@@ -118,7 +118,7 @@ impl GuiApp {
                     self.panel_width,
                     self.renderer.height(),
                 ),
-                snapshot.clone(),
+                snapshot,
                 &mut self.project,
                 &mut self.state,
             );

@@ -67,7 +67,7 @@ fn apply_preview_actions_toggle_pause_invalidates_timeline() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        input,
+        &input,
         &mut project,
         &mut state,
     ));
@@ -90,7 +90,7 @@ fn apply_preview_actions_hover_updates_invalidate_only_nodes_when_overlay_state_
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        input,
+        &input,
         &mut project,
         &mut state,
     ));
@@ -120,7 +120,7 @@ fn apply_preview_actions_debug_input_flag_change_invalidates_overlays() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        input,
+        &input,
         &mut project,
         &mut state,
     ));
@@ -150,7 +150,7 @@ fn apply_preview_actions_alt_hover_change_invalidates_overlays_for_debug_hud() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        warmup,
+        &warmup,
         &mut project,
         &mut state,
     ));
@@ -163,7 +163,7 @@ fn apply_preview_actions_alt_hover_change_invalidates_overlays_for_debug_hud() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        hover,
+        &hover,
         &mut project,
         &mut state,
     ));
@@ -201,7 +201,7 @@ fn apply_preview_actions_keeps_param_scrub_active_after_start() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        start,
+        &start,
         &mut project,
         &mut state,
     ));
@@ -215,11 +215,14 @@ fn apply_preview_actions_keeps_param_scrub_active_after_start() {
     };
     assert!(apply_preview_actions(
         InteractionFrameContext::new(&config, 640, 420, 480),
-        keep_active,
+        &keep_active,
         &mut project,
         &mut state,
     ));
-    assert!(state.param_scrub.is_some(), "scrub should persist across frames");
+    assert!(
+        state.param_scrub.is_some(),
+        "scrub should persist across frames"
+    );
     assert_eq!(state.debug_scrub_code, 23);
 }
 

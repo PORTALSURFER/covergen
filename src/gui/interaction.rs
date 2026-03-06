@@ -234,19 +234,19 @@ impl HoverInvalidationSnapshot {
 /// Returns `true` when this frame changed visual/editor state and should be redrawn.
 pub(crate) fn apply_preview_actions(
     context: InteractionFrameContext<'_>,
-    input: InputSnapshot,
+    input: &InputSnapshot,
     project: &mut GuiProject,
     state: &mut PreviewState,
 ) -> bool {
     let panel_ctx = context.panel_context();
-    let mut changed = begin_interaction_frame(context.config, &input, project, state);
-    if sync_debug_input_flags(&input, state) {
+    let mut changed = begin_interaction_frame(context.config, input, project, state);
+    if sync_debug_input_flags(input, state) {
         state.invalidation.invalidate_overlays();
         changed = true;
     }
 
     if let InteractionPhaseControl::Finish(result) = apply_help_and_timeline_phase(
-        &input,
+        input,
         project,
         context.viewport_width,
         panel_ctx,
@@ -254,23 +254,23 @@ pub(crate) fn apply_preview_actions(
         state,
         &mut changed,
     ) {
-        return finish_interaction_frame(&input, state, result);
+        return finish_interaction_frame(input, state, result);
     }
     if let InteractionPhaseControl::Finish(result) =
-        apply_navigation_phase(&input, project, panel_ctx, state, &mut changed)
+        apply_navigation_phase(input, project, panel_ctx, state, &mut changed)
     {
-        return finish_interaction_frame(&input, state, result);
+        return finish_interaction_frame(input, state, result);
     }
     if let InteractionPhaseControl::Finish(result) =
-        apply_overlay_and_param_phase(&input, project, panel_ctx, state, &mut changed)
+        apply_overlay_and_param_phase(input, project, panel_ctx, state, &mut changed)
     {
-        return finish_interaction_frame(&input, state, result);
+        return finish_interaction_frame(input, state, result);
     }
-    apply_menu_or_graph_phase(&input, project, panel_ctx, state, &mut changed);
+    apply_menu_or_graph_phase(input, project, panel_ctx, state, &mut changed);
     if state.wire_drag.is_none() {
         changed |= collapse_auto_expanded_binding_nodes_with_panel(project, panel_ctx, state);
     }
-    finish_interaction_frame(&input, state, changed)
+    finish_interaction_frame(input, state, changed)
 }
 
 /// Collapse auto-expanded binding nodes using the panel context.
