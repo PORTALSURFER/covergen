@@ -282,7 +282,7 @@ fn route_wire_path_internal(
     ROUTE_SEARCH_WORKSPACE.with(|workspace| {
         let mut workspace = workspace.borrow_mut();
         for window_cells in SEARCH_OBSTACLE_WINDOW_CELLS {
-            let blocked_rects = collect_search_blocked_rects(
+            collect_search_blocked_rects(
                 obstacle_map,
                 start_point,
                 end_point,
@@ -290,7 +290,7 @@ fn route_wire_path_internal(
                 &mut workspace,
             );
             let Some(mut grid) =
-                search::SearchGrid::build(blocked_rects.as_slice(), start_point, end_point)
+                search::SearchGrid::build(workspace.blocked_rects(), start_point, end_point)
             else {
                 continue;
             };
@@ -487,7 +487,7 @@ fn collect_search_blocked_rects(
     end: (i32, i32),
     window_cells: i32,
     workspace: &mut search::RouteSearchWorkspace,
-) -> Vec<Rect> {
+) {
     let blocked_rects = obstacle_map.blocked_rects.as_slice();
     let pad = window_cells.max(ROUTE_PADDING_CELLS) * GRID_PITCH_PX;
     let min_x = start.0.min(end.0) - pad;
@@ -495,14 +495,14 @@ fn collect_search_blocked_rects(
     let max_x = start.0.max(end.0) + pad;
     let max_y = start.1.max(end.1) + pad;
     let search_bounds = Rect::new(min_x, min_y, (max_x - min_x).max(1), (max_y - min_y).max(1));
-    let mut out = Vec::new();
+    workspace.prepare_blocked_rect_pass(blocked_rects.len());
     if obstacle_map.obstacle_bins.is_empty() {
         for rect in blocked_rects {
             if rects_overlap(*rect, search_bounds) {
-                out.push(*rect);
+                workspace.push_blocked_rect(*rect);
             }
         }
-        return out;
+        return;
     }
 
     let search_max_x = search_bounds
@@ -522,15 +522,16 @@ fn collect_search_blocked_rects(
             }
         }
     }
-    for index in workspace.obstacle_candidate_indices().iter().copied() {
+    let candidate_count = workspace.obstacle_candidate_indices().len();
+    for candidate_index in 0..candidate_count {
+        let index = workspace.obstacle_candidate_indices()[candidate_index];
         let Some(rect) = blocked_rects.get(index).copied() else {
             continue;
         };
         if rects_overlap(rect, search_bounds) {
-            out.push(rect);
+            workspace.push_blocked_rect(rect);
         }
     }
-    out
 }
 
 fn index_obstacle_bins(blocked_rects: &[Rect]) -> HashMap<(i32, i32), Vec<usize>> {
@@ -650,10 +651,10 @@ fn step_point(point: (i32, i32), direction: RouteDirection, steps: i32) -> (i32,
 #[cfg(test)]
 mod tests {
     use super::{
-        route_param_path, route_wire_path, route_wire_path_internal, route_wire_path_with_map,
-        route_wire_path_with_tails_with_map, snap_endpoint_to_grid, BlockedEdgeSets, NodeObstacle,
-        RouteDirection, RouteEdgeKey, RouteEndpoint, RouteObstacleMap, GRID_PITCH_PX,
-        ROUTE_DIRECTIONS,
+        collect_search_blocked_rects, route_param_path, route_wire_path, route_wire_path_internal,
+        route_wire_path_with_map, route_wire_path_with_tails_with_map, snap_endpoint_to_grid,
+        BlockedEdgeSets, NodeObstacle, RouteDirection, RouteEdgeKey, RouteEndpoint,
+        RouteObstacleMap, GRID_PITCH_PX, ROUTE_DIRECTIONS,
     };
     use crate::gui::geometry::Rect;
     use std::collections::HashSet;
@@ -885,6 +886,37 @@ mod tests {
             source_rect,
             snap_endpoint_to_grid(start),
             snap_endpoint_to_grid(end),
+        );
+    }
+
+    #[test]
+    fn search_window_collection_reuses_blocked_rect_workspace_capacity() {
+        let map = RouteObstacleMap::from_obstacles(&[
+            NodeObstacle {
+                rect: Rect::new(40, 30, 40, 40),
+            },
+            NodeObstacle {
+                rect: Rect::new(120, 20, 40, 60),
+            },
+            NodeObstacle {
+                rect: Rect::new(220, 40, 40, 40),
+            },
+        ]);
+        let start = (8, 48);
+        let end = (208, 48);
+        let mut workspace = super::search::RouteSearchWorkspace::default();
+
+        collect_search_blocked_rects(&map, start, end, 96, &mut workspace);
+        let first_capacity = workspace.blocked_rect_capacity();
+        assert!(
+            first_capacity >= workspace.blocked_rects().len(),
+            "workspace capacity should cover collected rects"
+        );
+
+        collect_search_blocked_rects(&map, start, end, 24, &mut workspace);
+        assert!(
+            workspace.blocked_rect_capacity() >= first_capacity,
+            "blocked rect scratch capacity should be reused across window passes"
         );
     }
 }

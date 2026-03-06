@@ -27,6 +27,7 @@ pub(super) struct RouteSearchWorkspace {
     current_generation: u32,
     touched_states: Vec<usize>,
     open: BinaryHeap<(Reverse<i32>, Reverse<i32>, usize)>,
+    blocked_rects: Vec<Rect>,
     obstacle_candidate_indices: Vec<usize>,
     obstacle_visit_generation: Vec<u32>,
     obstacle_current_generation: u32,
@@ -89,6 +90,22 @@ impl RouteSearchWorkspace {
         self.obstacle_candidate_indices.clear();
     }
 
+    pub(super) fn prepare_blocked_rect_pass(&mut self, estimated_rects: usize) {
+        self.blocked_rects.clear();
+        if self.blocked_rects.capacity() < estimated_rects {
+            self.blocked_rects
+                .reserve(estimated_rects - self.blocked_rects.capacity());
+        }
+    }
+
+    pub(super) fn push_blocked_rect(&mut self, rect: Rect) {
+        self.blocked_rects.push(rect);
+    }
+
+    pub(super) fn blocked_rects(&self) -> &[Rect] {
+        self.blocked_rects.as_slice()
+    }
+
     pub(super) fn push_unique_obstacle_candidate(&mut self, index: usize) {
         let Some(slot) = self.obstacle_visit_generation.get_mut(index) else {
             return;
@@ -102,6 +119,11 @@ impl RouteSearchWorkspace {
 
     pub(super) fn obstacle_candidate_indices(&self) -> &[usize] {
         self.obstacle_candidate_indices.as_slice()
+    }
+
+    #[cfg(test)]
+    pub(super) fn blocked_rect_capacity(&self) -> usize {
+        self.blocked_rects.capacity()
     }
 }
 
