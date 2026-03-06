@@ -207,8 +207,30 @@ impl TexOpUniform {
         }
     }
 
-    fn transform(op: TexViewerOp) -> Self {
-        let TexViewerOp::Transform {
+    fn transform_2d(op: TexViewerOp) -> Self {
+        let TexViewerOp::Transform2D {
+            offset_x,
+            offset_y,
+            scale_x,
+            scale_y,
+            rotate_deg,
+            pivot_x,
+            pivot_y,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [offset_x, offset_y, scale_x, scale_y],
+            p1: [rotate_deg, pivot_x, pivot_y, 0.0],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn color_adjust(op: TexViewerOp) -> Self {
+        let TexViewerOp::ColorAdjust {
             brightness,
             gain_r,
             gain_g,
@@ -537,12 +559,13 @@ pub(super) struct TexPreviewRenderer {
     op_grid_pipeline: Option<wgpu::RenderPipeline>,
     op_sphere_pipeline: Option<wgpu::RenderPipeline>,
     op_source_noise_pipeline: Option<wgpu::RenderPipeline>,
-    op_transform_pipeline: Option<wgpu::RenderPipeline>,
+    op_transform_2d_pipeline: Option<wgpu::RenderPipeline>,
+    op_color_adjust_pipeline: Option<wgpu::RenderPipeline>,
     op_level_pipeline: Option<wgpu::RenderPipeline>,
     op_mask_pipeline: Option<wgpu::RenderPipeline>,
     op_morphology_pipeline: Option<wgpu::RenderPipeline>,
     op_tone_map_pipeline: Option<wgpu::RenderPipeline>,
-    op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
+    op_color_adjust_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
     op_domain_warp_pipeline: Option<wgpu::RenderPipeline>,
@@ -639,12 +662,13 @@ impl TexPreviewRenderer {
             && self.op_grid_pipeline.is_some()
             && self.op_sphere_pipeline.is_some()
             && self.op_source_noise_pipeline.is_some()
-            && self.op_transform_pipeline.is_some()
+            && self.op_transform_2d_pipeline.is_some()
+            && self.op_color_adjust_pipeline.is_some()
             && self.op_level_pipeline.is_some()
             && self.op_mask_pipeline.is_some()
             && self.op_morphology_pipeline.is_some()
             && self.op_tone_map_pipeline.is_some()
-            && self.op_transform_fused_pipeline.is_some()
+            && self.op_color_adjust_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_reaction_diffusion_pipeline.is_some()
             && self.op_domain_warp_pipeline.is_some()
@@ -710,11 +734,18 @@ impl TexPreviewRenderer {
             "fs_source_noise",
             self.op_surface_format,
         ));
-        self.op_transform_pipeline = Some(create_op_pipeline(
+        self.op_transform_2d_pipeline = Some(create_op_pipeline(
             device,
             &op_shader,
             &op_pipeline_layout,
-            "fs_transform",
+            "fs_transform_2d",
+            self.op_surface_format,
+        ));
+        self.op_color_adjust_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_color_adjust",
             self.op_surface_format,
         ));
         self.op_level_pipeline = Some(create_op_pipeline(
@@ -745,11 +776,11 @@ impl TexPreviewRenderer {
             "fs_tone_map",
             self.op_surface_format,
         ));
-        self.op_transform_fused_pipeline = Some(create_op_pipeline(
+        self.op_color_adjust_fused_pipeline = Some(create_op_pipeline(
             device,
             &op_shader,
             &op_pipeline_layout,
-            "fs_transform_fused",
+            "fs_color_adjust_fused",
             self.op_surface_format,
         ));
         self.op_feedback_pipeline = Some(create_op_pipeline(
@@ -917,12 +948,13 @@ impl TexPreviewRenderer {
             op_grid_pipeline: None,
             op_sphere_pipeline: None,
             op_source_noise_pipeline: None,
-            op_transform_pipeline: None,
+            op_transform_2d_pipeline: None,
+            op_color_adjust_pipeline: None,
             op_level_pipeline: None,
             op_mask_pipeline: None,
             op_morphology_pipeline: None,
             op_tone_map_pipeline: None,
-            op_transform_fused_pipeline: None,
+            op_color_adjust_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_reaction_diffusion_pipeline: None,
             op_domain_warp_pipeline: None,

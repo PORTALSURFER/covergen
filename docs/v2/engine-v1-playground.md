@@ -166,7 +166,8 @@ Stable IDs use namespace-style naming.
 
 ### 7.3 Core Transforms
 
-- `tex.transform_2d`: in/out `Texture2D`, params `translate`, `rotate`, `scale`, `pivot`.
+- `tex.transform_2d`: in/out `Texture2D`, params `offset_x/y`, `scale_x/y`, `rotate_deg`, `pivot_x/y`.
+- `tex.color_adjust`: in/out `Texture2D`, params `brightness`, `gain_r/g/b`, `alpha_mul`.
 - `tex.blur_gauss`: in/out `Texture2D`, separable 2-pass render, params `radius`, `sigma`.
 - `tex.levels`: in/out `Texture2D`, params `in_black`, `in_white`, `gamma`, `out_black`, `out_white`.
 - `tex.hsv`: in/out `Texture2D`, params `hue_shift`, `saturation`, `value`.

@@ -231,7 +231,7 @@ fn maybe_seed_benchmark_nodes(
         let kind = if index == 4 {
             ProjectNodeKind::TexFeedback
         } else {
-            ProjectNodeKind::TexTransform2D
+            ProjectNodeKind::TexColorAdjust
         };
         let x = if index % 2 == 0 { 188 } else { 24 };
         let y = 96 + index * 64;

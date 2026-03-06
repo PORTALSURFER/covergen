@@ -129,6 +129,24 @@ Cycle length used by loop mode timing.
 Free-running or timeline-locked seamless loop behavior.
 
 ## Node `tex.transform_2d`
+Applies 2D translation, rotation, and scaling to input textures in UV space.
+Defaults are identity so insertion does not alter output.
+### Param `offset_x`
+Horizontal UV offset. Positive values move the image right.
+### Param `offset_y`
+Vertical UV offset. Positive values move the image down.
+### Param `scale_x`
+Horizontal scale around the pivot.
+### Param `scale_y`
+Vertical scale around the pivot.
+### Param `rotate`
+Rotation in degrees around the pivot.
+### Param `pivot_x`
+Horizontal pivot position in normalized UV coordinates.
+### Param `pivot_y`
+Vertical pivot position in normalized UV coordinates.
+
+## Node `tex.color_adjust`
 Applies per-channel gain and brightness to input textures.
 Defaults are identity so insertion does not alter output.
 ### Param `brightness`
@@ -140,7 +158,7 @@ Green channel gain multiplier.
 ### Param `gain_b`
 Blue channel gain multiplier.
 ### Param `alpha_mul`
-Opacity/energy multiplier applied to the transformed output (alpha and visible color).
+Opacity/energy multiplier applied to the adjusted output (alpha and visible color).
 
 ## Node `tex.level`
 Performs level remapping and gamma shaping on input textures.

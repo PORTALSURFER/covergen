@@ -82,6 +82,9 @@ Stable IDs and typed signatures:
 ### Texture Transforms
 
 - `tex.transform_2d`
+  - Spatial texture translate/rotate/scale around a pivot.
+- `tex.color_adjust`
+  - Per-channel gain, brightness, and alpha scaling.
   - Inputs: `input0(Texture2D)`
   - Outputs: `out(Texture2D)`
   - `ExecutionKind`: `Render`

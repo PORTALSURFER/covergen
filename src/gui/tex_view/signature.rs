@@ -216,15 +216,32 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
-            TexViewerOp::Transform {
+            TexViewerOp::Transform2D {
+                offset_x,
+                offset_y,
+                scale_x,
+                scale_y,
+                rotate_deg,
+                pivot_x,
+                pivot_y,
+            } => {
+                plan_hash = fnv1a(plan_hash, 4);
+                uniform_hash = fnv1a(uniform_hash, 4);
+                for value in [
+                    offset_x, offset_y, scale_x, scale_y, rotate_deg, pivot_x, pivot_y,
+                ] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+            }
+            TexViewerOp::ColorAdjust {
                 brightness,
                 gain_r,
                 gain_g,
                 gain_b,
                 alpha_mul,
             } => {
-                plan_hash = fnv1a(plan_hash, 4);
-                uniform_hash = fnv1a(uniform_hash, 4);
+                plan_hash = fnv1a(plan_hash, 20);
+                uniform_hash = fnv1a(uniform_hash, 20);
                 for value in [brightness, gain_r, gain_g, gain_b, alpha_mul] {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }

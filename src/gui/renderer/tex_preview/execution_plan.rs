@@ -1,7 +1,7 @@
 //! Operation planning helpers for tex preview execution.
 //!
 //! This planner performs two low-risk optimizations before GPU submission:
-//! - collapse adjacent `Transform` operations into one fused render step
+//! - collapse adjacent `ColorAdjust` operations into one fused render step
 //! - keep `StoreTexture` as explicit steps for downstream blend dependencies
 
 use crate::gui::tex_view::TexViewerOp;
@@ -11,8 +11,8 @@ use crate::gui::tex_view::TexViewerOp;
 pub(super) enum PlannedRenderOp {
     /// Render one runtime op directly by op index.
     Runtime { op_index: usize },
-    /// Render two adjacent transform operations in one fused pass.
-    TransformPair {
+    /// Render two adjacent color-adjust operations in one fused pass.
+    ColorAdjustPair {
         first_op_index: usize,
         second_op_index: usize,
     },
@@ -42,10 +42,10 @@ pub(super) fn build_execution_plan(
                 planned_steps.push(PlannedStep::StoreTexture { texture_node_id });
                 index += 1;
             }
-            TexViewerOp::Transform { .. } => {
-                if matches!(ops.get(index + 1), Some(TexViewerOp::Transform { .. })) {
+            TexViewerOp::ColorAdjust { .. } => {
+                if matches!(ops.get(index + 1), Some(TexViewerOp::ColorAdjust { .. })) {
                     let render_index = planned_render_ops.len();
-                    planned_render_ops.push(PlannedRenderOp::TransformPair {
+                    planned_render_ops.push(PlannedRenderOp::ColorAdjustPair {
                         first_op_index: index,
                         second_op_index: index + 1,
                     });
@@ -74,7 +74,7 @@ mod tests {
     use crate::gui::tex_view::TexViewerOp;
 
     #[test]
-    fn planner_fuses_adjacent_transform_steps() {
+    fn planner_fuses_adjacent_color_adjust_steps() {
         let ops = vec![
             TexViewerOp::Solid {
                 color_r: 0.2,
@@ -82,14 +82,14 @@ mod tests {
                 color_b: 0.4,
                 alpha: 1.0,
             },
-            TexViewerOp::Transform {
+            TexViewerOp::ColorAdjust {
                 brightness: 1.1,
                 gain_r: 1.0,
                 gain_g: 1.0,
                 gain_b: 1.0,
                 alpha_mul: 0.8,
             },
-            TexViewerOp::Transform {
+            TexViewerOp::ColorAdjust {
                 brightness: 0.9,
                 gain_r: 0.8,
                 gain_g: 0.7,
@@ -105,14 +105,14 @@ mod tests {
         assert_eq!(planned_render_ops.len(), 2);
         assert!(matches!(
             planned_render_ops[1],
-            PlannedRenderOp::TransformPair { .. }
+            PlannedRenderOp::ColorAdjustPair { .. }
         ));
     }
 
     #[test]
-    fn planner_keeps_store_texture_barrier_between_transforms() {
+    fn planner_keeps_store_texture_barrier_between_color_adjusts() {
         let ops = vec![
-            TexViewerOp::Transform {
+            TexViewerOp::ColorAdjust {
                 brightness: 1.0,
                 gain_r: 1.0,
                 gain_g: 1.0,
@@ -120,7 +120,7 @@ mod tests {
                 alpha_mul: 1.0,
             },
             TexViewerOp::StoreTexture { texture_node_id: 7 },
-            TexViewerOp::Transform {
+            TexViewerOp::ColorAdjust {
                 brightness: 0.8,
                 gain_r: 0.9,
                 gain_g: 1.0,

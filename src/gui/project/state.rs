@@ -130,13 +130,12 @@ impl GuiProject {
         let mut warnings = Vec::new();
 
         for persisted_node in &nodes {
-            let kind =
-                ProjectNodeKind::from_stable_id(persisted_node.kind.as_str()).ok_or_else(|| {
-                    PersistedProjectLoadError::new(format!(
-                        "unknown node kind '{}'",
-                        persisted_node.kind
-                    ))
-                })?;
+            let kind = migrated_persisted_node_kind(persisted_node).ok_or_else(|| {
+                PersistedProjectLoadError::new(format!(
+                    "unknown node kind '{}'",
+                    persisted_node.kind
+                ))
+            })?;
             if id_map.contains_key(&persisted_node.id) {
                 return Err(PersistedProjectLoadError::new(format!(
                     "duplicate persisted node id {}",
@@ -827,6 +826,20 @@ impl GuiProject {
             self.node_index_lookup.insert(node.id(), index);
         }
     }
+}
+
+fn migrated_persisted_node_kind(persisted_node: &PersistedGuiNode) -> Option<ProjectNodeKind> {
+    if persisted_node.kind == "tex.transform_2d"
+        && persisted_node.params.iter().any(|param| {
+            matches!(
+                param.key.as_str(),
+                "brightness" | "gain_r" | "gain_g" | "gain_b" | "alpha_mul"
+            )
+        })
+    {
+        return Some(ProjectNodeKind::TexColorAdjust);
+    }
+    ProjectNodeKind::from_stable_id(persisted_node.kind.as_str())
 }
 
 /// Push one deduplicated dropped-parameter warning.

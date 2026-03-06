@@ -23,6 +23,7 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     let box_node = project.add_node(ProjectNodeKind::BufBox, 310, 40, 420, 480);
     let grid_node = project.add_node(ProjectNodeKind::BufGrid, 400, 40, 420, 480);
     let transform = project.add_node(ProjectNodeKind::TexTransform2D, 400, 40, 420, 480);
+    let color_adjust = project.add_node(ProjectNodeKind::TexColorAdjust, 490, 40, 420, 480);
     let mask = project.add_node(ProjectNodeKind::TexMask, 580, 40, 420, 480);
     let morphology = project.add_node(ProjectNodeKind::TexMorphology, 760, 40, 420, 480);
     let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 940, 40, 420, 480);
@@ -61,6 +62,12 @@ fn runtime_param_schema_matches_default_editor_param_order() {
         transform,
         &param_schema::transform_2d::KEYS,
         ProjectNodeKind::TexTransform2D,
+    );
+    assert_kind_keys(
+        &project,
+        color_adjust,
+        &param_schema::color_adjust::KEYS,
+        ProjectNodeKind::TexColorAdjust,
     );
     assert_kind_keys(
         &project,
@@ -131,6 +138,7 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,
+        ProjectNodeKind::TexColorAdjust,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexMask,
         ProjectNodeKind::TexMorphology,
@@ -185,6 +193,7 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::BufCircleNurbs,
         ProjectNodeKind::BufNoise,
         ProjectNodeKind::TexTransform2D,
+        ProjectNodeKind::TexColorAdjust,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexMask,
         ProjectNodeKind::TexMorphology,

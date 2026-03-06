@@ -78,7 +78,8 @@ enum RuntimeOpPipelineKind {
     Grid,
     Sphere,
     SourceNoise,
-    Transform,
+    Transform2D,
+    ColorAdjust,
     Level,
     Mask,
     Morphology,
@@ -434,7 +435,7 @@ impl TexPreviewRenderer {
         Some(())
     }
 
-    fn op_uniform_for_fused_transform_pair(first: [f32; 5], second: [f32; 5]) -> TexOpUniform {
+    fn op_uniform_for_fused_color_adjust_pair(first: [f32; 5], second: [f32; 5]) -> TexOpUniform {
         TexOpUniform {
             p0: [first[0], first[1], first[2], first[3]],
             p1: [first[4], 0.0, 0.0, 0.0],
@@ -444,8 +445,8 @@ impl TexPreviewRenderer {
         }
     }
 
-    fn transform_components(op: TexViewerOp) -> Option<[f32; 5]> {
-        let TexViewerOp::Transform {
+    fn color_adjust_components(op: TexViewerOp) -> Option<[f32; 5]> {
+        let TexViewerOp::ColorAdjust {
             brightness,
             gain_r,
             gain_g,
@@ -479,15 +480,15 @@ impl TexPreviewRenderer {
                 let runtime_op = self.runtime_op_for_planned(runtime_ops, op)?;
                 Some(op_uniform_for_runtime_op(runtime_op))
             }
-            PlannedRenderOp::TransformPair {
+            PlannedRenderOp::ColorAdjustPair {
                 first_op_index,
                 second_op_index,
             } => {
                 let first = runtime_ops.get(first_op_index).copied()?;
                 let second = runtime_ops.get(second_op_index).copied()?;
-                let first = Self::transform_components(first)?;
-                let second = Self::transform_components(second)?;
-                Some(Self::op_uniform_for_fused_transform_pair(first, second))
+                let first = Self::color_adjust_components(first)?;
+                let second = Self::color_adjust_components(second)?;
+                Some(Self::op_uniform_for_fused_color_adjust_pair(first, second))
             }
         }
     }
@@ -727,7 +728,7 @@ fn collect_active_cache_keys(
     for op in planned_render_ops {
         let runtime_op = match *op {
             PlannedRenderOp::Runtime { op_index } => planned_ops.get(op_index).copied(),
-            PlannedRenderOp::TransformPair { .. } => None,
+            PlannedRenderOp::ColorAdjustPair { .. } => None,
         };
         let Some(runtime_op) = runtime_op else {
             continue;
@@ -1027,15 +1028,17 @@ mod tests {
 
     #[test]
     fn runtime_op_descriptor_maps_bindings_by_op_family() {
-        let transform = runtime_op_descriptor(TexViewerOp::Transform {
-            brightness: 1.0,
-            gain_r: 1.0,
-            gain_g: 1.0,
-            gain_b: 1.0,
-            alpha_mul: 1.0,
+        let transform = runtime_op_descriptor(TexViewerOp::Transform2D {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotate_deg: 0.0,
+            pivot_x: 0.5,
+            pivot_y: 0.5,
         })
         .expect("transform descriptor");
-        assert_eq!(transform.pipeline, RuntimeOpPipelineKind::Transform);
+        assert_eq!(transform.pipeline, RuntimeOpPipelineKind::Transform2D);
         assert_eq!(transform.source_binding, RuntimeSourceBinding::SourceTarget);
         assert_eq!(transform.feedback_binding, RuntimeFeedbackBinding::Dummy);
 

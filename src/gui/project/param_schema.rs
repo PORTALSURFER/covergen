@@ -210,6 +210,29 @@ pub(crate) mod render_scene_pass {
 
 /// Canonical keys for `tex.transform_2d`.
 pub(crate) mod transform_2d {
+    pub(crate) const OFFSET_X: &str = "offset_x";
+    pub(crate) const OFFSET_Y: &str = "offset_y";
+    pub(crate) const SCALE_X: &str = "scale_x";
+    pub(crate) const SCALE_Y: &str = "scale_y";
+    pub(crate) const ROTATE_DEG: &str = "rotate_deg";
+    pub(crate) const PIVOT_X: &str = "pivot_x";
+    pub(crate) const PIVOT_Y: &str = "pivot_y";
+
+    pub(crate) const KEYS: [&str; 7] = [
+        OFFSET_X, OFFSET_Y, SCALE_X, SCALE_Y, ROTATE_DEG, PIVOT_X, PIVOT_Y,
+    ];
+
+    pub(crate) const OFFSET_X_INDEX: usize = 0;
+    pub(crate) const OFFSET_Y_INDEX: usize = 1;
+    pub(crate) const SCALE_X_INDEX: usize = 2;
+    pub(crate) const SCALE_Y_INDEX: usize = 3;
+    pub(crate) const ROTATE_DEG_INDEX: usize = 4;
+    pub(crate) const PIVOT_X_INDEX: usize = 5;
+    pub(crate) const PIVOT_Y_INDEX: usize = 6;
+}
+
+/// Canonical keys for `tex.color_adjust`.
+pub(crate) mod color_adjust {
     pub(crate) const BRIGHTNESS: &str = "brightness";
     pub(crate) const GAIN_R: &str = "gain_r";
     pub(crate) const GAIN_G: &str = "gain_g";

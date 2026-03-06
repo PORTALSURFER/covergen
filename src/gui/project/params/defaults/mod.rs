@@ -21,6 +21,7 @@ pub(super) fn default_params_for_kind(kind: ProjectNodeKind) -> Vec<NodeParamSlo
         ProjectNodeKind::BufCircleNurbs => buffer::buf_circle_nurbs_params(),
         ProjectNodeKind::BufNoise => buffer::buf_noise_params(),
         ProjectNodeKind::TexTransform2D => texture::tex_transform_2d_params(),
+        ProjectNodeKind::TexColorAdjust => texture::tex_color_adjust_params(),
         ProjectNodeKind::TexLevel => texture::tex_level_params(),
         ProjectNodeKind::TexMask => texture::tex_mask_params(),
         ProjectNodeKind::TexMorphology => texture::tex_morphology_params(),
@@ -57,7 +58,7 @@ mod tests {
     fn default_param_registry_covers_every_node_kind_once() {
         assert_eq!(
             ProjectNodeKind::descriptors().len(),
-            34,
+            35,
             "descriptor registry should enumerate every GUI node kind"
         );
 

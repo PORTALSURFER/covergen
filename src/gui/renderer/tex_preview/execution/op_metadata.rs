@@ -34,8 +34,13 @@ pub(super) fn runtime_op_descriptor(runtime_op: TexViewerOp) -> Option<RuntimeOp
             source_binding: RuntimeSourceBinding::Dummy,
             feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
-        TexViewerOp::Transform { .. } => RuntimeOpDescriptor {
-            pipeline: RuntimeOpPipelineKind::Transform,
+        TexViewerOp::Transform2D { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::Transform2D,
+            source_binding: RuntimeSourceBinding::SourceTarget,
+            feedback_binding: RuntimeFeedbackBinding::Dummy,
+        },
+        TexViewerOp::ColorAdjust { .. } => RuntimeOpDescriptor {
+            pipeline: RuntimeOpPipelineKind::ColorAdjust,
             source_binding: RuntimeSourceBinding::SourceTarget,
             feedback_binding: RuntimeFeedbackBinding::Dummy,
         },
@@ -108,7 +113,8 @@ pub(super) fn op_uniform_for_runtime_op(runtime_op: TexViewerOp) -> TexOpUniform
         TexViewerOp::Grid { .. } => TexOpUniform::grid(runtime_op),
         TexViewerOp::Sphere { .. } => TexOpUniform::sphere(runtime_op),
         TexViewerOp::SourceNoise { .. } => TexOpUniform::source_noise(runtime_op),
-        TexViewerOp::Transform { .. } => TexOpUniform::transform(runtime_op),
+        TexViewerOp::Transform2D { .. } => TexOpUniform::transform_2d(runtime_op),
+        TexViewerOp::ColorAdjust { .. } => TexOpUniform::color_adjust(runtime_op),
         TexViewerOp::Level { .. } => TexOpUniform::level(runtime_op),
         TexViewerOp::Mask { .. } => TexOpUniform::mask(runtime_op),
         TexViewerOp::Morphology { .. } => TexOpUniform::morphology(runtime_op),

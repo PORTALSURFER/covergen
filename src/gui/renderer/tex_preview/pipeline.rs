@@ -553,8 +553,32 @@ fn fs_source_noise(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(vec3<f32>(luma), 1.0);
 }
 
+fn sample_src_with_transparent_border(uv: vec2<f32>) -> vec4<f32> {
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4<f32>(0.0);
+    }
+    return textureSample(t_src, s_src, uv);
+}
+
 @fragment
-fn fs_transform(v: VertexOut) -> @location(0) vec4<f32> {
+fn fs_transform_2d(v: VertexOut) -> @location(0) vec4<f32> {
+    let offset = u_op.p0.xy;
+    let scale = max(u_op.p0.zw, vec2<f32>(0.05, 0.05));
+    let rotate_rad = radians(u_op.p1.x);
+    let pivot = u_op.p1.yz;
+    let sin_theta = sin(-rotate_rad);
+    let cos_theta = cos(-rotate_rad);
+    let translated = v.uv - pivot - offset;
+    let rotated = vec2<f32>(
+        translated.x * cos_theta - translated.y * sin_theta,
+        translated.x * sin_theta + translated.y * cos_theta
+    );
+    let sample_uv = rotated / scale + pivot;
+    return sample_src_with_transparent_border(sample_uv);
+}
+
+@fragment
+fn fs_color_adjust(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);
     let brightness = u_op.p0.x;
     let gain_r = u_op.p0.y;
@@ -647,7 +671,7 @@ fn fs_tone_map(v: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(contrasted, src.a);
 }
 
-fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) -> vec4<f32> {
+fn apply_color_adjust_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) -> vec4<f32> {
     let brightness = transform.x;
     let gain_r = transform.y;
     let gain_g = transform.z;
@@ -662,10 +686,10 @@ fn apply_transform_step(src: vec4<f32>, transform: vec4<f32>, alpha_mul: f32) ->
 }
 
 @fragment
-fn fs_transform_fused(v: VertexOut) -> @location(0) vec4<f32> {
+fn fs_color_adjust_fused(v: VertexOut) -> @location(0) vec4<f32> {
     let src = textureSample(t_src, s_src, v.uv);
-    let first = apply_transform_step(src, u_op.p0, u_op.p1.x);
-    let second = apply_transform_step(first, u_op.p2, u_op.p3.x);
+    let first = apply_color_adjust_step(src, u_op.p0, u_op.p1.x);
+    let second = apply_color_adjust_step(first, u_op.p2, u_op.p3.x);
     return second;
 }
 
@@ -1076,12 +1100,12 @@ mod tests {
             "fn fs_grid(",
             "fn fs_sphere(",
             "fn fs_source_noise(",
-            "fn fs_transform(",
+            "fn fs_transform_2d(",
             "fn fs_level(",
             "fn fs_mask(",
             "fn fs_morphology(",
             "fn fs_tone_map(",
-            "fn fs_transform_fused(",
+            "fn fs_color_adjust_fused(",
             "fn fs_feedback(",
             "fn fs_reaction_diffusion(",
             "fn fs_directional_smear(",

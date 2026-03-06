@@ -96,7 +96,7 @@ fn feedback_accumulation_binding_allows_downstream_transform_source() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
     let feedback = project.add_node(ProjectNodeKind::TexFeedback, 180, 40, 420, 480);
-    let xform = project.add_node(ProjectNodeKind::TexTransform2D, 340, 40, 420, 480);
+    let xform = project.add_node(ProjectNodeKind::TexColorAdjust, 340, 40, 420, 480);
     let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
     assert!(project.connect_image_link(solid, feedback));
     assert!(project.connect_image_link(feedback, xform));
@@ -116,7 +116,7 @@ fn feedback_accumulation_binding_allows_downstream_transform_source() {
             ..
         } if texture_node_id == xform
     ));
-    assert!(matches!(ops[2], TexRuntimeOp::Transform { .. }));
+    assert!(matches!(ops[2], TexRuntimeOp::ColorAdjust { .. }));
     assert!(matches!(
         ops[3],
         TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform

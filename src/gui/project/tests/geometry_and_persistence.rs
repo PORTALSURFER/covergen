@@ -1,4 +1,5 @@
 use super::*;
+use crate::gui::project::PersistedGuiNode;
 #[test]
 fn render_signature_changes_when_links_change() {
     let mut project = GuiProject::new_empty(640, 480);
@@ -198,4 +199,66 @@ fn from_persisted_reports_dropped_unknown_params() {
             solid_id
         )
     );
+}
+
+#[test]
+fn legacy_transform_2d_color_adjust_loads_as_color_adjust_node() {
+    let persisted = PersistedGuiProject {
+        version: 1,
+        name: "legacy-transform".to_string(),
+        preview_width: 640,
+        preview_height: 480,
+        nodes: vec![PersistedGuiNode {
+            id: 1,
+            kind: "tex.transform_2d".to_string(),
+            x: 40,
+            y: 60,
+            texture_input: None,
+            selected_param: 0,
+            expanded: true,
+            params: vec![
+                PersistedGuiParam {
+                    key: "brightness".to_string(),
+                    value: 1.25,
+                    signal_source: None,
+                    texture_source: None,
+                },
+                PersistedGuiParam {
+                    key: "gain_r".to_string(),
+                    value: 0.8,
+                    signal_source: None,
+                    texture_source: None,
+                },
+                PersistedGuiParam {
+                    key: "gain_g".to_string(),
+                    value: 0.9,
+                    signal_source: None,
+                    texture_source: None,
+                },
+                PersistedGuiParam {
+                    key: "gain_b".to_string(),
+                    value: 1.1,
+                    signal_source: None,
+                    texture_source: None,
+                },
+                PersistedGuiParam {
+                    key: "alpha_mul".to_string(),
+                    value: 0.7,
+                    signal_source: None,
+                    texture_source: None,
+                },
+            ],
+        }],
+    };
+
+    let loaded = GuiProject::from_persisted_with_warnings(persisted, 420, 480)
+        .expect("legacy transform should load");
+    let node = loaded.project.nodes().first().expect("node should exist");
+    assert_eq!(node.kind(), ProjectNodeKind::TexColorAdjust);
+    assert_eq!(
+        loaded.project.node_param_raw_value(node.id(), 0),
+        Some(1.25)
+    );
+    assert_eq!(loaded.project.node_param_raw_value(node.id(), 4), Some(0.7));
+    assert!(loaded.warnings.is_empty());
 }

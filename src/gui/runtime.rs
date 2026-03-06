@@ -150,7 +150,17 @@ pub(crate) enum TexRuntimeOp {
         alpha_clip: bool,
     },
     /// `tex.transform_2d` operation.
-    Transform {
+    Transform2D {
+        offset_x: f32,
+        offset_y: f32,
+        scale_x: f32,
+        scale_y: f32,
+        rotate_deg: f32,
+        pivot_x: f32,
+        pivot_y: f32,
+    },
+    /// `tex.color_adjust` operation.
+    ColorAdjust {
         brightness: f32,
         gain_r: f32,
         gain_g: f32,
@@ -284,7 +294,8 @@ enum CompiledStepKind {
     SceneBuild,
     Camera,
     ScenePass,
-    Transform,
+    Transform2D,
+    ColorAdjust,
     Level,
     Mask,
     Morphology,
@@ -464,7 +475,8 @@ impl GuiCompiledRuntime {
             CompiledStepKind::SceneBuild => Self::mark_scene_ready(step_state),
             CompiledStepKind::Camera => Self::update_camera(step, step_state, ctx),
             CompiledStepKind::ScenePass => Self::emit_scene_pass(step, step_state, ctx),
-            CompiledStepKind::Transform => Self::emit_transform(step, ctx),
+            CompiledStepKind::Transform2D => Self::emit_transform_2d(step, ctx),
+            CompiledStepKind::ColorAdjust => Self::emit_color_adjust(step, ctx),
             CompiledStepKind::Level => Self::emit_level(step, ctx),
             CompiledStepKind::Mask => Self::emit_mask(step, ctx),
             CompiledStepKind::Morphology => Self::emit_morphology(step, ctx),
@@ -818,23 +830,60 @@ impl GuiCompiledRuntime {
             .clamp(0.1, 8.0);
     }
 
-    fn emit_transform(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+    fn emit_transform_2d(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let offset_x = ctx
+            .param(step, param_schema::transform_2d::OFFSET_X_INDEX)
+            .unwrap_or(0.0);
+        let offset_y = ctx
+            .param(step, param_schema::transform_2d::OFFSET_Y_INDEX)
+            .unwrap_or(0.0);
+        let scale_x = ctx
+            .param(step, param_schema::transform_2d::SCALE_X_INDEX)
+            .unwrap_or(1.0)
+            .max(0.05);
+        let scale_y = ctx
+            .param(step, param_schema::transform_2d::SCALE_Y_INDEX)
+            .unwrap_or(1.0)
+            .max(0.05);
+        let rotate_deg = ctx
+            .param(step, param_schema::transform_2d::ROTATE_DEG_INDEX)
+            .unwrap_or(0.0);
+        let pivot_x = ctx
+            .param(step, param_schema::transform_2d::PIVOT_X_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        let pivot_y = ctx
+            .param(step, param_schema::transform_2d::PIVOT_Y_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::Transform2D {
+            offset_x,
+            offset_y,
+            scale_x,
+            scale_y,
+            rotate_deg,
+            pivot_x,
+            pivot_y,
+        });
+    }
+
+    fn emit_color_adjust(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
         let brightness = ctx
-            .param(step, param_schema::transform_2d::BRIGHTNESS_INDEX)
+            .param(step, param_schema::color_adjust::BRIGHTNESS_INDEX)
             .unwrap_or(1.0);
         let gain_r = ctx
-            .param(step, param_schema::transform_2d::GAIN_R_INDEX)
+            .param(step, param_schema::color_adjust::GAIN_R_INDEX)
             .unwrap_or(1.0);
         let gain_g = ctx
-            .param(step, param_schema::transform_2d::GAIN_G_INDEX)
+            .param(step, param_schema::color_adjust::GAIN_G_INDEX)
             .unwrap_or(1.0);
         let gain_b = ctx
-            .param(step, param_schema::transform_2d::GAIN_B_INDEX)
+            .param(step, param_schema::color_adjust::GAIN_B_INDEX)
             .unwrap_or(1.0);
         let alpha_mul = ctx
-            .param(step, param_schema::transform_2d::ALPHA_MUL_INDEX)
+            .param(step, param_schema::color_adjust::ALPHA_MUL_INDEX)
             .unwrap_or(1.0);
-        ctx.out_ops.push(TexRuntimeOp::Transform {
+        ctx.out_ops.push(TexRuntimeOp::ColorAdjust {
             brightness,
             gain_r,
             gain_g,

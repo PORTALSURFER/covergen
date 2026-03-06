@@ -240,8 +240,10 @@ pub(crate) enum ProjectNodeKind {
     BufCircleNurbs,
     /// `buf.noise` mesh deformation node.
     BufNoise,
-    /// `tex.transform_2d` render node for texture-space color/alpha mutation.
+    /// `tex.transform_2d` render node for 2D texture translation/rotation/scale.
     TexTransform2D,
+    /// `tex.color_adjust` render node for texture-space color/alpha mutation.
+    TexColorAdjust,
     /// `tex.level` render node for input/output remapping and gamma shaping.
     TexLevel,
     /// `tex.mask` render node for soft threshold mask extraction.
@@ -307,7 +309,7 @@ pub(crate) struct ProjectNodeKindDescriptor {
     shows_signal_preview: bool,
 }
 
-const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 34] = [
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 35] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
@@ -391,6 +393,16 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 34] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexTransform2D,
         stable_id: "tex.transform_2d",
+        menu_category: NodeMenuCategory::Texture,
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexColorAdjust,
+        stable_id: "tex.color_adjust",
         menu_category: NodeMenuCategory::Texture,
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),

@@ -147,7 +147,7 @@
     },
     {
       "id": 4,
-      "kind": "tex.transform_2d",
+      "kind": "tex.color_adjust",
       "x": 340,
       "y": 220,
       "texture_input": 3,
@@ -316,3 +316,4 @@
     }
   ]
 }
+

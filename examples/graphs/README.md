@@ -9,8 +9,8 @@ This directory contains ready-to-load GUI project graphs.
     1. `tex.circle` produces the moving live shape.
     2. `tex.feedback` reads prior history (one-frame delayed).
     3. `tex.blend` composites live circle over prior history.
-    4. `tex.transform_2d` fades the composite via `alpha_mul` (opacity/energy).
-    5. `tex.feedback.accumulation_tex` is bound to `tex.transform_2d` output to store the faded result for the next frame.
+    4. `tex.color_adjust` fades the composite via `alpha_mul` (opacity/energy).
+    5. `tex.feedback.accumulation_tex` is bound to `tex.color_adjust` output to store the faded result for the next frame.
 - `marbled_ink_monochrome.json`
   - Organic monochrome marbling demo:
     1. Three `tex.source_noise` nodes use `simplex`, `ridged`, and `cellular` modes for coarse mass, warp flow, and void-pocket seeds.
@@ -26,4 +26,4 @@ This directory contains ready-to-load GUI project graphs.
 2. Choose `Load Project`.
 3. Pick one of the JSON files in this directory.
 
-Tip: If the trail is too short, increase `tex.transform_2d.alpha_mul` toward `1.0`.
+Tip: If the trail is too short, increase `tex.color_adjust.alpha_mul` toward `1.0`.

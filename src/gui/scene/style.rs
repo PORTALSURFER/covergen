@@ -87,7 +87,9 @@ pub(super) fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::BufGrid => Color::argb(AGIO.node_header_buf_circle_nurbs),
         ProjectNodeKind::BufCircleNurbs => Color::argb(AGIO.node_header_buf_circle_nurbs),
         ProjectNodeKind::BufNoise => Color::argb(AGIO.node_header_buf_noise),
-        ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
+        ProjectNodeKind::TexTransform2D | ProjectNodeKind::TexColorAdjust => {
+            Color::argb(AGIO.node_header_tex_transform_2d)
+        }
         ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
         ProjectNodeKind::TexMask => Color::argb(AGIO.node_header_tex_mask),
         ProjectNodeKind::TexMorphology => Color::argb(AGIO.node_header_tex_mask),

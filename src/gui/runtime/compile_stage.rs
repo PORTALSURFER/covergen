@@ -129,8 +129,25 @@ pub(super) fn compile_node(
                 out_steps.push(compiled_step(
                     project,
                     node_id,
-                    CompiledStepKind::Transform,
+                    CompiledStepKind::Transform2D,
                     &param_schema::transform_2d::KEYS,
+                ));
+                true
+            }
+        }
+        ProjectNodeKind::TexColorAdjust => {
+            let source_id = match project.input_source_node_id(node_id) {
+                Some(id) => id,
+                None => return false,
+            };
+            if !compile_node(project, source_id, traversal, out_steps) {
+                false
+            } else {
+                out_steps.push(compiled_step(
+                    project,
+                    node_id,
+                    CompiledStepKind::ColorAdjust,
+                    &param_schema::color_adjust::KEYS,
                 ));
                 true
             }

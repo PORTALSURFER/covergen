@@ -70,7 +70,41 @@ fn transform_defaults_are_identity() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(
         ops[1],
-        TexRuntimeOp::Transform {
+        TexRuntimeOp::Transform2D {
+            offset_x,
+            offset_y,
+            scale_x,
+            scale_y,
+            rotate_deg,
+            pivot_x,
+            pivot_y
+        } if offset_x == 0.0
+            && offset_y == 0.0
+            && scale_x == 1.0
+            && scale_y == 1.0
+            && rotate_deg == 0.0
+            && pivot_x == 0.5
+            && pivot_y == 0.5
+    ));
+}
+
+#[test]
+fn color_adjust_defaults_are_identity() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
+    let color_adjust = project.add_node(ProjectNodeKind::TexColorAdjust, 180, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 340, 40, 420, 480);
+    assert!(project.connect_image_link(solid, color_adjust));
+    assert!(project.connect_image_link(color_adjust, out));
+
+    let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
+    let mut eval_stack = SignalEvalStack::default();
+    let mut ops = Vec::new();
+    runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(
+        ops[1],
+        TexRuntimeOp::ColorAdjust {
             brightness,
             gain_r,
             gain_g,
@@ -271,7 +305,7 @@ fn blend_pipeline_compiles_to_store_and_blend_ops() {
 fn blend_pipeline_orders_branch_compilation_for_dependent_inputs() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 20, 40, 420, 480);
-    let xform = project.add_node(ProjectNodeKind::TexTransform2D, 180, 40, 420, 480);
+    let xform = project.add_node(ProjectNodeKind::TexColorAdjust, 180, 40, 420, 480);
     let blend = project.add_node(ProjectNodeKind::TexBlend, 340, 40, 420, 480);
     let out = project.add_node(ProjectNodeKind::IoWindowOut, 500, 40, 420, 480);
     assert!(project.connect_image_link(solid, xform));
@@ -288,7 +322,7 @@ fn blend_pipeline_orders_branch_compilation_for_dependent_inputs() {
         ops[1],
         TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == solid
     ));
-    assert!(matches!(ops[2], TexRuntimeOp::Transform { .. }));
+    assert!(matches!(ops[2], TexRuntimeOp::ColorAdjust { .. }));
     assert!(matches!(
         ops[3],
         TexRuntimeOp::StoreTexture { texture_node_id } if texture_node_id == xform

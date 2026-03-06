@@ -28,6 +28,7 @@ fn schema_key_arrays_have_unique_entries() {
         &render_camera::KEYS,
         &render_scene_pass::KEYS,
         &transform_2d::KEYS,
+        &color_adjust::KEYS,
         &level::KEYS,
         &source_noise::KEYS,
         &feedback::KEYS,
@@ -79,6 +80,28 @@ fn index_constants_match_declared_key_order() {
             (source_noise::OCTAVES_INDEX, source_noise::OCTAVES),
             (source_noise::AMPLITUDE_INDEX, source_noise::AMPLITUDE),
             (source_noise::MODE_INDEX, source_noise::MODE),
+        ],
+    );
+    assert_index_map(
+        &transform_2d::KEYS,
+        &[
+            (transform_2d::OFFSET_X_INDEX, transform_2d::OFFSET_X),
+            (transform_2d::OFFSET_Y_INDEX, transform_2d::OFFSET_Y),
+            (transform_2d::SCALE_X_INDEX, transform_2d::SCALE_X),
+            (transform_2d::SCALE_Y_INDEX, transform_2d::SCALE_Y),
+            (transform_2d::ROTATE_DEG_INDEX, transform_2d::ROTATE_DEG),
+            (transform_2d::PIVOT_X_INDEX, transform_2d::PIVOT_X),
+            (transform_2d::PIVOT_Y_INDEX, transform_2d::PIVOT_Y),
+        ],
+    );
+    assert_index_map(
+        &color_adjust::KEYS,
+        &[
+            (color_adjust::BRIGHTNESS_INDEX, color_adjust::BRIGHTNESS),
+            (color_adjust::GAIN_R_INDEX, color_adjust::GAIN_R),
+            (color_adjust::GAIN_G_INDEX, color_adjust::GAIN_G),
+            (color_adjust::GAIN_B_INDEX, color_adjust::GAIN_B),
+            (color_adjust::ALPHA_MUL_INDEX, color_adjust::ALPHA_MUL),
         ],
     );
     assert_index_map(

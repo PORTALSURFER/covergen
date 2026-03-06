@@ -116,10 +116,69 @@ pub(super) fn tex_source_noise_params() -> Vec<NodeParamSlot> {
 
 pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
     vec![
-        // Keep transform as identity by default so inserting this node
-        // never changes output until the user edits parameters.
         param(
-            param_schema::transform_2d::BRIGHTNESS,
+            param_schema::transform_2d::OFFSET_X,
+            "offset_x",
+            0.0,
+            -1.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::transform_2d::OFFSET_Y,
+            "offset_y",
+            0.0,
+            -1.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::transform_2d::SCALE_X,
+            "scale_x",
+            1.0,
+            0.05,
+            8.0,
+            0.01,
+        ),
+        param(
+            param_schema::transform_2d::SCALE_Y,
+            "scale_y",
+            1.0,
+            0.05,
+            8.0,
+            0.01,
+        ),
+        param(
+            param_schema::transform_2d::ROTATE_DEG,
+            "rotate",
+            0.0,
+            -180.0,
+            180.0,
+            1.0,
+        ),
+        param(
+            param_schema::transform_2d::PIVOT_X,
+            "pivot_x",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::transform_2d::PIVOT_Y,
+            "pivot_y",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+        ),
+    ]
+}
+
+pub(super) fn tex_color_adjust_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::color_adjust::BRIGHTNESS,
             "brightness",
             1.0,
             0.0,
@@ -127,7 +186,7 @@ pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
             0.1,
         ),
         param(
-            param_schema::transform_2d::GAIN_R,
+            param_schema::color_adjust::GAIN_R,
             "gain_r",
             1.0,
             0.0,
@@ -135,7 +194,7 @@ pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
             0.1,
         ),
         param(
-            param_schema::transform_2d::GAIN_G,
+            param_schema::color_adjust::GAIN_G,
             "gain_g",
             1.0,
             0.0,
@@ -143,7 +202,7 @@ pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
             0.1,
         ),
         param(
-            param_schema::transform_2d::GAIN_B,
+            param_schema::color_adjust::GAIN_B,
             "gain_b",
             1.0,
             0.0,
@@ -151,7 +210,7 @@ pub(super) fn tex_transform_2d_params() -> Vec<NodeParamSlot> {
             0.1,
         ),
         param(
-            param_schema::transform_2d::ALPHA_MUL,
+            param_schema::color_adjust::ALPHA_MUL,
             "alpha_mul",
             1.0,
             0.0,

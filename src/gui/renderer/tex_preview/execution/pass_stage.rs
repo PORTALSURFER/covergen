@@ -100,10 +100,10 @@ impl TexPreviewRenderer {
                     }
                 }
             }
-            PlannedRenderOp::TransformPair { .. } => {
+            PlannedRenderOp::ColorAdjustPair { .. } => {
                 let src_target = source_target?;
                 let src_bind_group = self.target_bind_group(src_target)?;
-                pass.set_pipeline(self.op_transform_fused_pipeline.as_ref()?);
+                pass.set_pipeline(self.op_color_adjust_fused_pipeline.as_ref()?);
                 pass.set_bind_group(0, &self.op_uniform_bind_group, &[prepared.dynamic_offset]);
                 pass.set_bind_group(1, src_bind_group, &[]);
                 pass.set_bind_group(2, self.dummy_bind_group.as_ref()?, &[]);
@@ -121,7 +121,8 @@ impl TexPreviewRenderer {
             RuntimeOpPipelineKind::Grid => self.op_grid_pipeline.as_ref(),
             RuntimeOpPipelineKind::Sphere => self.op_sphere_pipeline.as_ref(),
             RuntimeOpPipelineKind::SourceNoise => self.op_source_noise_pipeline.as_ref(),
-            RuntimeOpPipelineKind::Transform => self.op_transform_pipeline.as_ref(),
+            RuntimeOpPipelineKind::Transform2D => self.op_transform_2d_pipeline.as_ref(),
+            RuntimeOpPipelineKind::ColorAdjust => self.op_color_adjust_pipeline.as_ref(),
             RuntimeOpPipelineKind::Level => self.op_level_pipeline.as_ref(),
             RuntimeOpPipelineKind::Mask => self.op_mask_pipeline.as_ref(),
             RuntimeOpPipelineKind::Morphology => self.op_morphology_pipeline.as_ref(),
