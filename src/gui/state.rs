@@ -244,6 +244,55 @@ pub(crate) struct TimelineBpmEditState {
     pub(crate) anchor: usize,
 }
 
+const FPS_AVERAGE_WINDOW: usize = 60;
+
+/// Rolling frame-time average used for stable FPS readout in the editor UI.
+///
+/// The window is intentionally long enough to suppress single-frame spikes
+/// while still surfacing sustained drops that have visible user impact.
+#[derive(Clone, Debug)]
+pub(crate) struct FpsAverager {
+    frame_secs: [f32; FPS_AVERAGE_WINDOW],
+    next_index: usize,
+    sample_count: usize,
+    sum_secs: f32,
+}
+
+impl Default for FpsAverager {
+    fn default() -> Self {
+        Self {
+            frame_secs: [0.0; FPS_AVERAGE_WINDOW],
+            next_index: 0,
+            sample_count: 0,
+            sum_secs: 0.0,
+        }
+    }
+}
+
+impl FpsAverager {
+    /// Push one frame duration sample and return the averaged FPS estimate.
+    pub(crate) fn push_frame(&mut self, frame_secs: f32) -> f32 {
+        let clamped = frame_secs.max(1e-4);
+        if self.sample_count < FPS_AVERAGE_WINDOW {
+            self.sample_count += 1;
+        } else {
+            self.sum_secs -= self.frame_secs[self.next_index];
+        }
+        self.frame_secs[self.next_index] = clamped;
+        self.sum_secs += clamped;
+        self.next_index = (self.next_index + 1) % FPS_AVERAGE_WINDOW;
+        self.average_fps()
+    }
+
+    /// Return the current moving-average FPS estimate.
+    pub(crate) fn average_fps(&self) -> f32 {
+        if self.sample_count == 0 || self.sum_secs <= 0.0 {
+            return 0.0;
+        }
+        self.sample_count as f32 / self.sum_secs
+    }
+}
+
 /// Runtime animation/editor state for one GUI session.
 #[derive(Clone, Debug)]
 pub(crate) struct PreviewState {
@@ -253,6 +302,7 @@ pub(crate) struct PreviewState {
     pub(crate) timeline_scrub_active: bool,
     pub(crate) timeline_volume_drag_active: bool,
     pub(crate) avg_fps: f32,
+    pub(crate) fps_averager: FpsAverager,
     pub(crate) prev_left_down: bool,
     pub(crate) drag: Option<DragState>,
     pub(crate) wire_drag: Option<WireDragState>,
@@ -315,6 +365,7 @@ impl PreviewState {
             timeline_scrub_active: false,
             timeline_volume_drag_active: false,
             avg_fps: 0.0,
+            fps_averager: FpsAverager::default(),
             prev_left_down: false,
             drag: None,
             wire_drag: None,

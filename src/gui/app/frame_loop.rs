@@ -136,7 +136,7 @@ impl GuiApp {
             .timeline_total_frames(self.config.animation.fps);
         scene_dirty |= self.update_timeline_state(frame_delta, timeline_total_frames);
         self.sync_timeline_audio_preview(timeline_total_frames);
-        self.state.avg_fps = smoothed_fps(self.state.avg_fps, frame_delta);
+        self.state.avg_fps = averaged_fps(&mut self.state.fps_averager, frame_delta);
         self.apply_project_scoped_invalidation(scene_invalidation_before, resize_changed);
         Ok(FrameUpdatePhase {
             scene_dirty,
@@ -468,12 +468,8 @@ fn should_render_phase(
     scene_dirty || needs_redraw || export_active || continuous_redraw
 }
 
-fn smoothed_fps(previous: f32, frame_elapsed: Duration) -> f32 {
-    let inst = 1.0 / frame_elapsed.as_secs_f32().max(1e-4);
-    if previous <= 0.0 {
-        return inst;
-    }
-    previous * 0.9 + inst * 0.1
+fn averaged_fps(averager: &mut crate::gui::state::FpsAverager, frame_elapsed: Duration) -> f32 {
+    averager.push_frame(frame_elapsed.as_secs_f32())
 }
 
 fn input_has_project_mutation_intent(input: &InputSnapshot) -> bool {
@@ -508,20 +504,38 @@ fn input_has_project_mutation_intent(input: &InputSnapshot) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{input_has_project_mutation_intent, should_render_phase, smoothed_fps};
-    use crate::gui::state::InputSnapshot;
+    use super::{averaged_fps, input_has_project_mutation_intent, should_render_phase};
+    use crate::gui::state::{FpsAverager, InputSnapshot};
     use std::time::Duration;
 
     #[test]
-    fn smoothed_fps_uses_instant_value_when_previous_is_uninitialized() {
-        let fps = smoothed_fps(0.0, Duration::from_millis(16));
+    fn averaged_fps_uses_instant_value_when_uninitialized() {
+        let mut averager = FpsAverager::default();
+        let fps = averaged_fps(&mut averager, Duration::from_millis(16));
         assert!(fps > 62.0 && fps < 63.0);
     }
 
     #[test]
-    fn smoothed_fps_blends_previous_and_instant_values() {
-        let fps = smoothed_fps(60.0, Duration::from_millis(10));
-        assert!((fps - 64.0).abs() < 1e-3);
+    fn averaged_fps_uses_moving_average_over_recent_frame_times() {
+        let mut averager = FpsAverager::default();
+        for _ in 0..59 {
+            let _ = averaged_fps(&mut averager, Duration::from_millis(16));
+        }
+        let fps = averaged_fps(&mut averager, Duration::from_millis(33));
+        assert!(fps > 60.0 && fps < 62.0);
+    }
+
+    #[test]
+    fn averaged_fps_surfaces_sustained_slowdown() {
+        let mut averager = FpsAverager::default();
+        for _ in 0..60 {
+            let _ = averaged_fps(&mut averager, Duration::from_millis(16));
+        }
+        for _ in 0..30 {
+            let _ = averaged_fps(&mut averager, Duration::from_millis(33));
+        }
+        let fps = averaged_fps(&mut averager, Duration::from_millis(33));
+        assert!(fps < 50.0);
     }
 
     #[test]
