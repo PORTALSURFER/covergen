@@ -94,7 +94,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::runtime`
     - Verify identical rendered output and reduced CPU time in animation playback.
 
-- [ ] 5. Avoid unconditional full `cached_plan_ops` copy in tex-preview dispatch planning
+- [x] 5. Avoid unconditional full `cached_plan_ops` copy in tex-preview dispatch planning
+  - Completed: 2026-03-06 (`5cd49dc` `perf: avoid redundant tex preview plan op copies`)
   - ROI: High
   - Effort: M
   - Expected impact: frame time, CPU, memory churn
