@@ -111,7 +111,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::renderer::tex_preview`
     - GUI benchmark runs with static and animated graphs; compare CPU usage and frame pacing.
 
-- [ ] 6. Optimize link-cut release path with stamp dedupe and routed-path reuse
+- [x] 6. Optimize link-cut release path with stamp dedupe and routed-path reuse
+  - Completed: 2026-03-06 (`42a5570` `perf: dedupe cut links during collection`)
   - ROI: High
   - Effort: M
   - Expected impact: p95 interaction latency (mouse-up), CPU
