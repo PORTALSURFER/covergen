@@ -1,6 +1,6 @@
 # MEMORY.md
 
-Last Updated: 2026-03-05 17:39:12 UTC
+Last Updated: 2026-03-06 11:05:00 UTC
 
 ## Current Mission
 Current work focuses on building a Windows-first, GPU-only shader/video playground with a high-performance node graph editor, real-time output, and fast GPU-accelerated export.
@@ -25,14 +25,13 @@ Current work focuses on building a Windows-first, GPU-only shader/video playgrou
 - Housekeeping preflight runs through `scripts/run_agent_request.sh`.
 - `scripts/ci_local.sh` supports no-arg execution and defaults to `validate laptop_integrated`.
 - Rust-gpu shader artifacts are validated/built through the existing `scripts/shaders/*` flows.
-- Deep performance audit backlog is refreshed in `tmp/perf_plan.md` with a new ROI-ranked Phase 1 list (12 items) based on current hot-path evidence in GUI interaction, scene build, tex-preview planning, startup, and runtime GPU dispatch.
-- Performance work is currently in approval-gated state: Phase 1 planning is complete and Phase 2 implementation has not started for the refreshed list.
-- Deep cleanup audit backlog is tracked in `tmp/cleanup_plan.md`; Phase 2 is complete and items 1-12 are complete (`5cef86b`, `3f9e6df`, `cc92cce`, `11a4639`, `7d7e044`, `6438d08`, `b078cf0`, `9853ed5`, `1693ba0`, `ea5583f`, `8b1e7bd`, `605bc08`).
+- Deep performance backlog remains documented in `tmp/perf_plan.md`; the latest ROI-ranked performance tranche is already implemented and the plan file reflects completed status.
+- Deep cleanup backlog is refreshed in `tmp/cleanup_plan.md`; Phase 1 audit is complete, Phase 2 has not started, and execution is awaiting explicit approval.
 
 ## Active Queue
 Immediate ordered tasks are in `docs/plans/active/todo.md`.
-Performance Phase 1 backlog and approval-gated Phase 2 sequence are in `tmp/perf_plan.md`.
-Cleanup execution backlog and next ROI-ordered implementation queue are in `tmp/cleanup_plan.md`.
+Performance backlog and completed ROI history are in `tmp/perf_plan.md`.
+Cleanup audit backlog and next ROI-ordered implementation queue are in `tmp/cleanup_plan.md`.
 
 ## Current Risks
 - Node-editor and tex-viewer responsiveness can regress under larger graph sizes and violate frame-pacing targets.
