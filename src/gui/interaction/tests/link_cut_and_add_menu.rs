@@ -197,6 +197,52 @@ fn alt_cut_unbinds_parameter_link_when_cut_crosses_routed_param_wire() {
 }
 
 #[test]
+fn collect_cut_links_dedupes_fallback_hits_for_same_link() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 240, 80, 420, 480);
+    assert!(project.connect_image_link(solid, out));
+
+    let (from_x, from_y) = {
+        let source = project.node(solid).expect("solid node should exist");
+        output_pin_center(source).expect("source output pin should exist")
+    };
+    let (to_x, to_y) = {
+        let target = project.node(out).expect("out node should exist");
+        input_pin_center(target).expect("target input pin should exist")
+    };
+    let cut_x = (from_x + to_x) / 2;
+    let cut = LinkCutState {
+        start_x: cut_x,
+        start_y: from_y.min(to_y) - 24,
+        cursor_x: cut_x,
+        cursor_y: from_y.max(to_y) + 24,
+    };
+    let state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+
+    let links = collect_cut_links(
+        &project,
+        420,
+        480,
+        &state,
+        LinkCutState { start_y: -8, ..cut },
+    );
+    assert_eq!(
+        links.len(),
+        1,
+        "fallback scan should not duplicate cut hits"
+    );
+    assert_eq!(
+        links[0],
+        CutLink {
+            source_id: solid,
+            target_id: out,
+            param_index: None,
+        }
+    );
+}
+
+#[test]
 fn add_menu_category_then_secondary_picker_spawns_node() {
     let mut project = GuiProject::new_empty(640, 480);
     let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));

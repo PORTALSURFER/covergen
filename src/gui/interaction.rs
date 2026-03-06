@@ -32,6 +32,7 @@ use self::menu_graph_phase::apply_menu_or_graph_phase;
 use self::navigation_phase::apply_navigation_phase;
 use self::overlay_param_phase::apply_overlay_and_param_phase;
 use crate::runtime_config::V2Config;
+use std::collections::HashSet;
 use std::time::Duration;
 
 use super::geometry::{
@@ -67,7 +68,7 @@ const PARAM_WIRE_ENTRY_TAIL_PX: i32 = 18;
 const INSERT_WIRE_HOVER_RADIUS_PX: i32 = 10;
 const NODE_OVERLAP_SNAP_GAP_PX: i32 = 12;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct CutLink {
     source_id: u32,
     target_id: u32,
@@ -801,6 +802,7 @@ fn collect_cut_links(
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
+    let mut seen = HashSet::new();
     let obstacle_key = route_cache::obstacle_key_for_project(project, None);
     let obstacles = collect_graph_node_obstacles(project);
     let route_map =
@@ -815,6 +817,7 @@ fn collect_cut_links(
             &route_map,
             obstacle_key,
             target_id,
+            &mut seen,
             &mut links,
         );
     }
@@ -829,12 +832,11 @@ fn collect_cut_links(
                 &route_map,
                 obstacle_key,
                 target.id(),
+                &mut seen,
                 &mut links,
             );
         }
     }
-    links.sort_unstable();
-    links.dedup();
     links
 }
 
@@ -845,6 +847,7 @@ fn collect_cut_links_for_target(
     route_map: &super::scene::wire_route::RouteObstacleMap,
     obstacle_key: route_cache::InteractionObstacleKey,
     target_id: u32,
+    seen: &mut HashSet<CutLink>,
     links: &mut Vec<CutLink>,
 ) {
     let Some(target) = project.node(target_id) else {
@@ -874,11 +877,15 @@ fn collect_cut_links_for_target(
         );
         let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
-            links.push(CutLink {
-                source_id: texture_source_id,
-                target_id,
-                param_index: None,
-            });
+            push_cut_link(
+                CutLink {
+                    source_id: texture_source_id,
+                    target_id,
+                    param_index: None,
+                },
+                seen,
+                links,
+            );
         }
     }
     for param_index in 0..target.param_count() {
@@ -914,12 +921,22 @@ fn collect_cut_links_for_target(
         );
         let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
-            links.push(CutLink {
-                source_id,
-                target_id,
-                param_index: Some(param_index),
-            });
+            push_cut_link(
+                CutLink {
+                    source_id,
+                    target_id,
+                    param_index: Some(param_index),
+                },
+                seen,
+                links,
+            );
         }
+    }
+}
+
+fn push_cut_link(link: CutLink, seen: &mut HashSet<CutLink>, links: &mut Vec<CutLink>) {
+    if seen.insert(link) {
+        links.push(link);
     }
 }
 
