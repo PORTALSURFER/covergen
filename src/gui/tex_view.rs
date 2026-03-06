@@ -5,7 +5,7 @@
 
 mod signature;
 
-use self::signature::{ops_plan_signature, ops_uniform_signature};
+use self::signature::ops_signatures;
 use super::project::{GuiProject, SignalEvalStack};
 use super::runtime::{GuiCompiledRuntime, TexRuntimeFrameContext};
 use super::timeline::editor_panel_height;
@@ -179,8 +179,7 @@ impl TexViewerGenerator {
                 &mut self.ops,
             );
         }
-        self.ops_plan_signature = ops_plan_signature(self.ops.as_slice());
-        self.ops_uniform_signature = ops_uniform_signature(self.ops.as_slice());
+        (self.ops_plan_signature, self.ops_uniform_signature) = ops_signatures(self.ops.as_slice());
     }
 
     /// Return current frame payload, if viewer dimensions are valid.

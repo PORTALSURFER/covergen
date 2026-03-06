@@ -2,55 +2,14 @@
 
 use super::TexViewerOp;
 
-/// Hash operation structure for cache invalidation that depends on op shape/order only.
-pub(super) fn ops_plan_signature(ops: &[TexViewerOp]) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for op in ops {
-        match *op {
-            TexViewerOp::Solid { .. } => hash = fnv1a(hash, 1),
-            TexViewerOp::Circle { .. } => hash = fnv1a(hash, 2),
-            TexViewerOp::Sphere { .. } => hash = fnv1a(hash, 3),
-            TexViewerOp::Transform { .. } => hash = fnv1a(hash, 4),
-            TexViewerOp::Level { .. } => hash = fnv1a(hash, 5),
-            TexViewerOp::Feedback { history, .. } => {
-                hash = fnv1a(hash, 6);
-                hash = hash_feedback_binding(hash, history);
-            }
-            TexViewerOp::ReactionDiffusion { history, .. } => {
-                hash = fnv1a(hash, 7);
-                hash = hash_feedback_binding(hash, history);
-            }
-            TexViewerOp::PostProcess {
-                category, history, ..
-            } => {
-                hash = fnv1a(hash, 8);
-                hash = fnv1a(hash, category as u64);
-                hash = match history {
-                    Some(binding) => hash_feedback_binding(fnv1a(hash, 1), binding),
-                    None => fnv1a(hash, 0),
-                };
-            }
-            TexViewerOp::StoreTexture { texture_node_id } => {
-                hash = fnv1a(hash, 9);
-                hash = fnv1a(hash, texture_node_id as u64);
-            }
-            TexViewerOp::Blend {
-                base_texture_node_id,
-                layer_texture_node_id,
-                ..
-            } => {
-                hash = fnv1a(hash, 10);
-                hash = fnv1a(hash, base_texture_node_id as u64);
-                hash = fnv1a(hash, layer_texture_node_id.unwrap_or(0) as u64);
-            }
-        }
-    }
-    hash
-}
-
-/// Hash full operation payload values for uniform/bind-group update invalidation.
-pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
+/// Hash tex-view operations once and return both cache signatures.
+///
+/// The plan signature tracks op structure/order for execution-plan reuse while
+/// the uniform signature tracks full payload values for uniform/bind-group
+/// uploads. Returning both from one traversal avoids redundant hot-path scans.
+pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
+    let mut plan_hash = 0xcbf29ce484222325_u64;
+    let mut uniform_hash = 0xcbf29ce484222325_u64;
     for op in ops {
         match *op {
             TexViewerOp::Solid {
@@ -59,11 +18,12 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 color_b,
                 alpha,
             } => {
-                hash = fnv1a(hash, 1);
-                hash = hash_f32(hash, color_r);
-                hash = hash_f32(hash, color_g);
-                hash = hash_f32(hash, color_b);
-                hash = hash_f32(hash, alpha);
+                plan_hash = fnv1a(plan_hash, 1);
+                uniform_hash = fnv1a(uniform_hash, 1);
+                uniform_hash = hash_f32(uniform_hash, color_r);
+                uniform_hash = hash_f32(uniform_hash, color_g);
+                uniform_hash = hash_f32(uniform_hash, color_b);
+                uniform_hash = hash_f32(uniform_hash, alpha);
             }
             TexViewerOp::Circle {
                 center_x,
@@ -86,7 +46,8 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 alpha,
                 alpha_clip,
             } => {
-                hash = fnv1a(hash, 2);
+                plan_hash = fnv1a(plan_hash, 2);
+                uniform_hash = fnv1a(uniform_hash, 2);
                 for value in [
                     center_x,
                     center_y,
@@ -107,9 +68,9 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                     color_b,
                     alpha,
                 ] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
-                hash = fnv1a(hash, alpha_clip as u64);
+                uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
             }
             TexViewerOp::Sphere {
                 center_x,
@@ -131,7 +92,8 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 alpha,
                 alpha_clip,
             } => {
-                hash = fnv1a(hash, 3);
+                plan_hash = fnv1a(plan_hash, 3);
+                uniform_hash = fnv1a(uniform_hash, 3);
                 for value in [
                     center_x,
                     center_y,
@@ -151,9 +113,9 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                     color_b,
                     alpha,
                 ] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
-                hash = fnv1a(hash, alpha_clip as u64);
+                uniform_hash = fnv1a(uniform_hash, alpha_clip as u64);
             }
             TexViewerOp::Transform {
                 brightness,
@@ -162,9 +124,10 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 gain_b,
                 alpha_mul,
             } => {
-                hash = fnv1a(hash, 4);
+                plan_hash = fnv1a(plan_hash, 4);
+                uniform_hash = fnv1a(uniform_hash, 4);
                 for value in [brightness, gain_r, gain_g, gain_b, alpha_mul] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
             TexViewerOp::Level {
@@ -174,9 +137,10 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 out_low,
                 out_high,
             } => {
-                hash = fnv1a(hash, 5);
+                plan_hash = fnv1a(plan_hash, 5);
+                uniform_hash = fnv1a(uniform_hash, 5);
                 for value in [in_low, in_high, gamma, out_low, out_high] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
             TexViewerOp::Feedback {
@@ -184,10 +148,12 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 frame_gap,
                 history,
             } => {
-                hash = fnv1a(hash, 6);
-                hash = hash_f32(hash, mix);
-                hash = fnv1a(hash, frame_gap as u64);
-                hash = hash_feedback_binding(hash, history);
+                plan_hash = fnv1a(plan_hash, 6);
+                plan_hash = hash_feedback_binding(plan_hash, history);
+                uniform_hash = fnv1a(uniform_hash, 6);
+                uniform_hash = hash_f32(uniform_hash, mix);
+                uniform_hash = fnv1a(uniform_hash, frame_gap as u64);
+                uniform_hash = hash_feedback_binding(uniform_hash, history);
             }
             TexViewerOp::ReactionDiffusion {
                 diffusion_a,
@@ -198,11 +164,13 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 seed_mix,
                 history,
             } => {
-                hash = fnv1a(hash, 7);
+                plan_hash = fnv1a(plan_hash, 7);
+                plan_hash = hash_feedback_binding(plan_hash, history);
+                uniform_hash = fnv1a(uniform_hash, 7);
                 for value in [diffusion_a, diffusion_b, feed, kill, dt, seed_mix] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
-                hash = hash_feedback_binding(hash, history);
+                uniform_hash = hash_feedback_binding(uniform_hash, history);
             }
             TexViewerOp::PostProcess {
                 category,
@@ -214,19 +182,27 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 time,
                 history,
             } => {
-                hash = fnv1a(hash, 8);
-                hash = fnv1a(hash, category as u64);
+                plan_hash = fnv1a(plan_hash, 8);
+                plan_hash = fnv1a(plan_hash, category as u64);
+                uniform_hash = fnv1a(uniform_hash, 8);
+                uniform_hash = fnv1a(uniform_hash, category as u64);
                 for value in [effect, amount, scale, threshold, speed, time] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
-                hash = match history {
-                    Some(binding) => hash_feedback_binding(fnv1a(hash, 1), binding),
-                    None => fnv1a(hash, 0),
+                plan_hash = match history {
+                    Some(binding) => hash_feedback_binding(fnv1a(plan_hash, 1), binding),
+                    None => fnv1a(plan_hash, 0),
+                };
+                uniform_hash = match history {
+                    Some(binding) => hash_feedback_binding(fnv1a(uniform_hash, 1), binding),
+                    None => fnv1a(uniform_hash, 0),
                 };
             }
             TexViewerOp::StoreTexture { texture_node_id } => {
-                hash = fnv1a(hash, 9);
-                hash = fnv1a(hash, texture_node_id as u64);
+                plan_hash = fnv1a(plan_hash, 9);
+                plan_hash = fnv1a(plan_hash, texture_node_id as u64);
+                uniform_hash = fnv1a(uniform_hash, 9);
+                uniform_hash = fnv1a(uniform_hash, texture_node_id as u64);
             }
             TexViewerOp::Blend {
                 mode,
@@ -238,16 +214,19 @@ pub(super) fn ops_uniform_signature(ops: &[TexViewerOp]) -> u64 {
                 base_texture_node_id,
                 layer_texture_node_id,
             } => {
-                hash = fnv1a(hash, 10);
+                plan_hash = fnv1a(plan_hash, 10);
+                plan_hash = fnv1a(plan_hash, base_texture_node_id as u64);
+                plan_hash = fnv1a(plan_hash, layer_texture_node_id.unwrap_or(0) as u64);
+                uniform_hash = fnv1a(uniform_hash, 10);
                 for value in [mode, opacity, bg_r, bg_g, bg_b, bg_a] {
-                    hash = hash_f32(hash, value);
+                    uniform_hash = hash_f32(uniform_hash, value);
                 }
-                hash = fnv1a(hash, base_texture_node_id as u64);
-                hash = fnv1a(hash, layer_texture_node_id.unwrap_or(0) as u64);
+                uniform_hash = fnv1a(uniform_hash, base_texture_node_id as u64);
+                uniform_hash = fnv1a(uniform_hash, layer_texture_node_id.unwrap_or(0) as u64);
             }
         }
     }
-    hash
+    (plan_hash, uniform_hash)
 }
 
 fn hash_feedback_binding(
@@ -271,4 +250,68 @@ fn hash_f32(hash: u64, value: f32) -> u64 {
 
 fn fnv1a(hash: u64, value: u64) -> u64 {
     (hash ^ value).wrapping_mul(0x100000001b3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ops_signatures;
+    use crate::gui::runtime::{
+        PostProcessCategory, TexRuntimeFeedbackHistoryBinding, TexRuntimeOp,
+    };
+
+    #[test]
+    fn one_pass_signature_hashing_distinguishes_structure_and_uniform_changes() {
+        let base = [TexRuntimeOp::PostProcess {
+            category: PostProcessCategory::Temporal,
+            effect: 0.5,
+            amount: 0.25,
+            scale: 1.0,
+            threshold: 0.3,
+            speed: 0.75,
+            time: 2.0,
+            history: Some(TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 7,
+            }),
+        }];
+        let (base_plan, base_uniform) = ops_signatures(&base);
+
+        let uniform_changed = [TexRuntimeOp::PostProcess {
+            category: PostProcessCategory::Temporal,
+            effect: 0.5,
+            amount: 0.75,
+            scale: 1.0,
+            threshold: 0.3,
+            speed: 0.75,
+            time: 2.0,
+            history: Some(TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 7,
+            }),
+        }];
+        let (uniform_plan, uniform_sig) = ops_signatures(&uniform_changed);
+        assert_eq!(
+            base_plan, uniform_plan,
+            "uniform-only changes should preserve the plan signature"
+        );
+        assert_ne!(
+            base_uniform, uniform_sig,
+            "uniform-only changes should invalidate the uniform signature"
+        );
+
+        let structure_changed = [TexRuntimeOp::Feedback {
+            mix: 0.4,
+            frame_gap: 2,
+            history: TexRuntimeFeedbackHistoryBinding::Internal {
+                feedback_node_id: 7,
+            },
+        }];
+        let (structure_plan, structure_uniform) = ops_signatures(&structure_changed);
+        assert_ne!(
+            base_plan, structure_plan,
+            "op-shape changes must invalidate the plan signature"
+        );
+        assert_ne!(
+            base_uniform, structure_uniform,
+            "op-shape changes must also invalidate the uniform signature"
+        );
+    }
 }
