@@ -1,7 +1,6 @@
 //! GPU compute pipelines for V2 graph-native node operations.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -9,7 +8,9 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::shaders::{create_shader_module, ShaderProgram};
 
+mod bounded_cache;
 mod layout;
+use bounded_cache::BoundedFrameCache;
 use layout::{create_decode_bind_group_layout, create_graph_bind_group_layout, create_pipeline};
 mod uniform_batch;
 use uniform_batch::UniformBatchState;
@@ -152,8 +153,9 @@ pub(super) struct GpuGraphOps {
     top_camera_pipeline: wgpu::ComputePipeline,
     tone_map_pipeline: wgpu::ComputePipeline,
     warp_pipeline: wgpu::ComputePipeline,
-    graph_bind_group_cache: RefCell<HashMap<GraphBindGroupKey, Arc<wgpu::BindGroup>>>,
-    decode_bind_group_cache: RefCell<HashMap<DecodeBindGroupKey, Arc<wgpu::BindGroup>>>,
+    graph_bind_group_cache: RefCell<BoundedFrameCache<GraphBindGroupKey, Arc<wgpu::BindGroup>>>,
+    decode_bind_group_cache: RefCell<BoundedFrameCache<DecodeBindGroupKey, Arc<wgpu::BindGroup>>>,
+    cache_frame_stamp: Cell<u64>,
     frame_bind_group_creates: Cell<u64>,
 }
 
@@ -205,22 +207,23 @@ impl GpuGraphOps {
             ),
             tone_map_pipeline: create_pipeline(device, &graph_layout, &shader_module, "tone_map"),
             warp_pipeline: create_pipeline(device, &graph_layout, &shader_module, "warp_luma"),
-            graph_bind_group_cache: RefCell::new(HashMap::with_capacity(64)),
-            decode_bind_group_cache: RefCell::new(HashMap::with_capacity(16)),
+            graph_bind_group_cache: RefCell::new(BoundedFrameCache::with_capacity(
+                64,
+                GRAPH_BIND_GROUP_CACHE_SOFT_MAX,
+            )),
+            decode_bind_group_cache: RefCell::new(BoundedFrameCache::with_capacity(
+                16,
+                DECODE_BIND_GROUP_CACHE_SOFT_MAX,
+            )),
+            cache_frame_stamp: Cell::new(1),
             frame_bind_group_creates: Cell::new(0),
         })
     }
 
     /// Reset frame-scoped bind-group caches before a new graph frame begins.
     pub(super) fn begin_frame(&self) {
-        let graph_cache_len = self.graph_bind_group_cache.borrow().len();
-        if graph_cache_len > GRAPH_BIND_GROUP_CACHE_SOFT_MAX {
-            self.graph_bind_group_cache.borrow_mut().clear();
-        }
-        let decode_cache_len = self.decode_bind_group_cache.borrow().len();
-        if decode_cache_len > DECODE_BIND_GROUP_CACHE_SOFT_MAX {
-            self.decode_bind_group_cache.borrow_mut().clear();
-        }
+        self.cache_frame_stamp
+            .set(self.cache_frame_stamp.get().wrapping_add(1).max(1));
         self.graph_uniforms.borrow_mut().begin_frame();
         self.decode_uniforms.borrow_mut().begin_frame();
         self.frame_bind_group_creates.set(0);
@@ -456,8 +459,8 @@ impl GpuGraphOps {
     ) -> Arc<wgpu::BindGroup> {
         let key = GraphBindGroupKey::from_buffers(&buffers);
         let mut cache = self.graph_bind_group_cache.borrow_mut();
-        if let Some(bind_group) = cache.get(&key) {
-            return bind_group.clone();
+        if let Some(bind_group) = cache.get(&key, self.cache_frame_stamp.get()) {
+            return bind_group;
         }
         let uniform_buffer = self.graph_uniforms.borrow();
         let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -488,7 +491,7 @@ impl GpuGraphOps {
         }));
         self.frame_bind_group_creates
             .set(self.frame_bind_group_creates.get().saturating_add(1));
-        cache.insert(key, bind_group.clone());
+        cache.insert(key, bind_group.clone(), self.cache_frame_stamp.get());
         bind_group
     }
 
@@ -499,8 +502,8 @@ impl GpuGraphOps {
     ) -> Arc<wgpu::BindGroup> {
         let key = DecodeBindGroupKey::from_buffers(&buffers);
         let mut cache = self.decode_bind_group_cache.borrow_mut();
-        if let Some(bind_group) = cache.get(&key) {
-            return bind_group.clone();
+        if let Some(bind_group) = cache.get(&key, self.cache_frame_stamp.get()) {
+            return bind_group;
         }
         let uniform_buffer = self.decode_uniforms.borrow();
         let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -523,7 +526,7 @@ impl GpuGraphOps {
         }));
         self.frame_bind_group_creates
             .set(self.frame_bind_group_creates.get().saturating_add(1));
-        cache.insert(key, bind_group.clone());
+        cache.insert(key, bind_group.clone(), self.cache_frame_stamp.get());
         bind_group
     }
 }
