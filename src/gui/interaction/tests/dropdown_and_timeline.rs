@@ -48,6 +48,44 @@ fn dropdown_click_selects_correct_option_at_low_zoom() {
 }
 
 #[test]
+fn wheel_over_dropdown_value_box_advances_selected_option() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(pass, 420, 480));
+    let options_len = project
+        .node_param_dropdown_options(pass, 2)
+        .expect("bg_mode dropdown options")
+        .len();
+    assert!(options_len >= 2, "expected at least two dropdown options");
+    let current_index = project
+        .node_param_dropdown_selected_index(pass, 2)
+        .expect("selected dropdown option");
+    let (wheel_lines_y, expected_index) = if current_index + 1 < options_len {
+        (1.0, current_index + 1)
+    } else {
+        (-1.0, current_index.saturating_sub(1))
+    };
+    let mut state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+    let value_rect = {
+        let node = project.node(pass).expect("scene-pass node should exist");
+        node_param_value_rect(node, 2).expect("bg_mode value rect should exist")
+    };
+    let value_panel = super::graph_rect_to_panel(value_rect, &state);
+    let input = InputSnapshot {
+        mouse_pos: Some((value_panel.x + 2, value_panel.y + 2)),
+        wheel_lines_y,
+        ..InputSnapshot::default()
+    };
+    let (changed, consumed) = handle_param_wheel_input(&input, &mut project, 420, 480, &mut state);
+    assert!(changed);
+    assert!(consumed);
+    assert_eq!(
+        project.node_param_dropdown_selected_index(pass, 2),
+        Some(expected_index)
+    );
+}
+
+#[test]
 fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
     let config = V2Config::parse(Vec::new()).expect("config");
     let mut project = GuiProject::new_empty(640, 480);
@@ -76,6 +114,50 @@ fn apply_preview_actions_keeps_dropdown_open_after_value_click() {
             .map(|dropdown| (dropdown.node_id, dropdown.param_index)),
         Some((pass, 2))
     );
+}
+
+#[test]
+fn apply_preview_actions_uses_wheel_for_dropdown_instead_of_zoom() {
+    let config = V2Config::parse(Vec::new()).expect("config");
+    let mut project = GuiProject::new_empty(640, 480);
+    let pass = project.add_node(ProjectNodeKind::RenderScenePass, 220, 80, 420, 480);
+    assert!(project.toggle_node_expanded(pass, 420, 480));
+    let options_len = project
+        .node_param_dropdown_options(pass, 2)
+        .expect("bg_mode dropdown options")
+        .len();
+    assert!(options_len >= 2, "expected at least two dropdown options");
+    let current_index = project
+        .node_param_dropdown_selected_index(pass, 2)
+        .expect("selected dropdown option");
+    let (wheel_lines_y, expected_index) = if current_index + 1 < options_len {
+        (1.0, current_index + 1)
+    } else {
+        (-1.0, current_index.saturating_sub(1))
+    };
+    let mut state = PreviewState::new(&config);
+    let initial_zoom = state.zoom;
+    let value_rect = {
+        let node = project.node(pass).expect("scene-pass node should exist");
+        node_param_value_rect(node, 2).expect("bg_mode value rect should exist")
+    };
+    let value_panel = super::graph_rect_to_panel(value_rect, &state);
+    let input = InputSnapshot {
+        mouse_pos: Some((value_panel.x + 2, value_panel.y + 2)),
+        wheel_lines_y,
+        ..InputSnapshot::default()
+    };
+    assert!(apply_preview_actions(
+        InteractionFrameContext::new(&config, 640, 420, 480),
+        &input,
+        &mut project,
+        &mut state,
+    ));
+    assert_eq!(
+        project.node_param_dropdown_selected_index(pass, 2),
+        Some(expected_index)
+    );
+    assert_eq!(state.zoom, initial_zoom);
 }
 
 #[test]

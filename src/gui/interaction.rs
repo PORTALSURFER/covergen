@@ -329,7 +329,6 @@ fn handle_timeline_input(
     timeline_input::handle_timeline_input(input, viewport_width, panel_height, timeline_fps, state)
 }
 
-#[cfg(test)]
 fn handle_param_wheel_input(
     input: &InputSnapshot,
     project: &mut GuiProject,
@@ -337,8 +336,59 @@ fn handle_param_wheel_input(
     panel_height: usize,
     state: &mut PreviewState,
 ) -> (bool, bool) {
-    let _ = (input, project, panel_width, panel_height, state);
-    (false, false)
+    if input.wheel_lines_y.abs() <= f32::EPSILON
+        || state.menu.open
+        || state.main_menu.open
+        || state.export_menu.open
+        || state.timeline_bpm_edit.is_some()
+        || state.timeline_bar_edit.is_some()
+        || state.param_edit.is_some()
+    {
+        return (false, false);
+    }
+    let Some(target) = dropdown_param_at_cursor(input, project, panel_width, panel_height, state)
+    else {
+        return (false, false);
+    };
+    let Some(options) = project.node_param_dropdown_options(target.node_id, target.param_index)
+    else {
+        return (false, false);
+    };
+    if options.is_empty() {
+        return (false, false);
+    }
+    let Some(current_index) =
+        project.node_param_dropdown_selected_index(target.node_id, target.param_index)
+    else {
+        return (false, false);
+    };
+    let next_index = if input.wheel_lines_y.is_sign_positive() {
+        current_index
+            .saturating_add(1)
+            .min(options.len().saturating_sub(1))
+    } else {
+        current_index.saturating_sub(1)
+    };
+    if next_index == current_index {
+        return (false, true);
+    }
+    let mut changed = project.select_param(target.node_id, target.param_index);
+    changed |= project.set_param_dropdown_index(target.node_id, target.param_index, next_index);
+    state.active_node = Some(target.node_id);
+    if state
+        .param_dropdown
+        .map(|dropdown| {
+            dropdown
+                == ParamDropdownState {
+                    node_id: target.node_id,
+                    param_index: target.param_index,
+                }
+        })
+        .unwrap_or(false)
+    {
+        state.hover_dropdown_item = Some(next_index);
+    }
+    (changed, true)
 }
 
 fn handle_alt_param_drag(
@@ -500,9 +550,51 @@ fn scrubbable_param_at_cursor(
     })
 }
 
-fn handle_pan_zoom_and_focus(
+fn dropdown_param_at_cursor(
     input: &InputSnapshot,
     project: &GuiProject,
+    panel_width: usize,
+    panel_height: usize,
+    state: &PreviewState,
+) -> Option<HoverParamTarget> {
+    let (mx, my) = input.mouse_pos?;
+    if !inside_panel(mx, my, panel_width, panel_height) {
+        return None;
+    }
+    if let Some(dropdown) = state.param_dropdown {
+        let hovered_open_dropdown =
+            param_edit::dropdown_option_at_cursor(project, state, mx, my).is_some();
+        let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+        let hovered_value_box = project.param_value_box_contains(
+            dropdown.node_id,
+            dropdown.param_index,
+            graph_x,
+            graph_y,
+        );
+        if hovered_open_dropdown || hovered_value_box {
+            return Some(HoverParamTarget {
+                node_id: dropdown.node_id,
+                param_index: dropdown.param_index,
+            });
+        }
+    }
+    let (graph_x, graph_y) = screen_to_graph(mx, my, state);
+    let node_id = project.node_at(graph_x, graph_y)?;
+    let param_index = project.param_row_at(node_id, graph_x, graph_y)?;
+    if !project.param_is_dropdown(node_id, param_index)
+        || !project.param_value_box_contains(node_id, param_index, graph_x, graph_y)
+    {
+        return None;
+    }
+    Some(HoverParamTarget {
+        node_id,
+        param_index,
+    })
+}
+
+fn handle_pan_zoom_and_focus(
+    input: &InputSnapshot,
+    project: &mut GuiProject,
     panel_width: usize,
     panel_height: usize,
     state: &mut PreviewState,
@@ -513,6 +605,16 @@ fn handle_pan_zoom_and_focus(
     let mut changed = false;
     if input.focus_all {
         changed |= focus_all_nodes(project, panel_width, panel_height, state);
+    }
+    let (param_wheel_changed, param_wheel_consumed) =
+        handle_param_wheel_input(input, project, panel_width, panel_height, state);
+    changed |= param_wheel_changed;
+    if param_wheel_changed {
+        state.invalidation.invalidate_nodes();
+        state.invalidation.invalidate_overlays();
+    }
+    if param_wheel_consumed {
+        return true;
     }
     if let Some((mx, my)) = input.mouse_pos {
         if inside_panel(mx, my, panel_width, panel_height) && input.wheel_lines_y.abs() > 0.0 {
