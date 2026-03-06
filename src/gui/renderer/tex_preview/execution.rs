@@ -392,7 +392,7 @@ impl TexPreviewRenderer {
         let mut target = if last {
             RenderTargetRef::Viewer
         } else {
-            self.choose_intermediate_target(&mut state.scratch_flip)
+            self.choose_intermediate_target(&mut state.scratch_flip, state.source_target)
         };
         if feedback_history_key.is_some()
             && !self.is_feedback_history_tap_op(runtime_ops, planned_op)
@@ -629,32 +629,21 @@ impl TexPreviewRenderer {
         Some(())
     }
 
-    fn choose_intermediate_target(&self, scratch_flip: &mut bool) -> RenderTargetRef {
-        let preferred = if *scratch_flip {
-            RenderTargetRef::ScratchB
-        } else {
-            RenderTargetRef::ScratchA
-        };
-        *scratch_flip = !*scratch_flip;
-        if !self.has_blend_alias_target(preferred) {
-            return preferred;
-        }
-        let alternate = match preferred {
-            RenderTargetRef::ScratchA => RenderTargetRef::ScratchB,
-            RenderTargetRef::ScratchB => RenderTargetRef::ScratchA,
-            _ => preferred,
-        };
-        if !self.has_blend_alias_target(alternate) {
-            return alternate;
-        }
-        preferred
-    }
-
     fn has_blend_alias_target(&self, target: RenderTargetRef) -> bool {
         self.blend_source_aliases_by_target
             .get(&target)
             .map(|source_ids| !source_ids.is_empty())
             .unwrap_or(false)
+    }
+
+    fn choose_intermediate_target(
+        &self,
+        scratch_flip: &mut bool,
+        source_target: Option<RenderTargetRef>,
+    ) -> RenderTargetRef {
+        choose_intermediate_target_impl(scratch_flip, source_target, |target| {
+            self.has_blend_alias_target(target)
+        })
     }
 
     fn bind_blend_source_alias(&mut self, texture_node_id: u32, target: RenderTargetRef) {
@@ -812,14 +801,47 @@ where
     cache.retain(|key, _| active_keys.contains(key));
 }
 
+fn choose_intermediate_target_impl(
+    scratch_flip: &mut bool,
+    source_target: Option<RenderTargetRef>,
+    has_blend_alias_target: impl Fn(RenderTargetRef) -> bool,
+) -> RenderTargetRef {
+    let preferred = if *scratch_flip {
+        RenderTargetRef::ScratchB
+    } else {
+        RenderTargetRef::ScratchA
+    };
+    *scratch_flip = !*scratch_flip;
+    let target_is_available = |target| {
+        source_target != Some(target) && !has_blend_alias_target(target)
+    };
+    if target_is_available(preferred) {
+        return preferred;
+    }
+    let alternate = match preferred {
+        RenderTargetRef::ScratchA => RenderTargetRef::ScratchB,
+        RenderTargetRef::ScratchB => RenderTargetRef::ScratchA,
+        _ => preferred,
+    };
+    if target_is_available(alternate) {
+        return alternate;
+    }
+    if target_is_available(RenderTargetRef::Viewer) {
+        return RenderTargetRef::Viewer;
+    }
+    preferred
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         collect_active_cache_keys, consume_feedback_write_cooldown,
         external_feedback_accumulation_texture_for_runtime_op, is_feedback_history_tap_runtime_op,
-        prune_keyed_cache, runtime_op_descriptor, PlannedRenderOp, PlannedStep,
-        RuntimeFeedbackBinding, RuntimeOpPipelineKind, RuntimeSourceBinding,
+        choose_intermediate_target_impl, prune_keyed_cache, runtime_op_descriptor,
+        PlannedRenderOp, PlannedStep, RuntimeFeedbackBinding, RuntimeOpPipelineKind,
+        RuntimeSourceBinding,
     };
+    use crate::gui::renderer::tex_preview::RenderTargetRef;
     use crate::gui::runtime::{PostProcessCategory, TexRuntimeFeedbackHistoryBinding};
     use crate::gui::tex_view::TexViewerOp;
     use std::collections::{HashMap, HashSet};
@@ -1023,5 +1045,16 @@ mod tests {
     #[test]
     fn runtime_op_descriptor_skips_non_render_step_ops() {
         assert!(runtime_op_descriptor(TexViewerOp::StoreTexture { texture_node_id: 1 }).is_none());
+    }
+
+    #[test]
+    fn intermediate_target_selection_avoids_current_source_target() {
+        let mut scratch_flip = true;
+        let chosen = choose_intermediate_target_impl(
+            &mut scratch_flip,
+            Some(RenderTargetRef::ScratchB),
+            |_| false,
+        );
+        assert_eq!(chosen, RenderTargetRef::ScratchA);
     }
 }

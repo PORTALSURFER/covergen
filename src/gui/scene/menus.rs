@@ -31,6 +31,18 @@ impl FittedLabelCacheBucket {
         self.entries.get(text).map(String::as_str)
     }
 
+    /// Return true when this bucket already contains `text`.
+    #[cfg(test)]
+    pub(super) fn contains_key(&self, text: &str) -> bool {
+        self.entries.contains_key(text)
+    }
+
+    /// Return the number of cached fitted labels in this bucket.
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Insert or update one fitted label while evicting at most one oldest entry.
     pub(super) fn insert_bounded(&mut self, text: &str, fitted: &str, max_entries: usize) {
         if !self.entries.contains_key(text) {
