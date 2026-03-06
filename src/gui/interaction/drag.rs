@@ -20,7 +20,7 @@ thread_local! {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HoverInsertObstacleCacheKey {
     dragged_node_id: u32,
-    obstacle_signature: u64,
+    obstacle_key: route_cache::InteractionObstacleKey,
 }
 
 #[derive(Debug, Default)]
@@ -334,17 +334,16 @@ pub(super) fn hover_insert_link_at_cursor(
     HOVER_INSERT_OBSTACLE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         ensure_hover_obstacle_route_map(project, dragged_node_id, &mut cache);
-        let obstacle_signature = cache
-            .key
-            .map(|key| key.obstacle_signature)
-            .unwrap_or_default();
+        let obstacle_key = cache.key.map(|key| key.obstacle_key).unwrap_or_else(|| {
+            route_cache::obstacle_key_for_project(project, Some(dragged_node_id))
+        });
         for target_id in target_ids.iter().copied() {
             consider_hover_insert_candidate(
                 project,
                 state,
                 query,
                 &cache.route_map,
-                obstacle_signature,
+                obstacle_key,
                 target_id,
                 &mut best,
             );
@@ -356,7 +355,7 @@ pub(super) fn hover_insert_link_at_cursor(
                     state,
                     query,
                     &cache.route_map,
-                    obstacle_signature,
+                    obstacle_key,
                     target.id(),
                     &mut best,
                 );
@@ -373,10 +372,7 @@ fn ensure_hover_obstacle_route_map(
 ) {
     let key = HoverInsertObstacleCacheKey {
         dragged_node_id,
-        obstacle_signature: route_cache::obstacle_signature_for_project(
-            project,
-            Some(dragged_node_id),
-        ),
+        obstacle_key: route_cache::obstacle_key_for_project(project, Some(dragged_node_id)),
     };
     if cache.key == Some(key) {
         return;
@@ -420,7 +416,7 @@ fn consider_hover_insert_candidate(
     state: &PreviewState,
     query: HoverInsertQuery,
     route_map: &wire_route::RouteObstacleMap,
-    obstacle_signature: u64,
+    obstacle_key: route_cache::InteractionObstacleKey,
     target_id: u32,
     best: &mut Option<(HoverInsertLink, f32)>,
 ) {
@@ -452,7 +448,7 @@ fn consider_hover_insert_candidate(
             corridor_dir: wire_route::RouteDirection::West,
         },
         route_map,
-        obstacle_signature,
+        obstacle_key,
     );
     let dist_sq = route_graph
         .windows(2)

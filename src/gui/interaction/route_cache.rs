@@ -1,7 +1,7 @@
 //! Shared route cache for interaction-side wire-path queries.
 //!
 //! Hover-insert and link-cut paths both query routed polylines. This module
-//! retains recent route results keyed by obstacle signature and endpoints so
+//! retains recent route results keyed by obstacle epochs and endpoints so
 //! repeated interaction checks can reuse the same routed path.
 
 use std::cell::RefCell;
@@ -19,8 +19,14 @@ thread_local! {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct InteractionObstacleKey {
+    nodes_epoch: u64,
+    excluded_node_id: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RouteCacheKey {
-    obstacle_signature: u64,
+    obstacle_key: InteractionObstacleKey,
     start_point: (i32, i32),
     start_dir: RouteDirection,
     end_point: (i32, i32),
@@ -32,26 +38,19 @@ struct InteractionRouteCache {
     entries: HashMap<RouteCacheKey, Arc<[(i32, i32)]>>,
 }
 
-/// Return one stable signature for current node obstacles.
+/// Return one epoch-keyed obstacle identity for current node geometry.
 ///
-/// The optional `excluded_node_id` is omitted from the signature so callers
-/// can cache routes against obstacle sets that intentionally ignore one node
+/// The optional `excluded_node_id` stays part of the cache key so callers can
+/// cache routes against obstacle sets that intentionally ignore one node
 /// (for example, drag-hover insertion checks).
-pub(super) fn obstacle_signature_for_project(
+pub(super) fn obstacle_key_for_project(
     project: &GuiProject,
     excluded_node_id: Option<u32>,
-) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for node in project.nodes() {
-        if excluded_node_id == Some(node.id()) {
-            continue;
-        }
-        hash = fnv1a(hash, node.id() as u64);
-        hash = fnv1a(hash, node.x() as u32 as u64);
-        hash = fnv1a(hash, node.y() as u32 as u64);
-        hash = fnv1a(hash, node.card_height() as u32 as u64);
+) -> InteractionObstacleKey {
+    InteractionObstacleKey {
+        nodes_epoch: project.invalidation().nodes,
+        excluded_node_id,
     }
-    hash
 }
 
 /// Route one path with endpoint tails, using interaction-local cache reuse.
@@ -59,10 +58,10 @@ pub(super) fn route_with_tails_cached(
     start: RouteEndpoint,
     end: RouteEndpoint,
     obstacle_map: &RouteObstacleMap,
-    obstacle_signature: u64,
+    obstacle_key: InteractionObstacleKey,
 ) -> Arc<[(i32, i32)]> {
     let key = RouteCacheKey {
-        obstacle_signature,
+        obstacle_key,
         start_point: start.point,
         start_dir: start.corridor_dir,
         end_point: end.point,
@@ -86,6 +85,36 @@ pub(super) fn route_with_tails_cached(
     })
 }
 
-fn fnv1a(hash: u64, value: u64) -> u64 {
-    (hash ^ value).wrapping_mul(0x100000001b3)
+#[cfg(test)]
+mod tests {
+    use super::obstacle_key_for_project;
+    use crate::gui::project::{GuiProject, ProjectNodeKind};
+
+    #[test]
+    fn obstacle_key_tracks_nodes_epoch_and_excluded_node() {
+        let mut project = GuiProject::new_empty(640, 480);
+        let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 60, 640, 480);
+        let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 640, 480);
+
+        let full = obstacle_key_for_project(&project, None);
+        let excluded = obstacle_key_for_project(&project, Some(solid));
+        assert_ne!(
+            full, excluded,
+            "excluded node id must stay in the cache key"
+        );
+
+        let after_repeat = obstacle_key_for_project(&project, None);
+        assert_eq!(
+            full, after_repeat,
+            "repeated reads without project mutation should keep obstacle keys stable"
+        );
+
+        assert!(project.connect_image_link(solid, out));
+        assert!(project.move_node(solid, 120, 60, 640, 480));
+        let after_move = obstacle_key_for_project(&project, None);
+        assert_ne!(
+            full, after_move,
+            "node geometry changes must invalidate obstacle geometry keys"
+        );
+    }
 }

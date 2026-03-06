@@ -801,7 +801,7 @@ fn collect_cut_links(
     cut: LinkCutState,
 ) -> Vec<CutLink> {
     let mut links = Vec::new();
-    let obstacle_signature = route_cache::obstacle_signature_for_project(project, None);
+    let obstacle_key = route_cache::obstacle_key_for_project(project, None);
     let obstacles = collect_graph_node_obstacles(project);
     let route_map =
         super::scene::wire_route::RouteObstacleMap::from_obstacles(obstacles.as_slice());
@@ -813,7 +813,7 @@ fn collect_cut_links(
             state,
             cut,
             &route_map,
-            obstacle_signature,
+            obstacle_key,
             target_id,
             &mut links,
         );
@@ -827,7 +827,7 @@ fn collect_cut_links(
                 state,
                 cut,
                 &route_map,
-                obstacle_signature,
+                obstacle_key,
                 target.id(),
                 &mut links,
             );
@@ -843,7 +843,7 @@ fn collect_cut_links_for_target(
     state: &PreviewState,
     cut: LinkCutState,
     route_map: &super::scene::wire_route::RouteObstacleMap,
-    obstacle_signature: u64,
+    obstacle_key: route_cache::InteractionObstacleKey,
     target_id: u32,
     links: &mut Vec<CutLink>,
 ) {
@@ -870,7 +870,7 @@ fn collect_cut_links_for_target(
                 corridor_dir: super::scene::wire_route::RouteDirection::West,
             },
             route_map,
-            obstacle_signature,
+            obstacle_key,
         );
         let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
@@ -910,7 +910,7 @@ fn collect_cut_links_for_target(
                 corridor_dir: super::scene::wire_route::RouteDirection::East,
             },
             route_map,
-            obstacle_signature,
+            obstacle_key,
         );
         let route_panel = map_graph_path_to_panel(route_graph.as_ref(), state);
         if cut_intersects_path(cut, route_panel.as_slice()) {
