@@ -38,8 +38,9 @@ use super::timeline::editor_panel_height;
 use layers::{active_scene_layer_mut, ActiveLayer};
 use layout::*;
 use menus::{
-    FittedLabelCacheBucketKey, FITTED_LABEL_CACHE_MAX_BUCKETS,
-    FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET,
+    FittedLabelCacheBucketKey, TextWidthPrefixCacheBucketKey, TextWidthPrefixEntry,
+    FITTED_LABEL_CACHE_MAX_BUCKETS, FITTED_LABEL_CACHE_MAX_ENTRIES_PER_BUCKET,
+    TEXT_WIDTH_PREFIX_CACHE_MAX_BUCKETS, TEXT_WIDTH_PREFIX_CACHE_MAX_ENTRIES_PER_BUCKET,
 };
 use route_context::{
     collect_graph_node_obstacles, edge_route_obstacle_epoch, param_route_obstacle_epoch,
@@ -237,6 +238,8 @@ pub(crate) struct SceneBuilder {
     label_scratch: String,
     fitted_label_scratch: String,
     fitted_label_cache: HashMap<FittedLabelCacheBucketKey, HashMap<String, String>>,
+    text_width_prefix_cache:
+        HashMap<TextWidthPrefixCacheBucketKey, HashMap<String, TextWidthPrefixEntry>>,
     signal_eval_stack: SignalEvalStack,
     signal_sample_memo: SignalSampleMemo,
     signal_scope_cache: HashMap<u32, SignalScopeCacheEntry>,
@@ -1221,27 +1224,19 @@ impl SceneBuilder {
             return out.as_str();
         }
         let scale = state.zoom;
-        let full_w = self.text_renderer.measure_text_width(text, scale);
+        let ellipsis = "...";
+        let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
+        let prefix = self.text_width_prefix_entry(text, scale);
+        let full_w = prefix.full_width();
         if full_w <= max_width {
             self.store_fitted_label(text, max_width, scale, text);
             return text;
         }
-        let ellipsis = "...";
-        let ellipsis_w = self.text_renderer.measure_text_width(ellipsis, scale);
         if ellipsis_w > max_width {
             self.store_fitted_label(text, max_width, scale, "");
             return "";
         }
-        let mut width = 0;
-        let mut end_byte = 0usize;
-        for (byte_index, ch) in text.char_indices() {
-            let ch_w = self.text_renderer.measure_char_width(ch, scale);
-            if width + ch_w + ellipsis_w > max_width {
-                break;
-            }
-            end_byte = byte_index + ch.len_utf8();
-            width += ch_w;
-        }
+        let end_byte = prefix.fitted_byte_end(max_width - ellipsis_w);
         out.clear();
         out.push_str(&text[..end_byte]);
         out.push_str(ellipsis);
@@ -1256,6 +1251,67 @@ impl SceneBuilder {
             zoom_bits: zoom.to_bits(),
         })?;
         bucket.get(text).map(String::as_str)
+    }
+
+    /// Return cached cumulative char widths for one text/zoom tuple.
+    fn text_width_prefix_entry(&mut self, text: &str, zoom: f32) -> &TextWidthPrefixEntry {
+        let key = TextWidthPrefixCacheBucketKey {
+            zoom_bits: zoom.to_bits(),
+        };
+        let missing = self
+            .text_width_prefix_cache
+            .get(&key)
+            .map(|bucket| !bucket.contains_key(text))
+            .unwrap_or(true);
+        if missing {
+            let entry = self.build_text_width_prefix_entry(text, zoom);
+            self.store_text_width_prefix_entry(text, zoom, entry);
+        }
+        self.text_width_prefix_cache
+            .get(&key)
+            .and_then(|bucket| bucket.get(text))
+            .expect("text width prefix cache entry should exist after insertion")
+    }
+
+    /// Build one cumulative-width entry for one text/zoom tuple.
+    fn build_text_width_prefix_entry(&self, text: &str, zoom: f32) -> TextWidthPrefixEntry {
+        let char_count = text.chars().count();
+        let mut byte_ends = Vec::with_capacity(char_count);
+        let mut prefix_widths = Vec::with_capacity(char_count);
+        let mut width = 0;
+        for (byte_index, ch) in text.char_indices() {
+            width += self.text_renderer.measure_char_width(ch, zoom);
+            byte_ends.push(byte_index + ch.len_utf8());
+            prefix_widths.push(width);
+        }
+        TextWidthPrefixEntry {
+            byte_ends,
+            prefix_widths,
+        }
+    }
+
+    /// Store one prefix-width entry in a bounded zoom-bucket cache.
+    fn store_text_width_prefix_entry(
+        &mut self,
+        text: &str,
+        zoom: f32,
+        entry: TextWidthPrefixEntry,
+    ) {
+        let key = TextWidthPrefixCacheBucketKey {
+            zoom_bits: zoom.to_bits(),
+        };
+        if !self.text_width_prefix_cache.contains_key(&key)
+            && self.text_width_prefix_cache.len() >= TEXT_WIDTH_PREFIX_CACHE_MAX_BUCKETS
+        {
+            self.text_width_prefix_cache.clear();
+        }
+        let bucket = self.text_width_prefix_cache.entry(key).or_default();
+        if !bucket.contains_key(text)
+            && bucket.len() >= TEXT_WIDTH_PREFIX_CACHE_MAX_ENTRIES_PER_BUCKET
+        {
+            bucket.clear();
+        }
+        bucket.insert(text.to_owned(), entry);
     }
 
     /// Store one fitted label result in a bounded cache.
@@ -1310,8 +1366,9 @@ mod tests {
         build_smoothed_param_wire, smooth_param_wire_path, PARAM_WIRE_ENDPOINT_STRAIGHT_PX,
     };
     use super::{
-        signal_scope_range, signal_scope_y, timeline_beat_indicator_on, Rect, SceneBuildRequest,
-        SceneBuilder, SIGNAL_SCOPE_MAX_SAMPLES,
+        signal_scope_range, signal_scope_y, timeline_beat_indicator_on, FittedLabelCacheBucketKey,
+        Rect, SceneBuildRequest, SceneBuilder, TextWidthPrefixCacheBucketKey,
+        SIGNAL_SCOPE_MAX_SAMPLES,
     };
     use crate::gui::project::{
         collapsed_param_entry_pin_center, output_pin_center, GuiProject, ProjectNodeKind,
@@ -1464,6 +1521,59 @@ mod tests {
         assert!(
             frame.signal_scope_samples <= SIGNAL_SCOPE_MAX_SAMPLES as u64,
             "scope samples should be capped to avoid high zoom recompute spikes"
+        );
+    }
+
+    #[test]
+    fn fitted_label_prefix_cache_reuses_widths_across_width_queries() {
+        let mut scene = SceneBuilder::default();
+        let state = PreviewState::new(&V2Config::parse(Vec::new()).expect("config"));
+        let text = "Radius modulation amount";
+        let mut out = String::new();
+
+        let first = scene
+            .fit_graph_text_into(text, 64, &state, &mut out)
+            .to_owned();
+        let second = scene
+            .fit_graph_text_into(text, 96, &state, &mut out)
+            .to_owned();
+
+        let prefix_bucket = scene
+            .text_width_prefix_cache
+            .get(&TextWidthPrefixCacheBucketKey {
+                zoom_bits: state.zoom.to_bits(),
+            })
+            .expect("prefix cache bucket should exist");
+        assert_eq!(
+            prefix_bucket.len(),
+            1,
+            "width-prefix cache should reuse the same text entry across width queries"
+        );
+        let prefix = prefix_bucket.get(text).expect("prefix entry should exist");
+        assert_eq!(
+            prefix.full_width(),
+            scene.text_renderer.measure_text_width(text, state.zoom)
+        );
+
+        let fitted_bucket_64 = scene
+            .fitted_label_cache
+            .get(&FittedLabelCacheBucketKey {
+                max_width: 64,
+                zoom_bits: state.zoom.to_bits(),
+            })
+            .expect("first fitted label bucket should exist");
+        let fitted_bucket_96 = scene
+            .fitted_label_cache
+            .get(&FittedLabelCacheBucketKey {
+                max_width: 96,
+                zoom_bits: state.zoom.to_bits(),
+            })
+            .expect("second fitted label bucket should exist");
+        assert!(fitted_bucket_64.contains_key(text));
+        assert!(fitted_bucket_96.contains_key(text));
+        assert!(
+            second.len() >= first.len(),
+            "wider label fit should keep at least as much text as the narrower fit"
         );
     }
 
