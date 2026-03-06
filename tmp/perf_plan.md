@@ -129,7 +129,8 @@ Plan path: `tmp/perf_plan.md`
     - `cargo test gui::interaction`
     - Manual cut-drag stress on large graphs to confirm no missed/extra cuts.
 
-- [ ] 7. Reduce fitted-label per-character measurement cost with width-prefix caching
+- [x] 7. Reduce fitted-label per-character measurement cost with width-prefix caching
+  - Completed: 2026-03-06 (`e7a748e` `perf: cache text width prefixes for fitted labels`)
   - ROI: Medium
   - Effort: M
   - Expected impact: frame time (`scene.nodes_ms`), CPU
