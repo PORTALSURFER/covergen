@@ -38,7 +38,8 @@ Plan path: `tmp/perf_plan.md`
     - `scripts/gui/tier_gate.sh validate laptop_integrated`
     - Compare `scene.nodes_ms_p95` and `update_ms_p95` before/after on signal-preview-heavy graphs.
 
-- [ ] 2. Replace interaction obstacle signature hashing with epoch-keyed invalidation
+- [x] 2. Replace interaction obstacle signature hashing with epoch-keyed invalidation
+  - Completed: 2026-03-06 (`8d59057` `perf: key interaction route caches by node epoch`)
   - ROI: Very High
   - Effort: S
   - Expected impact: p95 interaction latency, CPU
