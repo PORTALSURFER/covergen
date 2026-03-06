@@ -13,13 +13,12 @@ This directory contains ready-to-load GUI project graphs.
     5. `tex.feedback.accumulation_tex` is bound to `tex.transform_2d` output to store the faded result for the next frame.
 - `marbled_ink_monochrome.json`
   - Organic monochrome marbling demo:
-    1. `tex.source_noise` creates coarse and fine seed fields.
-    2. `tex.mask` extracts sparse detail pockets from the fine noise.
-    3. `tex.blend` combines those fields into a reaction-diffusion seed.
-    4. `tex.reaction_diffusion` grows the base membrane/tendril structure.
-    5. `tex.domain_warp` and two `tex.warp_transform` passes provide coherent transport before and after feedback.
-    6. `tex.feedback`, `tex.post_experimental`, `tex.post_blur_diffusion`, `tex.post_edge_structure`, and `tex.tone_map` push the result toward dark marbled ink.
-    7. Slow `ctl.lfo` modulation animates warp phase and diffusion feed for subtle living motion.
+    1. Three `tex.source_noise` nodes use `simplex`, `ridged`, and `cellular` modes for coarse mass, warp flow, and void-pocket seeds.
+    2. `tex.mask` plus `tex.morphology` turn the cellular field into cleaner cavity membranes.
+    3. `tex.blend` and `tex.reaction_diffusion` grow the base tendril structure.
+    4. `tex.domain_warp`, `tex.feedback`, `tex.post_experimental(flow_adv)`, and `tex.directional_smear` provide coherent transport and stretched ink drag.
+    5. `tex.warp_transform`, `tex.post_blur_diffusion`, `tex.post_edge_structure`, `tex.post_color_tone(mono)`, and `tex.tone_map` crush the result into dark monochrome marbling.
+    6. Slow `ctl.lfo` modulation animates warp phase and diffusion feed for subtle living motion.
 
 ## Load In GUI
 

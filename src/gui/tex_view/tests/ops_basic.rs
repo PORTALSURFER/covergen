@@ -118,6 +118,37 @@ fn mask_chain_produces_source_noise_then_mask_ops() {
 }
 
 #[test]
+fn morphology_chain_produces_source_noise_then_morphology_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 80, 420, 480);
+    let morphology = project.add_node(ProjectNodeKind::TexMorphology, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(noise, morphology));
+    assert!(project.connect_image_link(morphology, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexViewerOp::Morphology { .. }));
+}
+
+#[test]
 fn level_chain_produces_solid_then_level_ops() {
     let mut project = GuiProject::new_empty(640, 480);
     let solid = project.add_node(ProjectNodeKind::TexSolid, 40, 80, 420, 480);
@@ -239,6 +270,37 @@ fn warp_transform_chain_produces_source_noise_then_warp_ops() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
     assert!(matches!(ops[1], TexViewerOp::WarpTransform { .. }));
+}
+
+#[test]
+fn directional_smear_chain_produces_source_noise_then_smear_ops() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 80, 420, 480);
+    let smear = project.add_node(ProjectNodeKind::TexDirectionalSmear, 180, 80, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 320, 80, 420, 480);
+    assert!(project.connect_image_link(noise, smear));
+    assert!(project.connect_image_link(smear, out));
+
+    let mut viewer = TexViewerGenerator::default();
+    viewer.update(
+        &project,
+        TexViewerUpdate {
+            viewport_width: 960,
+            viewport_height: 540,
+            panel_width: 420,
+            frame_index: 0,
+            timeline_total_frames: 1_800,
+            timeline_fps: 60,
+            tex_eval_epoch: project.invalidation().tex_eval,
+        },
+    );
+    let frame = viewer.frame().expect("viewer frame should exist");
+    let ops = match frame.payload {
+        TexViewerPayload::GpuOps(ops) => ops,
+    };
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(ops[0], TexViewerOp::SourceNoise { .. }));
+    assert!(matches!(ops[1], TexViewerOp::DirectionalSmear { .. }));
 }
 
 #[test]

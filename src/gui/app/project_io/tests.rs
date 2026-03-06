@@ -234,6 +234,22 @@ fn bundled_marbled_ink_example_loads() {
             .project
             .nodes()
             .iter()
+            .any(|node| node.kind().stable_id() == "tex.morphology"),
+        "example graph should include tex.morphology"
+    );
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
+            .any(|node| node.kind().stable_id() == "tex.directional_smear"),
+        "example graph should include tex.directional_smear"
+    );
+    assert!(
+        loaded
+            .project
+            .nodes()
+            .iter()
             .any(|node| node.kind().stable_id() == "tex.warp_transform"),
         "example graph should include tex.warp_transform"
     );

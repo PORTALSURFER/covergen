@@ -54,7 +54,7 @@ impl AddNodeOption {
 }
 
 /// Menu entries currently exposed in the graph editor.
-pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 30] = [
+pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 32] = [
     AddNodeOption {
         kind: ProjectNodeKind::TexSolid,
         category: AddNodeCategory::Texture,
@@ -108,6 +108,10 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 30] = [
         category: AddNodeCategory::Texture,
     },
     AddNodeOption {
+        kind: ProjectNodeKind::TexMorphology,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
         kind: ProjectNodeKind::TexToneMap,
         category: AddNodeCategory::Texture,
     },
@@ -121,6 +125,10 @@ pub(crate) const ADD_NODE_OPTIONS: [AddNodeOption; 30] = [
     },
     AddNodeOption {
         kind: ProjectNodeKind::TexDomainWarp,
+        category: AddNodeCategory::Texture,
+    },
+    AddNodeOption {
+        kind: ProjectNodeKind::TexDirectionalSmear,
         category: AddNodeCategory::Texture,
     },
     AddNodeOption {

@@ -88,3 +88,23 @@ fn compile_domain_warp_emits_store_steps_for_base_and_warp_sources() {
     assert!(saw_warp_store);
     assert!(saw_domain_warp);
 }
+
+#[test]
+fn compile_morphology_and_smear_emit_render_steps() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 640, 480);
+    let morphology = project.add_node(ProjectNodeKind::TexMorphology, 120, 40, 640, 480);
+    let smear = project.add_node(ProjectNodeKind::TexDirectionalSmear, 220, 40, 640, 480);
+    assert!(project.connect_image_link(noise, morphology));
+    assert!(project.connect_image_link(morphology, smear));
+
+    let mut traversal = CompileTraversalState::default();
+    let mut steps = Vec::new();
+    assert!(compile_node(&project, smear, &mut traversal, &mut steps));
+    assert!(steps
+        .iter()
+        .any(|step| step.kind == CompiledStepKind::Morphology));
+    assert!(steps
+        .iter()
+        .any(|step| step.kind == CompiledStepKind::DirectionalSmear));
+}

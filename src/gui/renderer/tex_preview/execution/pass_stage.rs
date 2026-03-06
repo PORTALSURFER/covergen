@@ -122,11 +122,13 @@ impl TexPreviewRenderer {
             RuntimeOpPipelineKind::Transform => self.op_transform_pipeline.as_ref(),
             RuntimeOpPipelineKind::Level => self.op_level_pipeline.as_ref(),
             RuntimeOpPipelineKind::Mask => self.op_mask_pipeline.as_ref(),
+            RuntimeOpPipelineKind::Morphology => self.op_morphology_pipeline.as_ref(),
             RuntimeOpPipelineKind::ToneMap => self.op_tone_map_pipeline.as_ref(),
             RuntimeOpPipelineKind::Feedback => self.op_feedback_pipeline.as_ref(),
             RuntimeOpPipelineKind::ReactionDiffusion => {
                 self.op_reaction_diffusion_pipeline.as_ref()
             }
+            RuntimeOpPipelineKind::DirectionalSmear => self.op_directional_smear_pipeline.as_ref(),
             RuntimeOpPipelineKind::WarpTransform => self.op_warp_transform_pipeline.as_ref(),
             RuntimeOpPipelineKind::PostProcess => self.op_post_process_pipeline.as_ref(),
         }

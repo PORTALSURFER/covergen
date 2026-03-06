@@ -189,6 +189,8 @@ pub(crate) enum ProjectNodeKind {
     TexLevel,
     /// `tex.mask` render node for soft threshold mask extraction.
     TexMask,
+    /// `tex.morphology` render node for grayscale erode/dilate/open/close shaping.
+    TexMorphology,
     /// `tex.tone_map` render node for percentile remap and contrast shaping.
     TexToneMap,
     /// `tex.feedback` delayed texture feedback node with optional frame-gap stepping.
@@ -197,6 +199,8 @@ pub(crate) enum ProjectNodeKind {
     TexReactionDiffusion,
     /// `tex.domain_warp` two-texture warp node driven by a sampled warp field.
     TexDomainWarp,
+    /// `tex.directional_smear` render node for anisotropic directional dragging.
+    TexDirectionalSmear,
     /// `tex.warp_transform` render node for lightweight UV warping.
     TexWarpTransform,
     /// `tex.post_color_tone` category post-process node.
@@ -245,7 +249,7 @@ struct ProjectNodeKindDescriptor {
     shows_signal_preview: bool,
 }
 
-const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 30] = [
+const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 32] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexSolid,
         stable_id: "tex.solid",
@@ -328,6 +332,15 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 30] = [
         shows_signal_preview: false,
     },
     ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexMorphology,
+        stable_id: "tex.morphology",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexToneMap,
         stable_id: "tex.tone_map",
         execution_kind: ExecutionKind::Render,
@@ -357,6 +370,15 @@ const PROJECT_NODE_KIND_DESCRIPTORS: [ProjectNodeKindDescriptor; 30] = [
     ProjectNodeKindDescriptor {
         kind: ProjectNodeKind::TexDomainWarp,
         stable_id: "tex.domain_warp",
+        execution_kind: ExecutionKind::Render,
+        input_resource_kind: Some(ResourceKind::Texture2D),
+        output_resource_kind: Some(ResourceKind::Texture2D),
+        accepts_signal_bindings: true,
+        shows_signal_preview: false,
+    },
+    ProjectNodeKindDescriptor {
+        kind: ProjectNodeKind::TexDirectionalSmear,
+        stable_id: "tex.directional_smear",
         execution_kind: ExecutionKind::Render,
         input_resource_kind: Some(ResourceKind::Texture2D),
         output_resource_kind: Some(ResourceKind::Texture2D),

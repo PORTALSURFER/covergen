@@ -122,10 +122,11 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 scale,
                 octaves,
                 amplitude,
+                mode,
             } => {
                 plan_hash = fnv1a(plan_hash, 11);
                 uniform_hash = fnv1a(uniform_hash, 11);
-                for value in [seed, scale, octaves, amplitude] {
+                for value in [seed, scale, octaves, amplitude, mode] {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
@@ -163,6 +164,17 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 plan_hash = fnv1a(plan_hash, 12);
                 uniform_hash = fnv1a(uniform_hash, 12);
                 for value in [threshold, softness, invert] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
+            }
+            TexViewerOp::Morphology {
+                mode,
+                radius,
+                amount,
+            } => {
+                plan_hash = fnv1a(plan_hash, 16);
+                uniform_hash = fnv1a(uniform_hash, 16);
+                for value in [mode, radius, amount] {
                     uniform_hash = hash_f32(uniform_hash, value);
                 }
             }
@@ -223,6 +235,18 @@ pub(super) fn ops_signatures(ops: &[TexViewerOp]) -> (u64, u64) {
                 }
                 uniform_hash = fnv1a(uniform_hash, base_texture_node_id as u64);
                 uniform_hash = fnv1a(uniform_hash, warp_texture_node_id.unwrap_or(0) as u64);
+            }
+            TexViewerOp::DirectionalSmear {
+                angle,
+                length,
+                jitter,
+                amount,
+            } => {
+                plan_hash = fnv1a(plan_hash, 17);
+                uniform_hash = fnv1a(uniform_hash, 17);
+                for value in [angle, length, jitter, amount] {
+                    uniform_hash = hash_f32(uniform_hash, value);
+                }
             }
             TexViewerOp::WarpTransform {
                 strength,

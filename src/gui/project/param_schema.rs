@@ -49,13 +49,15 @@ pub(crate) mod source_noise {
     pub(crate) const SCALE: &str = "scale";
     pub(crate) const OCTAVES: &str = "octaves";
     pub(crate) const AMPLITUDE: &str = "amplitude";
+    pub(crate) const MODE: &str = "mode";
 
     pub(crate) const SEED_INDEX: usize = 0;
     pub(crate) const SCALE_INDEX: usize = 1;
     pub(crate) const OCTAVES_INDEX: usize = 2;
     pub(crate) const AMPLITUDE_INDEX: usize = 3;
+    pub(crate) const MODE_INDEX: usize = 4;
 
-    pub(crate) const KEYS: [&str; 4] = [SEED, SCALE, OCTAVES, AMPLITUDE];
+    pub(crate) const KEYS: [&str; 5] = [SEED, SCALE, OCTAVES, AMPLITUDE, MODE];
 }
 
 /// Canonical keys for `buf.sphere`.
@@ -223,6 +225,19 @@ pub(crate) mod mask {
     pub(crate) const KEYS: [&str; 3] = [THRESHOLD, SOFTNESS, INVERT];
 }
 
+/// Canonical keys for `tex.morphology`.
+pub(crate) mod morphology {
+    pub(crate) const MODE: &str = "mode";
+    pub(crate) const RADIUS: &str = "radius";
+    pub(crate) const AMOUNT: &str = "amount";
+
+    pub(crate) const MODE_INDEX: usize = 0;
+    pub(crate) const RADIUS_INDEX: usize = 1;
+    pub(crate) const AMOUNT_INDEX: usize = 2;
+
+    pub(crate) const KEYS: [&str; 3] = [MODE, RADIUS, AMOUNT];
+}
+
 /// Canonical keys for `tex.tone_map`.
 pub(crate) mod tone_map {
     pub(crate) const CONTRAST: &str = "contrast";
@@ -311,6 +326,21 @@ pub(crate) mod domain_warp {
     pub(crate) const OCTAVES_INDEX: usize = 4;
 
     pub(crate) const KEYS: [&str; 5] = [WARP_TEXTURE, STRENGTH, FREQUENCY, ROTATION, OCTAVES];
+}
+
+/// Canonical keys for `tex.directional_smear`.
+pub(crate) mod directional_smear {
+    pub(crate) const ANGLE: &str = "angle";
+    pub(crate) const LENGTH: &str = "length";
+    pub(crate) const JITTER: &str = "jitter";
+    pub(crate) const AMOUNT: &str = "amount";
+
+    pub(crate) const ANGLE_INDEX: usize = 0;
+    pub(crate) const LENGTH_INDEX: usize = 1;
+    pub(crate) const JITTER_INDEX: usize = 2;
+    pub(crate) const AMOUNT_INDEX: usize = 3;
+
+    pub(crate) const KEYS: [&str; 4] = [ANGLE, LENGTH, JITTER, AMOUNT];
 }
 
 /// Canonical keys for `tex.warp_transform`.

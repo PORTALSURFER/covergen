@@ -147,18 +147,22 @@ fn reaction_diffusion_node_supports_in_and_out_links() {
 }
 
 #[test]
-fn mask_tone_map_domain_warp_and_warp_nodes_support_in_and_out_links() {
+fn mask_morphology_tone_map_domain_warp_smear_and_warp_nodes_support_in_and_out_links() {
     let mut project = GuiProject::new_empty(640, 480);
     let source = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
     let mask = project.add_node(ProjectNodeKind::TexMask, 180, 40, 420, 480);
-    let tone = project.add_node(ProjectNodeKind::TexToneMap, 340, 40, 420, 480);
-    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 500, 40, 420, 480);
-    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 660, 40, 420, 480);
-    let out = project.add_node(ProjectNodeKind::IoWindowOut, 820, 40, 420, 480);
+    let morphology = project.add_node(ProjectNodeKind::TexMorphology, 340, 40, 420, 480);
+    let tone = project.add_node(ProjectNodeKind::TexToneMap, 500, 40, 420, 480);
+    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 660, 40, 420, 480);
+    let smear = project.add_node(ProjectNodeKind::TexDirectionalSmear, 820, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 980, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 1140, 40, 420, 480);
     assert!(project.connect_image_link(source, mask));
-    assert!(project.connect_image_link(mask, tone));
+    assert!(project.connect_image_link(mask, morphology));
+    assert!(project.connect_image_link(morphology, tone));
     assert!(project.connect_image_link(tone, domain_warp));
-    assert!(project.connect_image_link(domain_warp, warp));
+    assert!(project.connect_image_link(domain_warp, smear));
+    assert!(project.connect_image_link(smear, warp));
     assert!(project.connect_image_link(warp, out));
     let source_id = project
         .window_out_input_node_id()

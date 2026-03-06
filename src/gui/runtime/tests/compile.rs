@@ -103,7 +103,8 @@ fn source_noise_defaults_compile_to_expected_op() {
             scale,
             octaves,
             amplitude,
-        } if seed == 1.0 && scale == 4.0 && octaves == 4.0 && amplitude == 1.0
+            mode,
+        } if seed == 1.0 && scale == 4.0 && octaves == 4.0 && amplitude == 1.0 && mode == 0.0
     ));
 }
 
@@ -138,16 +139,20 @@ fn level_defaults_are_identity() {
 }
 
 #[test]
-fn mask_tone_map_and_warp_nodes_compile_in_order() {
+fn mask_morphology_tone_map_smear_and_warp_nodes_compile_in_order() {
     let mut project = GuiProject::new_empty(640, 480);
     let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 20, 40, 420, 480);
     let mask = project.add_node(ProjectNodeKind::TexMask, 180, 40, 420, 480);
-    let tone = project.add_node(ProjectNodeKind::TexToneMap, 340, 40, 420, 480);
-    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 500, 40, 420, 480);
-    let out = project.add_node(ProjectNodeKind::IoWindowOut, 660, 40, 420, 480);
+    let morphology = project.add_node(ProjectNodeKind::TexMorphology, 340, 40, 420, 480);
+    let tone = project.add_node(ProjectNodeKind::TexToneMap, 500, 40, 420, 480);
+    let smear = project.add_node(ProjectNodeKind::TexDirectionalSmear, 660, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 820, 40, 420, 480);
+    let out = project.add_node(ProjectNodeKind::IoWindowOut, 980, 40, 420, 480);
     assert!(project.connect_image_link(noise, mask));
-    assert!(project.connect_image_link(mask, tone));
-    assert!(project.connect_image_link(tone, warp));
+    assert!(project.connect_image_link(mask, morphology));
+    assert!(project.connect_image_link(morphology, tone));
+    assert!(project.connect_image_link(tone, smear));
+    assert!(project.connect_image_link(smear, warp));
     assert!(project.connect_image_link(warp, out));
 
     let runtime = GuiCompiledRuntime::compile(&project).expect("runtime should compile");
@@ -156,8 +161,10 @@ fn mask_tone_map_and_warp_nodes_compile_in_order() {
     runtime.evaluate_ops(&project, 0.0, &mut eval_stack, &mut ops);
     assert!(matches!(ops[0], TexRuntimeOp::SourceNoise { .. }));
     assert!(matches!(ops[1], TexRuntimeOp::Mask { .. }));
-    assert!(matches!(ops[2], TexRuntimeOp::ToneMap { .. }));
-    assert!(matches!(ops[3], TexRuntimeOp::WarpTransform { .. }));
+    assert!(matches!(ops[2], TexRuntimeOp::Morphology { .. }));
+    assert!(matches!(ops[3], TexRuntimeOp::ToneMap { .. }));
+    assert!(matches!(ops[4], TexRuntimeOp::DirectionalSmear { .. }));
+    assert!(matches!(ops[5], TexRuntimeOp::WarpTransform { .. }));
 }
 
 #[test]

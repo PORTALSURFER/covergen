@@ -51,6 +51,8 @@ Spatial scale of the noise field; higher values add denser features.
 Number of layered octave bands used in the noise sum.
 ### Param `amplitude`
 Output gain applied after octave normalization.
+### Param `mode`
+Selects the base field family: `value`, `ridged`, `cellular`, or `simplex`.
 
 ## Node `buf.sphere`
 Creates sphere geometry in buffer space.
@@ -140,6 +142,16 @@ Transition width around the threshold edge.
 ### Param `invert`
 Flips the mask so dark regions become selected instead of bright ones.
 
+## Node `tex.morphology`
+Applies grayscale erode/dilate/open/close shaping to the incoming texture.
+Use this to tighten membranes, fill void rims, or clean noisy masks before transport.
+### Param `mode`
+Selects `erode`, `dilate`, `open`, or `close`.
+### Param `radius`
+Neighborhood radius in texels used by the morphology kernel.
+### Param `amount`
+Blend between the incoming luma and the morphed result.
+
 ## Node `tex.tone_map`
 Applies percentile clamping and contrast shaping to input luma.
 Use this after structure-building stages to push marbled forms into cleaner dark/light separation.
@@ -192,6 +204,18 @@ Tiling frequency applied to the sampled warp field.
 Rotation in degrees applied to the sampled warp vectors.
 ### Param `octaves`
 Number of layered warp-field samples mixed together.
+
+## Node `tex.directional_smear`
+Drags incoming texture energy along a chosen direction with jittered sampling.
+Use this for ink streaking, gravity-like pulls, and stretched membranes after feedback transport.
+### Param `angle`
+Direction of the smear in degrees.
+### Param `length`
+Maximum smear distance in texels.
+### Param `jitter`
+Per-pixel sampling wobble that breaks up clean blur bands.
+### Param `amount`
+Blend between the original signal and the smeared result.
 
 ## Node `tex.warp_transform`
 Applies a lightweight deterministic UV warp to the input texture.

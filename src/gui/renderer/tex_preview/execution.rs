@@ -79,9 +79,11 @@ enum RuntimeOpPipelineKind {
     Transform,
     Level,
     Mask,
+    Morphology,
     ToneMap,
     Feedback,
     ReactionDiffusion,
+    DirectionalSmear,
     WarpTransform,
     PostProcess,
 }

@@ -22,12 +22,14 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     let source_noise = project.add_node(ProjectNodeKind::TexSourceNoise, 220, 40, 420, 480);
     let transform = project.add_node(ProjectNodeKind::TexTransform2D, 400, 40, 420, 480);
     let mask = project.add_node(ProjectNodeKind::TexMask, 580, 40, 420, 480);
-    let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 760, 40, 420, 480);
-    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 940, 40, 420, 480);
-    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 1120, 40, 420, 480);
-    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 1300, 40, 420, 480);
-    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 1480, 40, 420, 480);
-    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 1660, 40, 420, 480);
+    let morphology = project.add_node(ProjectNodeKind::TexMorphology, 760, 40, 420, 480);
+    let tone_map = project.add_node(ProjectNodeKind::TexToneMap, 940, 40, 420, 480);
+    let feedback = project.add_node(ProjectNodeKind::TexFeedback, 1120, 40, 420, 480);
+    let domain_warp = project.add_node(ProjectNodeKind::TexDomainWarp, 1300, 40, 420, 480);
+    let smear = project.add_node(ProjectNodeKind::TexDirectionalSmear, 1480, 40, 420, 480);
+    let warp = project.add_node(ProjectNodeKind::TexWarpTransform, 1660, 40, 420, 480);
+    let scene_pass = project.add_node(ProjectNodeKind::RenderScenePass, 1840, 40, 420, 480);
+    let lfo = project.add_node(ProjectNodeKind::CtlLfo, 2020, 40, 420, 480);
     assert_kind_keys(
         &project,
         circle,
@@ -54,6 +56,12 @@ fn runtime_param_schema_matches_default_editor_param_order() {
     );
     assert_kind_keys(
         &project,
+        morphology,
+        &param_schema::morphology::KEYS,
+        ProjectNodeKind::TexMorphology,
+    );
+    assert_kind_keys(
+        &project,
         tone_map,
         &param_schema::tone_map::KEYS,
         ProjectNodeKind::TexToneMap,
@@ -69,6 +77,12 @@ fn runtime_param_schema_matches_default_editor_param_order() {
         domain_warp,
         &param_schema::domain_warp::KEYS,
         ProjectNodeKind::TexDomainWarp,
+    );
+    assert_kind_keys(
+        &project,
+        smear,
+        &param_schema::directional_smear::KEYS,
+        ProjectNodeKind::TexDirectionalSmear,
     );
     assert_kind_keys(
         &project,
@@ -103,10 +117,12 @@ fn all_default_parameter_labels_fit_length_budget() {
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexMask,
+        ProjectNodeKind::TexMorphology,
         ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
         ProjectNodeKind::TexDomainWarp,
+        ProjectNodeKind::TexDirectionalSmear,
         ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,
@@ -153,10 +169,12 @@ fn signal_preview_is_limited_to_signal_nodes() {
         ProjectNodeKind::TexTransform2D,
         ProjectNodeKind::TexLevel,
         ProjectNodeKind::TexMask,
+        ProjectNodeKind::TexMorphology,
         ProjectNodeKind::TexToneMap,
         ProjectNodeKind::TexFeedback,
         ProjectNodeKind::TexReactionDiffusion,
         ProjectNodeKind::TexDomainWarp,
+        ProjectNodeKind::TexDirectionalSmear,
         ProjectNodeKind::TexWarpTransform,
         ProjectNodeKind::TexPostColorTone,
         ProjectNodeKind::TexPostEdgeStructure,

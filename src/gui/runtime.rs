@@ -86,6 +86,7 @@ pub(crate) enum TexRuntimeOp {
         scale: f32,
         octaves: f32,
         amplitude: f32,
+        mode: f32,
     },
     /// `render.scene_pass` sphere shading operation.
     Sphere {
@@ -130,6 +131,8 @@ pub(crate) enum TexRuntimeOp {
         softness: f32,
         invert: f32,
     },
+    /// `tex.morphology` operation.
+    Morphology { mode: f32, radius: f32, amount: f32 },
     /// `tex.tone_map` operation.
     ToneMap {
         contrast: f32,
@@ -160,6 +163,13 @@ pub(crate) enum TexRuntimeOp {
         octaves: f32,
         base_texture_node_id: u32,
         warp_texture_node_id: Option<u32>,
+    },
+    /// `tex.directional_smear` operation.
+    DirectionalSmear {
+        angle: f32,
+        length: f32,
+        jitter: f32,
+        amount: f32,
     },
     /// `tex.warp_transform` operation.
     WarpTransform {
@@ -235,6 +245,7 @@ enum CompiledStepKind {
     Transform,
     Level,
     Mask,
+    Morphology,
     ToneMap,
     Feedback,
     ReactionDiffusion,
@@ -242,6 +253,7 @@ enum CompiledStepKind {
         base_source_id: u32,
         warp_source_id: Option<u32>,
     },
+    DirectionalSmear,
     WarpTransform,
     PostProcess {
         category: PostProcessCategory,
@@ -404,6 +416,7 @@ impl GuiCompiledRuntime {
             CompiledStepKind::Transform => Self::emit_transform(step, ctx),
             CompiledStepKind::Level => Self::emit_level(step, ctx),
             CompiledStepKind::Mask => Self::emit_mask(step, ctx),
+            CompiledStepKind::Morphology => Self::emit_morphology(step, ctx),
             CompiledStepKind::ToneMap => Self::emit_tone_map(step, ctx),
             CompiledStepKind::Feedback => Self::emit_feedback(step, ctx),
             CompiledStepKind::ReactionDiffusion => Self::emit_reaction_diffusion(step, ctx),
@@ -411,6 +424,7 @@ impl GuiCompiledRuntime {
                 base_source_id,
                 warp_source_id,
             } => Self::emit_domain_warp(step, base_source_id, warp_source_id, ctx),
+            CompiledStepKind::DirectionalSmear => Self::emit_directional_smear(step, ctx),
             CompiledStepKind::WarpTransform => Self::emit_warp_transform(step, ctx),
             CompiledStepKind::PostProcess { category } => {
                 Self::emit_post_process(step, category, ctx)
@@ -511,11 +525,17 @@ impl GuiCompiledRuntime {
             .param(step, param_schema::source_noise::AMPLITUDE_INDEX)
             .unwrap_or(1.0)
             .clamp(0.0, 2.0);
+        let mode = ctx
+            .param(step, param_schema::source_noise::MODE_INDEX)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 3.0);
         ctx.out_ops.push(TexRuntimeOp::SourceNoise {
             seed,
             scale,
             octaves,
             amplitude,
+            mode,
         });
     }
 
@@ -723,6 +743,27 @@ impl GuiCompiledRuntime {
         });
     }
 
+    fn emit_morphology(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let mode = ctx
+            .param(step, param_schema::morphology::MODE_INDEX)
+            .unwrap_or(0.0)
+            .round()
+            .clamp(0.0, 3.0);
+        let radius = ctx
+            .param(step, param_schema::morphology::RADIUS_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 8.0);
+        let amount = ctx
+            .param(step, param_schema::morphology::AMOUNT_INDEX)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::Morphology {
+            mode,
+            radius,
+            amount,
+        });
+    }
+
     fn emit_tone_map(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
         let low_pct = ctx
             .param(step, param_schema::tone_map::LOW_PCT_INDEX)
@@ -835,6 +876,31 @@ impl GuiCompiledRuntime {
             octaves,
             base_texture_node_id: base_source_id,
             warp_texture_node_id: warp_source_id,
+        });
+    }
+
+    fn emit_directional_smear(step: &CompiledStep, ctx: &mut RuntimeEvalContext<'_>) {
+        let angle = ctx
+            .param(step, param_schema::directional_smear::ANGLE_INDEX)
+            .unwrap_or(90.0)
+            .clamp(-180.0, 180.0);
+        let length = ctx
+            .param(step, param_schema::directional_smear::LENGTH_INDEX)
+            .unwrap_or(18.0)
+            .clamp(0.0, 96.0);
+        let jitter = ctx
+            .param(step, param_schema::directional_smear::JITTER_INDEX)
+            .unwrap_or(0.2)
+            .clamp(0.0, 1.0);
+        let amount = ctx
+            .param(step, param_schema::directional_smear::AMOUNT_INDEX)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        ctx.out_ops.push(TexRuntimeOp::DirectionalSmear {
+            angle,
+            length,
+            jitter,
+            amount,
         });
     }
 

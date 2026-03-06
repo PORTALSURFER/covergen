@@ -24,7 +24,7 @@ impl KindParamDefaults {
     }
 }
 
-const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 30] = [
+const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 32] = [
     KindParamDefaults::new(ProjectNodeKind::TexSolid, texture::tex_solid_params),
     KindParamDefaults::new(ProjectNodeKind::TexCircle, texture::tex_circle_params),
     KindParamDefaults::new(
@@ -43,6 +43,10 @@ const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 30] = [
     ),
     KindParamDefaults::new(ProjectNodeKind::TexLevel, texture::tex_level_params),
     KindParamDefaults::new(ProjectNodeKind::TexMask, texture::tex_mask_params),
+    KindParamDefaults::new(
+        ProjectNodeKind::TexMorphology,
+        texture::tex_morphology_params,
+    ),
     KindParamDefaults::new(ProjectNodeKind::TexToneMap, texture::tex_tone_map_params),
     KindParamDefaults::new(ProjectNodeKind::TexFeedback, texture::tex_feedback_params),
     KindParamDefaults::new(
@@ -52,6 +56,10 @@ const PARAM_DEFAULT_REGISTRY: [KindParamDefaults; 30] = [
     KindParamDefaults::new(
         ProjectNodeKind::TexDomainWarp,
         texture::tex_domain_warp_params,
+    ),
+    KindParamDefaults::new(
+        ProjectNodeKind::TexDirectionalSmear,
+        texture::tex_directional_smear_params,
     ),
     KindParamDefaults::new(
         ProjectNodeKind::TexWarpTransform,

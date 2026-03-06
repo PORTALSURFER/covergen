@@ -88,12 +88,14 @@ pub(super) fn node_top_color(kind: ProjectNodeKind) -> Color {
         ProjectNodeKind::TexTransform2D => Color::argb(AGIO.node_header_tex_transform_2d),
         ProjectNodeKind::TexLevel => Color::argb(AGIO.node_header_tex_level),
         ProjectNodeKind::TexMask => Color::argb(AGIO.node_header_tex_mask),
+        ProjectNodeKind::TexMorphology => Color::argb(AGIO.node_header_tex_mask),
         ProjectNodeKind::TexToneMap => Color::argb(AGIO.node_header_tex_tone_map),
         ProjectNodeKind::TexFeedback => Color::argb(AGIO.node_header_tex_feedback),
         ProjectNodeKind::TexReactionDiffusion => {
             Color::argb(AGIO.node_header_tex_reaction_diffusion)
         }
         ProjectNodeKind::TexDomainWarp => Color::argb(AGIO.node_header_tex_domain_warp),
+        ProjectNodeKind::TexDirectionalSmear => Color::argb(AGIO.node_header_tex_warp_transform),
         ProjectNodeKind::TexWarpTransform => Color::argb(AGIO.node_header_tex_warp_transform),
         ProjectNodeKind::TexPostColorTone => Color::argb(AGIO.node_header_tex_post_color_tone),
         ProjectNodeKind::TexPostEdgeStructure => {

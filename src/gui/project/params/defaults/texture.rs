@@ -105,6 +105,12 @@ pub(super) fn tex_source_noise_params() -> Vec<NodeParamSlot> {
             2.0,
             0.01,
         ),
+        param_dropdown(
+            param_schema::source_noise::MODE,
+            "mode",
+            0,
+            &TEX_SOURCE_NOISE_MODE_OPTIONS,
+        ),
     ]
 }
 
@@ -190,6 +196,33 @@ pub(super) fn tex_mask_params() -> Vec<NodeParamSlot> {
             "invert",
             0,
             &TEX_MASK_INVERT_OPTIONS,
+        ),
+    ]
+}
+
+pub(super) fn tex_morphology_params() -> Vec<NodeParamSlot> {
+    vec![
+        param_dropdown(
+            param_schema::morphology::MODE,
+            "mode",
+            0,
+            &TEX_MORPHOLOGY_MODE_OPTIONS,
+        ),
+        param(
+            param_schema::morphology::RADIUS,
+            "radius",
+            1.0,
+            0.0,
+            8.0,
+            0.1,
+        ),
+        param(
+            param_schema::morphology::AMOUNT,
+            "amount",
+            1.0,
+            0.0,
+            1.0,
+            0.01,
         ),
     ]
 }
@@ -303,6 +336,43 @@ pub(super) fn tex_domain_warp_params() -> Vec<NodeParamSlot> {
             1.0,
             6.0,
             1.0,
+        ),
+    ]
+}
+
+pub(super) fn tex_directional_smear_params() -> Vec<NodeParamSlot> {
+    vec![
+        param(
+            param_schema::directional_smear::ANGLE,
+            "angle",
+            90.0,
+            -180.0,
+            180.0,
+            1.0,
+        ),
+        param(
+            param_schema::directional_smear::LENGTH,
+            "length",
+            18.0,
+            0.0,
+            96.0,
+            1.0,
+        ),
+        param(
+            param_schema::directional_smear::JITTER,
+            "jitter",
+            0.2,
+            0.0,
+            1.0,
+            0.01,
+        ),
+        param(
+            param_schema::directional_smear::AMOUNT,
+            "amount",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
         ),
     ]
 }

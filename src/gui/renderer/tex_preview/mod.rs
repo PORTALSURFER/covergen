@@ -129,13 +129,14 @@ impl TexOpUniform {
             scale,
             octaves,
             amplitude,
+            mode,
         } = op
         else {
             return Self::zeroed();
         };
         Self {
             p0: [seed, scale, octaves, amplitude],
-            p1: [0.0; 4],
+            p1: [mode, 0.0, 0.0, 0.0],
             p2: [0.0; 4],
             p3: [0.0; 4],
             p4: [0.0; 4],
@@ -193,6 +194,24 @@ impl TexOpUniform {
         };
         Self {
             p0: [threshold, softness, invert, 0.0],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn morphology(op: TexViewerOp) -> Self {
+        let TexViewerOp::Morphology {
+            mode,
+            radius,
+            amount,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [mode, radius, amount, 0.0],
             p1: [0.0; 4],
             p2: [0.0; 4],
             p3: [0.0; 4],
@@ -266,6 +285,25 @@ impl TexOpUniform {
         };
         Self {
             p0: [strength, frequency, rotation, octaves],
+            p1: [0.0; 4],
+            p2: [0.0; 4],
+            p3: [0.0; 4],
+            p4: [0.0; 4],
+        }
+    }
+
+    fn directional_smear(op: TexViewerOp) -> Self {
+        let TexViewerOp::DirectionalSmear {
+            angle,
+            length,
+            jitter,
+            amount,
+        } = op
+        else {
+            return Self::zeroed();
+        };
+        Self {
+            p0: [angle, length, jitter, amount],
             p1: [0.0; 4],
             p2: [0.0; 4],
             p3: [0.0; 4],
@@ -436,11 +474,13 @@ pub(super) struct TexPreviewRenderer {
     op_transform_pipeline: Option<wgpu::RenderPipeline>,
     op_level_pipeline: Option<wgpu::RenderPipeline>,
     op_mask_pipeline: Option<wgpu::RenderPipeline>,
+    op_morphology_pipeline: Option<wgpu::RenderPipeline>,
     op_tone_map_pipeline: Option<wgpu::RenderPipeline>,
     op_transform_fused_pipeline: Option<wgpu::RenderPipeline>,
     op_feedback_pipeline: Option<wgpu::RenderPipeline>,
     op_reaction_diffusion_pipeline: Option<wgpu::RenderPipeline>,
     op_domain_warp_pipeline: Option<wgpu::RenderPipeline>,
+    op_directional_smear_pipeline: Option<wgpu::RenderPipeline>,
     op_warp_transform_pipeline: Option<wgpu::RenderPipeline>,
     op_post_process_pipeline: Option<wgpu::RenderPipeline>,
     op_blend_pipeline: Option<wgpu::RenderPipeline>,
@@ -534,11 +574,13 @@ impl TexPreviewRenderer {
             && self.op_transform_pipeline.is_some()
             && self.op_level_pipeline.is_some()
             && self.op_mask_pipeline.is_some()
+            && self.op_morphology_pipeline.is_some()
             && self.op_tone_map_pipeline.is_some()
             && self.op_transform_fused_pipeline.is_some()
             && self.op_feedback_pipeline.is_some()
             && self.op_reaction_diffusion_pipeline.is_some()
             && self.op_domain_warp_pipeline.is_some()
+            && self.op_directional_smear_pipeline.is_some()
             && self.op_warp_transform_pipeline.is_some()
             && self.op_post_process_pipeline.is_some()
             && self.op_blend_pipeline.is_some()
@@ -607,6 +649,13 @@ impl TexPreviewRenderer {
             "fs_mask",
             self.op_surface_format,
         ));
+        self.op_morphology_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_morphology",
+            self.op_surface_format,
+        ));
         self.op_tone_map_pipeline = Some(create_op_pipeline(
             device,
             &op_shader,
@@ -640,6 +689,13 @@ impl TexPreviewRenderer {
             &op_shader,
             &op_pipeline_layout,
             "fs_domain_warp",
+            self.op_surface_format,
+        ));
+        self.op_directional_smear_pipeline = Some(create_op_pipeline(
+            device,
+            &op_shader,
+            &op_pipeline_layout,
+            "fs_directional_smear",
             self.op_surface_format,
         ));
         self.op_warp_transform_pipeline = Some(create_op_pipeline(
@@ -780,11 +836,13 @@ impl TexPreviewRenderer {
             op_transform_pipeline: None,
             op_level_pipeline: None,
             op_mask_pipeline: None,
+            op_morphology_pipeline: None,
             op_tone_map_pipeline: None,
             op_transform_fused_pipeline: None,
             op_feedback_pipeline: None,
             op_reaction_diffusion_pipeline: None,
             op_domain_warp_pipeline: None,
+            op_directional_smear_pipeline: None,
             op_warp_transform_pipeline: None,
             op_post_process_pipeline: None,
             op_blend_pipeline: None,
@@ -974,8 +1032,20 @@ mod tests {
             scale: 2.8,
             octaves: 5.0,
             amplitude: 0.7,
+            mode: 3.0,
         });
         assert_eq!(uniform.p0, [13.0, 2.8, 5.0, 0.7]);
+        assert_eq!(uniform.p1, [3.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn morphology_uniform_maps_mode_radius_and_amount() {
+        let uniform = TexOpUniform::morphology(TexRuntimeOp::Morphology {
+            mode: 2.0,
+            radius: 1.5,
+            amount: 0.8,
+        });
+        assert_eq!(uniform.p0, [2.0, 1.5, 0.8, 0.0]);
     }
 
     #[test]
@@ -999,5 +1069,16 @@ mod tests {
             warp_texture_node_id: Some(9),
         });
         assert_eq!(uniform.p0, [0.42, 3.2, 24.0, 4.0]);
+    }
+
+    #[test]
+    fn directional_smear_uniform_maps_angle_length_jitter_and_amount() {
+        let uniform = TexOpUniform::directional_smear(TexRuntimeOp::DirectionalSmear {
+            angle: 90.0,
+            length: 18.0,
+            jitter: 0.2,
+            amount: 0.55,
+        });
+        assert_eq!(uniform.p0, [90.0, 18.0, 0.2, 0.55]);
     }
 }

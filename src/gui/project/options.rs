@@ -122,6 +122,44 @@ pub(super) const TEX_MASK_INVERT_OPTIONS: [NodeParamOption; 2] = [
         value: 1.0,
     },
 ];
+/// Morphology modes exposed by the `tex.morphology` node.
+pub(super) const TEX_MORPHOLOGY_MODE_OPTIONS: [NodeParamOption; 4] = [
+    NodeParamOption {
+        label: "erode",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "dilate",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "open",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "close",
+        value: 3.0,
+    },
+];
+/// Procedural noise modes exposed by the `tex.source_noise` node.
+pub(super) const TEX_SOURCE_NOISE_MODE_OPTIONS: [NodeParamOption; 4] = [
+    NodeParamOption {
+        label: "value",
+        value: 0.0,
+    },
+    NodeParamOption {
+        label: "ridged",
+        value: 1.0,
+    },
+    NodeParamOption {
+        label: "cellular",
+        value: 2.0,
+    },
+    NodeParamOption {
+        label: "simplex",
+        value: 3.0,
+    },
+];
 /// Effect options exposed by the `tex.post_color_tone` node.
 pub(super) const POST_COLOR_TONE_EFFECT_OPTIONS: [NodeParamOption; 11] = [
     NodeParamOption {

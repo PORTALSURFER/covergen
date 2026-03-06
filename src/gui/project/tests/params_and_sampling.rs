@@ -319,3 +319,31 @@ fn post_color_tone_effect_uses_dropdown_options() {
     assert!(project.set_param_dropdown_index(post, 0, 10));
     assert_eq!(project.node_param_raw_text(post, 0), Some("mono"));
 }
+
+#[test]
+fn source_noise_mode_uses_dropdown_options() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let noise = project.add_node(ProjectNodeKind::TexSourceNoise, 40, 40, 420, 480);
+    assert!(project.param_is_dropdown(noise, 4));
+    let options = project
+        .node_param_dropdown_options(noise, 4)
+        .expect("dropdown options should exist");
+    assert_eq!(options.len(), 4);
+    assert_eq!(project.node_param_raw_text(noise, 4), Some("value"));
+    assert!(project.set_param_dropdown_index(noise, 4, 2));
+    assert_eq!(project.node_param_raw_text(noise, 4), Some("cellular"));
+}
+
+#[test]
+fn morphology_mode_uses_dropdown_options() {
+    let mut project = GuiProject::new_empty(640, 480);
+    let node = project.add_node(ProjectNodeKind::TexMorphology, 40, 40, 420, 480);
+    assert!(project.param_is_dropdown(node, 0));
+    let options = project
+        .node_param_dropdown_options(node, 0)
+        .expect("dropdown options should exist");
+    assert_eq!(options.len(), 4);
+    assert_eq!(project.node_param_raw_text(node, 0), Some("erode"));
+    assert!(project.set_param_dropdown_index(node, 0, 3));
+    assert_eq!(project.node_param_raw_text(node, 0), Some("close"));
+}

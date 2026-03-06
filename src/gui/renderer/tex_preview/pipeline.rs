@@ -164,9 +164,148 @@ fn value_noise_2d(p: vec2<f32>, seed: f32) -> f32 {
     return mix(x0, x1, u.y);
 }
 
+fn hash22(p: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        hash12(p + vec2<f32>(13.17, 91.13)),
+        hash12(p + vec2<f32>(71.31, 29.73))
+    );
+}
+
+fn gradient_dir(p: vec2<f32>, seed: f32) -> vec2<f32> {
+    let angle = hash12(p + vec2<f32>(seed * 0.017, seed * 0.031)) * 6.28318530718;
+    return vec2<f32>(cos(angle), sin(angle));
+}
+
+fn gradient_noise_2d(p: vec2<f32>, seed: f32) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = vec2<f32>(smooth3(f.x), smooth3(f.y));
+    let g00 = gradient_dir(i, seed);
+    let g10 = gradient_dir(i + vec2<f32>(1.0, 0.0), seed);
+    let g01 = gradient_dir(i + vec2<f32>(0.0, 1.0), seed);
+    let g11 = gradient_dir(i + vec2<f32>(1.0, 1.0), seed);
+    let n00 = dot(g00, f - vec2<f32>(0.0, 0.0));
+    let n10 = dot(g10, f - vec2<f32>(1.0, 0.0));
+    let n01 = dot(g01, f - vec2<f32>(0.0, 1.0));
+    let n11 = dot(g11, f - vec2<f32>(1.0, 1.0));
+    let x0 = mix(n00, n10, u.x);
+    let x1 = mix(n01, n11, u.x);
+    return clamp(mix(x0, x1, u.y) * 0.5 + 0.5, 0.0, 1.0);
+}
+
+fn mod289_2(x: vec2<f32>) -> vec2<f32> {
+    return x - floor(x / 289.0) * 289.0;
+}
+
+fn mod289_3(x: vec3<f32>) -> vec3<f32> {
+    return x - floor(x / 289.0) * 289.0;
+}
+
+fn permute3(x: vec3<f32>) -> vec3<f32> {
+    return mod289_3(((x * 34.0) + 1.0) * x);
+}
+
+fn simplex_noise_2d(p: vec2<f32>, seed: f32) -> f32 {
+    let v = p + vec2<f32>(seed * 0.021, seed * 0.037);
+    let c = vec4<f32>(
+        0.211324865405187,
+        0.366025403784439,
+        -0.577350269189626,
+        0.024390243902439
+    );
+    var i = floor(v + dot(v, c.yy));
+    let x0 = v - i + dot(i, c.xx);
+    let i1 = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), x0.x > x0.y);
+    var x12 = vec4<f32>(x0.xy, x0.xy) + vec4<f32>(c.xx, c.zz);
+    x12.x = x12.x - i1.x;
+    x12.y = x12.y - i1.y;
+    i = mod289_2(i);
+    let p3 = permute3(
+        permute3(vec3<f32>(i.y, i.y + i1.y, i.y + 1.0))
+            + vec3<f32>(i.x, i.x + i1.x, i.x + 1.0)
+    );
+    var m = max(
+        vec3<f32>(
+            0.5 - dot(x0, x0),
+            0.5 - dot(x12.xy, x12.xy),
+            0.5 - dot(x12.zw, x12.zw)
+        ),
+        vec3<f32>(0.0)
+    );
+    m = m * m;
+    m = m * m;
+    let x = 2.0 * fract(p3 * c.www) - 1.0;
+    let h = abs(x) - 0.5;
+    let ox = floor(x + 0.5);
+    let a0 = x - ox;
+    m = m * (1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h));
+    let g = vec3<f32>(
+        a0.x * x0.x + h.x * x0.y,
+        a0.y * x12.x + h.y * x12.y,
+        a0.z * x12.z + h.z * x12.w
+    );
+    return clamp(0.5 + 0.5 * 130.0 * dot(m, g), 0.0, 1.0);
+}
+
+fn cellular_noise_2d(p: vec2<f32>, seed: f32) -> f32 {
+    let cell = floor(p);
+    let local = fract(p);
+    var min_dist = 1e9;
+    for (var y: i32 = -1; y <= 1; y = y + 1) {
+        for (var x: i32 = -1; x <= 1; x = x + 1) {
+            let offset = vec2<f32>(f32(x), f32(y));
+            let jitter = hash22(cell + offset + vec2<f32>(seed * 0.013, seed * 0.019));
+            let feature = offset + jitter;
+            let delta = feature - local;
+            min_dist = min(min_dist, dot(delta, delta));
+        }
+    }
+    return clamp(1.0 - sqrt(min_dist), 0.0, 1.0);
+}
+
+fn octave_noise(mode: i32, p: vec2<f32>, seed: f32) -> f32 {
+    if (mode == 2) {
+        return cellular_noise_2d(p, seed);
+    }
+    if (mode == 3) {
+        return simplex_noise_2d(p, seed);
+    }
+    let base = gradient_noise_2d(p, seed);
+    if (mode == 1) {
+        return clamp(1.0 - abs(base * 2.0 - 1.0), 0.0, 1.0);
+    }
+    return value_noise_2d(p, seed);
+}
+
 fn sample_luma(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>) -> f32 {
     let src = textureSample(tex, samp, uv);
     return dot(src.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+fn morphology_reduce(uv: vec2<f32>, texel: vec2<f32>, radius: f32, dilate: bool) -> f32 {
+    let r = texel * max(radius, 0.25);
+    var acc = select(1.0, 0.0, dilate);
+    for (var y: i32 = -1; y <= 1; y = y + 1) {
+        for (var x: i32 = -1; x <= 1; x = x + 1) {
+            let sample_uv = clamp(uv + vec2<f32>(f32(x), f32(y)) * r, vec2<f32>(0.0), vec2<f32>(1.0));
+            let value = sample_luma(t_src, s_src, sample_uv);
+            acc = select(min(acc, value), max(acc, value), dilate);
+        }
+    }
+    return acc;
+}
+
+fn morphology_open_close(uv: vec2<f32>, texel: vec2<f32>, radius: f32, close: bool) -> f32 {
+    let r = texel * max(radius, 0.25);
+    var acc = select(0.0, 1.0, close);
+    for (var y: i32 = -1; y <= 1; y = y + 1) {
+        for (var x: i32 = -1; x <= 1; x = x + 1) {
+            let sample_uv = clamp(uv + vec2<f32>(f32(x), f32(y)) * r, vec2<f32>(0.0), vec2<f32>(1.0));
+            let inner = morphology_reduce(sample_uv, texel, radius, close);
+            acc = select(max(acc, inner), min(acc, inner), close);
+        }
+    }
+    return acc;
 }
 
 @fragment
@@ -308,6 +447,7 @@ fn fs_source_noise(v: VertexOut) -> @location(0) vec4<f32> {
     let scale = max(u_op.p0.y, 0.001);
     let octaves = clamp(round(u_op.p0.z), 1.0, 8.0);
     let amplitude = clamp(u_op.p0.w, 0.0, 2.0);
+    let mode = i32(round(clamp(u_op.p1.x, 0.0, 3.0)));
 
     var sum = 0.0;
     var norm = 0.0;
@@ -319,14 +459,20 @@ fn fs_source_noise(v: VertexOut) -> @location(0) vec4<f32> {
             break;
         }
         let octave_seed = seed + octave * 9779.0;
-        sum = sum + value_noise_2d(v.uv * scale * frequency, octave_seed) * octave_amp;
+        let p = v.uv * scale * frequency;
+        sum = sum + octave_noise(mode, p, octave_seed) * octave_amp;
         norm = norm + octave_amp;
         frequency = frequency * 2.0;
         octave_amp = octave_amp * 0.5;
         octave = octave + 1.0;
     }
     let normalized = select(0.0, sum / norm, norm > 0.0);
-    let luma = clamp(normalized * amplitude, 0.0, 1.0);
+    let boosted = select(
+        normalized,
+        pow(clamp(normalized, 0.0, 1.0), 0.72),
+        mode == 1 || mode == 2 || mode == 3
+    );
+    let luma = clamp(boosted * amplitude, 0.0, 1.0);
     return vec4<f32>(vec3<f32>(luma), 1.0);
 }
 
@@ -387,6 +533,29 @@ fn fs_mask(v: VertexOut) -> @location(0) vec4<f32> {
     }
     let out_value = clamp(mask, 0.0, 1.0);
     return vec4<f32>(vec3<f32>(out_value), 1.0);
+}
+
+@fragment
+fn fs_morphology(v: VertexOut) -> @location(0) vec4<f32> {
+    let mode = i32(round(clamp(u_op.p0.x, 0.0, 3.0)));
+    let radius = clamp(u_op.p0.y, 0.0, 8.0);
+    let amount = clamp(u_op.p0.z, 0.0, 1.0);
+    let src = textureSample(t_src, s_src, v.uv);
+    let size = vec2<f32>(textureDimensions(t_src));
+    let texel = vec2<f32>(1.0 / max(size.x, 1.0), 1.0 / max(size.y, 1.0));
+    let base = pp_luma(src.rgb);
+    var morphed = base;
+    if (mode == 0) {
+        morphed = morphology_reduce(v.uv, texel, radius, false);
+    } else if (mode == 1) {
+        morphed = morphology_reduce(v.uv, texel, radius, true);
+    } else if (mode == 2) {
+        morphed = morphology_open_close(v.uv, texel, radius, false);
+    } else {
+        morphed = morphology_open_close(v.uv, texel, radius, true);
+    }
+    let out_value = mix(base, morphed, amount);
+    return vec4<f32>(vec3<f32>(clamp(out_value, 0.0, 1.0)), src.a);
 }
 
 @fragment
@@ -530,6 +699,31 @@ fn fs_domain_warp(v: VertexOut) -> @location(0) vec4<f32> {
     let normalized_offset = select(vec2<f32>(0.0), offset / norm, norm > 0.0);
     let uv = clamp(v.uv + normalized_offset * strength, vec2<f32>(0.0), vec2<f32>(1.0));
     return textureSample(t_src, s_src, uv);
+}
+
+@fragment
+fn fs_directional_smear(v: VertexOut) -> @location(0) vec4<f32> {
+    let angle = u_op.p0.x;
+    let length = clamp(u_op.p0.y, 0.0, 96.0);
+    let jitter = clamp(u_op.p0.z, 0.0, 1.0);
+    let amount = clamp(u_op.p0.w, 0.0, 1.0);
+    let size = vec2<f32>(textureDimensions(t_src));
+    let texel = vec2<f32>(1.0 / max(size.x, 1.0), 1.0 / max(size.y, 1.0));
+    let dir = rotate2(vec2<f32>(1.0, 0.0), angle);
+    let base = textureSample(t_src, s_src, v.uv);
+    var acc = base;
+    var weight_sum = 1.0;
+    for (var i: i32 = 1; i <= 8; i = i + 1) {
+        let t = f32(i) / 8.0;
+        let wobble = (pp_hash21(v.uv * size + vec2<f32>(f32(i) * 17.0, angle)) - 0.5) * jitter;
+        let offset = dir * texel * length * (t + wobble * 0.35);
+        let sample_uv = clamp(v.uv - offset, vec2<f32>(0.0), vec2<f32>(1.0));
+        let weight = 1.0 - t * 0.82;
+        acc = acc + textureSample(t_src, s_src, sample_uv) * weight;
+        weight_sum = weight_sum + weight;
+    }
+    let smeared = acc / weight_sum;
+    return vec4<f32>(mix(base.rgb, smeared.rgb, amount), mix(base.a, smeared.a, amount));
 }
 
 @fragment
@@ -806,10 +1000,12 @@ mod tests {
             "fn fs_transform(",
             "fn fs_level(",
             "fn fs_mask(",
+            "fn fs_morphology(",
             "fn fs_tone_map(",
             "fn fs_transform_fused(",
             "fn fs_feedback(",
             "fn fs_reaction_diffusion(",
+            "fn fs_directional_smear(",
             "fn fs_warp_transform(",
             "fn fs_post_process(",
             "fn fs_blend(",

@@ -29,10 +29,15 @@ fn schema_key_arrays_have_unique_entries() {
         &render_scene_pass::KEYS,
         &transform_2d::KEYS,
         &level::KEYS,
+        &source_noise::KEYS,
         &feedback::KEYS,
+        &mask::KEYS,
+        &morphology::KEYS,
         &feedback::RUNTIME_KEYS,
         &reaction_diffusion::KEYS,
         &domain_warp::KEYS,
+        &directional_smear::KEYS,
+        &warp_transform::KEYS,
         &post_process::KEYS,
         &blend::KEYS,
         &ctl_lfo::KEYS,
@@ -67,6 +72,32 @@ fn index_constants_match_declared_key_order() {
         ],
     );
     assert_index_map(
+        &source_noise::KEYS,
+        &[
+            (source_noise::SEED_INDEX, source_noise::SEED),
+            (source_noise::SCALE_INDEX, source_noise::SCALE),
+            (source_noise::OCTAVES_INDEX, source_noise::OCTAVES),
+            (source_noise::AMPLITUDE_INDEX, source_noise::AMPLITUDE),
+            (source_noise::MODE_INDEX, source_noise::MODE),
+        ],
+    );
+    assert_index_map(
+        &mask::KEYS,
+        &[
+            (mask::THRESHOLD_INDEX, mask::THRESHOLD),
+            (mask::SOFTNESS_INDEX, mask::SOFTNESS),
+            (mask::INVERT_INDEX, mask::INVERT),
+        ],
+    );
+    assert_index_map(
+        &morphology::KEYS,
+        &[
+            (morphology::MODE_INDEX, morphology::MODE),
+            (morphology::RADIUS_INDEX, morphology::RADIUS),
+            (morphology::AMOUNT_INDEX, morphology::AMOUNT),
+        ],
+    );
+    assert_index_map(
         &render_scene_pass::KEYS,
         &[
             (
@@ -95,6 +126,23 @@ fn index_constants_match_declared_key_order() {
             (domain_warp::FREQUENCY_INDEX, domain_warp::FREQUENCY),
             (domain_warp::ROTATION_INDEX, domain_warp::ROTATION),
             (domain_warp::OCTAVES_INDEX, domain_warp::OCTAVES),
+        ],
+    );
+    assert_index_map(
+        &directional_smear::KEYS,
+        &[
+            (directional_smear::ANGLE_INDEX, directional_smear::ANGLE),
+            (directional_smear::LENGTH_INDEX, directional_smear::LENGTH),
+            (directional_smear::JITTER_INDEX, directional_smear::JITTER),
+            (directional_smear::AMOUNT_INDEX, directional_smear::AMOUNT),
+        ],
+    );
+    assert_index_map(
+        &warp_transform::KEYS,
+        &[
+            (warp_transform::STRENGTH_INDEX, warp_transform::STRENGTH),
+            (warp_transform::FREQUENCY_INDEX, warp_transform::FREQUENCY),
+            (warp_transform::PHASE_INDEX, warp_transform::PHASE),
         ],
     );
     assert_index_map(
