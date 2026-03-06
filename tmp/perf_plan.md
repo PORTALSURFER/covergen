@@ -17,7 +17,8 @@ Plan path: `tmp/perf_plan.md`
 
 ## ROI-Ordered Backlog
 
-- [ ] 1. Split animated signal-scope waveforms into a dedicated retained layer (scoped invalidation)
+- [x] 1. Split animated signal-scope waveforms into a dedicated retained layer (scoped invalidation)
+  - Completed: 2026-03-06 (`222993b` `perf: retain signal scope waveforms separately`)
   - ROI: Very High
   - Effort: L
   - Expected impact: p95 interaction latency, frame time, CPU, upload bytes
